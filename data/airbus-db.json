@@ -1,0 +1,967 @@
+{
+  "users": [
+    {
+      "id": "u_guest",
+      "name": "Sarah Wanjiku",
+      "email": "guest@airbus.ke",
+      "role": "guest",
+      "passwordHash": "76580e2e33f5435a5d01f7df3b2022d8709da5f1efa27a07cf98402cdd29950b",
+      "phone": "+254 712 345 678",
+      "location": "Nairobi, Kenya",
+      "bio": "Passionate traveller, remote software engineer & video stay enthusiast.",
+      "languages": "English, Swahili",
+      "idVerified": true,
+      "createdAt": 1790502650938
+    },
+    {
+      "id": "u_owner",
+      "name": "David Mutua",
+      "email": "owner@airbus.ke",
+      "role": "owner",
+      "passwordHash": "76580e2e33f5435a5d01f7df3b2022d8709da5f1efa27a07cf98402cdd29950b",
+      "phone": "+254 722 987 654",
+      "location": "Westlands, Nairobi",
+      "bio": "Superhost managing luxury villas in Westlands and beachfront retreats in Diani & Nyali.",
+      "languages": "English, Swahili, French",
+      "idVerified": true,
+      "createdAt": 1787910650938
+    },
+    {
+      "id": "u_admin",
+      "name": "Alex Kamau",
+      "email": "admin@airbus.ke",
+      "role": "admin",
+      "passwordHash": "76580e2e33f5435a5d01f7df3b2022d8709da5f1efa27a07cf98402cdd29950b",
+      "phone": "+254 700 000 001",
+      "location": "Headquarters, Nairobi",
+      "bio": "Lead Operations & Platform Verification Administrator at AirBus.",
+      "languages": "English, Swahili",
+      "idVerified": true,
+      "createdAt": 1782726650938
+    }
+  ],
+  "stays": [
+    {
+      "id": "s1",
+      "title": "Modern Westlands Penthouse with Panoramic City Views",
+      "location": "Westlands, Nairobi",
+      "lat": -1.2676,
+      "lng": 36.8108,
+      "price": 8500,
+      "currency": "KES",
+      "rating": 4.9,
+      "reviewsCount": 142,
+      "type": "Apartment",
+      "guests": 4,
+      "beds": 2,
+      "area": 95,
+      "category": "Diamond",
+      "status": "live",
+      "features": [
+        "WiFi",
+        "Fiber Internet",
+        "Air Conditioning",
+        "Elevator",
+        "Swimming Pool",
+        "Parking",
+        "Smart Lock",
+        "24/7 Check-in"
+      ],
+      "highlights": [
+        "360° Nairobi Skyline Balcony",
+        "High-speed 100Mbps Fiber",
+        "Heated Rooftop Pool",
+        "5-min walk to Sarit Centre"
+      ],
+      "description": "Immaculately styled 2-bedroom executive penthouse located on the 18th floor in the heart of Westlands. Features floor-to-ceiling glass, ultra-fast fiber internet, chef kitchen, and private sundowner terrace with breathtaking views over Nairobi.",
+      "videoUrl": "https://assets.mixkit.co/videos/preview/mixkit-modern-apartment-with-living-room-and-terrace-43405-large.mp4",
+      "thumbnailUrl": "https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?auto=format&fit=crop&w=800&q=80",
+      "source": "Direct",
+      "instantBook": true,
+      "isFeatured": true,
+      "ownerEmail": "owner@airbus.ke",
+      "hostName": "David Mutua",
+      "hostPhone": "+254 722 987 654",
+      "whatsapp": "254722987654",
+      "minNights": 1,
+      "views": 483,
+      "gradientHue": [
+        262,
+        330
+      ],
+      "createdAt": 1789638650938
+    },
+    {
+      "id": "s2",
+      "title": "Cozy Kilimani Designer Studio near Yaya Centre",
+      "location": "Kilimani, Nairobi",
+      "lat": -1.2921,
+      "lng": 36.7872,
+      "price": 4500,
+      "currency": "KES",
+      "rating": 4.8,
+      "reviewsCount": 88,
+      "type": "Studio",
+      "guests": 2,
+      "beds": 1,
+      "area": 42,
+      "category": "Silver",
+      "status": "live",
+      "features": [
+        "WiFi",
+        "Air Conditioning",
+        "Hot Shower",
+        "Elevator",
+        "Self Check-in",
+        "Fridge",
+        "Microwave"
+      ],
+      "highlights": [
+        "Steps from Yaya Centre & Artcaffe",
+        "King orthopedic bed",
+        "Quiet green residential street"
+      ],
+      "description": "Chic, sun-drenched studio apartment thoughtfully designed for digital nomads and weekend explorers. High-speed WiFi, dedicated workspace, rain shower, and Netflix-enabled smart TV.",
+      "videoUrl": "https://assets.mixkit.co/videos/preview/mixkit-luxurious-living-room-with-a-modern-interior-design-43409-large.mp4",
+      "thumbnailUrl": "https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?auto=format&fit=crop&w=800&q=80",
+      "source": "Booking.com",
+      "instantBook": false,
+      "isFeatured": false,
+      "ownerEmail": "owner@airbus.ke",
+      "hostName": "David Mutua",
+      "hostPhone": "+254 722 987 654",
+      "whatsapp": "254722987654",
+      "minNights": 1,
+      "views": 295,
+      "gradientHue": [
+        200,
+        260
+      ],
+      "createdAt": 1790070650938
+    },
+    {
+      "id": "s3",
+      "title": "Lavington Garden Bungalow with Fireplace & Patio",
+      "location": "Lavington, Nairobi",
+      "lat": -1.2833,
+      "lng": 36.7667,
+      "price": 9800,
+      "currency": "KES",
+      "rating": 4.95,
+      "reviewsCount": 204,
+      "type": "Bungalow",
+      "guests": 5,
+      "beds": 3,
+      "area": 145,
+      "category": "Diamond",
+      "status": "live",
+      "features": [
+        "WiFi",
+        "Garden",
+        "Parking",
+        "Gas Cooker",
+        "BBQ Grill",
+        "Electric Fence",
+        "Backup Inverter"
+      ],
+      "highlights": [
+        "Private 0.5 acre manicured garden",
+        "Working wood-burning fireplace",
+        "Solar + backup inverter uninterrupted power"
+      ],
+      "description": "Serene botanical oasis tucked away in leafy Lavington. Enjoy crisp morning birdsong on the covered veranda, evening fires in the stone hearth, and total privacy behind gated security.",
+      "videoUrl": "https://assets.mixkit.co/videos/preview/mixkit-wooden-house-in-the-middle-of-a-forest-43410-large.mp4",
+      "thumbnailUrl": "https://images.unsplash.com/photo-1580587771525-78b9dba3b914?auto=format&fit=crop&w=800&q=80",
+      "source": "Direct",
+      "instantBook": true,
+      "isFeatured": true,
+      "ownerEmail": "owner@airbus.ke",
+      "hostName": "David Mutua",
+      "hostPhone": "+254 722 987 654",
+      "whatsapp": "254722987654",
+      "minNights": 2,
+      "views": 610,
+      "gradientHue": [
+        150,
+        200
+      ],
+      "createdAt": 1788774650938
+    },
+    {
+      "id": "s4",
+      "title": "Nyali Beachfront Villa with Infinity Ocean Pool",
+      "location": "Nyali, Mombasa",
+      "lat": -4.0283,
+      "lng": 39.7167,
+      "price": 22000,
+      "currency": "KES",
+      "rating": 4.92,
+      "reviewsCount": 76,
+      "type": "Villa",
+      "guests": 8,
+      "beds": 4,
+      "area": 280,
+      "category": "Gold",
+      "status": "live",
+      "features": [
+        "WiFi",
+        "Swimming Pool",
+        "Air Conditioning",
+        "Balcony",
+        "BBQ Grill",
+        "CCTV",
+        "Hot Shower",
+        "Parking"
+      ],
+      "highlights": [
+        "Private beachfront access onto white sands",
+        "Infinity edge freshwater pool",
+        "Dedicated private Swahili chef upon request"
+      ],
+      "description": "Breathtaking coastal sanctuary directly overlooking the turquoise Indian Ocean in Nyali. Architectural open-plan living, Swahili arches, sea-breeze terraces, and private pool.",
+      "videoUrl": "https://assets.mixkit.co/videos/preview/mixkit-villa-with-pool-and-terrace-in-front-of-the-sea-43406-large.mp4",
+      "thumbnailUrl": "https://images.unsplash.com/photo-1512917774080-9991f1c4c750?auto=format&fit=crop&w=800&q=80",
+      "source": "Airbnb",
+      "instantBook": false,
+      "isFeatured": true,
+      "ownerEmail": "owner@airbus.ke",
+      "hostName": "David Mutua",
+      "hostPhone": "+254 722 987 654",
+      "whatsapp": "254722987654",
+      "minNights": 2,
+      "views": 890,
+      "gradientHue": [
+        20,
+        350
+      ],
+      "createdAt": 1787478650938
+    },
+    {
+      "id": "s5",
+      "title": "Diani Beach Cottage Steps from the Turquoise Sand",
+      "location": "Diani, Kwale",
+      "lat": -4.3167,
+      "lng": 39.5833,
+      "price": 13500,
+      "currency": "KES",
+      "rating": 4.88,
+      "reviewsCount": 95,
+      "type": "Bungalow",
+      "guests": 4,
+      "beds": 2,
+      "area": 110,
+      "category": "Diamond",
+      "status": "live",
+      "features": [
+        "WiFi",
+        "Garden",
+        "Gas Cooker",
+        "Air Conditioning",
+        "Hot Shower",
+        "Solar Power"
+      ],
+      "highlights": [
+        "45 seconds walk to Diani Beach",
+        "Outdoor tropical rain shower",
+        "Eco-friendly solar powered"
+      ],
+      "description": "Charming thatched makuti roof cottage nestled among baobabs and swaying palm trees in world-renowned Diani Beach. Fall asleep to the gentle crash of waves and enjoy barefoot living.",
+      "videoUrl": "https://assets.mixkit.co/videos/preview/mixkit-swimming-pool-surrounded-by-palm-trees-at-sunset-42028-large.mp4",
+      "thumbnailUrl": "https://images.unsplash.com/photo-1499793983690-e29da59ef1c2?auto=format&fit=crop&w=800&q=80",
+      "source": "Direct",
+      "instantBook": true,
+      "isFeatured": false,
+      "ownerEmail": "owner@airbus.ke",
+      "hostName": "David Mutua",
+      "hostPhone": "+254 722 987 654",
+      "whatsapp": "254722987654",
+      "minNights": 1,
+      "views": 520,
+      "gradientHue": [
+        40,
+        10
+      ],
+      "createdAt": 1790502650938
+    },
+    {
+      "id": "s6",
+      "title": "Karen Heritage Cottage with English Gardens & Veranda",
+      "location": "Karen, Nairobi",
+      "lat": -1.3167,
+      "lng": 36.7,
+      "price": 8800,
+      "currency": "KES",
+      "rating": 4.85,
+      "reviewsCount": 54,
+      "type": "House",
+      "guests": 3,
+      "beds": 2,
+      "area": 105,
+      "category": "Silver",
+      "status": "live",
+      "features": [
+        "WiFi",
+        "Garden",
+        "Parking",
+        "Gas Cooker",
+        "Perimeter Wall",
+        "Towels Provided"
+      ],
+      "highlights": [
+        "Close to Giraffe Centre & Karen Blixen Museum",
+        "Antique cedar wood finishing",
+        "Private bird sanctuary garden"
+      ],
+      "description": "Step into colonial elegance surrounded by the lush greenery of Karen. Ideal retreat for creatives, writers, and couples looking for a calm escape 20 minutes from the city centre.",
+      "videoUrl": "https://assets.mixkit.co/videos/preview/mixkit-cozy-living-room-in-a-cabin-43407-large.mp4",
+      "thumbnailUrl": "https://images.unsplash.com/photo-1518780664697-55e3ad937233?auto=format&fit=crop&w=800&q=80",
+      "source": "Booking.com",
+      "instantBook": false,
+      "isFeatured": false,
+      "ownerEmail": "owner@airbus.ke",
+      "hostName": "David Mutua",
+      "hostPhone": "+254 722 987 654",
+      "whatsapp": "254722987654",
+      "minNights": 1,
+      "views": 310,
+      "gradientHue": [
+        290,
+        220
+      ],
+      "createdAt": 1790934650938
+    },
+    {
+      "id": "s7",
+      "title": "Kilimani Sunset 2BR with Sky Pool & Gym Access",
+      "location": "Kilimani, Nairobi",
+      "lat": -1.2896,
+      "lng": 36.79,
+      "price": 11500,
+      "currency": "KES",
+      "rating": 4.75,
+      "reviewsCount": 62,
+      "type": "Apartment",
+      "guests": 4,
+      "beds": 2,
+      "area": 98,
+      "category": "Diamond",
+      "status": "live",
+      "features": [
+        "WiFi",
+        "Swimming Pool",
+        "Air Conditioning",
+        "Elevator",
+        "Parking",
+        "Gas Cooker",
+        "Smart Lock"
+      ],
+      "highlights": [
+        "Rooftop infinity glass pool",
+        "Modern equipped gym & sauna",
+        "Panoramic sunset views over Ngong Hills"
+      ],
+      "description": "Modern luxury living at its finest on Rose Avenue. This corner 2BR suite features floor-to-ceiling double-glazed windows, minimalist Scandinavian interiors, and full access to building wellness club.",
+      "videoUrl": "https://assets.mixkit.co/videos/preview/mixkit-large-house-with-modern-interior-and-floor-to-ceiling-windows-43411-large.mp4",
+      "thumbnailUrl": "https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?auto=format&fit=crop&w=800&q=80",
+      "source": "Airbnb",
+      "instantBook": true,
+      "isFeatured": true,
+      "ownerEmail": "owner@airbus.ke",
+      "hostName": "David Mutua",
+      "hostPhone": "+254 722 987 654",
+      "whatsapp": "254722987654",
+      "minNights": 1,
+      "views": 440,
+      "gradientHue": [
+        170,
+        120
+      ],
+      "createdAt": 1791798650938
+    },
+    {
+      "id": "s8",
+      "title": "Naivasha Lakeside House with Zebras & Sunset Deck",
+      "location": "Naivasha, Nakuru",
+      "lat": -0.7167,
+      "lng": 36.4333,
+      "price": 16000,
+      "currency": "KES",
+      "rating": 4.96,
+      "reviewsCount": 110,
+      "type": "House",
+      "guests": 6,
+      "beds": 3,
+      "area": 190,
+      "category": "Gold",
+      "status": "live",
+      "features": [
+        "WiFi",
+        "Garden",
+        "Gas Cooker",
+        "Parking",
+        "BBQ Grill",
+        "Hot Shower",
+        "Solar Power"
+      ],
+      "highlights": [
+        "Frequent zebra and waterbuck garden visits",
+        "Private wooden dock over Lake Naivasha",
+        "Sundowner wood-fired BBQ deck"
+      ],
+      "description": "Set on the tranquil shores of Lake Naivasha, this eco-stone home offers an unforgettable wildlife encounter. Watch giraffes and zebras graze on the lawn right outside your breakfast table.",
+      "videoUrl": "https://assets.mixkit.co/videos/preview/mixkit-kitchen-island-in-a-luxurious-modern-house-43412-large.mp4",
+      "thumbnailUrl": "https://images.unsplash.com/photo-1542314831-068cd1dbfeeb?auto=format&fit=crop&w=800&q=80",
+      "source": "Direct",
+      "instantBook": false,
+      "isFeatured": true,
+      "ownerEmail": "owner@airbus.ke",
+      "hostName": "David Mutua",
+      "hostPhone": "+254 722 987 654",
+      "whatsapp": "254722987654",
+      "minNights": 2,
+      "views": 745,
+      "gradientHue": [
+        10,
+        40
+      ],
+      "createdAt": 1787046650938
+    }
+  ],
+  "bookings": [
+    {
+      "id": "b_demo_1",
+      "reference": "AB9482X",
+      "stayId": "s1",
+      "guestEmail": "guest@airbus.ke",
+      "guestName": "Sarah Wanjiku",
+      "checkIn": "2026-10-30",
+      "checkOut": "2026-11-02",
+      "guests": 2,
+      "subtotal": 25500,
+      "cleaningFee": 1275,
+      "serviceFee": 2040,
+      "total": 28815,
+      "currency": "KES",
+      "status": "confirmed",
+      "note": "Arriving around 3 PM from JKIA airport. Excited for the city view!",
+      "createdAt": 1792921850938
+    },
+    {
+      "id": "b_demo_2",
+      "reference": "AB6107K",
+      "stayId": "s4",
+      "guestEmail": "guest@airbus.ke",
+      "guestName": "Sarah Wanjiku",
+      "checkIn": "2026-11-10",
+      "checkOut": "2026-11-14",
+      "guests": 4,
+      "subtotal": 88000,
+      "cleaningFee": 3300,
+      "serviceFee": 7040,
+      "total": 98340,
+      "currency": "KES",
+      "status": "requested",
+      "note": "Family beach holiday. Looking forward to enjoying the infinity pool.",
+      "createdAt": 1793051450938
+    },
+    {
+      "id": "b_demo_3",
+      "reference": "AB3390P",
+      "stayId": "s5",
+      "guestEmail": "guest@airbus.ke",
+      "guestName": "Sarah Wanjiku",
+      "checkIn": "2026-10-07",
+      "checkOut": "2026-10-10",
+      "guests": 2,
+      "subtotal": 40500,
+      "cleaningFee": 2025,
+      "serviceFee": 3240,
+      "total": 45765,
+      "currency": "KES",
+      "status": "confirmed",
+      "note": "Relaxing weekend getaway.",
+      "createdAt": 1790934650938
+    }
+  ],
+  "reviews": [
+    {
+      "id": "rev_1",
+      "stayId": "s1",
+      "guestEmail": "guest@airbus.ke",
+      "guestName": "Sarah Wanjiku",
+      "rating": 5,
+      "comment": "The skyline views from the balcony are world-class! Superfast fiber, modern appliances, and David was a gracious host who met us in the lobby.",
+      "createdAt": 1792230650938
+    },
+    {
+      "id": "rev_2",
+      "stayId": "s5",
+      "guestEmail": "guest@airbus.ke",
+      "guestName": "Sarah Wanjiku",
+      "rating": 5,
+      "comment": "Pure paradise. Literal steps from the soft white sand of Diani Beach. The outdoor shower surrounded by tropical palms is a dream.",
+      "createdAt": 1791712250938
+    }
+  ],
+  "threads": [
+    {
+      "id": "s1",
+      "stayId": "s1",
+      "guestEmail": "guest@airbus.ke",
+      "hostEmail": "owner@airbus.ke",
+      "unreadGuest": true,
+      "unreadHost": false,
+      "updatedAt": 1793091050938,
+      "messages": [
+        {
+          "id": "m1",
+          "from": "guest",
+          "type": "offer",
+          "amount": 7800,
+          "status": "countered",
+          "createdAt": 1793008250938
+        },
+        {
+          "id": "m2",
+          "from": "host",
+          "type": "counter",
+          "amount": 8200,
+          "status": "pending",
+          "createdAt": 1793051450938
+        },
+        {
+          "id": "m3",
+          "from": "host",
+          "type": "text",
+          "text": "Hello Sarah! I can do KES 8,200/night for your 3-night stay in Westlands. It includes complimentary early check-in.",
+          "createdAt": 1793091050938
+        }
+      ]
+    },
+    {
+      "id": "s2",
+      "stayId": "s2",
+      "guestEmail": "guest@airbus.ke",
+      "hostEmail": "owner@airbus.ke",
+      "unreadGuest": false,
+      "unreadHost": false,
+      "updatedAt": 1792921850938,
+      "messages": [
+        {
+          "id": "m4",
+          "from": "host",
+          "type": "text",
+          "text": "Hi there! Welcome to AirBus Kenya. Feel free to ask any questions about the Kilimani studio or Yaya Centre access.",
+          "createdAt": 1792921850938
+        }
+      ]
+    }
+  ],
+  "payments": [
+    {
+      "id": "pay_demo_1",
+      "hostEmail": "owner@airbus.ke",
+      "kind": "plan",
+      "tier": "Diamond",
+      "amount": 2500,
+      "mpesaCode": "QGH7X2K9LM",
+      "status": "approved",
+      "createdAt": 1792230650939
+    }
+  ],
+  "hostPlans": {
+    "owner@airbus.ke": {
+      "tier": "Silver",
+      "status": "active",
+      "expiresAt": 1797414650939,
+      "graceExpiresAt": 1797587450939,
+      "hasPaidSubscription": true
+    }
+  },
+  "wallets": {
+    "owner@airbus.ke": 13710,
+    "guest@airbus.ke": 4400,
+    "treasury": 63540
+  },
+  "wishlists": [
+    {
+      "userEmail": "guest@airbus.ke",
+      "stayId": "s4"
+    },
+    {
+      "userEmail": "guest@airbus.ke",
+      "stayId": "s8"
+    }
+  ],
+  "notifications": [
+    {
+      "id": "notif_1793179564657",
+      "userEmail": "owner@airbus.ke",
+      "title": "30-Day Silver Plan Activated! 🎉",
+      "message": "KES 1000 was deducted from your wallet. Your subscription is active for 30 days until 12/16/2026.",
+      "read": false,
+      "link": "/#owner",
+      "type": "subscription",
+      "createdAt": 1793179564657
+    },
+    {
+      "id": "notif_17931795052922",
+      "userEmail": "owner@airbus.ke",
+      "title": "New Ad Revenue Credited! 💰",
+      "message": "You earned KES 210 (70% net) from an approved sponsor ad on your listing \"Modern Westlands Penthouse with Panoramic City Views\".",
+      "read": false,
+      "link": "/#owner",
+      "type": "payment",
+      "createdAt": 1793179505292
+    },
+    {
+      "id": "notif_17931795052911",
+      "userEmail": "guest@airbus.ke",
+      "title": "Ad Approved & Live! 🚀",
+      "message": "Your advertisement \"Westlands Organic Rooftop Brunch & Cafe\" is now active on Modern Westlands Penthouse with Panoramic City Views for 3 days.",
+      "read": false,
+      "link": "/#stay-s1",
+      "type": "system",
+      "createdAt": 1793179505291
+    },
+    {
+      "id": "notif_1",
+      "userEmail": "guest@airbus.ke",
+      "title": "Booking Confirmed!",
+      "message": "Your stay at Modern Westlands Penthouse (AB9482X) has been confirmed.",
+      "read": false,
+      "link": "/#guest",
+      "createdAt": 1792921850939
+    },
+    {
+      "id": "notif_2",
+      "userEmail": "owner@airbus.ke",
+      "title": "New Booking Request",
+      "message": "Sarah Wanjiku requested to book Nyali Beachfront Villa for 4 nights.",
+      "read": false,
+      "link": "/#host",
+      "createdAt": 1793051450939
+    }
+  ],
+  "reports": [],
+  "tickets": [],
+  "auditLogs": [
+    {
+      "id": "aud_1793179564657",
+      "action": "plan_wallet_pay",
+      "actorEmail": "owner@airbus.ke",
+      "details": "Paid 1000 KES from wallet for 30-Day Silver Plan.",
+      "createdAt": 1793179564657
+    },
+    {
+      "id": "aud_1793179505291",
+      "action": "ad_approved",
+      "actorEmail": "admin@airbus.ke",
+      "details": "Approved ad #ad_worked_example_3 (300 KES) on stay #s1. Credited Host 210 KES and Treasury 90 KES.",
+      "createdAt": 1793179505291
+    },
+    {
+      "id": "aud_1",
+      "action": "plan_approved",
+      "actorEmail": "admin@airbus.ke",
+      "details": "Approved Diamond plan payment QGH7X2K9LM for owner@airbus.ke",
+      "createdAt": 1792230650939
+    }
+  ],
+  "settings": {
+    "adPricePerDay": 100,
+    "adPlatformFeePercent": 30,
+    "maxAdSlotsPerPost": 10,
+    "referralCommissionPercent": 10,
+    "referralDurationDays": 365,
+    "minWithdrawalKes": 500,
+    "planPrices": {
+      "Silver": 1000,
+      "Diamond": 2500,
+      "Gold": 5000
+    },
+    "currencyRates": {
+      "KES": 1,
+      "USD": 0.0077,
+      "EUR": 0.0071
+    },
+    "contentPolicies": {
+      "maxDescriptionChars": 300,
+      "maxPostImages": 10,
+      "maxShortSeconds": 60,
+      "maxVideoSeconds": 1800
+    }
+  },
+  "posts": [
+    {
+      "id": "post_short_1",
+      "ownerEmail": "owner@airbus.ke",
+      "stayId": "s1",
+      "type": "short",
+      "description": "Breathtaking 18th-floor sundowner views over the Westlands skyline and distant Ngong Hills.",
+      "coverUrl": "https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?auto=format&fit=crop&w=800&q=80",
+      "videoUrl": "https://assets.mixkit.co/videos/preview/mixkit-modern-apartment-with-living-room-and-terrace-43405-large.mp4",
+      "durationSeconds": 24,
+      "status": "approved",
+      "views": 4200,
+      "likes": 620,
+      "shares": 145,
+      "viralityScore": 92,
+      "createdAt": 1792315432749,
+      "updatedAt": 1792315432749
+    },
+    {
+      "id": "post_video_2",
+      "ownerEmail": "owner@airbus.ke",
+      "stayId": "s4",
+      "type": "video",
+      "description": "Exclusive walking video tour of Nyali Beachfront Villa: private infinity pool, beach pathway & Swahili arches.",
+      "coverUrl": "https://images.unsplash.com/photo-1512917774080-9991f1c4c750?auto=format&fit=crop&w=800&q=80",
+      "videoUrl": "https://assets.mixkit.co/videos/preview/mixkit-villa-with-pool-and-terrace-in-front-of-the-sea-43406-large.mp4",
+      "durationSeconds": 420,
+      "status": "approved",
+      "views": 7800,
+      "likes": 980,
+      "shares": 230,
+      "viralityScore": 96,
+      "createdAt": 1791969832749,
+      "updatedAt": 1791969832749
+    },
+    {
+      "id": "post_photo_3",
+      "ownerEmail": "owner@airbus.ke",
+      "stayId": "s3",
+      "type": "photo",
+      "description": "Golden hour at Lavington Garden Bungalow. 0.5 acre manicured lawn, stone hearth fireplace & verandas.",
+      "coverUrl": "https://images.unsplash.com/photo-1580587771525-78b9dba3b914?auto=format&fit=crop&w=800&q=80",
+      "images": [
+        "https://images.unsplash.com/photo-1580587771525-78b9dba3b914?auto=format&fit=crop&w=800&q=80",
+        "https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=800&q=80",
+        "https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=800&q=80"
+      ],
+      "status": "approved",
+      "views": 3100,
+      "likes": 410,
+      "shares": 88,
+      "viralityScore": 84,
+      "createdAt": 1791451432749,
+      "updatedAt": 1791451432749
+    },
+    {
+      "id": "post_pending_4",
+      "ownerEmail": "owner@airbus.ke",
+      "stayId": "s2",
+      "type": "short",
+      "description": "Chic designer studio morning light near Yaya Centre. Fast WiFi, workspace & rain shower.",
+      "coverUrl": "https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?auto=format&fit=crop&w=800&q=80",
+      "videoUrl": "https://assets.mixkit.co/videos/preview/mixkit-luxurious-living-room-with-a-modern-interior-design-43409-large.mp4",
+      "durationSeconds": 38,
+      "status": "pending",
+      "views": 0,
+      "likes": 0,
+      "shares": 0,
+      "viralityScore": 0,
+      "createdAt": 1793172232749,
+      "updatedAt": 1793172232749
+    }
+  ],
+  "adRequests": [
+    {
+      "id": "ad_1",
+      "advertiserEmail": "guest@airbus.ke",
+      "stayId": "s1",
+      "title": "Nairobi Airport Transfers & Chauffeur VIP",
+      "description": "Mercedes E-Class & Prado airport pickups 24/7. 10% off for AirBus guests.",
+      "imageUrl": "https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=400&q=80",
+      "targetUrl": "https://wa.me/254712345678",
+      "contactPhone": "+254 712 345 678",
+      "tag": "Chauffeur",
+      "days": 5,
+      "totalAmount": 500,
+      "platformFee": 150,
+      "hostNet": 350,
+      "status": "approved",
+      "startsAt": 1793093032749,
+      "expiresAt": 1793525032749,
+      "createdAt": 1793093032749
+    },
+    {
+      "id": "ad_2",
+      "advertiserEmail": "guest@airbus.ke",
+      "stayId": "s4",
+      "title": "Nyali Coastal Watersports & Jet Ski Hire",
+      "description": "Guided dolphin tours, kitesurfing school and jet ski rentals directly off Nyali beach.",
+      "imageUrl": "https://images.unsplash.com/photo-1544551763-46a013bb70d5?auto=format&fit=crop&w=400&q=80",
+      "targetUrl": "https://wa.me/254700000001",
+      "contactPhone": "+254 700 000 001",
+      "tag": "Experiences",
+      "days": 7,
+      "totalAmount": 700,
+      "platformFee": 210,
+      "hostNet": 490,
+      "status": "approved",
+      "startsAt": 1793006632749,
+      "expiresAt": 1793611432749,
+      "createdAt": 1793006632749
+    },
+    {
+      "id": "ad_worked_example_3",
+      "advertiserEmail": "guest@airbus.ke",
+      "stayId": "s1",
+      "title": "Westlands Organic Rooftop Brunch & Cafe",
+      "description": "Fresh artisanal sourdough, espresso, and avocado toast 2 mins walk from your penthouse.",
+      "imageUrl": "https://images.unsplash.com/photo-1554118811-1e0d58224f24?auto=format&fit=crop&w=400&q=80",
+      "targetUrl": "https://wa.me/254712345678",
+      "contactPhone": "+254 712 345 678",
+      "tag": "Cafe & Dining",
+      "days": 3,
+      "totalAmount": 300,
+      "platformFee": 90,
+      "hostNet": 210,
+      "status": "approved",
+      "createdAt": 1793175832749,
+      "startsAt": 1793179505291,
+      "expiresAt": 1793438705291
+    }
+  ],
+  "ledgerEntries": [
+    {
+      "id": "ledg_1793179564655_uea2v",
+      "fromWallet": "owner@airbus.ke",
+      "toWallet": "treasury",
+      "amount": 1000,
+      "type": "subscription",
+      "referenceId": "Silver",
+      "description": "30-Day Silver Plan Subscription from wallet",
+      "createdAt": 1793179564655
+    },
+    {
+      "id": "ledg_1793179505290_j7s6b",
+      "fromWallet": "guest@airbus.ke",
+      "toWallet": "treasury",
+      "amount": 90,
+      "type": "ad_fee",
+      "referenceId": "ad_worked_example_3",
+      "description": "Platform ad service fee (30%) on stay: Modern Westlands Penthouse with Panoramic City Views",
+      "createdAt": 1793179505290
+    },
+    {
+      "id": "ledg_1793179505290_npbey",
+      "fromWallet": "guest@airbus.ke",
+      "toWallet": "owner@airbus.ke",
+      "amount": 210,
+      "type": "ad_revenue",
+      "referenceId": "ad_worked_example_3",
+      "description": "Sponsor ad revenue (70% net) on stay: Modern Westlands Penthouse with Panoramic City Views",
+      "createdAt": 1793179505290
+    },
+    {
+      "id": "ledg_1",
+      "fromWallet": "external_mpesa",
+      "toWallet": "owner@airbus.ke",
+      "amount": 15000,
+      "type": "topup",
+      "referenceId": "MP991204",
+      "description": "M-Pesa wallet top-up",
+      "createdAt": 1791019432749
+    },
+    {
+      "id": "ledg_2",
+      "fromWallet": "owner@airbus.ke",
+      "toWallet": "treasury",
+      "amount": 2500,
+      "type": "subscription",
+      "referenceId": "Diamond",
+      "description": "30-Day Diamond Plan subscription fee",
+      "createdAt": 1791451432749
+    },
+    {
+      "id": "ledg_3",
+      "fromWallet": "guest@airbus.ke",
+      "toWallet": "owner@airbus.ke",
+      "amount": 350,
+      "type": "ad_revenue",
+      "referenceId": "ad_1",
+      "description": "Ad display revenue (70% net) for Modern Westlands Penthouse",
+      "createdAt": 1793093032749
+    },
+    {
+      "id": "ledg_4",
+      "fromWallet": "guest@airbus.ke",
+      "toWallet": "treasury",
+      "amount": 150,
+      "type": "ad_fee",
+      "referenceId": "ad_1",
+      "description": "Platform ad fee (30%) for Modern Westlands Penthouse",
+      "createdAt": 1793093032749
+    }
+  ],
+  "walletRecords": {
+    "owner@airbus.ke": {
+      "email": "owner@airbus.ke",
+      "balance": 13710,
+      "holdBalance": 0,
+      "lifetimeEarnings": 21210,
+      "lifetimeSpent": 7500,
+      "updatedAt": 1793179564655
+    },
+    "guest@airbus.ke": {
+      "email": "guest@airbus.ke",
+      "balance": 4400,
+      "holdBalance": 0,
+      "lifetimeEarnings": 1500,
+      "lifetimeSpent": 1500,
+      "updatedAt": 1793179505290
+    },
+    "admin@airbus.ke": {
+      "email": "admin@airbus.ke",
+      "balance": 35000,
+      "holdBalance": 0,
+      "lifetimeEarnings": 35000,
+      "lifetimeSpent": 0,
+      "updatedAt": 1793179432749
+    },
+    "treasury": {
+      "email": "treasury",
+      "balance": 63540,
+      "holdBalance": 0,
+      "lifetimeEarnings": 66090,
+      "lifetimeSpent": 2550,
+      "updatedAt": 1793179564655
+    }
+  },
+  "referrals": {
+    "guest@airbus.ke": {
+      "userEmail": "guest@airbus.ke",
+      "referralCode": "SARAH2026",
+      "clicks": 42,
+      "signupsCount": 6,
+      "totalEarnedKes": 1850,
+      "createdAt": 1790587432749
+    },
+    "owner@airbus.ke": {
+      "userEmail": "owner@airbus.ke",
+      "referralCode": "DAVIDMUTUA",
+      "clicks": 89,
+      "signupsCount": 12,
+      "totalEarnedKes": 4200,
+      "createdAt": 1787995432749
+    },
+    "admin@airbus.ke": {
+      "userEmail": "admin@airbus.ke",
+      "referralCode": "AIRBUSPRO",
+      "clicks": 154,
+      "signupsCount": 30,
+      "totalEarnedKes": 9500,
+      "createdAt": 1782811432749
+    }
+  },
+  "referralCodes": {
+    "SARAH2026": "guest@airbus.ke",
+    "DAVIDMUTUA": "owner@airbus.ke",
+    "AIRBUSPRO": "admin@airbus.ke"
+  },
+  "referralCommissions": [],
+  "withdrawals": [],
+  "viewEvents": []
+}

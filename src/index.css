@@ -1,0 +1,199 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --bg: #fbfbf8;
+    --card: #ffffff;
+    --ink: #0a0a0a;
+    --mut: #6b6b6b;
+    --line: #e6e6e1;
+    --red: #e4002b;
+    --soft: #fbeeee;
+    --water: #dbeaf3;
+    --land: #eef0e4;
+    --neon-pink: #ff2e93;
+    --neon-purple: #8b5cf6;
+    --neon-cyan: #22d3ee;
+  }
+
+  .dark {
+    --bg: #0b0c10;
+    --card: #15171e;
+    --ink: #f4f4f2;
+    --mut: #9ca3af;
+    --line: #262934;
+    --soft: #2d1219;
+    --water: #162432;
+    --land: #1f221a;
+  }
+
+  body {
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  }
+
+  h1, h2, h3, .font-heading {
+    font-family: 'Outfit', 'Plus Jakarta Sans', sans-serif;
+  }
+}
+
+/* Auth Sliding Dual-Panel Mechanics (Replicated & Enhanced with Neon Glow) */
+.neon-auth-container {
+  position: relative;
+  min-height: 540px;
+  overflow: hidden;
+  background: #090a10;
+  color: #ffffff;
+  border: 2px solid var(--neon-pink);
+  border-radius: 16px;
+  box-shadow: 0 0 35px rgba(255, 46, 147, 0.45), inset 0 0 25px rgba(255, 46, 147, 0.15);
+}
+
+.neon-auth-bg {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, #ff2e93 0%, #8b5cf6 55%, #06b6d4 100%);
+  clip-path: polygon(54% 0, 100% 0, 100% 100%, 34% 100%);
+  transition: clip-path 0.75s cubic-bezier(0.34, 1.56, 0.64, 1);
+  pointer-events: none;
+}
+
+.neon-auth-container.is-signup .neon-auth-bg {
+  clip-path: polygon(0 0, 66% 0, 46% 100%, 0 100%);
+}
+
+.neon-auth-panel {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  width: 50%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 0 40px;
+  transition: transform 0.75s cubic-bezier(0.25, 1, 0.5, 1), opacity 0.6s ease, filter 0.6s ease;
+}
+
+.neon-auth-panel.form-login {
+  left: 0;
+}
+
+.neon-auth-panel.form-register {
+  right: 0;
+  transform: translateX(120%);
+  opacity: 0;
+  filter: blur(8px);
+  pointer-events: none;
+}
+
+.neon-auth-panel.info-login {
+  right: 0;
+  text-align: right;
+  align-items: flex-end;
+}
+
+.neon-auth-panel.info-register {
+  left: 0;
+  transform: translateX(-120%);
+  opacity: 0;
+  filter: blur(8px);
+  pointer-events: none;
+}
+
+.neon-auth-container.is-signup .neon-auth-panel.form-login {
+  transform: translateX(-120%);
+  opacity: 0;
+  filter: blur(8px);
+  pointer-events: none;
+}
+
+.neon-auth-container.is-signup .neon-auth-panel.info-login {
+  transform: translateX(120%);
+  opacity: 0;
+  filter: blur(8px);
+  pointer-events: none;
+}
+
+.neon-auth-container.is-signup .neon-auth-panel.form-register {
+  transform: translateX(0);
+  opacity: 1;
+  filter: none;
+  pointer-events: auto;
+}
+
+.neon-auth-container.is-signup .neon-auth-panel.info-register {
+  transform: translateX(0);
+  opacity: 1;
+  filter: none;
+  pointer-events: auto;
+}
+
+@media (max-width: 768px) {
+  .neon-auth-container {
+    min-height: 600px;
+  }
+  .neon-auth-bg,
+  .neon-auth-panel.info-login,
+  .neon-auth-panel.info-register {
+    display: none !important;
+  }
+  .neon-auth-panel {
+    width: 100% !important;
+    padding: 24px !important;
+  }
+}
+
+.neon-input {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-bottom: 2px solid rgba(255, 255, 255, 0.4);
+  color: #fff;
+  border-radius: 8px;
+  padding: 10px 14px;
+  width: 100%;
+  outline: none;
+  transition: all 0.25s ease;
+}
+
+.neon-input:focus {
+  border-color: #22d3ee;
+  border-bottom-color: #ff2e93;
+  box-shadow: 0 0 16px rgba(34, 211, 238, 0.35);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.neon-btn {
+  border: none;
+  border-radius: 9999px;
+  padding: 12px 24px;
+  font-weight: 700;
+  color: #ffffff;
+  cursor: pointer;
+  background: linear-gradient(90deg, #ff2e93, #8b5cf6);
+  box-shadow: 0 0 20px rgba(255, 46, 147, 0.6);
+  transition: all 0.25s ease;
+}
+
+.neon-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 0 30px rgba(255, 46, 147, 0.8), 0 0 10px #22d3ee;
+}
+
+.neon-btn:active {
+  transform: translateY(0);
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(150, 150, 150, 0.3);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(150, 150, 150, 0.5);
+}

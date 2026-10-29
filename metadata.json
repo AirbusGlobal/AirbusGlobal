@@ -1,0 +1,6 @@
+{
+  "name": "AirBus - Video-First Stays & Booking",
+  "description": "Next-generation video-first stays platform featuring interactive Shorts, map-based discovery, real-time negotiation, and dedicated dashboards for guests, owners, and admins.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
