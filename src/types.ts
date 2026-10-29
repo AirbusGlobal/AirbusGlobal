@@ -91,6 +91,12 @@ export interface Stay {
   hostFollowerCount?: number;
   hostFollowedByUserEmails?: string[];
   blockedDates?: BlockedDateRange[];
+  welcomeGifts?: string[];
+  hostMessage?: string;
+  isPromoted?: boolean;
+  promotedUntil?: number;
+  promotionImpressions?: number;
+  promotionClicks?: number;
   gradientHue: [number, number];
   createdAt: number;
 }
@@ -244,6 +250,8 @@ export type LedgerEntryType =
   | 'ad_revenue'
   | 'ad_fee'
   | 'referral_commission'
+  | 'promotion'
+  | 'promote_listing'
   | 'hold'
   | 'release';
 
@@ -255,6 +263,21 @@ export interface LedgerEntry {
   type: LedgerEntryType;
   referenceId?: string;
   description: string;
+  idempotencyKey?: string;
+  createdAt: number;
+}
+
+export interface ListingPromotion {
+  id: string;
+  stayId: string;
+  ownerEmail: string;
+  days: number;
+  cost: number;
+  startsAt: number;
+  expiresAt: number;
+  status: 'active' | 'expired';
+  impressions: number;
+  clicks: number;
   createdAt: number;
 }
 

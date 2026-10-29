@@ -12,6 +12,7 @@ import {
   PlatformSettings,
   LedgerEntry,
   WalletRecord,
+  ListingPromotion,
 } from '../types';
 import {
   ShieldCheck,
@@ -37,6 +38,7 @@ import {
   Check,
   X,
   FileText,
+  Rocket,
 } from 'lucide-react';
 import { api } from '../api';
 
@@ -97,6 +99,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // New Domain Collections State
   const [posts, setPosts] = useState<Post[]>([]);
   const [ads, setAds] = useState<AdRequest[]>([]);
+  const [promotions, setPromotions] = useState<ListingPromotion[]>([]);
+  const [adFilter, setAdFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
   const [withdrawals, setWithdrawals] = useState<any[]>([]);
   const [settings, setSettings] = useState<PlatformSettings | null>(null);
   const [treasuryLedger, setTreasuryLedger] = useState<LedgerEntry[]>([]);
@@ -107,6 +111,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const loadAdminData = () => {
     api.getPosts().then(res => setPosts(res.posts)).catch(() => {});
     api.getAds().then(res => setAds(res.ads)).catch(() => {});
+    api.getOwnerPromotions().then(res => setPromotions(res.promotions || [])).catch(() => {});
     api.getAdminWithdrawals().then(res => setWithdrawals(res.withdrawals)).catch(() => {});
     api.getSettings().then(res => setSettings(res.settings)).catch(() => {});
     api.getWallet().then(res => {
@@ -519,111 +524,229 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center justify-between">
-            <h3 className="text-base font-bold text-stone-900 dark:text-white">Ad Requests Queue ({ads.length})</h3>
+          {/* Slot Utilization & Financial Metrics */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="p-3.5 bg-white dark:bg-[#15171e] rounded-2xl border border-stone-200 dark:border-stone-800">
+              <span className="text-[10px] uppercase font-bold text-stone-400 block">Total Placements</span>
+              <span className="text-base font-black text-stone-900 dark:text-white">{ads.length} Ads</span>
+            </div>
+            <div className="p-3.5 bg-white dark:bg-[#15171e] rounded-2xl border border-stone-200 dark:border-stone-800">
+              <span className="text-[10px] uppercase font-bold text-stone-400 block">Active Live Slots</span>
+              <span className="text-base font-black text-emerald-500">
+                {ads.filter(a => a.status === 'approved').length} / {stays.length * 10} Max
+              </span>
+            </div>
+            <div className="p-3.5 bg-white dark:bg-[#15171e] rounded-2xl border border-stone-200 dark:border-stone-800">
+              <span className="text-[10px] uppercase font-bold text-stone-400 block">Host 70% Net Disbursed</span>
+              <span className="text-base font-black text-purple-600 dark:text-purple-400">
+                KES {ads.filter(a => a.status === 'approved').reduce((acc, a) => acc + a.hostNet, 0).toLocaleString()}
+              </span>
+            </div>
+            <div className="p-3.5 bg-white dark:bg-[#15171e] rounded-2xl border border-stone-200 dark:border-stone-800">
+              <span className="text-[10px] uppercase font-bold text-stone-400 block">Treasury 30% Fee Kept</span>
+              <span className="text-base font-black text-pink-600 dark:text-pink-400">
+                KES {ads.filter(a => a.status === 'approved').reduce((acc, a) => acc + a.platformFee, 0).toLocaleString()}
+              </span>
+            </div>
+          </div>
+
+          {/* Ad Filter Tabs & Header */}
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pt-2">
+            <div className="flex items-center gap-1.5 overflow-x-auto">
+              {[
+                { id: 'all', label: `All Ads (${ads.length})` },
+                { id: 'pending', label: `Pending (${ads.filter(a => a.status === 'pending').length})` },
+                { id: 'approved', label: `Approved (${ads.filter(a => a.status === 'approved').length})` },
+                { id: 'rejected', label: `Rejected (${ads.filter(a => a.status === 'rejected').length})` },
+              ].map(f => (
+                <button
+                  key={f.id}
+                  onClick={() => setAdFilter(f.id as any)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer ${
+                    adFilter === f.id
+                      ? 'bg-stone-900 text-white dark:bg-stone-100 dark:text-stone-900 shadow-sm'
+                      : 'bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-400 hover:bg-stone-200'
+                  }`}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+
             <button
               onClick={loadAdminData}
-              className="p-1.5 rounded-lg border border-stone-200 dark:border-stone-800 text-stone-500 hover:text-stone-900 dark:hover:text-white cursor-pointer"
+              className="px-3 py-1.5 rounded-full border border-stone-200 dark:border-stone-800 text-stone-600 dark:text-stone-300 text-xs font-bold flex items-center gap-1.5 hover:bg-stone-50 cursor-pointer"
             >
-              <RefreshCw className="w-4 h-4" />
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>Refresh</span>
             </button>
           </div>
 
-          {ads.length === 0 ? (
+          {ads.filter(a => adFilter === 'all' || a.status === adFilter).length === 0 ? (
             <div className="p-8 text-center bg-white dark:bg-[#15171e] rounded-3xl border border-dashed border-stone-200 dark:border-stone-800 text-xs text-stone-400">
-              No ad requests found.
+              No advert requests in this category.
             </div>
           ) : (
             <div className="space-y-3">
-              {ads.map(ad => (
-                <div
-                  key={ad.id}
-                  className="p-4 sm:p-5 bg-white dark:bg-[#15171e] rounded-3xl border border-stone-200 dark:border-stone-800 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4"
-                >
-                  <div className="flex items-start gap-3.5">
-                    <img
-                      src={ad.imageUrl}
-                      alt={ad.title}
-                      className="w-16 h-16 rounded-2xl object-cover shrink-0 border border-stone-200 dark:border-stone-700 shadow-sm"
-                    />
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300">
-                          {ad.tag || 'Sponsor'} ({ad.days} Days)
-                        </span>
+              {ads
+                .filter(a => adFilter === 'all' || a.status === adFilter)
+                .map(ad => (
+                  <div
+                    key={ad.id}
+                    className="p-4 sm:p-5 bg-white dark:bg-[#15171e] rounded-3xl border border-stone-200 dark:border-stone-800 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4"
+                  >
+                    <div className="flex items-start gap-3.5">
+                      <img
+                        src={ad.imageUrl}
+                        alt={ad.title}
+                        className="w-16 h-16 rounded-2xl object-cover shrink-0 border border-stone-200 dark:border-stone-700 shadow-sm"
+                      />
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300">
+                            {ad.tag || 'Sponsor'} ({ad.days} Days)
+                          </span>
 
-                        <span className={`text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full ${
-                          ad.status === 'approved'
-                            ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
-                            : ad.status === 'pending'
-                            ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
-                            : 'bg-rose-100 text-rose-800'
-                        }`}>
-                          {ad.status}
-                        </span>
-                      </div>
-
-                      <h4 className="text-sm font-extrabold text-stone-900 dark:text-white">{ad.title}</h4>
-                      <p className="text-xs text-stone-600 dark:text-stone-400 line-clamp-1">{ad.description}</p>
-
-                      {/* Financial Split Breakdown */}
-                      <div className="p-2.5 rounded-xl bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-800 text-xs grid grid-cols-3 gap-2 text-center max-w-md">
-                        <div>
-                          <span className="text-[10px] text-stone-400 font-semibold block">Total Billed</span>
-                          <strong className="text-stone-900 dark:text-white">KES {ad.totalAmount}</strong>
+                          <span
+                            className={`text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full ${
+                              ad.status === 'approved'
+                                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
+                                : ad.status === 'pending'
+                                ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
+                                : 'bg-rose-100 text-rose-800'
+                            }`}
+                          >
+                            {ad.status}
+                          </span>
                         </div>
-                        <div>
-                          <span className="text-[10px] text-stone-400 font-semibold block">Host Net (70%)</span>
-                          <strong className="text-emerald-600 dark:text-emerald-400">KES {ad.hostNet}</strong>
-                        </div>
-                        <div>
-                          <span className="text-[10px] text-stone-400 font-semibold block">Platform Fee (30%)</span>
-                          <strong className="text-purple-600 dark:text-purple-400">KES {ad.platformFee}</strong>
-                        </div>
-                      </div>
 
-                      <div className="text-[11px] text-stone-400">
-                        Advertiser: <span className="font-semibold text-stone-700 dark:text-stone-300">{ad.advertiserEmail}</span> · Stay: #{ad.stayId}
+                        <h4 className="text-sm font-extrabold text-stone-900 dark:text-white">{ad.title}</h4>
+                        <p className="text-xs text-stone-600 dark:text-stone-400 line-clamp-1">{ad.description}</p>
+
+                        {/* Financial Split Breakdown */}
+                        <div className="p-2.5 rounded-xl bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-800 text-xs grid grid-cols-3 gap-2 text-center max-w-md">
+                          <div>
+                            <span className="text-[10px] text-stone-400 font-semibold block">Total Billed</span>
+                            <strong className="text-stone-900 dark:text-white">KES {ad.totalAmount}</strong>
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-stone-400 font-semibold block">Host Net (70%)</span>
+                            <strong className="text-emerald-600 dark:text-emerald-400">KES {ad.hostNet}</strong>
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-stone-400 font-semibold block">Platform Fee (30%)</span>
+                            <strong className="text-purple-600 dark:text-purple-400">KES {ad.platformFee}</strong>
+                          </div>
+                        </div>
+
+                        <div className="text-[11px] text-stone-400">
+                          Advertiser: <span className="font-semibold text-stone-700 dark:text-stone-300">{ad.advertiserEmail}</span> · Stay: #{ad.stayId}
+                        </div>
                       </div>
                     </div>
-                  </div>
 
-                  {/* Actions */}
-                  <div className="flex items-center gap-2 shrink-0 w-full md:w-auto justify-end">
-                    {ad.status === 'pending' ? (
-                      <>
-                        <button
-                          onClick={async () => {
-                            await api.approveAd(ad.id);
-                            showToast?.(`Ad approved! KES ${ad.hostNet} credited to host, KES ${ad.platformFee} to treasury.`);
-                            loadAdminData();
-                          }}
-                          className="px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:opacity-95 text-white rounded-full text-xs font-bold transition-all cursor-pointer flex items-center gap-1 shadow-sm"
-                        >
-                          <Check className="w-3.5 h-3.5" />
-                          <span>Approve & Split</span>
-                        </button>
-                        <button
-                          onClick={async () => {
-                            const reason = prompt('Reason for rejecting advert:') || 'Ad does not meet quality requirements.';
-                            await api.rejectAd(ad.id, reason);
-                            showToast?.('Ad rejected and hold released.');
-                            loadAdminData();
-                          }}
-                          className="px-4 py-2 bg-stone-100 dark:bg-stone-800 hover:bg-rose-100 text-rose-600 rounded-full text-xs font-bold transition-all cursor-pointer flex items-center gap-1"
-                        >
-                          <X className="w-3.5 h-3.5" />
-                          <span>Reject & Refund</span>
-                        </button>
-                      </>
-                    ) : (
-                      <span className="text-xs text-stone-400 font-semibold">Processed</span>
-                    )}
+                    {/* Actions */}
+                    <div className="flex items-center gap-2 shrink-0 w-full md:w-auto justify-end">
+                      {ad.status === 'pending' ? (
+                        <>
+                          <button
+                            onClick={async () => {
+                              await api.approveAd(ad.id);
+                              showToast?.(`Ad approved! KES ${ad.hostNet} credited to host, KES ${ad.platformFee} to treasury.`);
+                              loadAdminData();
+                            }}
+                            className="px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:opacity-95 text-white rounded-full text-xs font-bold transition-all cursor-pointer flex items-center gap-1 shadow-sm"
+                          >
+                            <Check className="w-3.5 h-3.5" />
+                            <span>Approve &amp; Split</span>
+                          </button>
+                          <button
+                            onClick={async () => {
+                              const reason = prompt('Reason for rejecting advert:') || 'Ad does not meet quality requirements.';
+                              await api.rejectAd(ad.id, reason);
+                              showToast?.('Ad rejected and hold released.');
+                              loadAdminData();
+                            }}
+                            className="px-4 py-2 bg-stone-100 dark:bg-stone-800 hover:bg-rose-100 text-rose-600 rounded-full text-xs font-bold transition-all cursor-pointer flex items-center gap-1"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                            <span>Reject &amp; Refund</span>
+                          </button>
+                        </>
+                      ) : (
+                        <span className="text-xs text-stone-400 font-semibold">Processed</span>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))}
             </div>
           )}
+
+          {/* Platform-Wide Promoted Listing Boosts Section */}
+          <div className="pt-6 border-t border-stone-200 dark:border-stone-800 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Rocket className="w-4 h-4 text-amber-500" />
+                <h4 className="text-sm font-extrabold text-stone-900 dark:text-white">
+                  Platform Promoted Listing Boosts (@ KES 100/day) ({promotions.length})
+                </h4>
+              </div>
+              <span className="text-xs text-stone-400">
+                100% credited to AirBus Treasury
+              </span>
+            </div>
+
+            {promotions.length === 0 ? (
+              <div className="p-6 text-center border border-dashed border-stone-200 dark:border-stone-800 rounded-2xl text-xs text-stone-400">
+                No active listing boost promotions.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs bg-white dark:bg-[#15171e] rounded-2xl border border-stone-200 dark:border-stone-800 overflow-hidden">
+                  <thead className="border-b border-stone-200 dark:border-stone-800 text-[10px] uppercase font-bold text-stone-400 bg-stone-50 dark:bg-stone-900/50">
+                    <tr>
+                      <th className="py-2.5 px-3">Stay ID / Title</th>
+                      <th className="py-2.5 px-3">Host Email</th>
+                      <th className="py-2.5 px-3">Duration</th>
+                      <th className="py-2.5 px-3">Paid (Treasury)</th>
+                      <th className="py-2.5 px-3">Impressions</th>
+                      <th className="py-2.5 px-3">Clicks</th>
+                      <th className="py-2.5 px-3">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-stone-100 dark:divide-stone-800">
+                    {promotions.map(p => {
+                      const stay = stays.find(s => s.id === p.stayId);
+                      const isStillActive = p.expiresAt > Date.now();
+                      return (
+                        <tr key={p.id} className="hover:bg-stone-50 dark:hover:bg-stone-900/50">
+                          <td className="py-2.5 px-3 font-bold text-stone-900 dark:text-white">
+                            🚀 {stay?.title || p.stayId}
+                          </td>
+                          <td className="py-2.5 px-3 text-stone-600 dark:text-stone-300">{p.ownerEmail}</td>
+                          <td className="py-2.5 px-3">{p.days} Days</td>
+                          <td className="py-2.5 px-3 font-mono font-bold text-emerald-600">KES {p.cost}</td>
+                          <td className="py-2.5 px-3 font-mono">{p.impressions || stay?.promotionImpressions || 0}</td>
+                          <td className="py-2.5 px-3 font-mono">{p.clicks || stay?.promotionClicks || 0}</td>
+                          <td className="py-2.5 px-3">
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase ${
+                                isStillActive
+                                  ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
+                                  : 'bg-stone-100 text-stone-600 dark:bg-stone-800 dark:text-stone-400'
+                              }`}
+                            >
+                              {isStillActive ? 'Active' : 'Completed'}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </div>
       )}
 

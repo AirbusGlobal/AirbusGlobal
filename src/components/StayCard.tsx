@@ -1,5 +1,6 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Stay, Currency, CURRENCY_RATES } from '../types';
+import { api } from '../api';
 import {
   Heart,
   Star,
@@ -16,6 +17,7 @@ import {
   Eye,
   ThumbsUp,
   Youtube,
+  Gift,
 } from 'lucide-react';
 
 interface StayCardProps {
@@ -78,17 +80,34 @@ export const StayCard: React.FC<StayCardProps> = ({
 
   const commentsCount = (stay.comments || []).length;
 
+  useEffect(() => {
+    if (stay.isPromoted) {
+      api.recordPromoImpression(stay.id).catch(() => {});
+    }
+  }, [stay.id, stay.isPromoted]);
+
+  const handleCardClick = () => {
+    if (stay.isPromoted) {
+      api.recordPromoClick(stay.id).catch(() => {});
+    }
+    onSelectStay(stay.id);
+  };
+
   return (
     <div
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
-      className="group bg-white dark:bg-[#15171e] rounded-2xl overflow-hidden border border-[#e6e6e1] dark:border-[#262934] shadow-sm hover:shadow-xl transition-all duration-300 flex flex-col justify-between"
+      className={`group bg-white dark:bg-[#15171e] rounded-2xl overflow-hidden border ${
+        stay.isPromoted
+          ? 'border-amber-400/60 dark:border-amber-500/50 shadow-md shadow-amber-500/5 ring-1 ring-amber-400/20'
+          : 'border-[#e6e6e1] dark:border-[#262934] shadow-sm'
+      } hover:shadow-xl transition-all duration-300 flex flex-col justify-between`}
     >
       {/* Media Thumbnail Container with Video Preview */}
       <div
         className="relative aspect-[16/10] overflow-hidden cursor-pointer flex items-center justify-center text-white"
         style={{ background: cardGradient }}
-        onClick={() => onSelectStay(stay.id)}
+        onClick={handleCardClick}
       >
         {/* Background Image / YouTube thumbnail fallback */}
         {stay.thumbnailUrl && (
@@ -121,7 +140,12 @@ export const StayCard: React.FC<StayCardProps> = ({
         <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-black/30 pointer-events-none" />
 
         {/* Top Badges */}
-        <div className="absolute top-2.5 left-2.5 flex flex-wrap gap-1.5 z-10">
+        <div className="absolute top-2.5 left-2.5 flex flex-wrap gap-1.5 z-10 max-w-[78%]">
+          {stay.isPromoted && (
+            <span className="bg-gradient-to-r from-amber-500 via-rose-500 to-purple-600 text-white font-black text-[10px] px-2.5 py-0.5 rounded-full uppercase tracking-wider shadow-lg flex items-center gap-1 border border-white/20 animate-pulse">
+              <span>🚀</span> Promoted Boost
+            </span>
+          )}
           <span className="bg-[#fbbf24] text-stone-950 font-black text-[10px] px-2 py-0.5 rounded-full uppercase tracking-wider shadow-sm">
             {stay.category}
           </span>
@@ -252,6 +276,28 @@ export const StayCard: React.FC<StayCardProps> = ({
               </span>
             )}
           </div>
+
+          {/* Welcome Gifts Chip */}
+          {stay.welcomeGifts && stay.welcomeGifts.length > 0 && (
+            <div className="mt-2 flex items-center gap-1.5 overflow-hidden">
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20 truncate">
+                <Gift className="w-3 h-3 text-amber-500 shrink-0" />
+                <span className="truncate">🎁 {stay.welcomeGifts[0]}</span>
+                {stay.welcomeGifts.length > 1 && (
+                  <span className="text-[9px] opacity-75 font-semibold shrink-0">
+                    +{stay.welcomeGifts.length - 1} more
+                  </span>
+                )}
+              </span>
+            </div>
+          )}
+
+          {/* Host Personal Message Preview */}
+          {stay.hostMessage && (
+            <p className="mt-1.5 text-[11px] text-stone-500 dark:text-stone-400 italic line-clamp-1 border-l-2 border-[#e4002b]/40 pl-2">
+              “{stay.hostMessage}”
+            </p>
+          )}
         </div>
 
         {/* 4 Action Buttons Grid */}

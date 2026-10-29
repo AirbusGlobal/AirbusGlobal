@@ -89,7 +89,15 @@
         262,
         330
       ],
-      "createdAt": 1789638650938
+      "createdAt": 1789638650938,
+      "welcomeGifts": [
+        "Complimentary Kenyan Kahawa & Safari Bites",
+        "Chilled Tropical Passion Juice",
+        "Late Checkout 1PM"
+      ],
+      "hostMessage": "Karibu sana! I personally prepare every detail so you enjoy our penthouse rooftop sunset and heated infinity pool.",
+      "isPromoted": true,
+      "promotedUntil": 1794473742707
     },
     {
       "id": "s2",
@@ -137,7 +145,13 @@
         200,
         260
       ],
-      "createdAt": 1790070650938
+      "createdAt": 1790070650938,
+      "welcomeGifts": [
+        "Artisan Kenyan Tea Selection",
+        "High-Speed Fiber Voucher",
+        "Complimentary Bottled Water"
+      ],
+      "hostMessage": "Welcome to Kilimani! Perfect for remote workers. Fiber is blazing fast and Artcaffe is 2 mins away."
     },
     {
       "id": "s3",
@@ -185,7 +199,17 @@
         150,
         200
       ],
-      "createdAt": 1788774650938
+      "createdAt": 1788774650938,
+      "welcomeGifts": [
+        "Fireplace Firewood & Marshmallow Basket",
+        "Fresh Herb Garden Basket",
+        "Complimentary English Tea"
+      ],
+      "hostMessage": "Karibu Lavington! Enjoy a quiet evening by the stone fireplace or reading on the garden veranda.",
+      "isPromoted": true,
+      "promotedUntil": 1793782551341,
+      "promotionImpressions": 0,
+      "promotionClicks": 0
     },
     {
       "id": "s4",
@@ -234,7 +258,15 @@
         20,
         350
       ],
-      "createdAt": 1787478650938
+      "createdAt": 1787478650938,
+      "welcomeGifts": [
+        "Fresh Nyali Coconut Water & Macadamia Nuts",
+        "Swahili Beach Towels",
+        "Airport Shuttle 20% Discount"
+      ],
+      "hostMessage": "Habari za Mombasa! The Indian Ocean is at your doorstep. Let me know if you would like our private chef to prepare Swahili biryani.",
+      "isPromoted": true,
+      "promotedUntil": 1793868942707
     },
     {
       "id": "s5",
@@ -281,7 +313,13 @@
         40,
         10
       ],
-      "createdAt": 1790502650938
+      "createdAt": 1790502650938,
+      "welcomeGifts": [
+        "Chilled Fresh Coconut Upon Arrival",
+        "Tropical Mango & Passion Basket",
+        "Sunset Dhow Cruise Voucher"
+      ],
+      "hostMessage": "Barefoot luxury in Diani! Baobabs and the white beach are just 45 seconds away. Enjoy paradise!"
     },
     {
       "id": "s6",
@@ -328,7 +366,13 @@
         290,
         220
       ],
-      "createdAt": 1790934650938
+      "createdAt": 1790934650938,
+      "welcomeGifts": [
+        "Homemade Karen Scones & Jam",
+        "Giraffe Sanctuary Map & Guide",
+        "Organic Mountain Coffee"
+      ],
+      "hostMessage": "Welcome to peaceful Karen. Take your morning tea on the English veranda listening to the sunbirds."
     },
     {
       "id": "s7",
@@ -376,7 +420,13 @@
         170,
         120
       ],
-      "createdAt": 1791798650938
+      "createdAt": 1791798650938,
+      "welcomeGifts": [
+        "Rose Avenue Sunset Wine Bottle",
+        "Complimentary Sauna & Gym Pass",
+        "Espresso Pods"
+      ],
+      "hostMessage": "Welcome to Nairobi! Don’t miss the sunset from the rooftop sky pool overlooking the Ngong Hills."
     },
     {
       "id": "s8",
@@ -424,7 +474,13 @@
         10,
         40
       ],
-      "createdAt": 1787046650938
+      "createdAt": 1787046650938,
+      "welcomeGifts": [
+        "Naivasha Lakeside Cheese & Cracker Board",
+        "Wildlife Safari Binoculars",
+        "Campfire Firepit Logs"
+      ],
+      "hostMessage": "Karibu Lake Naivasha! Keep your cameras ready—the zebras love grazing right outside the porch in the morning."
     }
   ],
   "bookings": [
@@ -579,9 +635,9 @@
     }
   },
   "wallets": {
-    "owner@airbus.ke": 13710,
+    "owner@airbus.ke": 13410,
     "guest@airbus.ke": 4400,
-    "treasury": 63540
+    "treasury": 63840
   },
   "wishlists": [
     {
@@ -594,6 +650,26 @@
     }
   ],
   "notifications": [
+    {
+      "id": "notif_1793264151353",
+      "userEmail": "owner@airbus.ke",
+      "title": "🚀 Listing Boost Activated!",
+      "message": "Your listing \"Lavington Garden Bungalow with Fireplace & Patio\" is now prominently promoted with top-of-feed placement and badge for 3 days until 11/4/2026.",
+      "read": false,
+      "link": "/#owner",
+      "type": "payment",
+      "createdAt": 1793264151352
+    },
+    {
+      "id": "notif_1793264151341",
+      "userEmail": "owner@airbus.ke",
+      "title": "🚀 Listing Boost Activated!",
+      "message": "Your listing \"Lavington Garden Bungalow with Fireplace & Patio\" is now prominently promoted with top-of-feed placement and badge for 3 days until 11/1/2026.",
+      "read": false,
+      "link": "/#owner",
+      "type": "payment",
+      "createdAt": 1793264151341
+    },
     {
       "id": "notif_1793179564657",
       "userEmail": "owner@airbus.ke",
@@ -646,6 +722,20 @@
   "reports": [],
   "tickets": [],
   "auditLogs": [
+    {
+      "id": "aud_1793264151352",
+      "action": "listing_promoted",
+      "actorEmail": "owner@airbus.ke",
+      "details": "Promoted stay s3 for 3 days (Cost: KES 300)",
+      "createdAt": 1793264151352
+    },
+    {
+      "id": "aud_1793264151341",
+      "action": "listing_promoted",
+      "actorEmail": "owner@airbus.ke",
+      "details": "Promoted stay s3 for 3 days (Cost: KES 300)",
+      "createdAt": 1793264151341
+    },
     {
       "id": "aud_1793179564657",
       "action": "plan_wallet_pay",
@@ -826,6 +916,17 @@
   ],
   "ledgerEntries": [
     {
+      "id": "ledg_1793264151340_qhhyc",
+      "fromWallet": "owner@airbus.ke",
+      "toWallet": "treasury",
+      "amount": 300,
+      "type": "promotion",
+      "referenceId": "s3",
+      "description": "Promoted listing boost (3 days @ KES 100/day) for Lavington Garden Bungalow with Fireplace & Patio",
+      "idempotencyKey": "test_key_002",
+      "createdAt": 1793264151340
+    },
+    {
       "id": "ledg_1793179564655_uea2v",
       "fromWallet": "owner@airbus.ke",
       "toWallet": "treasury",
@@ -899,11 +1000,11 @@
   "walletRecords": {
     "owner@airbus.ke": {
       "email": "owner@airbus.ke",
-      "balance": 13710,
+      "balance": 13410,
       "holdBalance": 0,
       "lifetimeEarnings": 21210,
-      "lifetimeSpent": 7500,
-      "updatedAt": 1793179564655
+      "lifetimeSpent": 7800,
+      "updatedAt": 1793264151340
     },
     "guest@airbus.ke": {
       "email": "guest@airbus.ke",
@@ -923,11 +1024,11 @@
     },
     "treasury": {
       "email": "treasury",
-      "balance": 63540,
+      "balance": 63840,
       "holdBalance": 0,
-      "lifetimeEarnings": 66090,
+      "lifetimeEarnings": 66390,
       "lifetimeSpent": 2550,
-      "updatedAt": 1793179564655
+      "updatedAt": 1793264151340
     }
   },
   "referrals": {
@@ -963,5 +1064,59 @@
   },
   "referralCommissions": [],
   "withdrawals": [],
-  "viewEvents": []
+  "viewEvents": [],
+  "promotions": [
+    {
+      "id": "promo_1793264151352",
+      "stayId": "s3",
+      "ownerEmail": "owner@airbus.ke",
+      "days": 3,
+      "cost": 300,
+      "startsAt": 1793523351341,
+      "expiresAt": 1793782551341,
+      "status": "active",
+      "impressions": 0,
+      "clicks": 0,
+      "createdAt": 1793264151352
+    },
+    {
+      "id": "promo_1793264151341",
+      "stayId": "s3",
+      "ownerEmail": "owner@airbus.ke",
+      "days": 3,
+      "cost": 300,
+      "startsAt": 1793264151341,
+      "expiresAt": 1793523351341,
+      "status": "active",
+      "impressions": 0,
+      "clicks": 0,
+      "createdAt": 1793264151341
+    },
+    {
+      "id": "promo_seed_1",
+      "stayId": "s1",
+      "ownerEmail": "owner@airbus.ke",
+      "days": 7,
+      "cost": 700,
+      "startsAt": 1793177742708,
+      "expiresAt": 1793782542708,
+      "status": "active",
+      "impressions": 432,
+      "clicks": 68,
+      "createdAt": 1793177742708
+    },
+    {
+      "id": "promo_seed_2",
+      "stayId": "s4",
+      "ownerEmail": "owner@airbus.ke",
+      "days": 14,
+      "cost": 1400,
+      "startsAt": 1793091342708,
+      "expiresAt": 1794300942708,
+      "status": "active",
+      "impressions": 890,
+      "clicks": 142,
+      "createdAt": 1793091342708
+    }
+  ]
 }

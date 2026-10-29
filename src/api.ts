@@ -21,6 +21,7 @@ import {
   StayPriceTrend,
   ViralityReport,
   StayCategory,
+  ListingPromotion,
 } from './types';
 
 
@@ -505,6 +506,30 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ reason }),
     });
+  },
+
+  // Listing Promotions (KES 100/day visibility boost)
+  async promoteListing(
+    stayId: string,
+    days: number,
+    idempotencyKey?: string
+  ): Promise<{ stay: Stay; promotion: ListingPromotion; ledger: LedgerEntry; walletBalance: number }> {
+    return this.request(`/api/listings/${stayId}/promote`, {
+      method: 'POST',
+      body: JSON.stringify({ days, idempotencyKey }),
+    });
+  },
+
+  async getOwnerPromotions(): Promise<{ promotions: ListingPromotion[] }> {
+    return this.request('/api/owner/promotions');
+  },
+
+  async recordPromoImpression(stayId: string): Promise<{ recorded: boolean }> {
+    return this.request(`/api/listings/${stayId}/promo-impression`, { method: 'POST' });
+  },
+
+  async recordPromoClick(stayId: string): Promise<{ recorded: boolean }> {
+    return this.request(`/api/listings/${stayId}/promo-click`, { method: 'POST' });
   },
 
   // Referrals

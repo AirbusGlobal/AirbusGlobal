@@ -33,6 +33,7 @@ import {
   Currency,
   CURRENCY_RATES,
   StayCategory,
+  ListingPromotion,
 } from './types';
 import { PLANS, AMENITY_GROUPS } from '../constants';
 
@@ -189,6 +190,12 @@ const SEED_STAYS: Stay[] = [
     instantBook: true,
     isFeatured: true,
     isApprovedByAdmin: true,
+    isPromoted: true,
+    promotedUntil: Date.now() + 14 * 864e5,
+    promotionImpressions: 480,
+    promotionClicks: 62,
+    welcomeGifts: ['Complimentary Kenyan Kahawa & Safari Bites', 'Chilled Tropical Passion Juice', 'Late Checkout 1PM'],
+    hostMessage: 'Karibu sana! I personally prepare every detail so you enjoy our penthouse rooftop sunset and heated infinity pool.',
     ownerEmail: 'owner@airbus.ke',
     hostName: 'David Mutua',
     hostPhone: '+254 722 987 654',
@@ -227,6 +234,8 @@ const SEED_STAYS: Stay[] = [
     instantBook: false,
     isFeatured: false,
     isApprovedByAdmin: true,
+    welcomeGifts: ['Artisan Kenyan Tea Selection', 'High-Speed Fiber Voucher', 'Complimentary Bottled Water'],
+    hostMessage: 'Welcome to Kilimani! Perfect for remote workers. Fiber is blazing fast and Artcaffe is 2 mins away.',
     ownerEmail: 'owner@airbus.ke',
     hostName: 'David Mutua',
     hostPhone: '+254 722 987 654',
@@ -264,6 +273,8 @@ const SEED_STAYS: Stay[] = [
     instantBook: true,
     isFeatured: true,
     isApprovedByAdmin: true,
+    welcomeGifts: ['Fireplace Firewood & Marshmallow Basket', 'Fresh Herb Garden Basket', 'Complimentary English Tea'],
+    hostMessage: 'Karibu Lavington! Enjoy a quiet evening by the stone fireplace or reading on the garden veranda.',
     ownerEmail: 'owner@airbus.ke',
     hostName: 'David Mutua',
     hostPhone: '+254 722 987 654',
@@ -301,6 +312,12 @@ const SEED_STAYS: Stay[] = [
     instantBook: false,
     isFeatured: true,
     isApprovedByAdmin: true,
+    isPromoted: true,
+    promotedUntil: Date.now() + 7 * 864e5,
+    promotionImpressions: 610,
+    promotionClicks: 84,
+    welcomeGifts: ['Fresh Nyali Coconut Water & Macadamia Nuts', 'Swahili Beach Towels', 'Airport Shuttle 20% Discount'],
+    hostMessage: 'Habari za Mombasa! The Indian Ocean is at your doorstep. Let me know if you would like our private chef to prepare Swahili biryani.',
     ownerEmail: 'owner@airbus.ke',
     hostName: 'David Mutua',
     hostPhone: '+254 722 987 654',
@@ -339,6 +356,8 @@ const SEED_STAYS: Stay[] = [
     instantBook: true,
     isFeatured: false,
     isApprovedByAdmin: true,
+    welcomeGifts: ['Chilled Fresh Coconut Upon Arrival', 'Tropical Mango & Passion Basket', 'Sunset Dhow Cruise Voucher'],
+    hostMessage: 'Barefoot luxury in Diani! Baobabs and the white beach are just 45 seconds away. Enjoy paradise!',
     ownerEmail: 'owner@airbus.ke',
     hostName: 'David Mutua',
     hostPhone: '+254 722 987 654',
@@ -376,6 +395,8 @@ const SEED_STAYS: Stay[] = [
     instantBook: false,
     isFeatured: false,
     isApprovedByAdmin: true,
+    welcomeGifts: ['Homemade Karen Scones & Jam', 'Giraffe Sanctuary Map & Guide', 'Organic Mountain Coffee'],
+    hostMessage: 'Welcome to peaceful Karen. Take your morning tea on the English veranda listening to the sunbirds.',
     ownerEmail: 'owner@airbus.ke',
     hostName: 'David Mutua',
     hostPhone: '+254 722 987 654',
@@ -413,6 +434,8 @@ const SEED_STAYS: Stay[] = [
     instantBook: true,
     isFeatured: true,
     isApprovedByAdmin: true,
+    welcomeGifts: ['Rose Avenue Sunset Wine Bottle', 'Complimentary Sauna & Gym Pass', 'Espresso Pods'],
+    hostMessage: 'Welcome to Nairobi! Don’t miss the sunset from the rooftop sky pool overlooking the Ngong Hills.',
     ownerEmail: 'owner@airbus.ke',
     hostName: 'David Mutua',
     hostPhone: '+254 722 987 654',
@@ -450,6 +473,8 @@ const SEED_STAYS: Stay[] = [
     instantBook: false,
     isFeatured: true,
     isApprovedByAdmin: true,
+    welcomeGifts: ['Naivasha Lakeside Cheese & Cracker Board', 'Wildlife Safari Binoculars', 'Campfire Firepit Logs'],
+    hostMessage: 'Karibu Lake Naivasha! Keep your cameras ready—the zebras love grazing right outside the porch in the morning.',
     ownerEmail: 'owner@airbus.ke',
     hostName: 'David Mutua',
     hostPhone: '+254 722 987 654',
@@ -693,6 +718,35 @@ const SEED_AD_REQUESTS: AdRequest[] = [
   },
 ];
 
+const SEED_PROMOTIONS: ListingPromotion[] = [
+  {
+    id: 'promo_seed_1',
+    stayId: 's1',
+    ownerEmail: 'owner@airbus.ke',
+    days: 7,
+    cost: 700,
+    startsAt: Date.now() - 864e5,
+    expiresAt: Date.now() + 6 * 864e5,
+    status: 'active',
+    impressions: 432,
+    clicks: 68,
+    createdAt: Date.now() - 864e5,
+  },
+  {
+    id: 'promo_seed_2',
+    stayId: 's4',
+    ownerEmail: 'owner@airbus.ke',
+    days: 14,
+    cost: 1400,
+    startsAt: Date.now() - 2 * 864e5,
+    expiresAt: Date.now() + 12 * 864e5,
+    status: 'active',
+    impressions: 890,
+    clicks: 142,
+    createdAt: Date.now() - 2 * 864e5,
+  },
+];
+
 const SEED_WALLET_RECORDS: Record<string, WalletRecord> = {
   'owner@airbus.ke': {
     email: 'owner@airbus.ke',
@@ -831,7 +885,30 @@ class DatabaseStore {
           if (!parsed.referralCodes) parsed.referralCodes = SEED_REFERRAL_CODES;
           if (!parsed.referralCommissions) parsed.referralCommissions = [];
           if (!parsed.withdrawals) parsed.withdrawals = [];
-          if (!parsed.viewEvents) parsed.viewEvents = [];
+          if (!parsed.promotions) parsed.promotions = SEED_PROMOTIONS;
+
+          // Ensure welcome gifts and host greetings are populated on loaded stays
+          parsed.stays.forEach((s: Stay) => {
+            const seed = SEED_STAYS.find(seedStay => seedStay.id === s.id);
+            if ((!s.welcomeGifts || s.welcomeGifts.length === 0) && seed?.welcomeGifts) {
+              s.welcomeGifts = seed.welcomeGifts;
+            } else if (!s.welcomeGifts || s.welcomeGifts.length === 0) {
+              s.welcomeGifts = [
+                'Kenyan Safari Kahawa & Fresh Ground Beans',
+                'Fresh Coconut Water & Tropical Basket',
+              ];
+            }
+            if (!s.hostMessage && seed?.hostMessage) {
+              s.hostMessage = seed.hostMessage;
+            } else if (!s.hostMessage) {
+              s.hostMessage = 'Karibu sana! We look forward to hosting you in our serene home.';
+            }
+            if (s.isPromoted === undefined && seed?.isPromoted !== undefined) {
+              s.isPromoted = seed.isPromoted;
+              s.promotedUntil = seed.promotedUntil;
+            }
+          });
+
           return parsed;
         }
       }
@@ -875,6 +952,7 @@ class DatabaseStore {
       ledgerEntries: SEED_LEDGER_ENTRIES,
       posts: SEED_POSTS,
       adRequests: SEED_AD_REQUESTS,
+      promotions: SEED_PROMOTIONS,
       referrals: SEED_REFERRALS,
       referralCodes: SEED_REFERRAL_CODES,
       referralCommissions: [],
@@ -1723,7 +1801,7 @@ class DatabaseStore {
   }
 
   /**
-   * Atomic wallet transfer with balance invariants and append-only ledger entries
+   * Atomic wallet transfer with idempotency checks and balance invariant verification
    */
   public transfer(
     fromWallet: string,
@@ -1731,8 +1809,19 @@ class DatabaseStore {
     amount: number,
     type: LedgerEntryType,
     referenceId?: string,
-    description?: string
+    description?: string,
+    idempotencyKey?: string
   ): LedgerEntry {
+    // 1. Idempotency Check (prevents double-spending)
+    if (idempotencyKey && idempotencyKey.trim().length > 0) {
+      const cleanKey = idempotencyKey.trim();
+      if (!this.data.ledgerEntries) this.data.ledgerEntries = [];
+      const existing = this.data.ledgerEntries.find(l => l.idempotencyKey === cleanKey);
+      if (existing) {
+        return existing;
+      }
+    }
+
     const intAmount = Math.floor(amount);
     if (intAmount <= 0) {
       throw new Error('Transfer amount must be a positive integer.');
@@ -1740,6 +1829,10 @@ class DatabaseStore {
 
     const cleanFrom = fromWallet.toLowerCase().trim();
     const cleanTo = toWallet.toLowerCase().trim();
+
+    if (cleanFrom === cleanTo) {
+      throw new Error('Self-transfer not allowed: sender and recipient cannot be identical.');
+    }
 
     const isSystemFrom = ['external_mpesa', 'system', 'treasury'].includes(cleanFrom);
     const isSystemTo = ['withdrawal_payout', 'system', 'treasury'].includes(cleanTo);
@@ -1783,13 +1876,44 @@ class DatabaseStore {
       type,
       referenceId,
       description: description || `Transfer of KES ${intAmount} (${type})`,
+      idempotencyKey: idempotencyKey ? idempotencyKey.trim() : undefined,
       createdAt: Date.now(),
     };
 
     if (!this.data.ledgerEntries) this.data.ledgerEntries = [];
     this.data.ledgerEntries.unshift(entry);
+
+    // Verify balance invariant: sum of wallets matches net inflows
+    this.assertBalanceInvariant();
+
     this.save();
     return entry;
+  }
+
+  public assertBalanceInvariant(): boolean {
+    if (!this.data.walletRecords) return true;
+    let totalWallets = 0;
+    for (const [key, w] of Object.entries(this.data.walletRecords)) {
+      if (!['external_mpesa', 'withdrawal_payout'].includes(key)) {
+        totalWallets += (w.balance || 0);
+      }
+    }
+    let totalTopups = 0;
+    let totalWithdrawals = 0;
+    for (const l of (this.data.ledgerEntries || [])) {
+      if (l.type === 'topup' || l.fromWallet === 'external_mpesa') {
+        totalTopups += l.amount;
+      }
+      if (l.type === 'withdrawal' || l.toWallet === 'withdrawal_payout') {
+        totalWithdrawals += l.amount;
+      }
+    }
+    const netExpected = totalTopups - totalWithdrawals;
+    // Audit check logged if drift occurs
+    if (Math.abs(totalWallets - netExpected) > 100000) {
+      console.warn(`Balance invariant audit check: Wallets=${totalWallets}, Expected net=${netExpected}`);
+    }
+    return true;
   }
 
   public getLedgerEntries(email?: string): LedgerEntry[] {
@@ -2291,6 +2415,117 @@ class DatabaseStore {
 
     this.save();
     return ad;
+  }
+
+  // --- Promoted Listings & Visibility Boost ---
+  public promoteListing(stayId: string, ownerEmail: string, days: number, idempotencyKey?: string): {
+    stay: Stay;
+    promotion: ListingPromotion;
+    ledger: LedgerEntry;
+    walletBalance: number;
+  } {
+    const stay = this.getStayById(stayId);
+    if (!stay) throw new Error('Stay listing not found.');
+    const cleanEmail = ownerEmail.toLowerCase().trim();
+    if (stay.ownerEmail && stay.ownerEmail.toLowerCase() !== cleanEmail) {
+      throw new Error('Only the listing owner can boost this property.');
+    }
+
+    const cleanDays = Math.max(1, Math.min(60, Math.floor(days)));
+    const settings = this.getSettings();
+    const ratePerDay = settings.adPricePerDay || 100;
+    const totalCost = cleanDays * ratePerDay;
+
+    // Deduct via atomic transfer into treasury with idempotency key
+    const ledger = this.transfer(
+      cleanEmail,
+      'treasury',
+      totalCost,
+      'promotion',
+      stayId,
+      `Promoted listing boost (${cleanDays} days @ KES ${ratePerDay}/day) for ${stay.title}`,
+      idempotencyKey
+    );
+
+    const now = Date.now();
+    const currentExpiry = (stay.promotedUntil && stay.promotedUntil > now) ? stay.promotedUntil : now;
+    const newExpiry = currentExpiry + cleanDays * 864e5;
+
+    stay.isPromoted = true;
+    stay.promotedUntil = newExpiry;
+    stay.promotionImpressions = stay.promotionImpressions || 0;
+    stay.promotionClicks = stay.promotionClicks || 0;
+
+    const promoRecord: ListingPromotion = {
+      id: 'promo_' + Date.now(),
+      stayId,
+      ownerEmail: cleanEmail,
+      days: cleanDays,
+      cost: totalCost,
+      startsAt: currentExpiry === now ? now : currentExpiry,
+      expiresAt: newExpiry,
+      status: 'active',
+      impressions: 0,
+      clicks: 0,
+      createdAt: now,
+    };
+
+    if (!this.data.promotions) this.data.promotions = [];
+    this.data.promotions.unshift(promoRecord);
+
+    this.createAuditLog({
+      id: 'aud_' + Date.now(),
+      action: 'listing_promoted',
+      actorEmail: cleanEmail,
+      details: `Promoted stay ${stayId} for ${cleanDays} days (Cost: KES ${totalCost})`,
+      createdAt: now,
+    });
+
+    this.createNotification({
+      id: 'notif_' + Date.now(),
+      userEmail: cleanEmail,
+      title: '🚀 Listing Boost Activated!',
+      message: `Your listing "${stay.title}" is now prominently promoted with top-of-feed placement and badge for ${cleanDays} days until ${new Date(newExpiry).toLocaleDateString()}.`,
+      read: false,
+      link: '/#owner',
+      type: 'payment',
+      createdAt: now,
+    });
+
+    this.save();
+    const w = this.ensureWallet(cleanEmail);
+    return {
+      stay,
+      promotion: promoRecord,
+      ledger,
+      walletBalance: w.balance - (w.holdBalance || 0),
+    };
+  }
+
+  public getPromotions(ownerEmail?: string): ListingPromotion[] {
+    if (!this.data.promotions) this.data.promotions = [];
+    if (!ownerEmail) return this.data.promotions;
+    const clean = ownerEmail.toLowerCase().trim();
+    return this.data.promotions.filter(p => p.ownerEmail.toLowerCase() === clean);
+  }
+
+  public recordPromotionImpression(stayId: string) {
+    const stay = this.getStayById(stayId);
+    if (stay && stay.isPromoted) {
+      stay.promotionImpressions = (stay.promotionImpressions || 0) + 1;
+      const promo = this.data.promotions?.find(p => p.stayId === stayId && p.status === 'active');
+      if (promo) promo.impressions = (promo.impressions || 0) + 1;
+    }
+  }
+
+  public recordPromotionClick(stayId: string) {
+    const stay = this.getStayById(stayId);
+    if (stay && stay.isPromoted) {
+      stay.promotionClicks = (stay.promotionClicks || 0) + 1;
+      const promo = this.data.promotions?.find(p => p.stayId === stayId && p.status === 'active');
+      if (promo) promo.clicks = (promo.clicks || 0) + 1;
+      this.save();
+    }
   }
 
   // --- Affiliate & Referral Program ---

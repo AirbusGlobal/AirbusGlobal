@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   User,
   Stay,
@@ -6,7 +6,9 @@ import {
   HostPlanStatus,
   Currency,
   CURRENCY_RATES,
+  ListingPromotion,
 } from '../types';
+import { api } from '../api';
 import {
   Plus,
   CreditCard,
@@ -32,6 +34,9 @@ import {
   Film,
   AlertCircle,
   Lock,
+  Gift,
+  Rocket,
+  Megaphone,
 } from 'lucide-react';
 import { AMENITY_GROUPS, PLANS } from '../constants';
 import { extractYouTubeId, getYouTubeThumbnailUrl, isYouTubeUrl } from '../utils/youtube';
@@ -69,12 +74,45 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
   currency,
   onBackToFeed,
 }) => {
-  const [activeTab, setActiveTab] = useState<'listings' | 'reservations' | 'new-stay' | 'insights'>('listings');
+  const [activeTab, setActiveTab] = useState<'listings' | 'reservations' | 'promotions' | 'new-stay' | 'insights'>('listings');
 
   // Check if subscription is active
   const isPlanActive = plan.status === 'active' && plan.expiresAt > Date.now();
   const daysRemaining = Math.max(0, Math.ceil((plan.expiresAt - Date.now()) / 864e5));
   const isGracePeriod = !isPlanActive && Date.now() <= plan.expiresAt + 2 * 864e5;
+
+  // Promoted Listings & Visibility Boost State
+  const [promotions, setPromotions] = useState<ListingPromotion[]>([]);
+  const [selectedStayIdForPromo, setSelectedStayIdForPromo] = useState<string>(myStays[0]?.id || '');
+  const [promoDays, setPromoDays] = useState<number>(3);
+  const [promoLoading, setPromoLoading] = useState<boolean>(false);
+  const [promoFeedback, setPromoFeedback] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
+
+  // Load host promotions
+  const fetchPromotions = () => {
+    api.getOwnerPromotions()
+      .then(res => setPromotions(res.promotions || []))
+      .catch(() => {});
+  };
+
+  useEffect(() => {
+    fetchPromotions();
+  }, []);
+
+  // Welcome Gifts & Host Greeting Wizard State
+  const [welcomeGifts, setWelcomeGifts] = useState<string[]>([
+    'Kenyan Safari Kahawa & Fresh Ground Beans',
+    'Fresh Coconut Water & Tropical Basket',
+  ]);
+  const [customGiftInput, setCustomGiftInput] = useState('');
+  const [hostMessage, setHostMessage] = useState('Karibu sana! We look forward to hosting you in our serene home.');
+
+  // In-place Quick Edit for Gifts & Message on existing listings
+  const [editingGiftsStayId, setEditingGiftsStayId] = useState<string | null>(null);
+  const [editGiftsList, setEditGiftsList] = useState<string[]>([]);
+  const [editCustomGift, setEditCustomGift] = useState('');
+  const [editHostMsg, setEditHostMsg] = useState('');
+  const [editSaving, setEditSaving] = useState(false);
 
   // New Stay Wizard State
   const [step, setStep] = useState(1);
@@ -242,6 +280,8 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
         whatsapp: whatsapp || '',
         affiliateLink: affiliateLink || '',
         minNights: 1,
+        welcomeGifts: welcomeGifts.length > 0 ? welcomeGifts : ['Kenyan Safari Kahawa & Fresh Ground Beans'],
+        hostMessage: hostMessage.trim() || 'Karibu sana! We look forward to hosting you.',
       });
 
       // Reset wizard
@@ -253,12 +293,64 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
       setVideoUrl('');
       setYoutubeInput('');
       setYoutubeVideoId(null);
+      setWelcomeGifts(['Kenyan Safari Kahawa & Fresh Ground Beans', 'Fresh Coconut Water & Tropical Basket']);
+      setHostMessage('Karibu sana! We look forward to hosting you in our serene home.');
       setStep(1);
       setActiveTab('listings');
     } catch (err: any) {
       setWizardError(err.message || 'Failed to publish stay.');
     } finally {
       setCreatingStay(false);
+    }
+  };
+
+  const handleBoostListing = async () => {
+    if (!selectedStayIdForPromo) {
+      setPromoFeedback({ type: 'error', msg: 'Please select a listing to boost.' });
+      return;
+    }
+    const cost = promoDays * 100;
+    if (walletBalance < cost) {
+      setPromoFeedback({
+        type: 'error',
+        msg: `Insufficient wallet balance (KES ${walletBalance}). Boost requires KES ${cost}. Please top up via M-Pesa.`,
+      });
+      return;
+    }
+
+    setPromoLoading(true);
+    setPromoFeedback(null);
+    try {
+      const idempotencyKey = `promo_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+      const res = await api.promoteListing(selectedStayIdForPromo, promoDays, idempotencyKey);
+      setPromoFeedback({
+        type: 'success',
+        msg: `🚀 Promotion activated for ${res.promotion.days} days! Your listing now enjoys top-of-feed placement and the Promoted Boost badge.`,
+      });
+      fetchPromotions();
+      await onUpdateStay(selectedStayIdForPromo, {
+        isPromoted: true,
+        promotedUntil: res.promotion.expiresAt,
+      });
+    } catch (err: any) {
+      setPromoFeedback({ type: 'error', msg: err.message || 'Promotion failed.' });
+    } finally {
+      setPromoLoading(false);
+    }
+  };
+
+  const handleSaveGifts = async (stayId: string) => {
+    setEditSaving(true);
+    try {
+      await onUpdateStay(stayId, {
+        welcomeGifts: editGiftsList,
+        hostMessage: editHostMsg,
+      });
+      setEditingGiftsStayId(null);
+    } catch (err: any) {
+      alert('Could not update gifts: ' + err.message);
+    } finally {
+      setEditSaving(false);
     }
   };
 
@@ -469,6 +561,23 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
         </button>
 
         <button
+          onClick={() => setActiveTab('promotions')}
+          className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+            activeTab === 'promotions'
+              ? 'bg-gradient-to-r from-amber-500 to-rose-500 text-white shadow-md'
+              : 'text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800'
+          }`}
+        >
+          <Rocket className="w-4 h-4 text-amber-400" />
+          <span>Promoted Listings</span>
+          {myStays.some(s => s.isPromoted) && (
+            <span className="bg-amber-400 text-stone-950 text-[10px] font-black px-1.5 py-0.2 rounded-full">
+              Boost Active
+            </span>
+          )}
+        </button>
+
+        <button
           onClick={() => {
             if (!isPlanActive) {
               onOpenPlanModal();
@@ -592,6 +701,45 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                         )}
 
                         <button
+                          onClick={() => {
+                            setSelectedStayIdForPromo(s.id);
+                            setActiveTab('promotions');
+                          }}
+                          className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all flex items-center gap-1 cursor-pointer ${
+                            s.isPromoted
+                              ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/40'
+                              : 'bg-gradient-to-r from-amber-500 to-rose-500 text-white shadow-xs hover:opacity-95'
+                          }`}
+                          title="Boost visibility at KES 100/day"
+                        >
+                          <Rocket className="w-3.5 h-3.5" />
+                          <span>{s.isPromoted ? 'Boost Active 🚀' : 'Boost (KES 100/d)'}</span>
+                        </button>
+
+                        <button
+                          onClick={() => {
+                            if (editingGiftsStayId === s.id) {
+                              setEditingGiftsStayId(null);
+                            } else {
+                              setEditingGiftsStayId(s.id);
+                              setEditGiftsList(
+                                s.welcomeGifts || [
+                                  'Kenyan Safari Kahawa & Fresh Ground Beans',
+                                  'Fresh Coconut Water & Tropical Basket',
+                                ]
+                              );
+                              setEditHostMsg(
+                                s.hostMessage || 'Karibu sana! We look forward to hosting you in our serene home.'
+                              );
+                            }
+                          }}
+                          className="px-3 py-1.5 rounded-full text-xs font-bold border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 hover:bg-amber-100 transition-colors flex items-center gap-1 cursor-pointer"
+                        >
+                          <Gift className="w-3.5 h-3.5 text-amber-600" />
+                          <span>Gifts &amp; Note ({s.welcomeGifts?.length || 0})</span>
+                        </button>
+
+                        <button
                           onClick={() => setBlockStayId(isBlockedFormOpen ? null : s.id)}
                           className="px-3 py-1.5 rounded-full text-xs font-bold border border-stone-200 dark:border-stone-700 hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-700 dark:text-stone-300 transition-colors flex items-center gap-1 cursor-pointer"
                         >
@@ -612,6 +760,113 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                         </button>
                       </div>
                     </div>
+
+                    {/* In-place Welcome Gifts & Host Message Editor */}
+                    {editingGiftsStayId === s.id && (
+                      <div className="p-4 bg-amber-50/60 dark:bg-amber-950/30 rounded-2xl border border-amber-300/70 dark:border-amber-800 space-y-3 animate-in fade-in">
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-xs font-black text-amber-950 dark:text-amber-200 uppercase flex items-center gap-1.5">
+                            <Gift className="w-4 h-4 text-amber-600" />
+                            <span>Manage Welcome Gifts &amp; Host Greeting Note</span>
+                          </h4>
+                          <span className="text-[10px] text-amber-700 font-bold">
+                            Displayed on card &amp; booking
+                          </span>
+                        </div>
+
+                        {/* Gift Chips */}
+                        <div className="space-y-1.5">
+                          <label className="text-[11px] font-bold text-stone-700 dark:text-stone-300 block">
+                            Active Gifts ({editGiftsList.length})
+                          </label>
+                          <div className="flex flex-wrap gap-1.5">
+                            {[
+                              'Kenyan Safari Kahawa & Fresh Ground Beans',
+                              'Fresh Coconut Water & Tropical Basket',
+                              'Late Checkout (1:00 PM)',
+                              'Complimentary Airport Pickup',
+                              'Artisanal Kenyan Macadamia Nuts',
+                              'Chilled Sparkling Juice',
+                              'Fresh Beach Towels & Sunscreen',
+                            ].map(gift => {
+                              const isSel = editGiftsList.includes(gift);
+                              return (
+                                <button
+                                  key={gift}
+                                  type="button"
+                                  onClick={() => {
+                                    setEditGiftsList(prev =>
+                                      prev.includes(gift) ? prev.filter(g => g !== gift) : [...prev, gift]
+                                    );
+                                  }}
+                                  className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-all cursor-pointer ${
+                                    isSel
+                                      ? 'bg-amber-500 text-white border-amber-500 shadow-xs'
+                                      : 'bg-white dark:bg-stone-800 text-stone-700 dark:text-stone-300 border-stone-200 dark:border-stone-700'
+                                  }`}
+                                >
+                                  {isSel ? '✓ ' : '+ '} {gift}
+                                </button>
+                              );
+                            })}
+                          </div>
+
+                          <div className="flex items-center gap-2 pt-1">
+                            <input
+                              type="text"
+                              value={editCustomGift}
+                              onChange={e => setEditCustomGift(e.target.value)}
+                              placeholder="Add custom gift item..."
+                              className="flex-1 px-3 py-1.5 bg-white dark:bg-stone-900 border border-amber-200 dark:border-amber-800 rounded-xl text-xs outline-none"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (editCustomGift.trim()) {
+                                  setEditGiftsList(prev => [...prev, editCustomGift.trim()]);
+                                  setEditCustomGift('');
+                                }
+                              }}
+                              className="px-3 py-1.5 bg-amber-600 text-white rounded-xl text-xs font-bold cursor-pointer hover:bg-amber-700"
+                            >
+                              Add
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Host Greeting Note */}
+                        <div className="space-y-1">
+                          <label className="text-[11px] font-bold text-stone-700 dark:text-stone-300 block">
+                            Host Greeting / Personal Welcome Message
+                          </label>
+                          <textarea
+                            rows={2}
+                            value={editHostMsg}
+                            onChange={e => setEditHostMsg(e.target.value)}
+                            placeholder="e.g. Karibu sana! We look forward to hosting you..."
+                            className="w-full px-3 py-1.5 bg-white dark:bg-stone-900 border border-amber-200 dark:border-amber-800 rounded-xl text-xs outline-none"
+                          />
+                        </div>
+
+                        <div className="flex items-center justify-end gap-2 pt-1">
+                          <button
+                            type="button"
+                            onClick={() => setEditingGiftsStayId(null)}
+                            className="px-3 py-1.5 rounded-full text-xs font-bold text-stone-500 hover:text-stone-800 cursor-pointer"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            disabled={editSaving}
+                            onClick={() => handleSaveGifts(s.id)}
+                            className="px-4 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-full text-xs font-bold transition-colors cursor-pointer disabled:opacity-50"
+                          >
+                            {editSaving ? 'Saving...' : 'Save Gifts & Note'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
 
                     {/* Performance Metrics Bar */}
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-3 border-t border-stone-100 dark:border-stone-800 text-xs">
@@ -738,6 +993,208 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                   </div>
                 );
               })
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* TAB: PROMOTED LISTINGS & VISIBILITY BOOST */}
+      {activeTab === 'promotions' && (
+        <div className="space-y-6">
+          <div className="p-6 rounded-3xl bg-gradient-to-r from-amber-950/40 via-stone-900 to-rose-950/40 border border-amber-500/30 text-white shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+            <div className="space-y-2 max-w-xl">
+              <div className="flex items-center gap-2">
+                <span className="p-2 rounded-xl bg-gradient-to-tr from-amber-500 to-rose-500 text-white shadow-sm">
+                  <Rocket className="w-5 h-5" />
+                </span>
+                <h3 className="text-lg font-black tracking-wide">
+                  Promoted Listings &amp; Visibility Boost
+                </h3>
+                <span className="text-[10px] bg-amber-400 text-stone-950 font-black px-2.5 py-0.5 rounded-full uppercase">
+                  KES 100 / Day
+                </span>
+              </div>
+              <p className="text-xs text-stone-300 leading-relaxed">
+                Boost your video tours to the absolute top of the search feed, discover map, and Shorts recommendations. Promoted stays receive a distinct glowing badge and 3.8x more direct booking enquiries. Paid directly from your AirBus wallet!
+              </p>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-white/5 border border-white/10 text-center shrink-0 w-full md:w-auto">
+              <span className="text-[10px] uppercase font-bold text-stone-400 block mb-1">Available Wallet Balance</span>
+              <div className="text-xl font-black text-emerald-400 mb-2">
+                KES {walletBalance.toLocaleString()}
+              </div>
+              <button
+                onClick={onOpenTopupModal}
+                className="px-4 py-1.5 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-colors cursor-pointer shadow-sm w-full"
+              >
+                + Top Up Wallet
+              </button>
+            </div>
+          </div>
+
+          {/* Campaign Launcher Card */}
+          <div className="p-6 bg-white dark:bg-[#15171e] rounded-3xl border border-stone-200 dark:border-stone-800 shadow-sm space-y-5">
+            <h4 className="text-sm font-extrabold text-stone-900 dark:text-white flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-amber-500" />
+              <span>Launch a New Visibility Boost Campaign</span>
+            </h4>
+
+            {promoFeedback && (
+              <div
+                className={`p-3.5 rounded-2xl text-xs font-semibold flex items-center gap-2 ${
+                  promoFeedback.type === 'success'
+                    ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-300'
+                    : 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-300'
+                }`}
+              >
+                {promoFeedback.type === 'success' ? <CheckCircle2 className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
+                <span>{promoFeedback.msg}</span>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              {/* Select Listing */}
+              <div>
+                <label className="text-xs font-bold text-stone-700 dark:text-stone-300 block mb-1.5">
+                  1. Select Stay Listing to Boost
+                </label>
+                {myStays.length === 0 ? (
+                  <p className="text-xs text-stone-400">Please upload a stay first.</p>
+                ) : (
+                  <select
+                    value={selectedStayIdForPromo}
+                    onChange={e => setSelectedStayIdForPromo(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-xs outline-none"
+                  >
+                    {myStays.map(s => (
+                      <option key={s.id} value={s.id}>
+                        {s.title} ({s.location}) — KES {s.price.toLocaleString()}/night
+                        {s.isPromoted ? ' [Currently Boosted]' : ''}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+
+              {/* Select Duration */}
+              <div>
+                <label className="text-xs font-bold text-stone-700 dark:text-stone-300 block mb-1.5">
+                  2. Choose Boost Duration (@ KES 100/day)
+                </label>
+                <div className="grid grid-cols-5 gap-1.5">
+                  {[
+                    { days: 1, label: '1 Day', cost: 100 },
+                    { days: 3, label: '3 Days', cost: 300 },
+                    { days: 7, label: '7 Days', cost: 700 },
+                    { days: 14, label: '14 Days', cost: 1400 },
+                    { days: 30, label: '30 Days', cost: 3000 },
+                  ].map(opt => (
+                    <button
+                      key={opt.days}
+                      type="button"
+                      onClick={() => setPromoDays(opt.days)}
+                      className={`p-2 rounded-xl text-center border transition-all cursor-pointer ${
+                        promoDays === opt.days
+                          ? 'bg-amber-500 text-white border-amber-500 shadow-sm'
+                          : 'bg-stone-50 dark:bg-stone-900 border-stone-200 dark:border-stone-700 text-stone-700 dark:text-stone-300'
+                      }`}
+                    >
+                      <span className="text-xs font-bold block">{opt.label}</span>
+                      <span className="text-[10px] opacity-80 font-mono">KES {opt.cost}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div>
+                <span className="text-xs text-stone-500 block">Total Campaign Investment:</span>
+                <div className="text-lg font-black text-stone-900 dark:text-white">
+                  KES {(promoDays * 100).toLocaleString()}{' '}
+                  <span className="text-xs font-normal text-stone-400">({promoDays} days of top placement)</span>
+                </div>
+              </div>
+
+              <button
+                onClick={handleBoostListing}
+                disabled={promoLoading || myStays.length === 0}
+                className="px-6 py-2.5 rounded-full bg-gradient-to-r from-amber-500 via-rose-500 to-purple-600 hover:opacity-95 text-white font-extrabold text-xs shadow-md transition-all cursor-pointer disabled:opacity-50 flex items-center gap-2"
+              >
+                <Rocket className="w-4 h-4" />
+                <span>{promoLoading ? 'Activating Boost...' : `Activate Boost for KES ${promoDays * 100}`}</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Campaigns History & Live Performance Table */}
+          <div className="p-6 bg-white dark:bg-[#15171e] rounded-3xl border border-stone-200 dark:border-stone-800 shadow-sm space-y-4">
+            <div className="flex items-center justify-between">
+              <h4 className="text-sm font-extrabold text-stone-900 dark:text-white">
+                Active &amp; Past Boost Campaigns ({promotions.length})
+              </h4>
+              <button
+                onClick={fetchPromotions}
+                className="text-xs font-bold text-stone-500 hover:text-stone-900 dark:hover:text-white cursor-pointer"
+              >
+                Refresh
+              </button>
+            </div>
+
+            {promotions.length === 0 ? (
+              <div className="p-8 text-center border border-dashed border-stone-200 dark:border-stone-800 rounded-2xl text-xs text-stone-400">
+                No promotions launched yet. Choose a listing above to start getting more bookings!
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="border-b border-stone-200 dark:border-stone-800 text-[10px] uppercase font-bold text-stone-400">
+                    <tr>
+                      <th className="py-2.5 px-3">Listing</th>
+                      <th className="py-2.5 px-3">Duration</th>
+                      <th className="py-2.5 px-3">Cost</th>
+                      <th className="py-2.5 px-3">Status</th>
+                      <th className="py-2.5 px-3">Impressions</th>
+                      <th className="py-2.5 px-3">Clicks</th>
+                      <th className="py-2.5 px-3">Days Left</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-stone-100 dark:divide-stone-800">
+                    {promotions.map(p => {
+                      const stay = myStays.find(s => s.id === p.stayId);
+                      const isStillActive = p.expiresAt > Date.now();
+                      const daysLeft = Math.max(0, Math.ceil((p.expiresAt - Date.now()) / 864e5));
+                      return (
+                        <tr key={p.id} className="hover:bg-stone-50 dark:hover:bg-stone-900/50">
+                          <td className="py-3 px-3 font-bold text-stone-900 dark:text-white flex items-center gap-2">
+                            <span>🚀</span>
+                            <span className="truncate max-w-[200px]">{stay?.title || `Stay #${p.stayId}`}</span>
+                          </td>
+                          <td className="py-3 px-3">{p.days} Days</td>
+                          <td className="py-3 px-3 font-mono font-bold">KES {p.cost}</td>
+                          <td className="py-3 px-3">
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase ${
+                                isStillActive
+                                  ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
+                                  : 'bg-stone-100 text-stone-600 dark:bg-stone-800 dark:text-stone-400'
+                              }`}
+                            >
+                              {isStillActive ? 'Active' : 'Completed'}
+                            </span>
+                          </td>
+                          <td className="py-3 px-3 font-mono">{p.impressions || stay?.promotionImpressions || 0}</td>
+                          <td className="py-3 px-3 font-mono">{p.clicks || stay?.promotionClicks || 0}</td>
+                          <td className="py-3 px-3 text-stone-500 font-semibold">
+                            {isStillActive ? `${daysLeft} days` : '0 days'}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             )}
           </div>
         </div>
@@ -1091,6 +1548,95 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                     onChange={e => setDesc(e.target.value)}
                     placeholder="Provide property description or click Generate with Gemini..."
                     className="w-full px-3 py-2 bg-white dark:bg-stone-900 border border-purple-200 dark:border-purple-800 rounded-xl text-xs outline-none"
+                  />
+                </div>
+
+                {/* Complimentary Welcome Gifts & Guest Perks */}
+                <div className="p-4 bg-amber-50/70 dark:bg-amber-950/20 border border-amber-300/60 dark:border-amber-800/40 rounded-2xl space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-amber-950 dark:text-amber-200 flex items-center gap-1.5">
+                      <Gift className="w-4 h-4 text-amber-600" />
+                      Complimentary Welcome Gifts (Incentives for Guests)
+                    </span>
+                    <span className="text-[10px] text-amber-600 bg-amber-100 dark:bg-amber-900/40 px-2 py-0.5 rounded-full font-bold">
+                      {welcomeGifts.length} Included
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-stone-600 dark:text-stone-300">
+                    Select perks or Kenyan hospitality touches guests receive upon check-in.
+                  </p>
+
+                  {/* Preset Gift Suggestions */}
+                  <div className="flex flex-wrap gap-1.5">
+                    {[
+                      'Kenyan Safari Kahawa & Fresh Ground Beans',
+                      'Fresh Coconut Water & Tropical Basket',
+                      'Late Checkout (1:00 PM)',
+                      'Complimentary Airport Pickup',
+                      'Artisanal Kenyan Macadamia Nuts',
+                      'Chilled Sparkling Juice',
+                      'Fresh Beach Towels & Sunscreen',
+                    ].map(gift => {
+                      const isSelected = welcomeGifts.includes(gift);
+                      return (
+                        <button
+                          key={gift}
+                          type="button"
+                          onClick={() => {
+                            setWelcomeGifts(prev =>
+                              prev.includes(gift) ? prev.filter(g => g !== gift) : [...prev, gift]
+                            );
+                          }}
+                          className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-all cursor-pointer ${
+                            isSelected
+                              ? 'bg-amber-500 text-white border-amber-500 shadow-xs'
+                              : 'bg-white dark:bg-stone-800 text-stone-700 dark:text-stone-300 border-stone-200 dark:border-stone-700 hover:border-amber-400'
+                          }`}
+                        >
+                          {isSelected ? '✓ ' : '+ '} {gift}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Add Custom Gift */}
+                  <div className="flex items-center gap-2 pt-1">
+                    <input
+                      type="text"
+                      value={customGiftInput}
+                      onChange={e => setCustomGiftInput(e.target.value)}
+                      placeholder="Add custom gift (e.g. Swahili breakfast basket)..."
+                      className="flex-1 px-3 py-1.5 bg-white dark:bg-stone-900 border border-amber-200 dark:border-amber-800 rounded-xl text-xs outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (customGiftInput.trim()) {
+                          setWelcomeGifts(prev => [...prev, customGiftInput.trim()]);
+                          setCustomGiftInput('');
+                        }
+                      }}
+                      className="px-3 py-1.5 bg-amber-600 text-white rounded-xl text-xs font-bold cursor-pointer hover:bg-amber-700"
+                    >
+                      Add Gift
+                    </button>
+                  </div>
+                </div>
+
+                {/* Host Personal Message / Welcome Note */}
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-stone-700 dark:text-stone-300 block">
+                    Host Personal Greeting / Welcome Note
+                  </label>
+                  <p className="text-[11px] text-stone-400">
+                    A warm note shown prominently to guests on your video stay card and booking confirmation.
+                  </p>
+                  <textarea
+                    rows={2}
+                    value={hostMessage}
+                    onChange={e => setHostMessage(e.target.value)}
+                    placeholder="e.g. Karibu sana! We are delighted to host you in our serene home..."
+                    className="w-full px-3.5 py-2 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-xs outline-none focus:border-[#e4002b]"
                   />
                 </div>
 

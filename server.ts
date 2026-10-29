@@ -410,6 +410,10 @@ app.post('/api/stays', (req, res) => {
     whatsapp: whatsapp || '',
     affiliateLink: affiliateLink || '',
     minNights: Number(minNights) || 1,
+    welcomeGifts: Array.isArray(req.body.welcomeGifts) && req.body.welcomeGifts.length > 0
+      ? req.body.welcomeGifts
+      : ['Kenyan Safari Kahawa & Fresh Ground Beans', 'Coconut Water & Tropical Basket'],
+    hostMessage: req.body.hostMessage || 'Karibu sana! We look forward to hosting you in our serene home.',
     views: 1,
     likesCount: 0,
     commentsCount: 0,
@@ -440,6 +444,88 @@ app.post('/api/stays', (req, res) => {
   }
 
   return res.status(201).json({ stay: newStay });
+});
+
+// Update stay listing (Owner or Admin)
+app.patch('/api/stays/:id', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ error: 'Not authenticated' });
+
+  const stay = db.getStayById(req.params.id);
+  if (!stay) return res.status(404).json({ error: 'Stay not found' });
+
+  if (user.role !== 'admin' && stay.ownerEmail?.toLowerCase() !== user.email.toLowerCase()) {
+    return res.status(403).json({ error: 'Permission denied. You can only edit your own stays.' });
+  }
+
+  const allowedUpdates = [
+    'title',
+    'location',
+    'price',
+    'type',
+    'guests',
+    'beds',
+    'area',
+    'features',
+    'highlights',
+    'description',
+    'videoUrl',
+    'thumbnailUrl',
+    'youtubeUrl',
+    'youtubeVideoId',
+    'whatsapp',
+    'minNights',
+    'welcomeGifts',
+    'hostMessage',
+    'instantBook',
+  ];
+
+  const updates: any = {};
+  for (const key of allowedUpdates) {
+    if (req.body[key] !== undefined) {
+      updates[key] = req.body[key];
+    }
+  }
+
+  const updatedStay = db.updateStay(req.params.id, updates);
+  return res.json({ stay: updatedStay });
+});
+
+// Promote Listing (KES 100/day visibility boost)
+app.post('/api/listings/:id/promote', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ error: 'Not authenticated' });
+
+  const { days, idempotencyKey } = req.body;
+  const numDays = Number(days) || 3;
+
+  try {
+    const result = db.promoteListing(req.params.id, user.email, numDays, idempotencyKey);
+    return res.status(201).json(result);
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message });
+  }
+});
+
+// Get Owner Promotions
+app.get('/api/owner/promotions', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ error: 'Not authenticated' });
+
+  const promotions = db.getPromotions(user.role === 'admin' ? undefined : user.email);
+  return res.json({ promotions });
+});
+
+// Record Promotion Impression
+app.post('/api/listings/:id/promo-impression', (req, res) => {
+  db.recordPromotionImpression(req.params.id);
+  return res.json({ recorded: true });
+});
+
+// Record Promotion Click
+app.post('/api/listings/:id/promo-click', (req, res) => {
+  db.recordPromotionClick(req.params.id);
+  return res.json({ recorded: true });
 });
 
 // Admin approves listing to go live

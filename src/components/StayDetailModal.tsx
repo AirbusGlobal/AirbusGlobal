@@ -41,6 +41,7 @@ import {
   Image as ImageIcon,
   TrendingUp,
   Megaphone,
+  Gift,
 } from 'lucide-react';
 import { api } from '../api';
 import { PriceTrendCard } from './PriceTrendCard';
@@ -642,6 +643,66 @@ export const StayDetailModal: React.FC<StayDetailModalProps> = ({
                   <p className="text-xs text-stone-600 dark:text-stone-300 leading-relaxed whitespace-pre-line">
                     {stay.description}
                   </p>
+                </div>
+              )}
+
+              {/* Host Personal Welcome Note */}
+              {stay.hostMessage && (
+                <div className="p-4 rounded-2xl bg-gradient-to-r from-rose-50 to-amber-50 dark:from-[#1e1b24] dark:to-[#221c21] border border-rose-200/60 dark:border-rose-900/40">
+                  <div className="flex items-start gap-3">
+                    <div className="w-10 h-10 rounded-full bg-[#e4002b] text-white flex items-center justify-center font-bold text-sm shrink-0 shadow-sm">
+                      {stay.hostName?.charAt(0) || 'H'}
+                    </div>
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-stone-900 dark:text-white">
+                          Host Greeting from {stay.hostName || 'Host'}
+                        </span>
+                        <span className="text-[10px] bg-rose-500/10 text-rose-600 dark:text-rose-400 font-semibold px-2 py-0.5 rounded-full">
+                          Personal Message
+                        </span>
+                      </div>
+                      <p className="text-xs text-stone-700 dark:text-stone-300 italic leading-relaxed">
+                        “{stay.hostMessage}”
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Complimentary Host Welcome Gifts */}
+              {stay.welcomeGifts && stay.welcomeGifts.length > 0 && (
+                <div className="p-4 rounded-2xl bg-amber-50/70 dark:bg-amber-950/20 border border-amber-300/60 dark:border-amber-800/40 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-7 h-7 rounded-xl bg-amber-500 text-white flex items-center justify-center shadow-sm">
+                        <Gift className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <h4 className="text-xs font-black text-amber-950 dark:text-amber-200 uppercase tracking-wide">
+                          Complimentary Host Welcome Gifts
+                        </h4>
+                        <p className="text-[10px] text-amber-700 dark:text-amber-400">
+                          Included free with your reservation to make your stay memorable
+                        </p>
+                      </div>
+                    </div>
+                    <span className="text-[10px] bg-amber-500 text-white font-bold px-2 py-0.5 rounded-full">
+                      Free Perk
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                    {stay.welcomeGifts.map((gift, idx) => (
+                      <div
+                        key={idx}
+                        className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white dark:bg-stone-900 border border-amber-200 dark:border-amber-900/60 text-xs font-semibold text-stone-800 dark:text-stone-200 shadow-xs"
+                      >
+                        <span className="text-base">🎁</span>
+                        <span className="truncate">{gift}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
 

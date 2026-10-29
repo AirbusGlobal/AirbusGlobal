@@ -45,20 +45,46 @@ export const StayMap: React.FC<StayMapProps> = ({
     return `${currency === 'USD' ? '$' : '€'}${converted}`;
   };
 
-  // Tile layers
+  // OpenStreetMap Tile Layer Configuration (replaces deprecated CARTO endpoints)
+  // Highly reliable, zero API key required, configurable for custom production proxies
+  const OSM_TILE_URL =
+    (typeof process !== 'undefined' && process.env?.VITE_MAP_TILE_URL) ||
+    'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+  const OSM_ATTRIBUTION =
+    '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+
   const TILE_LAYERS = {
     streets: {
-      url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
-      attribution: '&copy; <a href="https://carto.com/">CARTO</a> &copy; OpenStreetMap',
+      url: OSM_TILE_URL,
+      attribution: OSM_ATTRIBUTION,
+      className: '',
     },
     dark: {
-      url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-      attribution: '&copy; <a href="https://carto.com/">CARTO</a> &copy; OpenStreetMap',
+      url: OSM_TILE_URL,
+      attribution: OSM_ATTRIBUTION,
+      className: 'dark-tiles-filter',
     },
     satellite: {
       url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
       attribution: '&copy; Esri &mdash; Earthstar Geographics',
+      className: '',
     },
+  };
+
+  const createTileLayer = (type: 'streets' | 'satellite' | 'dark') => {
+    const config = TILE_LAYERS[type];
+    const layer = L.tileLayer(config.url, {
+      attribution: config.attribution,
+      maxZoom: 19,
+      className: config.className,
+    });
+
+    // Graceful error logging if network tile drops
+    layer.on('tileerror', (error) => {
+      console.warn('Map tile load notice:', error);
+    });
+
+    return layer;
   };
 
   // Initialize Map
@@ -73,10 +99,8 @@ export const StayMap: React.FC<StayMapProps> = ({
         zoomControl: false,
       });
 
-      L.tileLayer(TILE_LAYERS[mapType].url, {
-        attribution: TILE_LAYERS[mapType].attribution,
-        maxZoom: 19,
-      }).addTo(map);
+      const initialLayer = createTileLayer(mapType);
+      initialLayer.addTo(map);
 
       // Custom zoom control in bottom right
       L.control
@@ -107,10 +131,8 @@ export const StayMap: React.FC<StayMapProps> = ({
       }
     });
 
-    L.tileLayer(TILE_LAYERS[mapType].url, {
-      attribution: TILE_LAYERS[mapType].attribution,
-      maxZoom: 19,
-    }).addTo(map);
+    const newLayer = createTileLayer(mapType);
+    newLayer.addTo(map);
   }, [mapType]);
 
   // Update Markers when stays or currency change
@@ -280,8 +302,18 @@ export const StayMap: React.FC<StayMapProps> = ({
             >
               {activePopupStay.title}
             </h4>
-            <div className="text-[11px] text-stone-500 line-clamp-1">
-              📍 {activePopupStay.location}
+            <div className="text-[11px] text-stone-500 line-clamp-1 flex items-center gap-1.5 flex-wrap">
+              <span>📍 {activePopupStay.location}</span>
+              {activePopupStay.isPromoted && (
+                <span className="text-[9px] font-black uppercase px-1.5 py-0.2 bg-gradient-to-r from-[#ff2e93] to-[#8b5cf6] text-white rounded">
+                  🚀 Promoted
+                </span>
+              )}
+              {activePopupStay.welcomeGifts && activePopupStay.welcomeGifts.length > 0 && (
+                <span className="text-[9px] font-bold px-1.5 py-0.2 bg-fuchsia-100 dark:bg-fuchsia-950 text-fuchsia-700 dark:text-fuchsia-300 rounded flex items-center gap-0.5">
+                  🎁 {activePopupStay.welcomeGifts[0]}
+                </span>
+              )}
             </div>
             <div className="flex items-center justify-between mt-1">
               <span className="text-xs font-black text-stone-900 dark:text-white">

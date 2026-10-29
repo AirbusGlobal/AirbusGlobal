@@ -19,6 +19,7 @@ export interface DatabaseSchema {
   referralCodes: Record<string, string>; // referralCode -> userEmail
   referralCommissions: import('../types').ReferralCommissionRecord[];
   settings: import('../types').PlatformSettings;
+  promotions: import('../types').ListingPromotion[];
   viewEvents: Array<{ postId: string; viewer: string; timestamp: number }>;
   withdrawals: Array<{
     id: string;
