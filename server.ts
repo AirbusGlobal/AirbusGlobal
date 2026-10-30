@@ -17,6 +17,14 @@ const isProduction = process.env.NODE_ENV === 'production';
 
 app.use(express.json());
 
+// Normalize /AirbusGlobal/api into /api so both paths work seamlessly
+app.use((req, res, next) => {
+  if (req.url.startsWith('/AirbusGlobal/api/')) {
+    req.url = req.url.replace(/^\/AirbusGlobal/, '');
+  }
+  next();
+});
+
 // Initialize Google GenAI client if API key exists
 let genAI: GoogleGenAI | null = null;
 if (process.env.GEMINI_API_KEY) {
@@ -1435,9 +1443,14 @@ async function startServer() {
       server: { middlewareMode: true },
       appType: 'spa',
     });
+    // Seamlessly redirect root to /AirbusGlobal/ in dev
+    app.get('/', (req, res) => {
+      res.redirect('/AirbusGlobal/');
+    });
     app.use(vite.middlewares);
   } else {
     const distPath = path.resolve(__dirname, 'dist');
+    app.use('/AirbusGlobal', express.static(distPath));
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
       res.sendFile(path.resolve(distPath, 'index.html'));

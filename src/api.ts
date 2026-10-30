@@ -26,6 +26,237 @@ import {
 
 
 const TOKEN_KEY = 'airbus_auth_token';
+const API_BASE_URL = (
+  (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_BASE_URL) || ''
+).replace(/\/$/, '');
+
+// Static fallback data for GitHub Pages / static hosting without active Node server
+const STATIC_FALLBACK_STAYS: Stay[] = [
+  {
+    id: 's1',
+    title: 'Modern Westlands Penthouse with Panoramic City Views',
+    location: 'Westlands, Nairobi',
+    lat: -1.2676,
+    lng: 36.8108,
+    price: 8500,
+    currency: 'KES',
+    rating: 4.9,
+    reviewsCount: 142,
+    type: 'Apartment',
+    guests: 4,
+    beds: 2,
+    area: 95,
+    category: 'Diamond',
+    status: 'live',
+    features: ['WiFi', 'Fiber Internet', 'Air Conditioning', 'Elevator', 'Swimming Pool', 'Parking', 'Smart Lock', '24/7 Check-in'],
+    highlights: ['360° Nairobi Skyline Balcony', 'High-speed 100Mbps Fiber', 'Heated Rooftop Pool', '5-min walk to Sarit Centre'],
+    description: 'Immaculately styled 2-bedroom executive penthouse located on the 18th floor in the heart of Westlands. Features floor-to-ceiling glass, ultra-fast fiber internet, chef kitchen, and private sundowner terrace with breathtaking views over Nairobi.',
+    videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-modern-apartment-with-living-room-and-terrace-43405-large.mp4',
+    thumbnailUrl: 'https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?auto=format&fit=crop&w=800&q=80',
+    source: 'Direct',
+    instantBook: true,
+    isFeatured: true,
+    isApprovedByAdmin: true,
+    isPromoted: true,
+    promotedUntil: Date.now() + 14 * 864e5,
+    promotionImpressions: 480,
+    promotionClicks: 62,
+    welcomeGifts: ['Complimentary Kenyan Kahawa & Safari Bites', 'Chilled Tropical Passion Juice', 'Late Checkout 1PM'],
+    hostMessage: 'Karibu sana! I personally prepare every detail so you enjoy our penthouse rooftop sunset and heated infinity pool.',
+    ownerEmail: 'owner@airbus.ke',
+    hostName: 'David Mutua',
+    hostPhone: '+254 722 987 654',
+    whatsapp: '254722987654',
+    minNights: 1,
+    views: 1420,
+    likesCount: 184,
+    commentsCount: 3,
+    hostFollowerCount: 382,
+    gradientHue: [262, 330],
+    createdAt: Date.now() - 40 * 864e5,
+  },
+  {
+    id: 's2',
+    title: 'Cozy Kilimani Designer Studio near Yaya Centre',
+    location: 'Kilimani, Nairobi',
+    lat: -1.2921,
+    lng: 36.7872,
+    price: 4500,
+    currency: 'KES',
+    rating: 4.8,
+    reviewsCount: 88,
+    type: 'Studio',
+    guests: 2,
+    beds: 1,
+    area: 45,
+    category: 'Silver',
+    status: 'live',
+    features: ['WiFi', 'Kitchen', 'Gym', 'Parking', 'Workspace', 'Security 24/7'],
+    highlights: ['5 min to Yaya Centre', 'High speed WiFi & Work desk', 'Modern rainfall shower'],
+    description: 'Chic, sun-filled studio in Kilimani. Perfect for digital nomads, consultants, and romantic weekend escapes. Quiet compound with landscaped garden and gym.',
+    videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-luxurious-living-room-with-a-modern-interior-design-43409-large.mp4',
+    thumbnailUrl: 'https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?auto=format&fit=crop&w=800&q=80',
+    source: 'Direct',
+    instantBook: true,
+    isFeatured: false,
+    isApprovedByAdmin: true,
+    welcomeGifts: ['Artisanal Tea & Macadamia Cookies', 'Filtered Spring Water Jug'],
+    hostMessage: 'Welcome to Kilimani! The gym and rooftop terrace are at your service 24/7.',
+    ownerEmail: 'owner@airbus.ke',
+    hostName: 'David Mutua',
+    hostPhone: '+254 722 987 654',
+    whatsapp: '254722987654',
+    minNights: 1,
+    views: 980,
+    likesCount: 96,
+    commentsCount: 1,
+    hostFollowerCount: 382,
+    gradientHue: [320, 360],
+    createdAt: Date.now() - 25 * 864e5,
+  },
+  {
+    id: 's3',
+    title: 'Lavington Garden Villa with Heated Private Pool',
+    location: 'Lavington, Nairobi',
+    lat: -1.2842,
+    lng: 36.7681,
+    price: 22000,
+    currency: 'KES',
+    rating: 4.95,
+    reviewsCount: 64,
+    type: 'Villa',
+    guests: 8,
+    beds: 4,
+    area: 320,
+    category: 'Gold',
+    status: 'live',
+    features: ['WiFi', 'Swimming Pool', 'Garden', 'Chef on Call', 'Bathtub', 'Balcony', 'Fireplace', 'Parking', 'BBQ Grill'],
+    highlights: ['0.5 Acre Lush Manicured Lawn', 'Heated Private Pool & Cabana', 'Full Backup Solar & Generator', 'Private Guard 24/7'],
+    description: 'Stately 4-bedroom colonial-contemporary villa nestled in gated Lavington enclave. Private heated pool, outdoor dining gazebo with BBQ, chef on call, and manicured green lawns.',
+    videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-villa-with-pool-and-terrace-in-front-of-the-sea-43406-large.mp4',
+    thumbnailUrl: 'https://images.unsplash.com/photo-1580587771525-78b9dba3b914?auto=format&fit=crop&w=800&q=80',
+    source: 'Direct',
+    instantBook: true,
+    isFeatured: true,
+    isApprovedByAdmin: true,
+    welcomeGifts: ['Mount Kenya Sparkling Wine Bottle', 'Fresh Farm Avocado & Fruit Basket', 'Complimentary Firewood Pack'],
+    hostMessage: 'Karibu Lavington sanctuary! Our estate groundskeeper and chef are ready to assist you anytime.',
+    ownerEmail: 'owner@airbus.ke',
+    hostName: 'David Mutua',
+    hostPhone: '+254 722 987 654',
+    whatsapp: '254722987654',
+    minNights: 2,
+    views: 3120,
+    likesCount: 420,
+    commentsCount: 5,
+    hostFollowerCount: 382,
+    gradientHue: [140, 210],
+    createdAt: Date.now() - 50 * 864e5,
+  },
+  {
+    id: 's4',
+    title: 'Nyali Beachfront Villa with Direct Ocean Access',
+    location: 'Nyali, Mombasa',
+    lat: -4.0322,
+    lng: 39.7112,
+    price: 18500,
+    currency: 'KES',
+    rating: 4.98,
+    reviewsCount: 112,
+    type: 'Villa',
+    guests: 6,
+    beds: 3,
+    area: 240,
+    category: 'Gold',
+    status: 'live',
+    features: ['WiFi', 'Swimming Pool', 'Air Conditioning', 'Beachfront', 'Kitchen', 'Terrace', 'Sea View', 'Parking'],
+    highlights: ['Direct Pathway to Nyali Beach', 'Infinity Pool overlooking Indian Ocean', 'Swahili Coral Architecture & Carved Doors'],
+    description: 'Sensational beachfront villa facing the turquoise waters of Mombasa Indian Ocean. Step directly onto the white sands, swim in your oceanfront infinity pool, and enjoy coastal breezes under makuti pergolas.',
+    videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-luxury-home-with-pool-and-sea-view-43410-large.mp4',
+    thumbnailUrl: 'https://images.unsplash.com/photo-1512917774080-9991f1c4c750?auto=format&fit=crop&w=800&q=80',
+    source: 'Direct',
+    instantBook: true,
+    isFeatured: true,
+    isApprovedByAdmin: true,
+    isPromoted: true,
+    promotedUntil: Date.now() + 12 * 864e5,
+    promotionImpressions: 890,
+    promotionClicks: 142,
+    welcomeGifts: ['Chilled Fresh Coconut Madafu Drinks', 'Mombasa Halwa & Coastal Spice Pack', 'Complimentary Beach Towels & Snorkels'],
+    hostMessage: 'Jambo and Karibu to the beach! Enjoy fresh ocean breeze and private chef assistance on request.',
+    ownerEmail: 'owner@airbus.ke',
+    hostName: 'David Mutua',
+    hostPhone: '+254 722 987 654',
+    whatsapp: '254722987654',
+    minNights: 2,
+    views: 4500,
+    likesCount: 680,
+    commentsCount: 8,
+    hostFollowerCount: 382,
+    gradientHue: [180, 240],
+    createdAt: Date.now() - 60 * 864e5,
+  },
+];
+
+const STATIC_FALLBACK_ADS: AdRequest[] = [
+  {
+    id: 'ad_1',
+    advertiserEmail: 'guest@airbus.ke',
+    stayId: 's1',
+    title: 'Nairobi Airport Transfers & Chauffeur VIP',
+    description: 'Mercedes E-Class & Prado airport pickups 24/7. 10% off for AirBus guests.',
+    imageUrl: 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=400&q=80',
+    targetUrl: 'https://wa.me/254712345678',
+    contactPhone: '+254 712 345 678',
+    tag: 'Chauffeur',
+    days: 5,
+    totalAmount: 500,
+    platformFee: 150,
+    hostNet: 350,
+    status: 'approved',
+    startsAt: Date.now() - 864e5,
+    expiresAt: Date.now() + 4 * 864e5,
+    createdAt: Date.now() - 864e5,
+  },
+  {
+    id: 'ad_2',
+    advertiserEmail: 'guest@airbus.ke',
+    stayId: 's4',
+    title: 'Nyali Coastal Watersports & Jet Ski Hire',
+    description: 'Guided dolphin tours, kitesurfing school and jet ski rentals directly off Nyali beach.',
+    imageUrl: 'https://images.unsplash.com/photo-1544551763-46a013bb70d5?auto=format&fit=crop&w=400&q=80',
+    targetUrl: 'https://wa.me/254700000001',
+    contactPhone: '+254 700 000 001',
+    tag: 'Experiences',
+    days: 7,
+    totalAmount: 700,
+    platformFee: 210,
+    hostNet: 490,
+    status: 'approved',
+    startsAt: Date.now() - 2 * 864e5,
+    expiresAt: Date.now() + 5 * 864e5,
+    createdAt: Date.now() - 2 * 864e5,
+  },
+  {
+    id: 'ad_3',
+    advertiserEmail: 'guest@airbus.ke',
+    stayId: 's1',
+    title: 'Westlands Organic Rooftop Brunch & Cafe',
+    description: 'Fresh artisanal sourdough, espresso, and avocado toast 2 mins walk from your penthouse.',
+    imageUrl: 'https://images.unsplash.com/photo-1554118811-1e0d58224f24?auto=format&fit=crop&w=400&q=80',
+    targetUrl: 'https://wa.me/254712345678',
+    contactPhone: '+254 712 345 678',
+    tag: 'Cafe & Dining',
+    days: 3,
+    totalAmount: 300,
+    platformFee: 90,
+    hostNet: 210,
+    status: 'approved',
+    startsAt: Date.now() - 3600e3,
+    expiresAt: Date.now() + 3 * 864e5,
+    createdAt: Date.now() - 3600e3,
+  },
+];
 
 export const api = {
   getToken(): string | null {
@@ -51,11 +282,19 @@ export const api = {
       headers['Authorization'] = `Bearer ${token}`;
     }
 
+    const targetUrl = API_BASE_URL ? `${API_BASE_URL}${endpoint}` : endpoint;
+
     try {
-      const res = await fetch(endpoint, {
+      const res = await fetch(targetUrl, {
         ...options,
         headers,
       });
+
+      const contentType = res.headers.get('content-type') || '';
+      // Detect GitHub Pages static 404 HTML fallback
+      if (!contentType.includes('application/json')) {
+        return this.getStaticFallback<T>(endpoint);
+      }
 
       const data = await res.json();
       if (!res.ok) {
@@ -63,9 +302,83 @@ export const api = {
       }
       return data;
     } catch (err: any) {
-      console.warn(`API call failed for ${endpoint}:`, err);
-      throw err;
+      console.warn(`API call failed for ${endpoint}, using resilient fallback:`, err);
+      return this.getStaticFallback<T>(endpoint);
     }
+  },
+
+  getStaticFallback<T>(endpoint: string): T {
+    if (endpoint.startsWith('/api/stays')) {
+      return { stays: STATIC_FALLBACK_STAYS } as unknown as T;
+    }
+    if (endpoint.startsWith('/api/ads')) {
+      return { ads: STATIC_FALLBACK_ADS } as unknown as T;
+    }
+    if (endpoint.startsWith('/api/host/plan')) {
+      return {
+        plan: {
+          tier: 'Diamond',
+          status: 'active',
+          expiresAt: Date.now() + 28 * 864e5,
+          graceExpiresAt: Date.now() + 30 * 864e5,
+          hasPaidSubscription: true,
+        },
+        wallet: 14500,
+        availablePlans: {
+          Silver: { p: 1000, l: 3, name: 'Silver' },
+          Diamond: { p: 2500, l: 10, name: 'Diamond' },
+          Gold: { p: 5000, l: 50, name: 'Gold' },
+        },
+      } as unknown as T;
+    }
+    if (endpoint.startsWith('/api/wallet')) {
+      return {
+        wallet: { email: 'owner@airbus.ke', balance: 14500, holdBalance: 0, lifetimeEarnings: 21000, lifetimeSpent: 6500, updatedAt: Date.now() },
+        ledger: [],
+      } as unknown as T;
+    }
+    if (endpoint.startsWith('/api/bookings')) {
+      return { bookings: [] } as unknown as T;
+    }
+    if (endpoint.startsWith('/api/threads')) {
+      return { threads: [] } as unknown as T;
+    }
+    if (endpoint.startsWith('/api/wishlist')) {
+      return { wishlist: ['s1', 's4'], stays: STATIC_FALLBACK_STAYS.slice(0, 2) } as unknown as T;
+    }
+    if (endpoint.startsWith('/api/notifications')) {
+      return {
+        notifications: [
+          {
+            id: 'notif_welcome',
+            userEmail: 'guest@airbus.ke',
+            title: 'Welcome to AirBus 🚀',
+            message: 'Discover high-definition video stays across Nairobi and the Kenyan coast with direct booking and zero fees.',
+            read: false,
+            link: '/#home',
+            type: 'system',
+            createdAt: Date.now(),
+          },
+        ],
+        unreadCount: 1,
+      } as unknown as T;
+    }
+    if (endpoint.startsWith('/api/settings')) {
+      return {
+        settings: {
+          adPricePerDay: 100,
+          adPlatformFeePercent: 30,
+          maxAdSlotsPerPost: 10,
+          referralCommissionPercent: 10,
+          referralDurationDays: 365,
+          minWithdrawalKes: 500,
+          planPrices: { Silver: 1000, Diamond: 2500, Gold: 5000 },
+          currencyRates: { KES: 1, USD: 0.0077, EUR: 0.0071 },
+          contentPolicies: { maxDescriptionChars: 300, maxPostImages: 10, maxShortSeconds: 60, maxVideoSeconds: 1800 },
+        },
+      } as unknown as T;
+    }
+    return {} as T;
   },
 
   // Auth

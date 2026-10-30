@@ -25,6 +25,7 @@ import { PlanModal } from './components/PlanModal';
 import { TripFinderModal } from './components/TripFinderModal';
 import { NotificationsModal } from './components/NotificationsModal';
 import { EarnTab } from './components/EarnTab';
+import { AdvertisementManager } from './components/AdvertisementManager';
 
 export default function App() {
   // Navigation & View
@@ -745,6 +746,9 @@ export default function App() {
           showToast('All notifications cleared.');
         }}
       />
+
+      {/* 8. Continuous Advertisement Popups in Bottom-Right Corner (Cycles 3s) */}
+      <AdvertisementManager />
     </div>
   );
 }
