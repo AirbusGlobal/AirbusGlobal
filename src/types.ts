@@ -308,6 +308,8 @@ export interface AdRequest {
   platformFee: number; // 30% e.g. 90 KES
   hostNet: number; // 70% e.g. 210 KES
   status: AdRequestStatus;
+  views?: number;
+  clicks?: number;
   startsAt?: number;
   expiresAt?: number;
   rejectionReason?: string;

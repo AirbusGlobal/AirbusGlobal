@@ -1,9 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { AdRequest } from '../types';
 import { api } from '../api';
-import { ExternalLink, X, Pause, Play, Sparkles, Megaphone } from 'lucide-react';
+import { ExternalLink, X, Pause, Play, Megaphone, Home } from 'lucide-react';
 
-export const AdvertisementManager: React.FC = () => {
+interface AdvertisementManagerProps {
+  onSelectStay?: (stayId: string) => void;
+}
+
+export const AdvertisementManager: React.FC<AdvertisementManagerProps> = ({ onSelectStay }) => {
   const [ads, setAds] = useState<AdRequest[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isFading, setIsFading] = useState(false);
@@ -34,12 +38,23 @@ export const AdvertisementManager: React.FC = () => {
     };
   }, []);
 
+  const currentAd = ads[currentIndex];
+
+  // Track and record 'view' event whenever an ad is displayed to the user
+  useEffect(() => {
+    if (!currentAd || isDismissed) return;
+
+    // Record view in backend database for administrators visibility analytics
+    api.recordAdView(currentAd.id).catch(err => {
+      console.warn('Could not record ad view event:', err);
+    });
+  }, [currentAd?.id, isDismissed]);
+
   // 3-second rotation timer with smooth fade-out and fade-in
   useEffect(() => {
     if (ads.length <= 1 || isPaused || isDismissed) return;
 
     timerRef.current = setTimeout(() => {
-      // Begin fade out
       setIsFading(true);
       setTimeout(() => {
         setCurrentIndex(prev => (prev + 1) % ads.length);
@@ -54,12 +69,37 @@ export const AdvertisementManager: React.FC = () => {
     };
   }, [ads.length, currentIndex, isPaused, isDismissed]);
 
-  if (ads.length === 0 || isDismissed) {
+  if (ads.length === 0 || isDismissed || !currentAd) {
     return null;
   }
 
-  const currentAd = ads[currentIndex];
-  if (!currentAd) return null;
+  // Redirect to stay detail view & record interaction
+  const handlePropertyInteraction = (e?: React.MouseEvent) => {
+    if (e) {
+      // Don't intercept if clicking close, pause or external link
+      const target = e.target as HTMLElement;
+      if (target.closest('button[data-action="control"]') || target.closest('a[data-action="external"]')) {
+        return;
+      }
+    }
+
+    // Record click event in database
+    api.recordAdClick(currentAd.id).catch(err => {
+      console.warn('Could not record ad click event:', err);
+    });
+
+    // Navigate to stay detail view
+    if (onSelectStay && currentAd.stayId) {
+      onSelectStay(currentAd.stayId);
+    } else if (currentAd.stayId) {
+      window.location.hash = `stay-${currentAd.stayId}`;
+    }
+  };
+
+  const handleExternalClick = () => {
+    // Record click event in database
+    api.recordAdClick(currentAd.id).catch(() => {});
+  };
 
   return (
     <div
@@ -69,7 +109,10 @@ export const AdvertisementManager: React.FC = () => {
       role="complementary"
       aria-label="Sponsored Advertisement"
     >
-      <div className="relative bg-stone-900/95 dark:bg-black/95 backdrop-blur-xl rounded-2xl p-3 border border-stone-800 shadow-[0_12px_40px_rgba(0,0,0,0.55)] text-white overflow-hidden transition-all duration-300">
+      <div
+        onClick={handlePropertyInteraction}
+        className="relative bg-stone-900/95 dark:bg-black/95 backdrop-blur-xl rounded-2xl p-3 border border-stone-800 hover:border-purple-500/60 shadow-[0_12px_40px_rgba(0,0,0,0.55)] text-white overflow-hidden transition-all duration-300 cursor-pointer group"
+      >
         {/* Glow accent bar at top */}
         <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-[#ff2e93] via-[#8b5cf6] to-[#e4002b]" />
 
@@ -87,14 +130,22 @@ export const AdvertisementManager: React.FC = () => {
 
           <div className="flex items-center gap-1">
             <button
-              onClick={() => setIsPaused(!isPaused)}
+              data-action="control"
+              onClick={e => {
+                e.stopPropagation();
+                setIsPaused(!isPaused);
+              }}
               className="p-1 text-stone-400 hover:text-white rounded-md hover:bg-stone-800 transition-colors cursor-pointer"
               title={isPaused ? 'Resume auto-rotation' : 'Pause rotation'}
             >
               {isPaused ? <Play className="w-3 h-3 text-emerald-400" /> : <Pause className="w-3 h-3" />}
             </button>
             <button
-              onClick={() => setIsDismissed(true)}
+              data-action="control"
+              onClick={e => {
+                e.stopPropagation();
+                setIsDismissed(true);
+              }}
               className="p-1 text-stone-400 hover:text-white rounded-md hover:bg-stone-800 transition-colors cursor-pointer"
               title="Close advert"
             >
@@ -110,7 +161,7 @@ export const AdvertisementManager: React.FC = () => {
           }`}
         >
           {/* Ad thumbnail */}
-          <div className="w-16 h-16 rounded-xl overflow-hidden shrink-0 bg-stone-800 border border-stone-700 relative">
+          <div className="w-16 h-16 rounded-xl overflow-hidden shrink-0 bg-stone-800 border border-stone-700 relative group-hover:scale-105 transition-transform">
             <img
               src={currentAd.imageUrl}
               alt={currentAd.title}
@@ -126,7 +177,7 @@ export const AdvertisementManager: React.FC = () => {
 
           {/* Ad details */}
           <div className="flex-1 min-w-0">
-            <h4 className="text-xs font-bold text-white line-clamp-1 leading-tight">
+            <h4 className="text-xs font-bold text-white line-clamp-1 leading-tight group-hover:text-amber-300 transition-colors">
               {currentAd.title}
             </h4>
             <p className="text-[11px] text-stone-300 line-clamp-2 mt-0.5 leading-snug">
@@ -134,20 +185,27 @@ export const AdvertisementManager: React.FC = () => {
             </p>
 
             <div className="mt-2 flex items-center justify-between gap-2">
-              <a
-                href={currentAd.targetUrl || '#'}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wider text-[#ff2e93] hover:text-[#ff5caa] transition-colors"
-              >
-                <span>Learn More</span>
-                <ExternalLink className="w-2.5 h-2.5" />
-              </a>
+              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-400 group-hover:underline">
+                <Home className="w-2.5 h-2.5" />
+                <span>View Stay #{currentAd.stayId}</span>
+              </span>
 
-              {currentAd.contactPhone && (
-                <span className="text-[9px] text-stone-400 font-mono">
-                  {currentAd.contactPhone}
-                </span>
+              {currentAd.targetUrl && (
+                <a
+                  data-action="external"
+                  href={currentAd.targetUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={e => {
+                    e.stopPropagation();
+                    handleExternalClick();
+                  }}
+                  className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wider text-[#ff2e93] hover:text-[#ff5caa] transition-colors"
+                  title="Open advertiser link"
+                >
+                  <span>Sponsor</span>
+                  <ExternalLink className="w-2.5 h-2.5" />
+                </a>
               )}
             </div>
           </div>
@@ -158,7 +216,7 @@ export const AdvertisementManager: React.FC = () => {
           <div className="mt-2.5 w-full bg-stone-800 h-0.5 rounded-full overflow-hidden">
             <div
               key={currentIndex}
-              className="h-full bg-gradient-to-r from-[#ff2e93] to-[#e4002b] animate-[advertProgress_3s_linear_infinite]"
+              className="h-full bg-gradient-to-r from-[#ff2e93] to-[#e4002b]"
               style={{
                 width: '100%',
                 animation: 'advertProgress 3s linear infinite',

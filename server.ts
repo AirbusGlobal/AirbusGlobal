@@ -1403,6 +1403,17 @@ app.post('/api/ads/:id/reject', (req, res) => {
   return res.json({ ad: result });
 });
 
+// Record Ad View & Click Visibility Events
+app.post('/api/ads/:id/view', (req, res) => {
+  const recorded = db.recordAdView(req.params.id);
+  return res.json({ recorded });
+});
+
+app.post('/api/ads/:id/click', (req, res) => {
+  const recorded = db.recordAdClick(req.params.id);
+  return res.json({ recorded });
+});
+
 // -----------------------------------------------------------------------------
 // AFFILIATE / REFERRAL PROGRAM ("EARN" TAB)
 // -----------------------------------------------------------------------------

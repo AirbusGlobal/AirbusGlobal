@@ -747,8 +747,13 @@ export default function App() {
         }}
       />
 
-      {/* 8. Continuous Advertisement Popups in Bottom-Right Corner (Cycles 3s) */}
-      <AdvertisementManager />
+      {/* 8. Continuous Advertisement Popups in Bottom-Right Corner (Cycles 3s & redirects to stay) */}
+      <AdvertisementManager
+        onSelectStay={id => {
+          setActiveStayId(id);
+          window.location.hash = `stay-${id}`;
+        }}
+      />
     </div>
   );
 }

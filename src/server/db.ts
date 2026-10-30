@@ -676,6 +676,8 @@ const SEED_AD_REQUESTS: AdRequest[] = [
     platformFee: 150,
     hostNet: 350,
     status: 'approved',
+    views: 342,
+    clicks: 48,
     startsAt: Date.now() - 864e5,
     expiresAt: Date.now() + 4 * 864e5,
     createdAt: Date.now() - 864e5,
@@ -695,6 +697,8 @@ const SEED_AD_REQUESTS: AdRequest[] = [
     platformFee: 210,
     hostNet: 490,
     status: 'approved',
+    views: 520,
+    clicks: 82,
     startsAt: Date.now() - 2 * 864e5,
     expiresAt: Date.now() + 5 * 864e5,
     createdAt: Date.now() - 2 * 864e5,
@@ -714,6 +718,8 @@ const SEED_AD_REQUESTS: AdRequest[] = [
     platformFee: 90,
     hostNet: 210,
     status: 'pending',
+    views: 0,
+    clicks: 0,
     createdAt: Date.now() - 3600e3,
   },
 ];
@@ -2415,6 +2421,40 @@ class DatabaseStore {
 
     this.save();
     return ad;
+  }
+
+  public recordAdView(id: string): boolean {
+    if (!this.data.adRequests) this.data.adRequests = [];
+    const ad = this.data.adRequests.find(a => a.id === id);
+    if (!ad) return false;
+
+    ad.views = (ad.views || 0) + 1;
+
+    // Link visibility directly to the property so hosts & admins track performance
+    const stay = this.getStayById(ad.stayId);
+    if (stay) {
+      stay.promotionImpressions = (stay.promotionImpressions || 0) + 1;
+    }
+
+    this.save();
+    return true;
+  }
+
+  public recordAdClick(id: string): boolean {
+    if (!this.data.adRequests) this.data.adRequests = [];
+    const ad = this.data.adRequests.find(a => a.id === id);
+    if (!ad) return false;
+
+    ad.clicks = (ad.clicks || 0) + 1;
+
+    // Link engagement directly to the property
+    const stay = this.getStayById(ad.stayId);
+    if (stay) {
+      stay.promotionClicks = (stay.promotionClicks || 0) + 1;
+    }
+
+    this.save();
+    return true;
   }
 
   // --- Promoted Listings & Visibility Boost ---

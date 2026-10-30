@@ -308,6 +308,9 @@ export const api = {
   },
 
   getStaticFallback<T>(endpoint: string): T {
+    if (endpoint.includes('/view') || endpoint.includes('/click') || endpoint.includes('/promo-')) {
+      return { recorded: true } as unknown as T;
+    }
     if (endpoint.startsWith('/api/stays')) {
       return { stays: STATIC_FALLBACK_STAYS } as unknown as T;
     }
@@ -819,6 +822,14 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ reason }),
     });
+  },
+
+  async recordAdView(id: string): Promise<{ recorded: boolean }> {
+    return this.request(`/api/ads/${id}/view`, { method: 'POST' });
+  },
+
+  async recordAdClick(id: string): Promise<{ recorded: boolean }> {
+    return this.request(`/api/ads/${id}/click`, { method: 'POST' });
   },
 
   // Listing Promotions (KES 100/day visibility boost)

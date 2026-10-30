@@ -39,6 +39,8 @@ import {
   X,
   FileText,
   Rocket,
+  Eye,
+  MousePointerClick,
 } from 'lucide-react';
 import { api } from '../api';
 
@@ -525,7 +527,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </div>
 
           {/* Slot Utilization & Financial Metrics */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
             <div className="p-3.5 bg-white dark:bg-[#15171e] rounded-2xl border border-stone-200 dark:border-stone-800">
               <span className="text-[10px] uppercase font-bold text-stone-400 block">Total Placements</span>
               <span className="text-base font-black text-stone-900 dark:text-white">{ads.length} Ads</span>
@@ -546,6 +548,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <span className="text-[10px] uppercase font-bold text-stone-400 block">Treasury 30% Fee Kept</span>
               <span className="text-base font-black text-pink-600 dark:text-pink-400">
                 KES {ads.filter(a => a.status === 'approved').reduce((acc, a) => acc + a.platformFee, 0).toLocaleString()}
+              </span>
+            </div>
+            <div className="p-3.5 bg-white dark:bg-[#15171e] rounded-2xl border border-stone-200 dark:border-stone-800 col-span-2 sm:col-span-1">
+              <span className="text-[10px] uppercase font-bold text-stone-400 block">Total Ad Visibility</span>
+              <span className="text-base font-black text-blue-600 dark:text-blue-400 flex items-center gap-1">
+                <Eye className="w-4 h-4" />
+                <span>{ads.reduce((acc, a) => acc + (a.views || 0), 0).toLocaleString()}</span>
               </span>
             </div>
           </div>
@@ -590,60 +599,79 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             <div className="space-y-3">
               {ads
                 .filter(a => adFilter === 'all' || a.status === adFilter)
-                .map(ad => (
-                  <div
-                    key={ad.id}
-                    className="p-4 sm:p-5 bg-white dark:bg-[#15171e] rounded-3xl border border-stone-200 dark:border-stone-800 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4"
-                  >
-                    <div className="flex items-start gap-3.5">
-                      <img
-                        src={ad.imageUrl}
-                        alt={ad.title}
-                        className="w-16 h-16 rounded-2xl object-cover shrink-0 border border-stone-200 dark:border-stone-700 shadow-sm"
-                      />
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300">
-                            {ad.tag || 'Sponsor'} ({ad.days} Days)
-                          </span>
+                .map(ad => {
+                  const associatedStay = stays.find(s => s.id === ad.stayId);
+                  return (
+                    <div
+                      key={ad.id}
+                      className="p-4 sm:p-5 bg-white dark:bg-[#15171e] rounded-3xl border border-stone-200 dark:border-stone-800 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4"
+                    >
+                      <div className="flex items-start gap-3.5">
+                        <img
+                          src={ad.imageUrl}
+                          alt={ad.title}
+                          className="w-16 h-16 rounded-2xl object-cover shrink-0 border border-stone-200 dark:border-stone-700 shadow-sm"
+                        />
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300">
+                              {ad.tag || 'Sponsor'} ({ad.days} Days)
+                            </span>
 
-                          <span
-                            className={`text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full ${
-                              ad.status === 'approved'
-                                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
-                                : ad.status === 'pending'
-                                ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
-                                : 'bg-rose-100 text-rose-800'
-                            }`}
-                          >
-                            {ad.status}
-                          </span>
-                        </div>
-
-                        <h4 className="text-sm font-extrabold text-stone-900 dark:text-white">{ad.title}</h4>
-                        <p className="text-xs text-stone-600 dark:text-stone-400 line-clamp-1">{ad.description}</p>
-
-                        {/* Financial Split Breakdown */}
-                        <div className="p-2.5 rounded-xl bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-800 text-xs grid grid-cols-3 gap-2 text-center max-w-md">
-                          <div>
-                            <span className="text-[10px] text-stone-400 font-semibold block">Total Billed</span>
-                            <strong className="text-stone-900 dark:text-white">KES {ad.totalAmount}</strong>
+                            <span
+                              className={`text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full ${
+                                ad.status === 'approved'
+                                  ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
+                                  : ad.status === 'pending'
+                                  ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
+                                  : 'bg-rose-100 text-rose-800'
+                              }`}
+                            >
+                              {ad.status}
+                            </span>
                           </div>
-                          <div>
-                            <span className="text-[10px] text-stone-400 font-semibold block">Host Net (70%)</span>
-                            <strong className="text-emerald-600 dark:text-emerald-400">KES {ad.hostNet}</strong>
-                          </div>
-                          <div>
-                            <span className="text-[10px] text-stone-400 font-semibold block">Platform Fee (30%)</span>
-                            <strong className="text-purple-600 dark:text-purple-400">KES {ad.platformFee}</strong>
-                          </div>
-                        </div>
 
-                        <div className="text-[11px] text-stone-400">
-                          Advertiser: <span className="font-semibold text-stone-700 dark:text-stone-300">{ad.advertiserEmail}</span> · Stay: #{ad.stayId}
+                          <h4 className="text-sm font-extrabold text-stone-900 dark:text-white">{ad.title}</h4>
+                          <p className="text-xs text-stone-600 dark:text-stone-400 line-clamp-1">{ad.description}</p>
+
+                          {/* Financial Split Breakdown */}
+                          <div className="p-2.5 rounded-xl bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-800 text-xs grid grid-cols-3 gap-2 text-center max-w-md">
+                            <div>
+                              <span className="text-[10px] text-stone-400 font-semibold block">Total Billed</span>
+                              <strong className="text-stone-900 dark:text-white">KES {ad.totalAmount}</strong>
+                            </div>
+                            <div>
+                              <span className="text-[10px] text-stone-400 font-semibold block">Host Net (70%)</span>
+                              <strong className="text-emerald-600 dark:text-emerald-400">KES {ad.hostNet}</strong>
+                            </div>
+                            <div>
+                              <span className="text-[10px] text-stone-400 font-semibold block">Platform Fee (30%)</span>
+                              <strong className="text-purple-600 dark:text-purple-400">KES {ad.platformFee}</strong>
+                            </div>
+                          </div>
+
+                          {/* Visibility and Property Association Metrics */}
+                          <div className="flex flex-wrap items-center gap-3 pt-1 text-[11px]">
+                            <span className="text-stone-400">
+                              Advertiser: <strong className="text-stone-700 dark:text-stone-300">{ad.advertiserEmail}</strong>
+                            </span>
+                            <span className="text-stone-300 dark:text-stone-700">·</span>
+                            <span className="flex items-center gap-1 font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 px-2 py-0.5 rounded-full">
+                              <Eye className="w-3 h-3" />
+                              <span>{ad.views || 0} Ad Views</span>
+                            </span>
+                            <span className="flex items-center gap-1 font-bold text-pink-600 dark:text-pink-400 bg-pink-50 dark:bg-pink-950/40 px-2 py-0.5 rounded-full">
+                              <MousePointerClick className="w-3 h-3" />
+                              <span>{ad.clicks || 0} Clicks</span>
+                            </span>
+                            {associatedStay && (
+                              <span className="text-stone-500">
+                                Property: <strong className="text-stone-800 dark:text-stone-200">{associatedStay.title}</strong>
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
-                    </div>
 
                     {/* Actions */}
                     <div className="flex items-center gap-2 shrink-0 w-full md:w-auto justify-end">
@@ -678,7 +706,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       )}
                     </div>
                   </div>
-                ))}
+                );
+              })}
             </div>
           )}
 

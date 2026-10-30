@@ -97,7 +97,9 @@
       ],
       "hostMessage": "Karibu sana! I personally prepare every detail so you enjoy our penthouse rooftop sunset and heated infinity pool.",
       "isPromoted": true,
-      "promotedUntil": 1794473742707
+      "promotedUntil": 1794473742707,
+      "promotionImpressions": 3,
+      "promotionClicks": 1
     },
     {
       "id": "s2",
@@ -208,7 +210,7 @@
       "hostMessage": "Karibu Lavington! Enjoy a quiet evening by the stone fireplace or reading on the garden veranda.",
       "isPromoted": true,
       "promotedUntil": 1793782551341,
-      "promotionImpressions": 0,
+      "promotionImpressions": 2,
       "promotionClicks": 0
     },
     {
@@ -266,7 +268,8 @@
       ],
       "hostMessage": "Habari za Mombasa! The Indian Ocean is at your doorstep. Let me know if you would like our private chef to prepare Swahili biryani.",
       "isPromoted": true,
-      "promotedUntil": 1793868942707
+      "promotedUntil": 1793868942707,
+      "promotionImpressions": 1
     },
     {
       "id": "s5",
@@ -469,7 +472,7 @@
       "hostPhone": "+254 722 987 654",
       "whatsapp": "254722987654",
       "minNights": 2,
-      "views": 745,
+      "views": 747,
       "gradientHue": [
         10,
         40
@@ -873,7 +876,9 @@
       "status": "approved",
       "startsAt": 1793093032749,
       "expiresAt": 1793525032749,
-      "createdAt": 1793093032749
+      "createdAt": 1793093032749,
+      "views": 1,
+      "clicks": 1
     },
     {
       "id": "ad_2",
@@ -1075,7 +1080,7 @@
       "startsAt": 1793523351341,
       "expiresAt": 1793782551341,
       "status": "active",
-      "impressions": 0,
+      "impressions": 2,
       "clicks": 0,
       "createdAt": 1793264151352
     },
@@ -1101,7 +1106,7 @@
       "startsAt": 1793177742708,
       "expiresAt": 1793782542708,
       "status": "active",
-      "impressions": 432,
+      "impressions": 434,
       "clicks": 68,
       "createdAt": 1793177742708
     },
@@ -1114,7 +1119,7 @@
       "startsAt": 1793091342708,
       "expiresAt": 1794300942708,
       "status": "active",
-      "impressions": 890,
+      "impressions": 891,
       "clicks": 142,
       "createdAt": 1793091342708
     }
