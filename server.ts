@@ -512,11 +512,16 @@ app.patch('/api/stays/:id', (req, res) => {
   const allowedUpdates = [
     'title',
     'location',
+    'lat',
+    'lng',
     'price',
     'type',
     'guests',
     'beds',
     'area',
+    'category',
+    'status',
+    'isFeatured',
     'features',
     'highlights',
     'description',
@@ -535,6 +540,13 @@ app.patch('/api/stays/:id', (req, res) => {
     'depositReason',
     'depositRefundTerms',
   ];
+
+  if (req.body.lat !== undefined && (typeof req.body.lat !== 'number' || isNaN(req.body.lat))) {
+    return res.status(400).json({ error: 'Latitude must be a valid number.' });
+  }
+  if (req.body.lng !== undefined && (typeof req.body.lng !== 'number' || isNaN(req.body.lng))) {
+    return res.status(400).json({ error: 'Longitude must be a valid number.' });
+  }
 
   const updates: any = {};
   for (const key of allowedUpdates) {
@@ -612,19 +624,6 @@ app.post('/api/admin/stays/:id/approve', (req, res) => {
   }
 
   return res.json({ stay });
-});
-
-app.patch('/api/stays/:id', (req, res) => {
-  const user = getAuthUser(req);
-  if (!user) return res.status(401).json({ error: 'Not authenticated' });
-  const stay = db.getStayById(req.params.id);
-  if (!stay) return res.status(404).json({ error: 'Stay not found' });
-  if (user.role !== 'admin' && stay.ownerEmail !== user.email) {
-    return res.status(403).json({ error: 'Unauthorized to edit this stay' });
-  }
-
-  const updated = db.updateStay(req.params.id, req.body);
-  return res.json({ stay: updated });
 });
 
 app.delete('/api/stays/:id', (req, res) => {
@@ -724,11 +723,20 @@ app.post('/api/bookings', (req, res) => {
     instalments: paymentType === 'instalments' ? instalments : undefined,
     depositAcknowledged: Boolean(depositAcknowledged),
     depositAmount: depositAmount ? Number(depositAmount) : undefined,
+    selectedGifts: Array.isArray(req.body.selectedGifts) ? req.body.selectedGifts : undefined,
     createdAt: Date.now(),
   };
 
   db.createBooking(newBooking);
   return res.status(201).json({ booking: newBooking });
+});
+
+// Check upcoming 24-hour check-in reminders for the logged-in user
+app.get('/api/bookings/check-reminders', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ error: 'Not authenticated' });
+  const reminders = db.checkUpcomingCheckinReminders(user.email);
+  return res.json({ upcomingReminders: reminders });
 });
 
 app.patch('/api/bookings/:id/status', (req, res) => {
@@ -951,6 +959,8 @@ app.post('/api/wishlist/toggle', (req, res) => {
 app.get('/api/notifications', (req, res) => {
   const user = getAuthUser(req);
   if (!user) return res.status(401).json({ error: 'Not authenticated' });
+  // Check and trigger any due 24-hour check-in notifications
+  db.checkUpcomingCheckinReminders(user.email);
   const notifications = db.getNotifications(user.email);
   return res.json({ notifications, unreadCount: notifications.filter(n => !n.read).length });
 });

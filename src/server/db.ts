@@ -510,6 +510,25 @@ const SEED_BOOKINGS: Booking[] = [
     createdAt: Date.now() - 2 * 864e5,
   },
   {
+    id: 'b_demo_upcoming_24h',
+    reference: 'AB24HRS',
+    stayId: 's2',
+    guestEmail: 'guest@airbus.ke',
+    guestName: 'Sarah Wanjiku',
+    checkIn: new Date(Date.now() + 20 * 3600 * 1000).toISOString().slice(0, 10),
+    checkOut: new Date(Date.now() + 3 * 864e5).toISOString().slice(0, 10),
+    guests: 2,
+    subtotal: 9000,
+    cleaningFee: 450,
+    serviceFee: 720,
+    total: 10170,
+    currency: 'KES',
+    status: 'confirmed',
+    note: 'Arriving tomorrow afternoon. Ready for check-in!',
+    selectedGifts: ['Kenyan Safari Kahawa & Fresh Ground Beans', 'Fresh Coconut Water & Tropical Basket'],
+    createdAt: Date.now() - 864e5,
+  },
+  {
     id: 'b_demo_2',
     reference: 'AB6107K',
     stayId: 's4',
@@ -871,6 +890,7 @@ class DatabaseStore {
   constructor() {
     this.data = this.load();
     this.checkSubscriptionExpirations();
+    this.checkUpcomingCheckinReminders();
   }
 
   private load(): DatabaseSchema {
@@ -1487,6 +1507,94 @@ class DatabaseStore {
     });
     this.save();
     return b;
+  }
+
+  // --- Automatic 24-Hour Stay Check-in Alerts ---
+  public checkUpcomingCheckinReminders(userEmail?: string): Array<{
+    booking: Booking;
+    stay: Stay;
+    hoursUntilCheckIn: number;
+    isWithin24Hours: boolean;
+  }> {
+    const now = Date.now();
+    const results: Array<{
+      booking: Booking;
+      stay: Stay;
+      hoursUntilCheckIn: number;
+      isWithin24Hours: boolean;
+    }> = [];
+
+    let hasCreatedNotification = false;
+
+    for (const b of this.data.bookings) {
+      if (b.status !== 'confirmed') continue;
+      if (userEmail && b.guestEmail.toLowerCase() !== userEmail.toLowerCase()) continue;
+
+      // Calculate checkIn timestamp (standard 14:00 check-in time)
+      const checkInDate = new Date(`${b.checkIn}T14:00:00`);
+      const checkInTime = !isNaN(checkInDate.getTime()) ? checkInDate.getTime() : new Date(b.checkIn).getTime();
+      if (isNaN(checkInTime)) continue;
+
+      const diffMs = checkInTime - now;
+      const hoursUntilCheckIn = Math.round((diffMs / (3600 * 1000)) * 10) / 10;
+      const isWithin24Hours = diffMs > 0 && diffMs <= 24 * 3600 * 1000;
+      const isToday = diffMs <= 0 && diffMs >= -14 * 3600 * 1000;
+
+      const stay = this.getStayById(b.stayId);
+      if (!stay) continue;
+
+      if (isWithin24Hours || isToday) {
+        results.push({
+          booking: b,
+          stay,
+          hoursUntilCheckIn: Math.max(0, hoursUntilCheckIn),
+          isWithin24Hours: true,
+        });
+
+        // 1. Generate persistent 24h reminder notification for guest if not already sent
+        const guestNotifId = `notif_remind_24h_${b.id}`;
+        const alreadyGuestNotified = this.data.notifications.some(n => n.id === guestNotifId);
+        if (!alreadyGuestNotified) {
+          const timeText = diffMs > 0 ? `in ~${Math.max(1, Math.round(hoursUntilCheckIn))} hours` : 'today';
+          this.data.notifications.unshift({
+            id: guestNotifId,
+            userEmail: b.guestEmail,
+            title: `🛎️ 24h Check-in Reminder: ${stay.title}`,
+            message: `Your stay at "${stay.title}" (${stay.location}) starts ${timeText}! Check-in: ${b.checkIn}. Host contact: ${stay.whatsapp || stay.hostPhone || 'Direct message'}. Have a wonderful trip!`,
+            read: false,
+            link: '/#guest',
+            type: 'booking',
+            createdAt: now,
+          });
+          hasCreatedNotification = true;
+        }
+
+        // 2. Generate persistent notification for host if not already sent
+        if (stay.ownerEmail) {
+          const hostNotifId = `notif_host_remind_24h_${b.id}`;
+          const alreadyHostNotified = this.data.notifications.some(n => n.id === hostNotifId);
+          if (!alreadyHostNotified) {
+            this.data.notifications.unshift({
+              id: hostNotifId,
+              userEmail: stay.ownerEmail,
+              title: `🛎️ Guest Check-in within 24 Hours: ${b.guestName}`,
+              message: `Guest ${b.guestName} is arriving on ${b.checkIn} for "${stay.title}". Check-in ready!`,
+              read: false,
+              link: '/#owner',
+              type: 'booking',
+              createdAt: now,
+            });
+            hasCreatedNotification = true;
+          }
+        }
+      }
+    }
+
+    if (hasCreatedNotification) {
+      this.save();
+    }
+
+    return results;
   }
 
   // --- Chat Threads & Negotiations ---

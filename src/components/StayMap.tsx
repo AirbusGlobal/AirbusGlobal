@@ -50,7 +50,7 @@ export const StayMap: React.FC<StayMapProps> = ({
 
   // OpenStreetMap Tile Layer Configuration (replaces deprecated CARTO endpoints)
   const OSM_TILE_URL =
-    (typeof process !== 'undefined' && process.env?.VITE_MAP_TILE_URL) ||
+    (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_MAP_TILE_URL) ||
     'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
   const OSM_ATTRIBUTION =
     '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';

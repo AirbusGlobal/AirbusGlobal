@@ -28,6 +28,12 @@ import { EarnTab } from './components/EarnTab';
 import { AdvertisementManager } from './components/AdvertisementManager';
 import { SettingsModal } from './components/SettingsModal';
 import { Lock } from 'lucide-react';
+import {
+  trigger24HourCheckinAlert,
+  isNotificationSupported,
+  getNotificationPermission,
+  requestNotificationPermission,
+} from './utils/notifications';
 
 export default function App() {
   // Navigation & View
@@ -212,6 +218,58 @@ export default function App() {
       api.getReviews(activeStayId).then(res => setActiveStayReviews(res.reviews)).catch(() => {});
     }
   }, [activeStayId]);
+
+  // 24-Hour Stay Check-in Alert Runner (Acoustic Chime + Native Browser Notification + Toast Alert)
+  const checkAndTriggerUpcomingCheckinAlerts = useCallback(
+    (currentBookings: Booking[], currentStays: Stay[]) => {
+      if (typeof window === 'undefined') return;
+      if (localStorage.getItem('airbus_notif_24h_disabled') === 'true') return;
+
+      const now = Date.now();
+      currentBookings.forEach(booking => {
+        if (booking.status !== 'confirmed') return;
+
+        const stay = currentStays.find(s => s.id === booking.stayId);
+        if (!stay) return;
+
+        // Check-in standard arrival time (14:00 Kenyan time)
+        const checkinDateStr = `${booking.checkIn}T14:00:00`;
+        const checkinTime = new Date(checkinDateStr).getTime() || new Date(booking.checkIn).getTime();
+        if (isNaN(checkinTime)) return;
+
+        const diffMs = checkinTime - now;
+        const hoursUntilCheckin = diffMs / (1000 * 60 * 60);
+
+        // Check if within 24 hours (or today within 14h)
+        if ((hoursUntilCheckin > 0 && hoursUntilCheckin <= 24) || (hoursUntilCheckin <= 0 && hoursUntilCheckin >= -14)) {
+          const storageKey = `airbus_alert_checkin_24h_${booking.id}`;
+          const lastAlerted = localStorage.getItem(storageKey);
+
+          // Prevent spamming: only alert once every 12 hours
+          if (!lastAlerted || now - Number(lastAlerted) > 12 * 3600 * 1000) {
+            localStorage.setItem(storageKey, String(now));
+            const alertData = trigger24HourCheckinAlert(booking, stay, hoursUntilCheckin);
+            showToast(alertData.toastMessage);
+          }
+        }
+      });
+    },
+    []
+  );
+
+  // Periodic and on-data 24h check-in alert watcher
+  useEffect(() => {
+    if (bookings.length > 0 && stays.length > 0) {
+      checkAndTriggerUpcomingCheckinAlerts(bookings, stays);
+
+      // Check every 60 seconds
+      const timer = setInterval(() => {
+        checkAndTriggerUpcomingCheckinAlerts(bookings, stays);
+      }, 60000);
+
+      return () => clearInterval(timer);
+    }
+  }, [bookings, stays, checkAndTriggerUpcomingCheckinAlerts]);
 
   // Handlers
   const handleNavigate = (tab: string) => {
@@ -866,6 +924,8 @@ export default function App() {
           showToast={showToast}
           currency={currency}
           onCurrencyChange={setCurrency}
+          bookings={bookings}
+          stays={stays}
         />
       )}
 

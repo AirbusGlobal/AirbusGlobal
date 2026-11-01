@@ -553,12 +553,25 @@ export const api = {
     return this.request<{ bookings: Booking[] }>('/api/bookings');
   },
 
+  async checkUpcomingCheckinReminders(): Promise<{
+    upcomingReminders: Array<{
+      booking: Booking;
+      stay: Stay;
+      hoursUntilCheckIn: number;
+      isWithin24Hours: boolean;
+    }>;
+  }> {
+    return this.request('/api/bookings/check-reminders');
+  },
+
   async createBooking(bookingData: {
     stayId: string;
     checkIn: string;
     checkOut: string;
     guests: number;
     note?: string;
+    selectedGifts?: string[];
+    [key: string]: any;
   }): Promise<{ booking: Booking }> {
     return this.request<{ booking: Booking }>('/api/bookings', {
       method: 'POST',

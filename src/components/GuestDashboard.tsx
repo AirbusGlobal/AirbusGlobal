@@ -21,6 +21,9 @@ import {
   ShieldCheck,
   CheckCircle2,
   ArrowLeft,
+  Bell,
+  PhoneCall,
+  Gift,
 } from 'lucide-react';
 import { StayCard } from './StayCard';
 
@@ -106,6 +109,17 @@ export const GuestDashboard: React.FC<GuestDashboardProps> = ({
   // Next upcoming stay
   const nextStayBooking = upcomingBookings.sort((a, b) => a.checkIn.localeCompare(b.checkIn))[0];
   const nextStay = nextStayBooking ? stayMap.get(nextStayBooking.stayId) : null;
+
+  // Imminent 24-hour check-in bookings
+  const nowMs = Date.now();
+  const imminentCheckinBookings = upcomingBookings.filter(b => {
+    if (b.status !== 'confirmed') return false;
+    const checkInTime = new Date(`${b.checkIn}T14:00:00`).getTime() || new Date(b.checkIn).getTime();
+    if (isNaN(checkInTime)) return false;
+    const diff = checkInTime - nowMs;
+    // Check-in within 24 hours or today
+    return (diff > 0 && diff <= 24 * 3600 * 1000) || (diff <= 0 && diff >= -14 * 3600 * 1000);
+  });
 
   // Saved stays
   const savedStays = wishlistIds.map(id => stayMap.get(id)).filter(Boolean) as Stay[];
@@ -260,6 +274,90 @@ export const GuestDashboard: React.FC<GuestDashboardProps> = ({
           </div>
         )}
       </div>
+
+      {/* 24-Hour Stay Check-in Alert Banner */}
+      {imminentCheckinBookings.map(b => {
+        const stay = stayMap.get(b.stayId);
+        if (!stay) return null;
+        const checkInTime = new Date(`${b.checkIn}T14:00:00`).getTime() || new Date(b.checkIn).getTime();
+        const diffMs = checkInTime - Date.now();
+        const hoursLeft = Math.round((diffMs / (3600 * 1000)) * 10) / 10;
+        const isToday = diffMs <= 0;
+
+        return (
+          <div
+            key={`imminent-${b.id}`}
+            className="mb-8 p-5 sm:p-6 rounded-3xl bg-gradient-to-r from-amber-500/15 via-rose-500/15 to-purple-500/15 border-2 border-amber-500/60 dark:border-amber-400/50 shadow-xl relative overflow-hidden animate-in fade-in slide-in-from-top-2 duration-300"
+          >
+            <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+              <div className="flex items-start gap-3.5">
+                <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-amber-500 to-rose-500 text-white flex items-center justify-center shrink-0 shadow-md">
+                  <Bell className="w-6 h-6 animate-bounce" />
+                </div>
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="bg-[#e4002b] text-white text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full tracking-wider animate-pulse">
+                      24-Hour Check-in Alert
+                    </span>
+                    <span className="bg-amber-100 dark:bg-amber-950/80 text-amber-900 dark:text-amber-200 text-xs font-extrabold px-2.5 py-0.5 rounded-full border border-amber-300 dark:border-amber-700">
+                      {isToday ? 'Check-in Today!' : `Starts in ~${Math.max(1, Math.round(hoursLeft))} Hours`}
+                    </span>
+                    <span className="text-xs text-stone-500 font-mono">Ref: {b.reference}</span>
+                  </div>
+                  <h3 className="text-base sm:text-lg font-black text-stone-900 dark:text-white">
+                    {stay.title}
+                  </h3>
+                  <div className="text-xs text-stone-600 dark:text-stone-300 flex items-center gap-1.5 flex-wrap">
+                    <MapPin className="w-3.5 h-3.5 text-[#e4002b]" />
+                    <span>{stay.location}</span>
+                    <span>·</span>
+                    <span>Check-in: <strong className="text-stone-900 dark:text-white">{b.checkIn} (from 2:00 PM)</strong></span>
+                  </div>
+
+                  {b.selectedGifts && b.selectedGifts.length > 0 && (
+                    <div className="text-[11px] text-amber-800 dark:text-amber-300 flex items-center gap-1 pt-0.5">
+                      <Gift className="w-3.5 h-3.5 text-amber-600" />
+                      <span>Complimentary Host Perks: <strong>{b.selectedGifts.join(' · ')}</strong></span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 w-full md:w-auto shrink-0 justify-end">
+                {stay.whatsapp && (
+                  <a
+                    href={`https://wa.me/${stay.whatsapp.replace(/\+/g, '')}?text=${encodeURIComponent(`Hi ${stay.hostName || 'Host'}, I have an upcoming check-in (Ref: ${b.reference}) for ${stay.title} starting tomorrow.`)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-3.5 py-2 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <MessageSquare className="w-3.5 h-3.5" />
+                    <span>WhatsApp Host</span>
+                  </a>
+                )}
+
+                {stay.hostPhone && (
+                  <a
+                    href={`tel:${stay.hostPhone}`}
+                    className="px-3.5 py-2 rounded-full bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 text-stone-800 dark:text-stone-200 text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border border-stone-300 dark:border-stone-700"
+                  >
+                    <PhoneCall className="w-3.5 h-3.5 text-stone-500" />
+                    <span>Call Host</span>
+                  </a>
+                )}
+
+                <button
+                  onClick={() => onSelectStay(stay.id)}
+                  className="px-4 py-2 rounded-full bg-[#e4002b] hover:bg-[#c90026] text-white text-xs font-extrabold transition-all shadow cursor-pointer flex items-center gap-1.5"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  <span>Check-in Details &amp; Directions</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })}
 
       {/* Navigation Tabs */}
       <div className="flex items-center gap-2 overflow-x-auto pb-3 mb-6 border-b border-stone-200 dark:border-stone-800">
