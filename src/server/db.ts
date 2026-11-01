@@ -34,6 +34,7 @@ import {
   CURRENCY_RATES,
   StayCategory,
   ListingPromotion,
+  DormantOwner,
 } from './types';
 import { PLANS, AMENITY_GROUPS } from '../constants';
 
@@ -1157,16 +1158,16 @@ class DatabaseStore {
     // By default, public feed only shows live, admin-approved stays whose owner subscription is active
     if (!filter?.status) {
       list = list.filter(s => {
-        if (s.status !== 'live') return false;
+        if (s.status !== 'live' || s.isDelisted) return false;
         // Verify host subscription is active
         if (s.ownerEmail) {
           const plan = this.getHostPlan(s.ownerEmail);
-          if (plan.status !== 'active') return false;
+          if (plan.status !== 'active' || (plan.expiresAt > 0 && plan.expiresAt < Date.now())) return false;
         }
         return true;
       });
     } else {
-      list = list.filter(s => s.status === filter.status);
+      list = list.filter(s => s.status === filter.status && !s.isDelisted);
     }
 
     if (filter) {
@@ -1238,7 +1239,17 @@ class DatabaseStore {
   }
 
   public getStayById(id: string): Stay | undefined {
-    return this.data.stays.find(s => s.id === id);
+    const s = this.data.stays.find(stay => stay.id === id);
+    if (!s) return undefined;
+    if (s.ownerEmail) {
+      const plan = this.getHostPlan(s.ownerEmail);
+      const isExpired = plan.status !== 'active' || (plan.expiresAt > 0 && plan.expiresAt < Date.now());
+      return {
+        ...s,
+        ownerSubscriptionExpired: isExpired,
+      };
+    }
+    return s;
   }
 
   public incrementStayViews(id: string) {
@@ -1531,6 +1542,20 @@ class DatabaseStore {
         hasPaidSubscription: false,
       };
     }
+    // Check if scheduled tier upgrade/downgrade transition is due
+    if (plan.scheduledTier && plan.expiresAt > 0 && now >= plan.expiresAt) {
+      const isAnnual = plan.scheduledPeriod === 'annual';
+      const durationMs = isAnnual ? 365 * 864e5 : 30 * 864e5;
+      plan.tier = plan.scheduledTier;
+      plan.period = plan.scheduledPeriod || 'monthly';
+      plan.expiresAt = plan.expiresAt + durationMs;
+      plan.graceExpiresAt = plan.expiresAt + 2 * 864e5;
+      plan.status = 'active';
+      delete plan.scheduledTier;
+      delete plan.scheduledStartsAt;
+      delete plan.scheduledPeriod;
+      this.save();
+    }
     return plan;
   }
 
@@ -1581,24 +1606,36 @@ class DatabaseStore {
     const now = Date.now();
     if (p.kind === 'plan' && p.tier) {
       const cur = this.getHostPlan(p.hostEmail);
-      // 30 Days exactly from now (or extension)
-      const baseStart = cur.status === 'active' && cur.expiresAt > now ? cur.expiresAt : now;
-      const newEnd = baseStart + 30 * 864e5;
-      const graceEnd = newEnd + 2 * 864e5; // 2-day grace period
+      const isAnnual = p.period === 'annual';
+      const durationMs = isAnnual ? 365 * 864e5 : 30 * 864e5;
 
-      this.setHostPlan(p.hostEmail, {
-        tier: p.tier,
-        status: 'active',
-        expiresAt: newEnd,
-        graceExpiresAt: graceEnd,
-        hasPaidSubscription: true,
-      });
+      // Upgrade/Downgrade policy: Host must finish current subscription period first!
+      if (cur.status === 'active' && cur.expiresAt > now && cur.tier !== p.tier) {
+        cur.scheduledTier = p.tier;
+        cur.scheduledStartsAt = cur.expiresAt;
+        cur.scheduledPeriod = isAnnual ? 'annual' : 'monthly';
+        this.setHostPlan(p.hostEmail, cur);
+      } else {
+        const baseStart = cur.status === 'active' && cur.expiresAt > now ? cur.expiresAt : now;
+        const newEnd = baseStart + durationMs;
+        const graceEnd = newEnd + 2 * 864e5; // 2-day grace period
 
-      // Automatically restore any expired or review stays to live!
+        this.setHostPlan(p.hostEmail, {
+          tier: p.tier,
+          status: 'active',
+          expiresAt: newEnd,
+          graceExpiresAt: graceEnd,
+          hasPaidSubscription: true,
+          period: isAnnual ? 'annual' : 'monthly',
+        });
+      }
+
+      // Automatically restore any expired, review, or delisted stays to live!
       this.data.stays.forEach(s => {
         if (s.ownerEmail?.toLowerCase() === p.hostEmail.toLowerCase()) {
-          if (s.status === 'expired') {
+          if (s.status === 'expired' || s.status === 'delisted' || s.isDelisted) {
             s.status = 'live';
+            s.isDelisted = false;
           }
         }
       });
@@ -1614,11 +1651,12 @@ class DatabaseStore {
       createdAt: Date.now(),
     });
 
+    const durationLabel = p.period === 'annual' ? '365-Day Annual' : '30-Day';
     this.createNotification({
       id: 'notif_' + Date.now(),
       userEmail: p.hostEmail,
-      title: '30-Day Subscription Approved! ✓',
-      message: `Your payment of KES ${p.amount} (Ref: ${p.mpesaCode}) was verified. Your ${p.tier || ''} Plan is now active for 30 days! You can now upload and publish video tours.`,
+      title: `${durationLabel} Subscription Approved! ✓`,
+      message: `Your payment of KES ${p.amount} (Ref: ${p.mpesaCode}) was verified. Your ${p.tier || ''} Plan is now active for ${p.period === 'annual' ? '365 days' : '30 days'}! You can now publish listings.`,
       read: false,
       link: '/#owner',
       type: 'subscription',
@@ -1627,6 +1665,93 @@ class DatabaseStore {
 
     this.save();
     return p;
+  }
+
+  // --- Dormant Owners (Inactive for >= 90 days / 3 months) & Delisting ---
+  public getDormantOwners(): DormantOwner[] {
+    const now = Date.now();
+    const ninetyDaysMs = 90 * 864e5;
+    const owners = this.data.users.filter(u => u.role === 'owner');
+
+    const dormantList: DormantOwner[] = [];
+
+    for (const owner of owners) {
+      const plan = this.getHostPlan(owner.email);
+      const stays = this.data.stays.filter(s => s.ownerEmail?.toLowerCase() === owner.email.toLowerCase());
+      const hasDelisted = stays.some(s => s.isDelisted || s.status === 'delisted');
+
+      const isExpiredLongEnough = plan.expiresAt > 0 && (now - plan.expiresAt) >= ninetyDaysMs;
+      const isNeverActiveLongEnough = plan.expiresAt === 0 && (now - (owner.createdAt || 0)) >= ninetyDaysMs;
+
+      if (isExpiredLongEnough || isNeverActiveLongEnough || hasDelisted) {
+        const daysInactive = plan.expiresAt > 0
+          ? Math.max(0, Math.floor((now - plan.expiresAt) / 864e5))
+          : Math.max(0, Math.floor((now - (owner.createdAt || 0)) / 864e5));
+
+        dormantList.push({
+          name: owner.name,
+          email: owner.email,
+          tier: plan.tier || 'Silver',
+          lastExpiryDate: plan.expiresAt || 0,
+          daysInactive,
+          listingCount: stays.length,
+          isDelisted: hasDelisted,
+        });
+      }
+    }
+
+    return dormantList;
+  }
+
+  public delistOwner(email: string): boolean {
+    const low = email.toLowerCase();
+    let updated = false;
+
+    this.data.stays.forEach(s => {
+      if (s.ownerEmail?.toLowerCase() === low) {
+        s.isDelisted = true;
+        s.status = 'delisted';
+        s.delistedAt = Date.now();
+        updated = true;
+      }
+    });
+
+    if (updated) {
+      this.createAuditLog({
+        id: 'aud_' + Date.now(),
+        action: 'owner_delist',
+        actorEmail: 'admin@airbus.ke',
+        details: `Delisted all stays for dormant owner ${email}`,
+        createdAt: Date.now(),
+      });
+      this.save();
+    }
+    return updated;
+  }
+
+  public relistOwner(email: string): boolean {
+    const low = email.toLowerCase();
+    let updated = false;
+
+    this.data.stays.forEach(s => {
+      if (s.ownerEmail?.toLowerCase() === low) {
+        s.isDelisted = false;
+        s.status = 'live';
+        updated = true;
+      }
+    });
+
+    if (updated) {
+      this.createAuditLog({
+        id: 'aud_' + Date.now(),
+        action: 'owner_relist',
+        actorEmail: 'admin@airbus.ke',
+        details: `Restored listings to live for owner ${email}`,
+        createdAt: Date.now(),
+      });
+      this.save();
+    }
+    return updated;
   }
 
   public rejectPayment(paymentId: string, adminEmail: string, reason?: string): PaymentRecord | null {
@@ -2051,33 +2176,74 @@ class DatabaseStore {
     return this.data.withdrawals.filter(w => w.userEmail.toLowerCase() === clean);
   }
 
-  public paySubscriptionFromWallet(email: string, tier: StayCategory): { plan: HostPlanStatus; ledger: LedgerEntry; walletBalance: number } {
+  public paySubscriptionFromWallet(
+    email: string,
+    tier: StayCategory,
+    period: 'monthly' | 'annual' = 'monthly'
+  ): { plan: HostPlanStatus; ledger: LedgerEntry; walletBalance: number } {
+    const isAnnual = period === 'annual';
+    const annualPrices: Record<StayCategory, number> = { Silver: 10000, Diamond: 25000, Gold: 50000 };
     const settings = this.getSettings();
-    const cost = (settings.planPrices as any)?.[tier] || (tier === 'Gold' ? 5000 : tier === 'Diamond' ? 2500 : 1000);
+    const cost = isAnnual
+      ? annualPrices[tier]
+      : (settings.planPrices as any)?.[tier] || (tier === 'Gold' ? 5000 : tier === 'Diamond' ? 2500 : 1000);
 
-    const ledger = this.transfer(email, 'treasury', cost, 'subscription', tier, `30-Day ${tier} Plan Subscription from wallet`);
+    const rec = this.ensureWallet(email);
+    const available = rec.balance - (rec.holdBalance || 0);
+    if (available < cost) {
+      const diff = cost - available;
+      throw new Error(
+        `Insufficient coins in wallet: you have ${available} coins, but ${tier} (${period}) requires ${cost} coins. Please top up ${diff} coins (KES ${diff}) via M-Pesa.`
+      );
+    }
+
+    const durationLabel = isAnnual ? '365-Day Annual' : '30-Day';
+    const ledger = this.transfer(
+      email,
+      'treasury',
+      cost,
+      'subscription',
+      tier,
+      `${durationLabel} ${tier} Plan Subscription from wallet`
+    );
 
     // Referral commission check
     this.distributeReferralCommission(email, cost, 'subscription');
 
     const now = Date.now();
     const cur = this.getHostPlan(email);
-    const baseStart = cur.status === 'active' && cur.expiresAt > now ? cur.expiresAt : now;
-    const newEnd = baseStart + 30 * 864e5;
-    const graceEnd = newEnd + 2 * 864e5;
+    const durationMs = isAnnual ? 365 * 864e5 : 30 * 864e5;
 
-    const newPlan: HostPlanStatus = {
-      tier,
-      status: 'active',
-      expiresAt: newEnd,
-      graceExpiresAt: graceEnd,
-      hasPaidSubscription: true,
-    };
-    this.setHostPlan(email, newPlan);
+    let targetPlan: HostPlanStatus;
+    // Upgrade / Downgrade policy: Host must finish current subscription period first!
+    if (cur.status === 'active' && cur.expiresAt > now && cur.tier !== tier) {
+      cur.scheduledTier = tier;
+      cur.scheduledStartsAt = cur.expiresAt;
+      cur.scheduledPeriod = period;
+      targetPlan = cur;
+      this.setHostPlan(email, cur);
+    } else {
+      const baseStart = cur.status === 'active' && cur.expiresAt > now ? cur.expiresAt : now;
+      const newEnd = baseStart + durationMs;
+      const graceEnd = newEnd + 2 * 864e5;
+
+      targetPlan = {
+        tier,
+        status: 'active',
+        expiresAt: newEnd,
+        graceExpiresAt: graceEnd,
+        hasPaidSubscription: true,
+        period,
+      };
+      this.setHostPlan(email, targetPlan);
+    }
 
     this.data.stays.forEach(s => {
       if (s.ownerEmail?.toLowerCase() === email.toLowerCase()) {
-        if (s.status === 'expired') s.status = 'live';
+        if (s.status === 'expired' || s.status === 'delisted' || s.isDelisted) {
+          s.status = 'live';
+          s.isDelisted = false;
+        }
       }
     });
 
@@ -2085,15 +2251,19 @@ class DatabaseStore {
       id: 'aud_' + Date.now(),
       action: 'plan_wallet_pay',
       actorEmail: email,
-      details: `Paid ${cost} KES from wallet for 30-Day ${tier} Plan.`,
+      details: `Paid ${cost} coins/KES from wallet for ${durationLabel} ${tier} Plan.`,
       createdAt: Date.now(),
     });
 
     this.createNotification({
       id: 'notif_' + Date.now(),
       userEmail: email,
-      title: `30-Day ${tier} Plan Activated! 🎉`,
-      message: `KES ${cost} was deducted from your wallet. Your subscription is active for 30 days until ${new Date(newEnd).toLocaleDateString()}.`,
+      title: `${durationLabel} ${tier} Plan ${targetPlan.scheduledTier ? 'Scheduled' : 'Activated'}! 🎉`,
+      message: `${cost} coins were deducted from your wallet. ${
+        targetPlan.scheduledTier
+          ? `Your current plan finishes first, then ${tier} takes effect on ${new Date(targetPlan.expiresAt).toLocaleDateString()}.`
+          : `Your subscription is active until ${new Date(targetPlan.expiresAt).toLocaleDateString()}.`
+      }`,
       read: false,
       link: '/#owner',
       type: 'subscription',
@@ -2101,9 +2271,9 @@ class DatabaseStore {
     });
 
     this.save();
-    const rec = this.ensureWallet(email);
-    const available = rec.balance - (rec.holdBalance || 0);
-    return { plan: newPlan, ledger, walletBalance: available };
+    const updatedRec = this.ensureWallet(email);
+    const remaining = updatedRec.balance - (updatedRec.holdBalance || 0);
+    return { plan: targetPlan, ledger, walletBalance: remaining };
   }
 
   // --- Posts & Content Moderation (Photo, Short, Video) ---

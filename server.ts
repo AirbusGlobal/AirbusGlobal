@@ -140,6 +140,36 @@ app.patch('/api/auth/profile', (req, res) => {
   return res.json({ user: safeUser });
 });
 
+// Change Password Endpoint
+app.post('/api/auth/change-password', (req, res) => {
+  const user = getAuthUser(req) as any;
+  if (!user) return res.status(401).json({ error: 'Not authenticated' });
+  const { currentPassword, newPassword } = req.body;
+  if (!currentPassword || !newPassword) {
+    return res.status(400).json({ error: 'Current password and new password are required.' });
+  }
+  if (user.passwordHash && user.passwordHash !== hashPassword(currentPassword)) {
+    return res.status(400).json({ error: 'Incorrect current password.' });
+  }
+  if (newPassword.length < 6) {
+    return res.status(400).json({ error: 'New password must be at least 6 characters long.' });
+  }
+  if (currentPassword === newPassword) {
+    return res.status(400).json({ error: 'New password must be different from current password.' });
+  }
+
+  const newHash = hashPassword(newPassword);
+  db.updateUser(user.email, { passwordHash: newHash } as any);
+  db.createAuditLog({
+    id: 'aud_' + Date.now(),
+    action: 'change_password',
+    actorEmail: user.email,
+    details: 'User successfully updated account password.',
+    createdAt: Date.now(),
+  });
+  return res.json({ success: true, message: 'Password updated successfully!' });
+});
+
 // Stays / Listings with Full Search
 app.get('/api/stays', (req, res) => {
   try {
@@ -381,6 +411,14 @@ app.post('/api/stays', (req, res) => {
     return res.status(400).json({ error: 'Title, location, and price are required.' });
   }
 
+  const parsedLat = Number(lat);
+  const parsedLng = Number(lng);
+  if (lat === undefined || lng === undefined || isNaN(parsedLat) || isNaN(parsedLng)) {
+    return res.status(400).json({
+      error: 'Accurate geographic latitude and longitude coordinates are strictly required for the listing to appear on the discovery map.',
+    });
+  }
+
   // Property must be approved by admin before going live!
   const isApproved = user.role === 'admin';
   const initialStatus = isApproved ? 'live' : 'review';
@@ -389,8 +427,8 @@ app.post('/api/stays', (req, res) => {
     id: 's_' + Date.now(),
     title: title.trim(),
     location: location.trim(),
-    lat: lat || -1.29 + (Math.random() - 0.5) * 0.08,
-    lng: lng || 36.8 + (Math.random() - 0.5) * 0.08,
+    lat: parsedLat,
+    lng: parsedLng,
     price: Number(price),
     currency: 'KES',
     rating: 5.0,
@@ -422,6 +460,11 @@ app.post('/api/stays', (req, res) => {
       ? req.body.welcomeGifts
       : ['Kenyan Safari Kahawa & Fresh Ground Beans', 'Coconut Water & Tropical Basket'],
     hostMessage: req.body.hostMessage || 'Karibu sana! We look forward to hosting you in our serene home.',
+    instalmentsAccepted: Boolean(req.body.instalmentsAccepted),
+    depositRequired: Boolean(req.body.depositRequired),
+    depositAmount: req.body.depositAmount ? Number(req.body.depositAmount) : undefined,
+    depositReason: req.body.depositReason || undefined,
+    depositRefundTerms: req.body.depositRefundTerms || undefined,
     views: 1,
     likesCount: 0,
     commentsCount: 0,
@@ -486,6 +529,11 @@ app.patch('/api/stays/:id', (req, res) => {
     'welcomeGifts',
     'hostMessage',
     'instantBook',
+    'instalmentsAccepted',
+    'depositRequired',
+    'depositAmount',
+    'depositReason',
+    'depositRefundTerms',
   ];
 
   const updates: any = {};
@@ -604,9 +652,30 @@ app.post('/api/bookings', (req, res) => {
   const user = getAuthUser(req);
   if (!user) return res.status(401).json({ error: 'Please sign in to book.' });
 
-  const { stayId, checkIn, checkOut, guests, note } = req.body;
+  const {
+    stayId,
+    checkIn,
+    checkOut,
+    guests,
+    note,
+    paymentType,
+    instalmentCount,
+    instalmentSurcharge,
+    instalments,
+    depositAcknowledged,
+    depositAmount,
+  } = req.body;
   const stay = db.getStayById(stayId);
   if (!stay) return res.status(404).json({ error: 'Stay not found' });
+
+  // Disallow booking if owner subscription is expired
+  if (stay.ownerEmail) {
+    const plan = db.getHostPlan(stay.ownerEmail);
+    const isPlanActive = plan.status === 'active' && plan.expiresAt > Date.now();
+    if (!isPlanActive) {
+      return res.status(403).json({ error: 'This listing is temporarily unavailable.' });
+    }
+  }
 
   if (!checkIn || !checkOut || checkOut <= checkIn) {
     return res.status(400).json({ error: 'Please select valid check-in and check-out dates.' });
@@ -629,7 +698,9 @@ app.post('/api/bookings', (req, res) => {
   const subtotal = stay.price * nights;
   const cleaningFee = Math.round(stay.price * 0.15);
   const serviceFee = Math.round(subtotal * 0.08);
-  const total = subtotal + cleaningFee + serviceFee;
+  const baseTotal = subtotal + cleaningFee + serviceFee;
+  const surcharge = paymentType === 'instalments' ? Math.round(baseTotal * 0.10) : 0;
+  const total = baseTotal + surcharge;
 
   const newBooking: Booking = {
     id: 'b_' + Date.now(),
@@ -647,6 +718,12 @@ app.post('/api/bookings', (req, res) => {
     currency: stay.currency || 'KES',
     status: stay.instantBook ? 'confirmed' : 'requested',
     note: note || '',
+    paymentType: paymentType || 'full',
+    instalmentCount: paymentType === 'instalments' ? instalmentCount : undefined,
+    instalmentSurcharge: surcharge,
+    instalments: paymentType === 'instalments' ? instalments : undefined,
+    depositAcknowledged: Boolean(depositAcknowledged),
+    depositAmount: depositAmount ? Number(depositAmount) : undefined,
     createdAt: Date.now(),
   };
 
@@ -845,6 +922,7 @@ app.post('/api/payments', (req, res) => {
     amount: Number(amount) || 1000,
     mpesaCode: codeClean,
     status: 'pending',
+    period: req.body.period === 'annual' ? 'annual' : 'monthly',
     createdAt: Date.now(),
   });
 
@@ -999,6 +1077,34 @@ app.post('/api/admin/users/:email/verify', (req, res) => {
     createdAt: Date.now(),
   });
   return res.json({ user: targetUser });
+});
+
+// Admin Dormant Owners & Delisting
+app.get('/api/admin/dormant-owners', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required.' });
+  }
+  const dormantOwners = db.getDormantOwners();
+  return res.json({ dormantOwners });
+});
+
+app.post('/api/admin/owners/:email/delist', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required.' });
+  }
+  const success = db.delistOwner(req.params.email);
+  return res.json({ success, dormantOwners: db.getDormantOwners() });
+});
+
+app.post('/api/admin/owners/:email/relist', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required.' });
+  }
+  const success = db.relistOwner(req.params.email);
+  return res.json({ success, dormantOwners: db.getDormantOwners() });
 });
 
 app.post('/api/admin/plan', (req, res) => {
@@ -1239,16 +1345,16 @@ app.post('/api/admin/withdrawals/:id/reject', (req, res) => {
   return res.json({ withdrawal: result });
 });
 
-// Pay 30-Day Plan from Wallet
+// Pay Plan from Wallet (Monthly or Annual)
 app.post('/api/plans/wallet-pay', (req, res) => {
   const user = getAuthUser(req);
   if (!user) return res.status(401).json({ error: 'Not authenticated' });
-  const { tier } = req.body;
+  const { tier, period } = req.body;
   if (!['Silver', 'Diamond', 'Gold'].includes(tier)) {
     return res.status(400).json({ error: 'Valid plan tier required (Silver, Diamond, Gold).' });
   }
   try {
-    const result = db.paySubscriptionFromWallet(user.email, tier);
+    const result = db.paySubscriptionFromWallet(user.email, tier, period === 'annual' ? 'annual' : 'monthly');
     return res.json(result);
   } catch (err: any) {
     return res.status(400).json({ error: err.message });

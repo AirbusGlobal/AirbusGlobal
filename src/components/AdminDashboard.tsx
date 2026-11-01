@@ -13,6 +13,7 @@ import {
   LedgerEntry,
   WalletRecord,
   ListingPromotion,
+  DormantOwner,
 } from '../types';
 import {
   ShieldCheck,
@@ -41,6 +42,9 @@ import {
   Rocket,
   Eye,
   MousePointerClick,
+  UserX,
+  AlertOctagon,
+  Clock,
 } from 'lucide-react';
 import { api } from '../api';
 
@@ -61,7 +65,7 @@ interface AdminDashboardProps {
   threads: ChatThread[];
   auditLogs: AuditLog[];
   onApprovePayment: (paymentId: string) => Promise<void>;
-  onRejectPayment: (paymentId: string) => Promise<void>;
+  onRejectPayment: (paymentId: string, reason?: string) => Promise<void>;
   onVerifyUser: (email: string) => Promise<void>;
   onUpdateStay: (id: string, updates: Partial<Stay>) => Promise<void>;
   onDeleteStay: (id: string) => Promise<void>;
@@ -90,7 +94,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   showToast,
 }) => {
   const [tab, setTab] = useState<
-    'queue' | 'posts' | 'ads' | 'withdrawals' | 'settings' | 'treasury' | 'listings' | 'plans' | 'users' | 'negotiations' | 'audit'
+    'queue' | 'posts' | 'ads' | 'withdrawals' | 'settings' | 'treasury' | 'listings' | 'plans' | 'dormant' | 'users' | 'negotiations' | 'audit'
   >('queue');
 
   // Plan adjustment form state
@@ -107,6 +111,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [settings, setSettings] = useState<PlatformSettings | null>(null);
   const [treasuryLedger, setTreasuryLedger] = useState<LedgerEntry[]>([]);
   const [treasuryWallet, setTreasuryWallet] = useState<WalletRecord | null>(null);
+  const [dormantOwners, setDormantOwners] = useState<DormantOwner[]>([]);
   const [actionLoading, setActionLoading] = useState(false);
   const [feedbackMsg, setFeedbackMsg] = useState<string | null>(null);
 
@@ -116,10 +121,40 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     api.getOwnerPromotions().then(res => setPromotions(res.promotions || [])).catch(() => {});
     api.getAdminWithdrawals().then(res => setWithdrawals(res.withdrawals)).catch(() => {});
     api.getSettings().then(res => setSettings(res.settings)).catch(() => {});
+    api.getDormantOwners().then(res => setDormantOwners(res.dormantOwners || [])).catch(() => {});
     api.getWallet().then(res => {
       setTreasuryWallet(res.wallet);
       setTreasuryLedger(res.ledger);
     }).catch(() => {});
+  };
+
+  const handleDelistOwner = async (email: string) => {
+    if (!window.confirm(`Are you sure you want to delist all listings for dormant owner ${email}? Their stays will be removed from guest search and booking.`)) {
+      return;
+    }
+    try {
+      setActionLoading(true);
+      await api.delistOwner(email);
+      showToast?.(`Listings for ${email} have been delisted.`);
+      loadAdminData();
+    } catch (err: any) {
+      showToast?.(err.message || 'Failed to delist owner.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleRelistOwner = async (email: string) => {
+    try {
+      setActionLoading(true);
+      await api.relistOwner(email);
+      showToast?.(`Listings for ${email} have been restored.`);
+      loadAdminData();
+    } catch (err: any) {
+      showToast?.(err.message || 'Failed to relist owner.');
+    } finally {
+      setActionLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -286,6 +321,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </button>
 
         <button
+          onClick={() => setTab('dormant')}
+          className={`px-3.5 py-2 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ${
+            tab === 'dormant'
+              ? 'bg-amber-500 text-stone-950 font-extrabold shadow-sm'
+              : 'text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800'
+          }`}
+        >
+          <UserX className="w-4 h-4 text-red-500" />
+          <span>Dormant Owners ({dormantOwners.length})</span>
+        </button>
+
+        <button
           onClick={() => setTab('users')}
           className={`px-3.5 py-2 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ${
             tab === 'users'
@@ -375,11 +422,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     </button>
 
                     <button
-                      onClick={() => onRejectPayment(p.id)}
+                      onClick={async () => {
+                        const reason = window.prompt(
+                          'Enter reason for declining this payment:',
+                          'Invalid or unverified M-Pesa receipt code'
+                        );
+                        if (reason !== null) {
+                          await onRejectPayment(p.id, reason.trim());
+                        }
+                      }}
                       className="px-4 py-2 bg-stone-100 dark:bg-stone-800 hover:bg-rose-100 text-rose-600 rounded-full text-xs font-bold transition-all cursor-pointer flex items-center gap-1"
                     >
                       <XCircle className="w-4 h-4" />
-                      <span>Reject</span>
+                      <span>Decline</span>
                     </button>
                   </div>
                 </div>
@@ -1055,13 +1110,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         <div className="space-y-4">
           <h3 className="text-base font-bold text-stone-900 dark:text-white">All Stays on AirBus</h3>
           <div className="space-y-3">
-            {stays.map(s => (
+            {stays.map(s => {
+              const hostUser = users.find(u => u.email === s.ownerEmail);
+              const ownerName = hostUser?.name || s.hostName || 'Owner';
+              const ownerPhone = s.whatsapp || hostUser?.phone || s.hostPhone || 'N/A';
+              const ownerEmail = s.ownerEmail || hostUser?.email || 'N/A';
+              return (
               <div
                 key={s.id}
                 className="p-4 bg-white dark:bg-[#15171e] rounded-2xl border border-stone-200 dark:border-stone-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4"
               >
-                <div>
-                  <div className="flex items-center gap-2 mb-1">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 mb-1 flex-wrap">
                     <span
                       className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full ${
                         s.status === 'live'
@@ -1076,12 +1136,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         <Star className="w-3 h-3 fill-current" /> Featured
                       </span>
                     )}
-                    <span className="text-xs text-stone-400">Host: {s.ownerEmail || 'Sample Host'}</span>
+                    <span className="text-xs font-bold text-stone-800 dark:text-stone-200">
+                      Owner: {ownerName}
+                    </span>
+                    <span className="text-xs text-stone-500 font-mono">({ownerEmail})</span>
                   </div>
 
                   <h4 className="text-sm font-bold text-stone-900 dark:text-white">{s.title}</h4>
                   <div className="text-xs text-stone-500">
                     {s.location} · KES {s.price.toLocaleString()}/night · {s.guests} guests · Rating: {s.rating} ★ ({s.reviewsCount})
+                  </div>
+                  <div className="text-[11px] text-stone-400 flex items-center gap-3 pt-0.5 flex-wrap">
+                    <span>📞 Phone/WhatsApp: <strong className="text-stone-600 dark:text-stone-300">{ownerPhone}</strong></span>
+                    <span>📍 Coordinates: <code className="font-mono text-stone-600 dark:text-stone-300">{s.lat ?? 'N/A'}, {s.lng ?? 'N/A'}</code></span>
                   </div>
                 </div>
 
@@ -1119,7 +1186,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </button>
                 </div>
               </div>
-            ))}
+            );
+          })}
           </div>
         </div>
       )}
@@ -1183,6 +1251,161 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           >
             Update Subscription
           </button>
+        </div>
+      )}
+
+      {/* DORMANT OWNERS & DELISTING TAB */}
+      {tab === 'dormant' && (
+        <div className="space-y-6">
+          <div className="bg-gradient-to-r from-red-950/40 via-stone-900 to-amber-950/30 p-6 rounded-3xl border border-red-500/20 text-white">
+            <div className="flex items-start gap-4">
+              <div className="p-3 rounded-2xl bg-red-500/10 border border-red-500/30 text-red-400 shrink-0">
+                <AlertOctagon className="w-6 h-6" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-lg font-extrabold font-heading text-white flex items-center gap-2">
+                  Dormant Hosts &amp; Listing Enforcement
+                </h3>
+                <p className="text-xs text-stone-300 leading-relaxed max-w-3xl">
+                  Policy rule: If an owner goes for <strong>3 consecutive months (90 days)</strong> without an active subscription, their listings are eligible for delisting from the platform. Delisted stays are immediately hidden from guest search and booking flows. Once an owner renews their subscription and an admin approves the payment, their listings are automatically restored live.
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-4 pt-4 border-t border-white/10 text-xs">
+              <div className="bg-white/5 p-3 rounded-xl">
+                <div className="text-[10px] text-stone-400 uppercase font-semibold">Dormant Hosts (≥ 90 Days)</div>
+                <div className="text-xl font-black text-amber-400 mt-0.5">{dormantOwners.length}</div>
+              </div>
+              <div className="bg-white/5 p-3 rounded-xl">
+                <div className="text-[10px] text-stone-400 uppercase font-semibold">Delisted Hosts</div>
+                <div className="text-xl font-black text-red-400 mt-0.5">
+                  {dormantOwners.filter(o => o.isDelisted).length}
+                </div>
+              </div>
+              <div className="bg-white/5 p-3 rounded-xl">
+                <div className="text-[10px] text-stone-400 uppercase font-semibold">Delisted Listings Total</div>
+                <div className="text-xl font-black text-stone-200 mt-0.5">
+                  {dormantOwners.reduce((acc, o) => acc + (o.isDelisted ? o.listingCount : 0), 0)}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white dark:bg-[#15171e] rounded-3xl border border-stone-200 dark:border-stone-800 p-6 shadow-sm space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h4 className="text-sm font-extrabold text-stone-900 dark:text-white">
+                  Dormant Host Directory ({dormantOwners.length})
+                </h4>
+                <p className="text-xs text-stone-500">
+                  Hosts inactive for 90 or more days consecutively without an active subscription.
+                </p>
+              </div>
+              <button
+                onClick={loadAdminData}
+                disabled={actionLoading}
+                className="px-3 py-1.5 rounded-full border border-stone-200 dark:border-stone-700 text-xs font-semibold hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors flex items-center gap-1.5 cursor-pointer"
+              >
+                <RefreshCw className={`w-3 h-3 ${actionLoading ? 'animate-spin' : ''}`} />
+                <span>Refresh</span>
+              </button>
+            </div>
+
+            {dormantOwners.length === 0 ? (
+              <div className="py-12 text-center text-stone-400 text-xs">
+                <CheckCircle2 className="w-8 h-8 text-emerald-500 mx-auto mb-2" />
+                <p className="font-bold text-stone-700 dark:text-stone-300">No Dormant Hosts</p>
+                <p className="text-[11px] text-stone-500 mt-1">
+                  All registered hosts have active subscriptions or expired within the 90-day grace window.
+                </p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="border-b border-stone-200 dark:border-stone-800 text-[11px] text-stone-400 uppercase font-bold">
+                      <th className="py-3 px-3">Owner</th>
+                      <th className="py-3 px-3">Tier</th>
+                      <th className="py-3 px-3">Last Expiry Date</th>
+                      <th className="py-3 px-3">Days Inactive</th>
+                      <th className="py-3 px-3">Listings</th>
+                      <th className="py-3 px-3">Status</th>
+                      <th className="py-3 px-3 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-stone-100 dark:divide-stone-800/60 font-sans">
+                    {dormantOwners.map(owner => {
+                      const expiryFormatted = owner.lastExpiryDate
+                        ? new Date(owner.lastExpiryDate).toLocaleDateString('en-GB', {
+                            day: 'numeric',
+                            month: 'short',
+                            year: 'numeric',
+                          })
+                        : 'Never active';
+
+                      return (
+                        <tr key={owner.email} className="hover:bg-stone-50 dark:hover:bg-stone-900/40 transition-colors">
+                          <td className="py-3.5 px-3">
+                            <div className="font-bold text-stone-900 dark:text-white">{owner.name}</div>
+                            <div className="text-[11px] text-stone-500 font-mono">{owner.email}</div>
+                          </td>
+                          <td className="py-3.5 px-3">
+                            <span className="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                              {owner.tier}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-3 text-stone-600 dark:text-stone-400">
+                            {expiryFormatted}
+                          </td>
+                          <td className="py-3.5 px-3">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-extrabold bg-red-100 dark:bg-red-950/60 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900/60">
+                              <Clock className="w-3 h-3" />
+                              {owner.daysInactive} days
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-3 font-semibold text-stone-800 dark:text-stone-200">
+                            {owner.listingCount} {owner.listingCount === 1 ? 'stay' : 'stays'}
+                          </td>
+                          <td className="py-3.5 px-3">
+                            {owner.isDelisted ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-red-600 text-white">
+                                Delisted
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300">
+                                Inactive / Visible
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-3.5 px-3 text-right">
+                            {owner.isDelisted ? (
+                              <button
+                                onClick={() => handleRelistOwner(owner.email)}
+                                disabled={actionLoading}
+                                className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-all shadow-sm cursor-pointer disabled:opacity-50"
+                              >
+                                Relist Listings
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => handleDelistOwner(owner.email)}
+                                disabled={actionLoading}
+                                className="px-3 py-1.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold transition-all shadow-sm cursor-pointer disabled:opacity-50 flex items-center gap-1 ml-auto"
+                              >
+                                <UserX className="w-3.5 h-3.5" />
+                                <span>Delist Listings</span>
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </div>
       )}
 

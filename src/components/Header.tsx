@@ -13,6 +13,7 @@ import {
   Gift,
   Menu,
   X,
+  Settings,
 } from 'lucide-react';
 import { User, Currency } from '../types';
 
@@ -34,6 +35,7 @@ interface HeaderProps {
   onOpenNotifications: () => void;
   onOpenTripFinder: () => void;
   onOpenPlans: () => void;
+  onOpenSettings?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -54,6 +56,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenNotifications,
   onOpenTripFinder,
   onOpenPlans,
+  onOpenSettings,
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
 
@@ -254,6 +257,15 @@ export const Header: React.FC<HeaderProps> = ({
                   ({user.role})
                 </span>
               </button>
+              {onOpenSettings && (
+                <button
+                  onClick={onOpenSettings}
+                  className="p-1.5 text-stone-500 hover:text-stone-900 dark:hover:text-stone-200 rounded-md hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors cursor-pointer"
+                  title="Profile & Settings"
+                >
+                  <Settings className="w-4 h-4" />
+                </button>
+              )}
               <button
                 onClick={onLogout}
                 className="p-1.5 text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 rounded-md hover:bg-stone-100 dark:hover:bg-stone-800"

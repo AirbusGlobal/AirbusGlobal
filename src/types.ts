@@ -15,7 +15,7 @@ export interface User {
 }
 
 export type StayCategory = 'Silver' | 'Diamond' | 'Gold';
-export type ListingStatus = 'live' | 'review' | 'paused' | 'expired';
+export type ListingStatus = 'live' | 'review' | 'paused' | 'expired' | 'delisted';
 
 export interface BlockedDateRange {
   from: string;
@@ -99,6 +99,24 @@ export interface Stay {
   promotionClicks?: number;
   gradientHue: [number, number];
   createdAt: number;
+
+  // Instalments (Mdogo Mdogo) & Deposit Models
+  instalmentsAccepted?: boolean;
+  depositRequired?: boolean;
+  depositAmount?: number;
+  depositReason?: string;
+  depositRefundTerms?: string;
+  isDelisted?: boolean;
+  delistedAt?: number;
+  ownerSubscriptionExpired?: boolean;
+}
+
+export interface BookingInstalment {
+  number: number;
+  amount: number;
+  dueDate: string;
+  label: string;
+  isPaid?: boolean;
 }
 
 export interface Booking {
@@ -118,6 +136,15 @@ export interface Booking {
   status: 'requested' | 'confirmed' | 'cancelled' | 'declined';
   note?: string;
   createdAt: number;
+
+  // Instalment & Deposit fields
+  paymentType?: 'full' | 'instalments';
+  instalmentCount?: 2 | 3;
+  instalmentSurcharge?: number;
+  instalments?: BookingInstalment[];
+  depositAcknowledged?: boolean;
+  depositAmount?: number;
+  selectedGifts?: string[];
 }
 
 export interface Review {
@@ -158,6 +185,12 @@ export interface HostPlanStatus {
   expiresAt: number;
   graceExpiresAt?: number;
   hasPaidSubscription?: boolean;
+  period?: 'monthly' | 'annual';
+  isDormant?: boolean;
+  delisted?: boolean;
+  scheduledTier?: StayCategory;
+  scheduledStartsAt?: number;
+  scheduledPeriod?: 'monthly' | 'annual';
 }
 
 export interface PaymentRecord {
@@ -169,7 +202,18 @@ export interface PaymentRecord {
   mpesaCode: string;
   status: 'pending' | 'approved' | 'rejected';
   rejectionReason?: string;
+  period?: 'monthly' | 'annual';
   createdAt: number;
+}
+
+export interface DormantOwner {
+  name: string;
+  email: string;
+  tier: StayCategory;
+  lastExpiryDate: number;
+  daysInactive: number;
+  listingCount: number;
+  isDelisted: boolean;
 }
 
 export interface NotificationItem {

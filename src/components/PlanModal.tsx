@@ -7,10 +7,16 @@ interface PlanModalProps {
   isOpen: boolean;
   onClose: () => void;
   currentPlan: HostPlanStatus;
-  onSubmitPayment: (kind: 'plan' | 'wallet', tier: StayCategory, amount: number, mpesaCode: string) => Promise<void>;
+  onSubmitPayment: (
+    kind: 'plan' | 'wallet',
+    tier: StayCategory,
+    amount: number,
+    mpesaCode: string,
+    period?: 'monthly' | 'annual'
+  ) => Promise<void>;
   walletMode?: boolean;
   userWalletBalance?: number;
-  onPayFromWallet?: (tier: StayCategory) => Promise<void>;
+  onPayFromWallet?: (tier: StayCategory, period?: 'monthly' | 'annual') => Promise<void>;
 }
 
 export const PlanModal: React.FC<PlanModalProps> = ({
@@ -25,6 +31,7 @@ export const PlanModal: React.FC<PlanModalProps> = ({
   if (!isOpen) return null;
 
   const [selectedTier, setSelectedTier] = useState<StayCategory>('Diamond');
+  const [billingCycle, setBillingCycle] = useState<'monthly' | 'annual'>('monthly');
   const [inPayStep, setInPayStep] = useState(walletMode);
   const [walletAmount, setWalletAmount] = useState(2500);
   const [mpesaCode, setMpesaCode] = useState('');
@@ -33,10 +40,11 @@ export const PlanModal: React.FC<PlanModalProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
-
   const tierDetails = {
     Silver: {
-      price: 1000,
+      monthlyPrice: PLANS.Silver.p,
+      annualPrice: PLANS.Silver.annualPrice,
+      savings: PLANS.Silver.annualSavings,
       limit: '3 live listings',
       features: [
         '3 active video-first listings',
@@ -46,7 +54,9 @@ export const PlanModal: React.FC<PlanModalProps> = ({
       ],
     },
     Diamond: {
-      price: 2500,
+      monthlyPrice: PLANS.Diamond.p,
+      annualPrice: PLANS.Diamond.annualPrice,
+      savings: PLANS.Diamond.annualSavings,
       limit: '10 live listings',
       features: [
         '10 active video-first listings',
@@ -56,7 +66,9 @@ export const PlanModal: React.FC<PlanModalProps> = ({
       ],
     },
     Gold: {
-      price: 5000,
+      monthlyPrice: PLANS.Gold.p,
+      annualPrice: PLANS.Gold.annualPrice,
+      savings: PLANS.Gold.annualSavings,
       limit: 'Unlimited listings',
       features: [
         'Unlimited active listings',
@@ -67,7 +79,12 @@ export const PlanModal: React.FC<PlanModalProps> = ({
     },
   };
 
-  const amountToPay = walletMode ? walletAmount : tierDetails[selectedTier].price;
+  const selectedDetails = tierDetails[selectedTier];
+  const amountToPay = walletMode
+    ? walletAmount
+    : billingCycle === 'annual'
+    ? selectedDetails.annualPrice
+    : selectedDetails.monthlyPrice;
 
   const handlePaySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -84,7 +101,8 @@ export const PlanModal: React.FC<PlanModalProps> = ({
         walletMode ? 'wallet' : 'plan',
         selectedTier,
         amountToPay,
-        cleanCode
+        cleanCode,
+        walletMode ? undefined : billingCycle
       );
       setSuccessMsg('Receipt submitted successfully! Admin will verify within 2–24 hours (or instantly in Admin Console).');
       setTimeout(() => {
@@ -99,7 +117,7 @@ export const PlanModal: React.FC<PlanModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200">
-      <div className="relative w-full max-w-2xl bg-white dark:bg-[#15171e] text-stone-900 dark:text-stone-100 rounded-3xl p-6 sm:p-8 shadow-2xl border border-stone-200 dark:border-stone-800">
+      <div className="relative w-full max-w-2xl bg-white dark:bg-[#15171e] text-stone-900 dark:text-stone-100 rounded-3xl p-6 sm:p-8 shadow-2xl border border-stone-200 dark:border-stone-800 max-h-[95vh] overflow-y-auto">
         <button
           onClick={onClose}
           className="absolute top-4 right-4 p-2 rounded-full hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 cursor-pointer"
@@ -109,22 +127,54 @@ export const PlanModal: React.FC<PlanModalProps> = ({
 
         {!inPayStep ? (
           <div>
-            <div className="mb-6">
+            <div className="mb-4">
               <span className="bg-[#ff2e93] text-white text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full tracking-wider">
                 AirBus Host Subscriptions
               </span>
               <h2 className="text-2xl font-extrabold font-heading mt-2">Choose Your Hosting Plan</h2>
               <p className="text-xs text-stone-500 mt-1">
-                Hosting on AirBus is a flat monthly subscription with zero guest commission. Guests pay you directly.
+                Hosting on AirBus is a flat subscription with zero guest commission. Guests pay you directly.
               </p>
             </div>
 
+            {/* Monthly vs Annual Toggle */}
+            <div className="flex items-center justify-center my-4">
+              <div className="inline-flex p-1 rounded-2xl bg-stone-100 dark:bg-stone-900 border border-stone-200 dark:border-stone-800">
+                <button
+                  type="button"
+                  onClick={() => setBillingCycle('monthly')}
+                  className={`px-4 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                    billingCycle === 'monthly'
+                      ? 'bg-white dark:bg-stone-800 text-stone-900 dark:text-white shadow-xs'
+                      : 'text-stone-500 hover:text-stone-800 dark:hover:text-stone-200'
+                  }`}
+                >
+                  Monthly (30 Days)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setBillingCycle('annual')}
+                  className={`px-4 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                    billingCycle === 'annual'
+                      ? 'bg-[#e4002b] text-white shadow-xs'
+                      : 'text-stone-500 hover:text-stone-800 dark:hover:text-stone-200'
+                  }`}
+                >
+                  <span>Annual (365 Days)</span>
+                  <span className="bg-amber-400 text-stone-950 text-[10px] font-black px-1.5 py-0.2 rounded-full">
+                    Save up to KES 10,000
+                  </span>
+                </button>
+              </div>
+            </div>
+
             {/* Plans Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
               {(['Silver', 'Diamond', 'Gold'] as StayCategory[]).map(t => {
                 const isSelected = selectedTier === t;
                 const isCurrent = currentPlan.tier === t && currentPlan.status === 'active';
                 const d = tierDetails[t];
+                const displayPrice = billingCycle === 'annual' ? d.annualPrice : d.monthlyPrice;
 
                 return (
                   <div
@@ -147,9 +197,17 @@ export const PlanModal: React.FC<PlanModalProps> = ({
                       </div>
 
                       <div className="text-lg font-black text-[#e4002b] mt-1">
-                        KES {d.price.toLocaleString()}
-                        <span className="text-[10px] font-normal text-stone-400">/mo</span>
+                        KES {displayPrice.toLocaleString()}
+                        <span className="text-[10px] font-normal text-stone-400">
+                          {billingCycle === 'annual' ? '/yr' : '/mo'}
+                        </span>
                       </div>
+
+                      {billingCycle === 'annual' && (
+                        <div className="inline-block mt-0.5 px-2 py-0.5 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-[10px] font-bold rounded-md">
+                          Save KES {d.savings.toLocaleString()} / yr
+                        </div>
+                      )}
 
                       <div className="text-xs font-semibold text-stone-600 dark:text-stone-300 mt-2 mb-3">
                         {d.limit}
@@ -184,21 +242,77 @@ export const PlanModal: React.FC<PlanModalProps> = ({
               })}
             </div>
 
+            {/* Upgrade / Downgrade Policy Notice */}
+            {currentPlan.status === 'active' && currentPlan.expiresAt > Date.now() && currentPlan.tier !== selectedTier && (
+              <div className="p-3.5 rounded-2xl bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800/60 text-xs text-blue-900 dark:text-blue-200 mb-4 space-y-1">
+                <div className="flex items-center gap-1.5 font-bold">
+                  <ShieldCheck className="w-4 h-4 text-blue-600" />
+                  <span>Subscription Upgrade / Downgrade Policy</span>
+                </div>
+                <p className="text-[11px] text-blue-800 dark:text-blue-300 leading-relaxed">
+                  Per AirBus policy, you must complete the remaining period of your current active <strong>{currentPlan.tier}</strong> plan (ends {new Date(currentPlan.expiresAt).toLocaleDateString()}). Activating <strong>{selectedTier}</strong> now will schedule it to automatically take effect the moment your current period finishes.
+                </p>
+              </div>
+            )}
+
+            {/* Wallet Coin & Insufficient Coins Banner */}
+            {userWalletBalance < (billingCycle === 'annual' ? selectedDetails.annualPrice : selectedDetails.monthlyPrice) && (
+              <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/30 border border-amber-300 dark:border-amber-800/60 mb-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-1.5 font-bold text-amber-900 dark:text-amber-200">
+                    <Wallet className="w-4 h-4 text-amber-600" />
+                    <span>Insufficient Wallet Coins (1 Coin = 1 KES)</span>
+                  </div>
+                  <p className="text-[11px] text-amber-800 dark:text-amber-300 leading-snug">
+                    Current wallet: <strong>{userWalletBalance.toLocaleString()} Coins</strong> (KES {userWalletBalance.toLocaleString()}).
+                    Required: <strong>{(billingCycle === 'annual' ? selectedDetails.annualPrice : selectedDetails.monthlyPrice).toLocaleString()} Coins</strong>.
+                    <span className="block font-black text-rose-600 dark:text-rose-400 mt-0.5">
+                      Shortfall: {((billingCycle === 'annual' ? selectedDetails.annualPrice : selectedDetails.monthlyPrice) - userWalletBalance).toLocaleString()} Coins (KES {((billingCycle === 'annual' ? selectedDetails.annualPrice : selectedDetails.monthlyPrice) - userWalletBalance).toLocaleString()})
+                    </span>
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setWalletAmount((billingCycle === 'annual' ? selectedDetails.annualPrice : selectedDetails.monthlyPrice) - userWalletBalance);
+                    setInPayStep(true);
+                  }}
+                  className="px-3.5 py-1.5 rounded-full bg-amber-600 hover:bg-amber-500 text-white font-extrabold text-[11px] shrink-0 shadow-sm cursor-pointer"
+                >
+                  Top Up Difference ({((billingCycle === 'annual' ? selectedDetails.annualPrice : selectedDetails.monthlyPrice) - userWalletBalance).toLocaleString()} Coins)
+                </button>
+              </div>
+            )}
+
+            {/* Required Disclaimer */}
+            <div className="p-3 rounded-2xl bg-stone-100 dark:bg-stone-900 border border-stone-200 dark:border-stone-800 text-[11px] text-stone-600 dark:text-stone-400 leading-relaxed mb-4">
+              <span className="font-bold text-stone-800 dark:text-stone-200">Subscription Terms &amp; Policy: </span>
+              Subscription is valid for 30 days (or 365 days for annual) from the day of admin payment approval. If your subscription expires, your contact details will be hidden and guests will not be able to book your short stays until you renew. If your subscription stays inactive for 3 consecutive months, your listings will be delisted from the platform.
+            </div>
+
             <div className="flex flex-col sm:flex-row justify-between items-center gap-3 text-xs text-stone-400 pt-3 border-t border-stone-100 dark:border-stone-800">
               <div className="flex items-center gap-2">
                 <Wallet className="w-4 h-4 text-stone-400" />
-                <span>Wallet Balance: <strong className="text-stone-900 dark:text-white">KES {userWalletBalance.toLocaleString()}</strong></span>
+                <span>
+                  Wallet: <strong className="text-stone-900 dark:text-white font-mono">{userWalletBalance.toLocaleString()} Coins</strong> (KES {userWalletBalance.toLocaleString()})
+                </span>
               </div>
               <div className="flex items-center gap-2 w-full sm:w-auto">
-                {onPayFromWallet && userWalletBalance >= tierDetails[selectedTier].price && (
+                {onPayFromWallet && (
                   <button
                     type="button"
                     onClick={async () => {
+                      const cost = billingCycle === 'annual' ? selectedDetails.annualPrice : selectedDetails.monthlyPrice;
+                      if (userWalletBalance < cost) {
+                        const diff = cost - userWalletBalance;
+                        setError(`Insufficient coins! You have ${userWalletBalance} coins but need ${cost} coins. Please top up the difference of ${diff} coins (KES ${diff}) via M-Pesa.`);
+                        return;
+                      }
                       setError(null);
                       setWalletPaying(true);
                       try {
-                        await onPayFromWallet(selectedTier);
-                        setSuccessMsg(`30-Day ${selectedTier} Plan activated instantly!`);
+                        await onPayFromWallet(selectedTier, billingCycle);
+                        setSuccessMsg(`Plan activated instantly from wallet!`);
                         setTimeout(() => onClose(), 2000);
                       } catch (err: any) {
                         setError(err.message || 'Payment from wallet failed.');
@@ -206,8 +320,8 @@ export const PlanModal: React.FC<PlanModalProps> = ({
                         setWalletPaying(false);
                       }
                     }}
-                    disabled={walletPaying}
-                    className="flex-1 sm:flex-initial px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:opacity-95 text-white rounded-full font-extrabold flex items-center justify-center gap-1.5 cursor-pointer shadow-sm disabled:opacity-50"
+                    disabled={walletPaying || userWalletBalance < (billingCycle === 'annual' ? selectedDetails.annualPrice : selectedDetails.monthlyPrice)}
+                    className="flex-1 sm:flex-initial px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:opacity-95 text-white rounded-full font-extrabold flex items-center justify-center gap-1.5 cursor-pointer shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     <Zap className="w-3.5 h-3.5" />
                     <span>{walletPaying ? 'Activating...' : 'Pay from Wallet'}</span>
@@ -236,7 +350,9 @@ export const PlanModal: React.FC<PlanModalProps> = ({
                 </button>
               )}
               <h2 className="text-xl font-extrabold font-heading">
-                {walletMode ? 'Deposit to AirBus Wallet' : `Pay for ${selectedTier} Plan`}
+                {walletMode
+                  ? 'Deposit to AirBus Wallet'
+                  : `Pay for ${selectedTier} Plan (${billingCycle === 'annual' ? '365 Days' : '30 Days'})`}
               </h2>
             </div>
 
@@ -246,6 +362,11 @@ export const PlanModal: React.FC<PlanModalProps> = ({
               <div>Paybill Number: <span className="text-white font-bold text-sm">222111</span></div>
               <div>Account Number: <span className="text-white font-bold text-sm">ff1314</span></div>
               <div>Amount to Pay: <span className="text-emerald-300 font-bold text-sm">KES {amountToPay.toLocaleString()}</span></div>
+              {!walletMode && (
+                <div className="text-stone-400 text-[10px] pt-1">
+                  Plan Duration: {billingCycle === 'annual' ? '365 days' : '30 days'} from date of admin approval.
+                </div>
+              )}
             </div>
 
             <form onSubmit={handlePaySubmit} className="space-y-4">

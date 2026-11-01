@@ -58,6 +58,7 @@ export const StayCard: React.FC<StayCardProps> = ({
 
   // Badge logic matching original
   const isSuperhost = stay.rating >= 4.85 && stay.reviewsCount >= 40;
+  const isOwnerExpired = !!stay.ownerSubscriptionExpired || stay.status === 'expired' || stay.status === 'delisted' || !!stay.isDelisted;
 
   // Dynamic CSS gradient matching hue
   const cardGradient = `linear-gradient(135deg, hsl(${stay.gradientHue[0]}, 55%, 32%), hsl(${stay.gradientHue[1]}, 60%, 20%))`;
@@ -311,12 +312,22 @@ export const StayCard: React.FC<StayCardProps> = ({
               <span>Availability</span>
             </button>
 
-            <button
-              onClick={() => onBookNow(stay.id)}
-              className="px-2.5 py-1.5 rounded-full text-[11px] font-bold bg-[#e4002b] hover:bg-[#c90026] text-white transition-all shadow-sm flex items-center justify-center gap-1 cursor-pointer"
-            >
-              <span>Book now</span>
-            </button>
+            {isOwnerExpired ? (
+              <button
+                disabled
+                className="px-2.5 py-1.5 rounded-full text-[11px] font-bold bg-stone-200 dark:bg-stone-800 text-stone-400 dark:text-stone-500 cursor-not-allowed flex items-center justify-center gap-1"
+                title="This listing is temporarily unavailable (host subscription inactive)"
+              >
+                <span>Unavailable</span>
+              </button>
+            ) : (
+              <button
+                onClick={() => onBookNow(stay.id)}
+                className="px-2.5 py-1.5 rounded-full text-[11px] font-bold bg-[#e4002b] hover:bg-[#c90026] text-white transition-all shadow-sm flex items-center justify-center gap-1 cursor-pointer"
+              >
+                <span>Book now</span>
+              </button>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-1.5">
@@ -330,15 +341,20 @@ export const StayCard: React.FC<StayCardProps> = ({
 
             <button
               onClick={() => onNegotiate(stay.id)}
-              className="px-2.5 py-1.5 rounded-full text-[11px] font-bold bg-gradient-to-r from-[#ff2e93] to-[#8b5cf6] text-white hover:opacity-95 transition-all shadow-sm flex items-center justify-center gap-1 cursor-pointer"
+              disabled={isOwnerExpired}
+              className={`px-2.5 py-1.5 rounded-full text-[11px] font-bold transition-all shadow-sm flex items-center justify-center gap-1 ${
+                isOwnerExpired
+                  ? 'bg-stone-200 dark:bg-stone-800 text-stone-400 cursor-not-allowed'
+                  : 'bg-gradient-to-r from-[#ff2e93] to-[#8b5cf6] text-white hover:opacity-95 cursor-pointer'
+              }`}
             >
               <BadgeDollarSign className="w-3 h-3" />
               <span>Negotiate</span>
             </button>
           </div>
 
-          {/* Direct WhatsApp button if phone is present */}
-          {stay.whatsapp && (
+          {/* Direct WhatsApp button if phone is present AND subscription is active */}
+          {stay.whatsapp && !isOwnerExpired && (
             <a
               href={`https://wa.me/${stay.whatsapp.replace(/[^0-9]/g, '')}?text=Hello!%20I'm%20inquiring%20about%20your%20stay%20on%20AirBus:%20${encodeURIComponent(
                 stay.title
@@ -350,6 +366,12 @@ export const StayCard: React.FC<StayCardProps> = ({
               <PhoneCall className="w-3 h-3" />
               <span>Book direct on WhatsApp</span>
             </a>
+          )}
+
+          {isOwnerExpired && (
+            <div className="w-full py-1.5 px-2 bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 text-[10px] font-semibold rounded-lg text-center border border-amber-200 dark:border-amber-900/50">
+              🔒 Host contact &amp; booking temporarily paused
+            </div>
           )}
 
           {/* Affiliate link if external source */}

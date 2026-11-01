@@ -42,11 +42,14 @@ import {
   TrendingUp,
   Megaphone,
   Gift,
+  ChevronRight,
+  ArrowRight,
 } from 'lucide-react';
 import { api } from '../api';
 import { PriceTrendCard } from './PriceTrendCard';
 import { AdvertModal } from './AdvertModal';
 import { ViralityModal } from './ViralityModal';
+import { ComplimentaryGiftsSelector } from './ComplimentaryGiftsSelector';
 
 
 interface StayDetailModalProps {
@@ -62,6 +65,13 @@ interface StayDetailModalProps {
     checkOut: string;
     guests: number;
     note?: string;
+    paymentType?: 'full' | 'instalments';
+    instalmentCount?: 2 | 3;
+    instalmentSurcharge?: number;
+    instalments?: any[];
+    depositAcknowledged?: boolean;
+    depositAmount?: number;
+    selectedGifts?: string[];
   }) => Promise<Booking>;
   onChatHost: (stayId: string) => void;
   onNegotiate: (stayId: string) => void;
@@ -109,6 +119,19 @@ export const StayDetailModal: React.FC<StayDetailModalProps> = ({
   const [guestNote, setGuestNote] = useState('');
   const [bookingLoading, setBookingLoading] = useState(false);
   const [confirmedBooking, setConfirmedBooking] = useState<Booking | null>(null);
+  const [checkoutStep, setCheckoutStep] = useState<'details' | 'payment' | 'confirmation'>('details');
+  const [selectedGifts, setSelectedGifts] = useState<string[]>(
+    stay.welcomeGifts && stay.welcomeGifts.length > 0
+      ? stay.welcomeGifts.slice(0, 3)
+      : ['Kenyan Safari Kahawa & Fresh Ground AA Coffee Beans']
+  );
+  const [giftPickerOpen, setGiftPickerOpen] = useState(false);
+
+  // Instalment & Deposit checkout states
+  const [paymentType, setPaymentType] = useState<'full' | 'instalments'>('full');
+  const [instalmentCount, setInstalmentCount] = useState<2 | 3>(2);
+  const [instalmentConfirmed, setInstalmentConfirmed] = useState(false);
+  const [depositConfirmed, setDepositConfirmed] = useState(false);
 
   // Review states
   const [ratingInput, setRatingInput] = useState(5);
@@ -181,12 +204,46 @@ export const StayDetailModal: React.FC<StayDetailModalProps> = ({
     return `${currency} ${converted.toLocaleString()}`;
   };
 
+  const isOwnerExpired = Boolean(stay.ownerSubscriptionExpired || stay.status === 'expired');
+
   // Pricing math
   const nights = Math.max(1, Math.round((new Date(checkOut).getTime() - new Date(checkIn).getTime()) / 864e5));
   const subtotal = stay.price * nights;
   const cleaningFee = Math.round(stay.price * 0.15);
   const serviceFee = Math.round(subtotal * 0.08);
-  const grandTotal = subtotal + cleaningFee + serviceFee;
+  const baseTotal = subtotal + cleaningFee + serviceFee;
+  const instalmentSurcharge = Math.round(baseTotal * 0.10);
+  const totalWithSurcharge = baseTotal + instalmentSurcharge;
+  const grandTotal = paymentType === 'instalments' ? totalWithSurcharge : baseTotal;
+
+  // Calculate instalment due dates and amounts
+  const getInstalmentSchedule = () => {
+    const checkInTime = new Date(checkIn).getTime();
+    const nowTime = Date.now();
+    const oneDayMs = 864e5;
+
+    if (instalmentCount === 2) {
+      const part1 = Math.round(totalWithSurcharge / 2);
+      const part2 = totalWithSurcharge - part1;
+      const due2Date = new Date(Math.max(nowTime + oneDayMs, checkInTime - oneDayMs)).toISOString().slice(0, 10);
+      return [
+        { number: 1, amount: part1, dueDate: 'Due upon reservation confirmation', label: '1st Instalment (50%)' },
+        { number: 2, amount: part2, dueDate: `Due before check-in (${due2Date})`, label: '2nd Instalment (50%)' },
+      ];
+    } else {
+      const part1 = Math.round(totalWithSurcharge / 3);
+      const part2 = Math.round(totalWithSurcharge / 3);
+      const part3 = totalWithSurcharge - (part1 + part2);
+      const midTime = nowTime + Math.max(oneDayMs, (checkInTime - nowTime) / 2);
+      const due2Date = new Date(midTime).toISOString().slice(0, 10);
+      const due3Date = new Date(Math.max(midTime + oneDayMs, checkInTime - oneDayMs)).toISOString().slice(0, 10);
+      return [
+        { number: 1, amount: part1, dueDate: 'Due upon reservation confirmation', label: '1st Instalment (34%)' },
+        { number: 2, amount: part2, dueDate: `Due midway before check-in (${due2Date})`, label: '2nd Instalment (33%)' },
+        { number: 3, amount: part3, dueDate: `Due before check-in (${due3Date})`, label: '3rd Instalment (33%)' },
+      ];
+    }
+  };
 
   // Handle like toggle
   const handleToggleLike = async () => {
@@ -284,8 +341,20 @@ export const StayDetailModal: React.FC<StayDetailModalProps> = ({
 
   const handleBookingSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isOwnerExpired) {
+      alert('This listing is temporarily unavailable.');
+      return;
+    }
     if (!checkIn || !checkOut || checkOut <= checkIn) {
       alert('Please select valid check-in and check-out dates.');
+      return;
+    }
+    if (stay.depositRequired && !depositConfirmed) {
+      alert('Please read and agree to the host deposit terms before booking.');
+      return;
+    }
+    if (paymentType === 'instalments' && !instalmentConfirmed) {
+      alert('Please confirm the 10% instalment premium agreement before booking.');
       return;
     }
     setBookingLoading(true);
@@ -296,8 +365,16 @@ export const StayDetailModal: React.FC<StayDetailModalProps> = ({
         checkOut,
         guests: guestCount,
         note: guestNote,
+        paymentType,
+        instalmentCount: paymentType === 'instalments' ? instalmentCount : undefined,
+        instalmentSurcharge: paymentType === 'instalments' ? instalmentSurcharge : 0,
+        instalments: paymentType === 'instalments' ? getInstalmentSchedule() : undefined,
+        depositAcknowledged: Boolean(stay.depositRequired),
+        depositAmount: stay.depositRequired ? stay.depositAmount : undefined,
+        selectedGifts,
       });
       setConfirmedBooking(b);
+      setCheckoutStep('confirmation');
     } catch (err: any) {
       alert(err.message || 'Booking request failed.');
     } finally {
@@ -764,21 +841,140 @@ export const StayDetailModal: React.FC<StayDetailModalProps> = ({
                   </span>
                 </div>
 
-                {confirmedBooking ? (
-                  <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 text-center space-y-2">
-                    <CheckCircle2 className="w-8 h-8 text-emerald-500 mx-auto" />
-                    <h4 className="text-sm font-extrabold text-emerald-900 dark:text-emerald-200">
-                      Booking Confirmed!
-                    </h4>
-                    <p className="text-xs text-emerald-700 dark:text-emerald-300">
-                      Reference: <span className="font-mono font-bold">{confirmedBooking.reference}</span>
-                    </p>
-                    <p className="text-[11px] text-stone-500">
-                      Settle payment directly with your host at check-in.
-                    </p>
+                {/* VISUAL CHECKOUT PROGRESS BAR (Details -> Payment -> Confirmation) */}
+                <div className="pt-1 pb-2">
+                  <div className="flex items-center justify-between text-[11px] font-bold mb-2">
+                    <button
+                      type="button"
+                      onClick={() => !confirmedBooking && setCheckoutStep('details')}
+                      className={`flex items-center gap-1.5 transition-colors cursor-pointer ${
+                        checkoutStep === 'details'
+                          ? 'text-[#e4002b] font-black'
+                          : confirmedBooking || checkoutStep === 'payment'
+                          ? 'text-stone-800 dark:text-stone-200'
+                          : 'text-stone-400'
+                      }`}
+                    >
+                      <span
+                        className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${
+                          checkoutStep === 'details'
+                            ? 'bg-[#e4002b] text-white shadow-xs'
+                            : checkoutStep === 'payment' || confirmedBooking
+                            ? 'bg-emerald-600 text-white'
+                            : 'bg-stone-200 dark:bg-stone-700 text-stone-500'
+                        }`}
+                      >
+                        {checkoutStep !== 'details' ? '✓' : '1'}
+                      </span>
+                      <span>1. Details</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => !confirmedBooking && setCheckoutStep('payment')}
+                      className={`flex items-center gap-1.5 transition-colors cursor-pointer ${
+                        checkoutStep === 'payment'
+                          ? 'text-[#e4002b] font-black'
+                          : confirmedBooking
+                          ? 'text-stone-800 dark:text-stone-200'
+                          : 'text-stone-400'
+                      }`}
+                    >
+                      <span
+                        className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${
+                          checkoutStep === 'payment'
+                            ? 'bg-[#e4002b] text-white shadow-xs'
+                            : confirmedBooking
+                            ? 'bg-emerald-600 text-white'
+                            : 'bg-stone-200 dark:bg-stone-700 text-stone-500'
+                        }`}
+                      >
+                        {confirmedBooking ? '✓' : '2'}
+                      </span>
+                      <span>2. Payment</span>
+                    </button>
+
+                    <div
+                      className={`flex items-center gap-1.5 ${
+                        checkoutStep === 'confirmation' || confirmedBooking
+                          ? 'text-emerald-600 dark:text-emerald-400 font-black'
+                          : 'text-stone-400'
+                      }`}
+                    >
+                      <span
+                        className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${
+                          checkoutStep === 'confirmation' || confirmedBooking
+                            ? 'bg-emerald-600 text-white shadow-xs'
+                            : 'bg-stone-200 dark:bg-stone-700 text-stone-500'
+                        }`}
+                      >
+                        3
+                      </span>
+                      <span>3. Confirmation</span>
+                    </div>
                   </div>
-                ) : (
-                  <form onSubmit={handleBookingSubmit} className="space-y-3">
+
+                  {/* Progress Line */}
+                  <div className="w-full h-1.5 bg-stone-200 dark:bg-stone-800 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-gradient-to-r from-[#e4002b] via-amber-500 to-emerald-500 transition-all duration-300"
+                      style={{
+                        width:
+                          checkoutStep === 'details'
+                            ? '33.3%'
+                            : checkoutStep === 'payment'
+                            ? '66.6%'
+                            : '100%',
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {/* STEP 3: CONFIRMATION SCREEN */}
+                {checkoutStep === 'confirmation' || confirmedBooking ? (
+                  <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 text-center space-y-3 animate-in fade-in duration-200">
+                    <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto" />
+                    <div>
+                      <h4 className="text-base font-extrabold text-emerald-900 dark:text-emerald-200">
+                        Booking Confirmed! 🎉
+                      </h4>
+                      <p className="text-xs text-emerald-700 dark:text-emerald-300 mt-0.5">
+                        Reference:{' '}
+                        <span className="font-mono font-bold bg-white dark:bg-stone-900 px-2 py-0.5 rounded border border-emerald-300">
+                          {confirmedBooking?.reference || 'AB-82910'}
+                        </span>
+                      </p>
+                    </div>
+
+                    {/* Confirmed Complimentary Gifts Badge */}
+                    {selectedGifts.length > 0 && (
+                      <div className="p-3 bg-white dark:bg-stone-900 rounded-xl border border-emerald-200 dark:border-emerald-800 text-left space-y-1">
+                        <div className="text-[10px] font-bold uppercase text-emerald-700 dark:text-emerald-400 flex items-center gap-1">
+                          <Gift className="w-3 h-3 text-amber-500" />
+                          <span>Complimentary Welcome Gifts Reserved (Free):</span>
+                        </div>
+                        <ul className="text-xs text-stone-700 dark:text-stone-300 space-y-0.5 pl-3 list-disc">
+                          {selectedGifts.map((g, idx) => (
+                            <li key={idx} className="font-semibold">
+                              {g}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    <div className="p-2.5 rounded-xl bg-emerald-100/60 dark:bg-emerald-900/40 text-[11px] text-emerald-800 dark:text-emerald-300">
+                      Check-in:{' '}
+                      <strong>
+                        {checkIn} → {checkOut} ({nights} nights)
+                      </strong>
+                      <br />
+                      Settle payment directly with your host at check-in.
+                    </div>
+                  </div>
+                ) : checkoutStep === 'details' ? (
+                  /* STEP 1: DETAILS (Dates, Guests, Complimentary Gifts) */
+                  <div className="space-y-3 animate-in fade-in duration-150">
                     <div className="grid grid-cols-2 gap-2">
                       <div>
                         <label className="text-[10px] font-bold text-stone-500 uppercase">Check-in</label>
@@ -819,6 +1015,234 @@ export const StayDetailModal: React.FC<StayDetailModalProps> = ({
                       />
                     </div>
 
+                    {/* Complimentary Gifts & Perks Included */}
+                    <div className="p-3 bg-amber-50/80 dark:bg-amber-950/20 rounded-2xl border border-amber-200 dark:border-amber-800/40 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-amber-950 dark:text-amber-200 flex items-center gap-1.5">
+                          <Gift className="w-4 h-4 text-amber-600" />
+                          <span>Complimentary Welcome Gifts (Free)</span>
+                        </span>
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-200 dark:bg-amber-900/60 text-amber-800 dark:text-amber-300">
+                          {selectedGifts.length}/3 Included
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-stone-600 dark:text-stone-300">
+                        Awarded complimentary gifts for this reservation. You can choose up to 3 from our catalog of 10,000 items:
+                      </p>
+
+                      <div className="space-y-1">
+                        {selectedGifts.map((gift, idx) => (
+                          <div
+                            key={idx}
+                            className="flex items-center gap-1.5 text-xs font-bold text-stone-800 dark:text-stone-200 bg-white dark:bg-stone-900 px-2.5 py-1 rounded-xl border border-amber-300/60 dark:border-amber-800/60"
+                          >
+                            <Sparkles className="w-3 h-3 text-amber-500 shrink-0" />
+                            <span className="truncate">{gift}</span>
+                          </div>
+                        ))}
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => setGiftPickerOpen(true)}
+                        className="w-full py-1.5 px-3 bg-white dark:bg-stone-900 hover:bg-amber-100/50 dark:hover:bg-amber-950/40 text-amber-800 dark:text-amber-300 text-[11px] font-bold rounded-xl border border-amber-300 dark:border-amber-800 transition-colors flex items-center justify-center gap-1 cursor-pointer"
+                      >
+                        <Gift className="w-3.5 h-3.5 text-amber-600" />
+                        <span>Browse 10,000 Gifts &amp; Celebration Cakes</span>
+                      </button>
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] font-bold text-stone-500 uppercase">
+                        Special Requests / Host Greeting (Optional)
+                      </label>
+                      <input
+                        type="text"
+                        value={guestNote}
+                        onChange={e => setGuestNote(e.target.value)}
+                        placeholder="e.g. Arriving late 10PM, celebrating anniversary..."
+                        className="w-full mt-1 px-2.5 py-1.5 bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 rounded-xl text-xs outline-none"
+                      />
+                    </div>
+
+                    {/* Continue to Payment Step Button */}
+                    {isOwnerExpired ? (
+                      <button
+                        type="button"
+                        disabled
+                        className="w-full py-3 rounded-full bg-stone-300 dark:bg-stone-800 text-stone-500 dark:text-stone-400 font-extrabold text-xs cursor-not-allowed shadow-none"
+                      >
+                        This listing is temporarily unavailable
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!checkIn || !checkOut || checkOut <= checkIn) {
+                            alert('Please select valid check-in and check-out dates.');
+                            return;
+                          }
+                          setCheckoutStep('payment');
+                        }}
+                        className="w-full py-3 rounded-full bg-[#e4002b] hover:bg-[#c90026] text-white font-extrabold text-xs shadow-lg transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                      >
+                        <span>Continue to Payment (Step 2 of 3)</span>
+                        <ArrowRight className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  /* STEP 2: PAYMENT (Payment method, Deposit acknowledgement, Price breakdown) */
+                  <form onSubmit={handleBookingSubmit} className="space-y-3 animate-in fade-in duration-150">
+                    <div className="flex items-center justify-between pb-1 border-b border-stone-200 dark:border-stone-800">
+                      <button
+                        type="button"
+                        onClick={() => setCheckoutStep('details')}
+                        className="text-xs font-bold text-stone-500 hover:text-stone-800 dark:hover:text-stone-200 flex items-center gap-1 cursor-pointer"
+                      >
+                        <ArrowLeft className="w-3.5 h-3.5" />
+                        <span>Back to Details</span>
+                      </button>
+                      <span className="text-[11px] text-stone-400">
+                        {nights} {nights === 1 ? 'night' : 'nights'} · {guestCount} guests
+                      </span>
+                    </div>
+
+                    {/* Optional Security Deposit Terms Box */}
+                    {stay.depositRequired && (
+                      <div className="p-3.5 rounded-2xl bg-amber-50/80 dark:bg-amber-950/20 border border-amber-300/60 dark:border-amber-800/40 space-y-2 text-xs">
+                        <div className="flex items-center justify-between font-bold text-amber-950 dark:text-amber-200">
+                          <span>Security Deposit Required</span>
+                          <span className="font-mono text-sm">{formatMoney(stay.depositAmount || 0)}</span>
+                        </div>
+                        {stay.depositReason && (
+                          <p className="text-[11px] text-stone-600 dark:text-stone-300">
+                            <strong>Reason: </strong>{stay.depositReason}
+                          </p>
+                        )}
+                        {stay.depositRefundTerms && (
+                          <p className="text-[11px] text-stone-600 dark:text-stone-300">
+                            <strong>Refund Terms: </strong>{stay.depositRefundTerms}
+                          </p>
+                        )}
+                        <div className="p-2 rounded-xl bg-amber-100/60 dark:bg-amber-900/40 text-[10px] text-amber-800 dark:text-amber-300">
+                          <strong>Platform Disclaimer: </strong>AirBus is not an escrow service. Deposits are collected and refunded directly between host and guest. AirBus does not hold deposit funds.
+                        </div>
+                        <label className="flex items-start gap-2 pt-1 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={depositConfirmed}
+                            onChange={e => setDepositConfirmed(e.target.checked)}
+                            className="mt-0.5 rounded text-[#e4002b] focus:ring-[#e4002b]"
+                          />
+                          <span className="text-[11px] font-semibold text-stone-800 dark:text-stone-200">
+                            I agree to the host deposit of {formatMoney(stay.depositAmount || 0)} settled directly with the host.
+                          </span>
+                        </label>
+                      </div>
+                    )}
+
+                    {/* Optional "Pay in Instalments" (Mdogo Mdogo) Option */}
+                    {stay.instalmentsAccepted && (
+                      <div className="p-3.5 rounded-2xl bg-stone-100 dark:bg-stone-800/60 border border-stone-200 dark:border-stone-700 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-stone-900 dark:text-white">Payment Method</span>
+                          <span className="text-[10px] font-bold bg-purple-500/10 text-purple-600 dark:text-purple-300 px-2 py-0.5 rounded-full">
+                            Mdogo Mdogo Available
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setPaymentType('full')}
+                            className={`py-2 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                              paymentType === 'full'
+                                ? 'bg-[#e4002b] text-white shadow-xs'
+                                : 'bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-700 text-stone-700 dark:text-stone-300'
+                            }`}
+                          >
+                            Pay in Full
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => setPaymentType('instalments')}
+                            className={`py-2 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                              paymentType === 'instalments'
+                                ? 'bg-[#e4002b] text-white shadow-xs'
+                                : 'bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-700 text-stone-700 dark:text-stone-300'
+                            }`}
+                          >
+                            Pay in Instalments
+                          </button>
+                        </div>
+
+                        {paymentType === 'instalments' && (
+                          <div className="space-y-3 pt-2 border-t border-stone-200 dark:border-stone-700 text-xs animate-in fade-in duration-150">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[11px] font-semibold text-stone-600 dark:text-stone-400">
+                                Number of Instalments:
+                              </span>
+                              <div className="flex gap-1.5">
+                                {[2, 3].map(count => (
+                                  <button
+                                    key={count}
+                                    type="button"
+                                    onClick={() => setInstalmentCount(count as 2 | 3)}
+                                    className={`px-3 py-1 rounded-lg text-xs font-bold cursor-pointer transition-all ${
+                                      instalmentCount === count
+                                        ? 'bg-stone-900 dark:bg-white text-white dark:text-stone-900'
+                                        : 'bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 text-stone-600 dark:text-stone-400'
+                                    }`}
+                                  >
+                                    {count} parts
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+
+                            {/* Schedule Breakdown */}
+                            <div className="p-3 bg-white dark:bg-stone-900 rounded-xl border border-stone-200 dark:border-stone-700 space-y-2">
+                              <div className="text-[11px] font-bold text-stone-500 uppercase tracking-wider flex justify-between">
+                                <span>Schedule</span>
+                                <span className="text-purple-600 dark:text-purple-400">+10% Premium</span>
+                              </div>
+                              <div className="space-y-1.5 text-xs">
+                                {getInstalmentSchedule().map(item => (
+                                  <div key={item.number} className="flex items-center justify-between">
+                                    <div>
+                                      <span className="font-bold text-stone-800 dark:text-stone-200">{item.label}</span>
+                                      <span className="text-[10px] text-stone-400 block">{item.dueDate}</span>
+                                    </div>
+                                    <span className="font-mono font-bold text-stone-900 dark:text-white">
+                                      {formatMoney(item.amount)}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                              <div className="text-[10px] text-stone-400 pt-1 border-t border-stone-100 dark:border-stone-800">
+                                Note: All instalments must be fully completed before check-in.
+                              </div>
+                            </div>
+
+                            {/* Confirmation Checkbox */}
+                            <label className="flex items-start gap-2 cursor-pointer select-none">
+                              <input
+                                type="checkbox"
+                                checked={instalmentConfirmed}
+                                onChange={e => setInstalmentConfirmed(e.target.checked)}
+                                className="mt-0.5 rounded text-[#e4002b] focus:ring-[#e4002b]"
+                              />
+                              <span className="text-[11px] font-semibold text-stone-800 dark:text-stone-200">
+                                I agree to the 10% instalment premium ({formatMoney(instalmentSurcharge)}) and agree to settle before check-in.
+                              </span>
+                            </label>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     {/* Price Breakdown */}
                     <div className="space-y-1.5 text-xs text-stone-500 pt-2 border-t border-stone-200 dark:border-stone-800">
                       <div className="flex justify-between">
@@ -835,19 +1259,51 @@ export const StayDetailModal: React.FC<StayDetailModalProps> = ({
                         <span>Service fee (8%)</span>
                         <span>{formatMoney(serviceFee)}</span>
                       </div>
+                      {paymentType === 'instalments' && (
+                        <div className="flex justify-between text-purple-600 dark:text-purple-400 font-semibold">
+                          <span>Instalment Surcharge (+10%)</span>
+                          <span>{formatMoney(instalmentSurcharge)}</span>
+                        </div>
+                      )}
                       <div className="flex justify-between font-extrabold text-stone-900 dark:text-white pt-1 border-t border-stone-200 dark:border-stone-800 text-sm">
-                        <span>Total (Display only)</span>
+                        <span>Total (Pay at check-in)</span>
                         <span>{formatMoney(grandTotal)}</span>
                       </div>
                     </div>
 
-                    <button
-                      type="submit"
-                      disabled={bookingLoading}
-                      className="w-full py-2.5 rounded-full bg-[#e4002b] hover:bg-[#c90026] text-white font-extrabold text-xs shadow-lg transition-all cursor-pointer disabled:opacity-50"
-                    >
-                      {bookingLoading ? 'Processing...' : stay.instantBook ? 'Book Now (Instant)' : 'Request to Book'}
-                    </button>
+                    {/* Booking Button */}
+                    {isOwnerExpired ? (
+                      <button
+                        type="button"
+                        disabled
+                        className="w-full py-3 rounded-full bg-stone-300 dark:bg-stone-800 text-stone-500 dark:text-stone-400 font-extrabold text-xs cursor-not-allowed shadow-none"
+                      >
+                        This listing is temporarily unavailable
+                      </button>
+                    ) : (
+                      <button
+                        type="submit"
+                        disabled={
+                          bookingLoading ||
+                          (Boolean(stay.depositRequired) && !depositConfirmed) ||
+                          (paymentType === 'instalments' && !instalmentConfirmed)
+                        }
+                        className="w-full py-3 rounded-full bg-[#e4002b] hover:bg-[#c90026] text-white font-extrabold text-xs shadow-lg transition-all cursor-pointer disabled:opacity-50 flex items-center justify-center gap-1.5"
+                      >
+                        <span>
+                          {bookingLoading
+                            ? 'Confirming Reservation...'
+                            : stay.depositRequired && !depositConfirmed
+                            ? 'Agree to Deposit Terms to Book'
+                            : paymentType === 'instalments' && !instalmentConfirmed
+                            ? 'Confirm Instalments to Book'
+                            : stay.instantBook
+                            ? 'Confirm Booking (Instant)'
+                            : 'Request to Book'}
+                        </span>
+                        <CheckCircle2 className="w-4 h-4" />
+                      </button>
+                    )}
                   </form>
                 )}
 
@@ -869,6 +1325,27 @@ export const StayDetailModal: React.FC<StayDetailModalProps> = ({
                     <span>Negotiate</span>
                   </button>
                 </div>
+
+                {/* Direct WhatsApp button ONLY when owner subscription is active */}
+                {stay.whatsapp && !isOwnerExpired && (
+                  <a
+                    href={`https://wa.me/${stay.whatsapp.replace(/[^0-9]/g, '')}?text=Hello!%20I'm%20inquiring%20about%20your%20stay%20on%20AirBus:%20${encodeURIComponent(
+                      stay.title
+                    )}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-full py-2 px-3 bg-[#16a34a] hover:bg-[#15803d] text-white text-xs font-bold rounded-full flex items-center justify-center gap-1.5 transition-colors shadow-sm"
+                  >
+                    <PhoneCall className="w-3.5 h-3.5" />
+                    <span>Direct WhatsApp Host</span>
+                  </a>
+                )}
+
+                {isOwnerExpired && (
+                  <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-2xl text-[11px] text-amber-700 dark:text-amber-300 text-center">
+                    Host contact details hidden. Host subscription has expired.
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -1158,6 +1635,16 @@ export const StayDetailModal: React.FC<StayDetailModalProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Complimentary Gifts Selector Modal */}
+      <ComplimentaryGiftsSelector
+        isModal
+        isOpen={giftPickerOpen}
+        onClose={() => setGiftPickerOpen(false)}
+        selectedGifts={selectedGifts}
+        onChange={setSelectedGifts}
+        title={`Complimentary Gifts for ${stay.title}`}
+      />
 
       {/* Sponsor Advert Modal */}
       <AdvertModal

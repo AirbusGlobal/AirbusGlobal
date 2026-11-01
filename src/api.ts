@@ -22,6 +22,7 @@ import {
   ViralityReport,
   StayCategory,
   ListingPromotion,
+  DormantOwner,
 } from './types';
 
 
@@ -381,6 +382,22 @@ export const api = {
         },
       } as unknown as T;
     }
+    if (endpoint.includes('/dormant-owners') || endpoint.includes('/delist') || endpoint.includes('/relist')) {
+      return {
+        success: true,
+        dormantOwners: [
+          {
+            name: 'Kariuki Evans',
+            email: 'dormant_host@airbus.ke',
+            tier: 'Silver',
+            lastExpiryDate: Date.now() - 95 * 864e5,
+            daysInactive: 95,
+            listingCount: 2,
+            isDelisted: false,
+          },
+        ],
+      } as unknown as T;
+    }
     return {} as T;
   },
 
@@ -411,6 +428,13 @@ export const api = {
     return this.request<{ user: User }>('/api/auth/profile', {
       method: 'PATCH',
       body: JSON.stringify(profileData),
+    });
+  },
+
+  async changePassword(passwords: { currentPassword: string; newPassword: string }): Promise<{ success: boolean; message: string }> {
+    return this.request<{ success: boolean; message: string }>('/api/auth/change-password', {
+      method: 'POST',
+      body: JSON.stringify(passwords),
     });
   },
 
@@ -605,6 +629,7 @@ export const api = {
     tier?: string;
     amount: number;
     mpesaCode: string;
+    period?: 'monthly' | 'annual';
   }): Promise<{ payment: PaymentRecord }> {
     return this.request<{ payment: PaymentRecord }>('/api/payments', {
       method: 'POST',
@@ -693,6 +718,22 @@ export const api = {
     });
   },
 
+  async getDormantOwners(): Promise<{ dormantOwners: DormantOwner[] }> {
+    return this.request('/api/admin/dormant-owners');
+  },
+
+  async delistOwner(email: string): Promise<{ success: boolean; dormantOwners: DormantOwner[] }> {
+    return this.request(`/api/admin/owners/${encodeURIComponent(email)}/delist`, {
+      method: 'POST',
+    });
+  },
+
+  async relistOwner(email: string): Promise<{ success: boolean; dormantOwners: DormantOwner[] }> {
+    return this.request(`/api/admin/owners/${encodeURIComponent(email)}/relist`, {
+      method: 'POST',
+    });
+  },
+
   // AI
   async findTripsAI(params: any): Promise<{ matches: Array<{ stay: Stay; matchReason: string }> }> {
     return this.request('/api/ai/trip-finder', {
@@ -758,10 +799,13 @@ export const api = {
     });
   },
 
-  async payPlanFromWallet(tier: StayCategory): Promise<{ plan: HostPlanStatus; ledger: LedgerEntry; walletBalance: number }> {
+  async payPlanFromWallet(
+    tier: StayCategory,
+    period: 'monthly' | 'annual' = 'monthly'
+  ): Promise<{ plan: HostPlanStatus; ledger: LedgerEntry; walletBalance: number }> {
     return this.request('/api/plans/wallet-pay', {
       method: 'POST',
-      body: JSON.stringify({ tier }),
+      body: JSON.stringify({ tier, period }),
     });
   },
 

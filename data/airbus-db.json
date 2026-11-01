@@ -84,7 +84,7 @@
       "hostPhone": "+254 722 987 654",
       "whatsapp": "254722987654",
       "minNights": 1,
-      "views": 483,
+      "views": 484,
       "gradientHue": [
         262,
         330
@@ -98,7 +98,7 @@
       "hostMessage": "Karibu sana! I personally prepare every detail so you enjoy our penthouse rooftop sunset and heated infinity pool.",
       "isPromoted": true,
       "promotedUntil": 1794473742707,
-      "promotionImpressions": 3,
+      "promotionImpressions": 35,
       "promotionClicks": 1
     },
     {
@@ -269,7 +269,7 @@
       "hostMessage": "Habari za Mombasa! The Indian Ocean is at your doorstep. Let me know if you would like our private chef to prepare Swahili biryani.",
       "isPromoted": true,
       "promotedUntil": 1793868942707,
-      "promotionImpressions": 1
+      "promotionImpressions": 32
     },
     {
       "id": "s5",
@@ -877,7 +877,7 @@
       "startsAt": 1793093032749,
       "expiresAt": 1793525032749,
       "createdAt": 1793093032749,
-      "views": 1,
+      "views": 33,
       "clicks": 1
     },
     {
@@ -897,7 +897,8 @@
       "status": "approved",
       "startsAt": 1793006632749,
       "expiresAt": 1793611432749,
-      "createdAt": 1793006632749
+      "createdAt": 1793006632749,
+      "views": 31
     },
     {
       "id": "ad_worked_example_3",
@@ -913,7 +914,7 @@
       "totalAmount": 300,
       "platformFee": 90,
       "hostNet": 210,
-      "status": "approved",
+      "status": "expired",
       "createdAt": 1793175832749,
       "startsAt": 1793179505291,
       "expiresAt": 1793438705291

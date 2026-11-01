@@ -37,9 +37,11 @@ import {
   Gift,
   Rocket,
   Megaphone,
+  MapPin,
 } from 'lucide-react';
 import { AMENITY_GROUPS, PLANS } from '../constants';
 import { extractYouTubeId, getYouTubeThumbnailUrl, isYouTubeUrl } from '../utils/youtube';
+import { ComplimentaryGiftsSelector } from './ComplimentaryGiftsSelector';
 
 interface OwnerDashboardProps {
   user: User;
@@ -119,6 +121,8 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
   const [title, setTitle] = useState('');
   const [area, setArea] = useState('');
   const [landmark, setLandmark] = useState('');
+  const [lat, setLat] = useState<number>(-1.2683);
+  const [lng, setLng] = useState<number>(36.8044);
   const [rooms, setRooms] = useState(2);
   const [price, setPrice] = useState(7500);
   const [desc, setDesc] = useState('');
@@ -141,6 +145,50 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
   const [aiHighlights, setAiHighlights] = useState<string[]>([]);
   const [creatingStay, setCreatingStay] = useState(false);
   const [wizardError, setWizardError] = useState<string | null>(null);
+
+  // Instalments (Mdogo Mdogo) & Deposit Model States
+  const [instalmentsAccepted, setInstalmentsAccepted] = useState(false);
+  const [depositRequired, setDepositRequired] = useState(false);
+  const [depositAmount, setDepositAmount] = useState(5000);
+  const [depositReason, setDepositReason] = useState('Security against property damage or lost keys');
+  const [depositRefundTerms, setDepositRefundTerms] = useState('Inspected and refunded directly to guest via M-Pesa within 2 hours of checkout');
+
+  // Subscription Gate Modal before adding listing
+  const [gateModal, setGateModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    actionText: string;
+  } | null>(null);
+
+  const handleAddListingClick = () => {
+    // 1. Check whether owner has an ACTIVE subscription
+    if (!isPlanActive) {
+      setGateModal({
+        isOpen: true,
+        title: 'Active Subscription Required',
+        message: 'To add a listing, you must have an active subscription. Please subscribe to Silver, Diamond, or Gold to publish listings on AirBus.',
+        actionText: 'Pay for Subscription',
+      });
+      return;
+    }
+
+    // 2. Enforce subscription tier limits
+    const maxLimit = PLANS[plan.tier]?.l || 3;
+    if (myStays.length >= maxLimit) {
+      setGateModal({
+        isOpen: true,
+        title: 'Listing Limit Reached',
+        message: `Your current ${plan.tier} Plan allows up to ${maxLimit} listings. You currently have ${myStays.length} active listings. Please upgrade your subscription to add more listings.`,
+        actionText: 'Upgrade Subscription',
+      });
+      return;
+    }
+
+    // Allowed: continue to the listing form
+    setStep(1);
+    setActiveTab('new-stay');
+  };
 
   // Date blocking state
   const [blockStayId, setBlockStayId] = useState<string | null>(null);
@@ -251,6 +299,11 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
       return;
     }
 
+    if (lat === undefined || lng === undefined || isNaN(Number(lat)) || isNaN(Number(lng))) {
+      setWizardError('Latitude and Longitude coordinates are strictly mandatory to pin your stay on the AirBus discovery map.');
+      return;
+    }
+
     if (!videoUrl && !youtubeVideoId) {
       setWizardError('AirBus is video-first! Please upload a tour video (MP4/MOV) or provide a YouTube / Shorts link.');
       return;
@@ -265,6 +318,8 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
       await onCreateStay({
         title,
         location: `${area} · near ${landmark || 'Central'}`,
+        lat: Number(lat),
+        lng: Number(lng),
         price: Number(price),
         type: rooms === 1 ? 'Studio' : rooms > 3 ? 'Villa' : 'Apartment',
         guests: rooms * 2,
@@ -282,12 +337,19 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
         minNights: 1,
         welcomeGifts: welcomeGifts.length > 0 ? welcomeGifts : ['Kenyan Safari Kahawa & Fresh Ground Beans'],
         hostMessage: hostMessage.trim() || 'Karibu sana! We look forward to hosting you.',
+        instalmentsAccepted,
+        depositRequired,
+        depositAmount: depositRequired ? Number(depositAmount) : undefined,
+        depositReason: depositRequired ? depositReason : undefined,
+        depositRefundTerms: depositRequired ? depositRefundTerms : undefined,
       });
 
       // Reset wizard
       setTitle('');
       setArea('');
       setLandmark('');
+      setLat(-1.2683);
+      setLng(36.8044);
       setVideoFile(null);
       setVideoPreviewUrl('');
       setVideoUrl('');
@@ -295,6 +357,11 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
       setYoutubeVideoId(null);
       setWelcomeGifts(['Kenyan Safari Kahawa & Fresh Ground Beans', 'Fresh Coconut Water & Tropical Basket']);
       setHostMessage('Karibu sana! We look forward to hosting you in our serene home.');
+      setInstalmentsAccepted(false);
+      setDepositRequired(false);
+      setDepositAmount(5000);
+      setDepositReason('Security against property damage or lost keys');
+      setDepositRefundTerms('Inspected and refunded directly to guest via M-Pesa within 2 hours of checkout');
       setStep(1);
       setActiveTab('listings');
     } catch (err: any) {
@@ -422,7 +489,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                 Mandatory Host Subscription Required
               </h3>
               <p className="text-xs text-stone-300">
-                To upload video stays and keep listings visible in search, an active 30-day subscription (Silver KES 1,000, Diamond KES 2,500, or Gold KES 5,000) is required. After expiration, you have a 2-day grace period before listings are hidden from public search.
+                To add listings and keep short stays visible in search, an active subscription (Silver KES 1,000, Diamond KES 2,500, or Gold KES 5,000) is required.
               </p>
             </div>
           </div>
@@ -458,18 +525,11 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
 
           <div className="flex flex-wrap items-center gap-3">
             <button
-              onClick={() => {
-                if (!isPlanActive) {
-                  onOpenPlanModal();
-                  return;
-                }
-                setStep(1);
-                setActiveTab('new-stay');
-              }}
+              onClick={handleAddListingClick}
               className="bg-[#e4002b] hover:bg-[#c90026] text-white px-5 py-2.5 rounded-full text-xs font-bold transition-all shadow-md active:scale-95 flex items-center gap-1.5 cursor-pointer"
             >
               <Plus className="w-4 h-4" />
-              <span>List a New Stay</span>
+              <span>Add Listing</span>
             </button>
           </div>
         </div>
@@ -495,6 +555,9 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                   >
                     {isPlanActive ? `${daysRemaining} days left` : 'Expired'}
                   </span>
+                </div>
+                <div className="text-[10px] text-stone-400 mt-0.5">
+                  Limit: {PLANS[plan.tier]?.l || 3} listings ({myStays.length} active)
                 </div>
               </div>
             </div>
@@ -528,6 +591,12 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
               Deposit (M-Pesa)
             </button>
           </div>
+        </div>
+
+        {/* Subscription Disclaimer */}
+        <div className="mt-4 p-3.5 rounded-2xl bg-white/5 border border-white/10 text-[11px] text-stone-300 leading-relaxed">
+          <span className="font-bold text-white">Subscription Disclaimer: </span>
+          If your subscription expires, your contact details will be hidden and guests will not be able to book your short stays until you renew. If your subscription stays inactive for 3 consecutive months, your listings will be delisted from the platform.
         </div>
       </div>
 
@@ -578,13 +647,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
         </button>
 
         <button
-          onClick={() => {
-            if (!isPlanActive) {
-              onOpenPlanModal();
-              return;
-            }
-            setActiveTab('new-stay');
-          }}
+          onClick={handleAddListingClick}
           className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
             activeTab === 'new-stay'
               ? 'bg-[#e4002b] text-white shadow-sm'
@@ -592,7 +655,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
           }`}
         >
           <Plus className="w-4 h-4" />
-          <span>Upload Video Stay</span>
+          <span>Add Listing</span>
         </button>
       </div>
 
@@ -607,16 +670,10 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                 AirBus is video-only. Drag and drop a property video tour or paste your YouTube Shorts link to start receiving bookings.
               </p>
               <button
-                onClick={() => {
-                  if (!isPlanActive) {
-                    onOpenPlanModal();
-                    return;
-                  }
-                  setActiveTab('new-stay');
-                }}
+                onClick={handleAddListingClick}
                 className="px-5 py-2.5 bg-[#e4002b] text-white rounded-full text-xs font-bold hover:bg-[#c90026] cursor-pointer"
               >
-                Upload Your First Stay
+                Add Listing
               </button>
             </div>
           ) : (
@@ -1276,6 +1333,78 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                   </div>
                 </div>
 
+                {/* Mandatory Latitude and Longitude with Presets */}
+                <div className="p-3.5 bg-stone-50 dark:bg-stone-900/60 rounded-2xl border border-stone-200 dark:border-stone-800 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-stone-800 dark:text-stone-200 flex items-center gap-1.5">
+                      <MapPin className="w-3.5 h-3.5 text-[#e4002b]" />
+                      <span>GPS Coordinates (Mandatory for Discovery Map) *</span>
+                    </label>
+                    <span className="text-[10px] font-mono text-stone-500 bg-stone-200 dark:bg-stone-800 px-2 py-0.5 rounded-full">
+                      {lat.toFixed(4)}, {lng.toFixed(4)}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <span className="text-[10px] font-semibold text-stone-500 block mb-1">Latitude</span>
+                      <input
+                        type="number"
+                        step="0.0001"
+                        value={lat}
+                        onChange={e => setLat(parseFloat(e.target.value) || 0)}
+                        className="w-full px-3 py-2 bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 rounded-xl text-xs font-mono outline-none focus:border-[#e4002b]"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-semibold text-stone-500 block mb-1">Longitude</span>
+                      <input
+                        type="number"
+                        step="0.0001"
+                        value={lng}
+                        onChange={e => setLng(parseFloat(e.target.value) || 0)}
+                        className="w-full px-3 py-2 bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 rounded-xl text-xs font-mono outline-none focus:border-[#e4002b]"
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <span className="text-[10px] font-bold text-stone-500 block mb-1 uppercase tracking-wider">Quick Kenyan City Presets:</span>
+                    <div className="flex flex-wrap gap-1.5">
+                      {[
+                        { name: 'Westlands', lat: -1.2683, lng: 36.8044 },
+                        { name: 'Kilimani', lat: -1.2982, lng: 36.7907 },
+                        { name: 'Karen', lat: -1.3197, lng: 36.7065 },
+                        { name: 'Nairobi CBD', lat: -1.2864, lng: 36.8172 },
+                        { name: 'Diani Beach', lat: -4.2796, lng: 39.5947 },
+                        { name: 'Nyali, Mombasa', lat: -4.0326, lng: 39.6991 },
+                        { name: 'Naivasha', lat: -0.7172, lng: 36.4310 },
+                        { name: 'Malindi', lat: -3.2192, lng: 40.1169 },
+                        { name: 'Kisumu', lat: -0.0917, lng: 34.7680 },
+                      ].map(preset => (
+                        <button
+                          key={preset.name}
+                          type="button"
+                          onClick={() => {
+                            setLat(preset.lat);
+                            setLng(preset.lng);
+                            if (!area) setArea(preset.name);
+                          }}
+                          className={`px-2 py-0.5 rounded-lg text-[10px] font-medium border transition-all cursor-pointer ${
+                            Math.abs(lat - preset.lat) < 0.001 && Math.abs(lng - preset.lng) < 0.001
+                              ? 'bg-[#e4002b] text-white border-[#e4002b]'
+                              : 'bg-white dark:bg-stone-800 text-stone-600 dark:text-stone-300 border-stone-200 dark:border-stone-700 hover:border-stone-400'
+                          }`}
+                        >
+                          {preset.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="text-xs font-bold text-stone-700 dark:text-stone-300 block mb-1">
@@ -1551,77 +1680,13 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                   />
                 </div>
 
-                {/* Complimentary Welcome Gifts & Guest Perks */}
-                <div className="p-4 bg-amber-50/70 dark:bg-amber-950/20 border border-amber-300/60 dark:border-amber-800/40 rounded-2xl space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-amber-950 dark:text-amber-200 flex items-center gap-1.5">
-                      <Gift className="w-4 h-4 text-amber-600" />
-                      Complimentary Welcome Gifts (Incentives for Guests)
-                    </span>
-                    <span className="text-[10px] text-amber-600 bg-amber-100 dark:bg-amber-900/40 px-2 py-0.5 rounded-full font-bold">
-                      {welcomeGifts.length} Included
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-stone-600 dark:text-stone-300">
-                    Select perks or Kenyan hospitality touches guests receive upon check-in.
-                  </p>
-
-                  {/* Preset Gift Suggestions */}
-                  <div className="flex flex-wrap gap-1.5">
-                    {[
-                      'Kenyan Safari Kahawa & Fresh Ground Beans',
-                      'Fresh Coconut Water & Tropical Basket',
-                      'Late Checkout (1:00 PM)',
-                      'Complimentary Airport Pickup',
-                      'Artisanal Kenyan Macadamia Nuts',
-                      'Chilled Sparkling Juice',
-                      'Fresh Beach Towels & Sunscreen',
-                    ].map(gift => {
-                      const isSelected = welcomeGifts.includes(gift);
-                      return (
-                        <button
-                          key={gift}
-                          type="button"
-                          onClick={() => {
-                            setWelcomeGifts(prev =>
-                              prev.includes(gift) ? prev.filter(g => g !== gift) : [...prev, gift]
-                            );
-                          }}
-                          className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-all cursor-pointer ${
-                            isSelected
-                              ? 'bg-amber-500 text-white border-amber-500 shadow-xs'
-                              : 'bg-white dark:bg-stone-800 text-stone-700 dark:text-stone-300 border-stone-200 dark:border-stone-700 hover:border-amber-400'
-                          }`}
-                        >
-                          {isSelected ? '✓ ' : '+ '} {gift}
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  {/* Add Custom Gift */}
-                  <div className="flex items-center gap-2 pt-1">
-                    <input
-                      type="text"
-                      value={customGiftInput}
-                      onChange={e => setCustomGiftInput(e.target.value)}
-                      placeholder="Add custom gift (e.g. Swahili breakfast basket)..."
-                      className="flex-1 px-3 py-1.5 bg-white dark:bg-stone-900 border border-amber-200 dark:border-amber-800 rounded-xl text-xs outline-none"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (customGiftInput.trim()) {
-                          setWelcomeGifts(prev => [...prev, customGiftInput.trim()]);
-                          setCustomGiftInput('');
-                        }
-                      }}
-                      className="px-3 py-1.5 bg-amber-600 text-white rounded-xl text-xs font-bold cursor-pointer hover:bg-amber-700"
-                    >
-                      Add Gift
-                    </button>
-                  </div>
-                </div>
+                {/* Complimentary Welcome Gifts & Guest Perks (10,000 Catalog) */}
+                <ComplimentaryGiftsSelector
+                  selectedGifts={welcomeGifts}
+                  onChange={setWelcomeGifts}
+                  maxSelection={3}
+                  title="10,000 Complimentary Host Perks & Gifts Catalog"
+                />
 
                 {/* Host Personal Message / Welcome Note */}
                 <div className="space-y-1">
@@ -1669,6 +1734,105 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                   </div>
                 </div>
 
+                {/* Optional "Pay in Instalments" (Mdogo Mdogo) Model */}
+                <div className="p-4 rounded-2xl bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-800 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="text-xs font-bold text-stone-900 dark:text-white">
+                        Accept payment in instalments (Mdogo Mdogo)
+                      </h4>
+                      <p className="text-[11px] text-stone-500">
+                        Allow guests to split reservations into 2 or 3 instalments with a 10% premium. All instalments must be completed before check-in.
+                      </p>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={instalmentsAccepted}
+                        onChange={e => setInstalmentsAccepted(e.target.checked)}
+                        className="sr-only peer"
+                      />
+                      <div className="w-9 h-5 bg-stone-300 peer-focus:outline-none rounded-full peer dark:bg-stone-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-stone-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#e4002b]"></div>
+                    </label>
+                  </div>
+                </div>
+
+                {/* Optional Security Deposit Model */}
+                <div className="p-4 rounded-2xl bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-800 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="text-xs font-bold text-stone-900 dark:text-white">
+                        Require a security/damage deposit
+                      </h4>
+                      <p className="text-[11px] text-stone-500">
+                        Require guests to place a refundable security deposit paid directly to you at check-in.
+                      </p>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={depositRequired}
+                        onChange={e => setDepositRequired(e.target.checked)}
+                        className="sr-only peer"
+                      />
+                      <div className="w-9 h-5 bg-stone-300 peer-focus:outline-none rounded-full peer dark:bg-stone-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-stone-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#e4002b]"></div>
+                    </label>
+                  </div>
+
+                  {depositRequired && (
+                    <div className="pt-2 space-y-3 border-t border-stone-200 dark:border-stone-800 animate-in fade-in duration-150">
+                      <div>
+                        <label className="text-[11px] font-bold text-stone-700 dark:text-stone-300 block mb-1">
+                          Deposit Amount (KES) *
+                        </label>
+                        <input
+                          type="number"
+                          min="500"
+                          step="500"
+                          value={depositAmount}
+                          onChange={e => setDepositAmount(Number(e.target.value) || 0)}
+                          className="w-full px-3.5 py-2 bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 rounded-xl text-xs outline-none focus:border-[#e4002b]"
+                          required
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] font-bold text-stone-700 dark:text-stone-300 block mb-1">
+                          Deposit Reason *
+                        </label>
+                        <input
+                          type="text"
+                          value={depositReason}
+                          onChange={e => setDepositReason(e.target.value)}
+                          placeholder="e.g. Security against property damage, lost keycards, or smoking violations"
+                          className="w-full px-3.5 py-2 bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 rounded-xl text-xs outline-none focus:border-[#e4002b]"
+                          required
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] font-bold text-stone-700 dark:text-stone-300 block mb-1">
+                          Refund Terms *
+                        </label>
+                        <textarea
+                          rows={2}
+                          value={depositRefundTerms}
+                          onChange={e => setDepositRefundTerms(e.target.value)}
+                          placeholder="e.g. Property is inspected at checkout; deposit is refunded in full directly to guest via M-Pesa within 2 hours of departure."
+                          className="w-full px-3.5 py-2 bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 rounded-xl text-xs outline-none focus:border-[#e4002b]"
+                          required
+                        />
+                      </div>
+
+                      {/* Explicit Platform Disclaimer */}
+                      <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-[10px] text-amber-800 dark:text-amber-300 leading-relaxed">
+                        <strong>Platform Disclaimer: </strong>
+                        AirBus is not an escrow service. Deposits are collected and refunded directly between host and guest. AirBus does not hold deposit funds.
+                      </div>
+                    </div>
+                  )}
+                </div>
+
                 <div className="pt-4 flex justify-between">
                   <button
                     type="button"
@@ -1688,6 +1852,45 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
               </div>
             )}
           </form>
+        </div>
+      )}
+
+      {/* Subscription Gate Modal */}
+      {gateModal?.isOpen && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="relative w-full max-w-md bg-white dark:bg-[#15171e] text-stone-900 dark:text-stone-100 rounded-3xl p-6 shadow-2xl border border-stone-200 dark:border-stone-800 text-center space-y-4">
+            <div className="w-12 h-12 rounded-2xl bg-rose-500/10 text-[#e4002b] flex items-center justify-center mx-auto">
+              <Lock className="w-6 h-6" />
+            </div>
+
+            <h3 className="text-lg font-extrabold font-heading text-stone-900 dark:text-white">
+              {gateModal.title}
+            </h3>
+
+            <p className="text-xs text-stone-600 dark:text-stone-300 leading-relaxed">
+              {gateModal.message}
+            </p>
+
+            <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-2">
+              <button
+                type="button"
+                onClick={() => setGateModal(null)}
+                className="w-full sm:w-auto px-5 py-2.5 rounded-full border border-stone-200 dark:border-stone-700 text-xs font-bold text-stone-600 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setGateModal(null);
+                  onOpenPlanModal();
+                }}
+                className="w-full sm:w-auto px-6 py-2.5 rounded-full bg-[#e4002b] hover:bg-[#c90026] text-white text-xs font-extrabold shadow-md transition-all cursor-pointer"
+              >
+                {gateModal.actionText}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
