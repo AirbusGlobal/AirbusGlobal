@@ -24,8 +24,11 @@ import {
   Bell,
   PhoneCall,
   Gift,
+  List,
+  CalendarDays,
 } from 'lucide-react';
 import { StayCard } from './StayCard';
+import { BookingCalendarView } from './BookingCalendarView';
 
 interface GuestDashboardProps {
   user: User;
@@ -64,6 +67,7 @@ export const GuestDashboard: React.FC<GuestDashboardProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'trips' | 'wishlist' | 'messages' | 'recommended' | 'profile'>('trips');
   const [tripFilter, setTripFilter] = useState<'upcoming' | 'past' | 'cancelled'>('upcoming');
+  const [tripsDisplayMode, setTripsDisplayMode] = useState<'list' | 'calendar'>('list');
 
   // Profile form state
   const [name, setName] = useState(user.name);
@@ -425,30 +429,77 @@ export const GuestDashboard: React.FC<GuestDashboardProps> = ({
       {/* TAB 1: MY TRIPS */}
       {activeTab === 'trips' && (
         <div className="space-y-6">
-          {/* Subfilter Pills */}
-          <div className="flex gap-2">
-            {(['upcoming', 'past', 'cancelled'] as const).map(tab => (
+          {/* View Mode Toggle: List vs Calendar & Timeline */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-stone-200 dark:border-stone-800">
+            {/* Subfilter Pills (applicable in list view) */}
+            {tripsDisplayMode === 'list' ? (
+              <div className="flex gap-2">
+                {(['upcoming', 'past', 'cancelled'] as const).map(tab => (
+                  <button
+                    key={tab}
+                    onClick={() => setTripFilter(tab)}
+                    className={`px-3 py-1.5 rounded-full text-xs font-bold capitalize transition-all cursor-pointer ${
+                      tripFilter === tab
+                        ? 'bg-stone-900 text-white dark:bg-white dark:text-black shadow-sm'
+                        : 'bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-400 hover:bg-stone-200'
+                    }`}
+                  >
+                    {tab} (
+                    {tab === 'upcoming'
+                      ? upcomingBookings.length
+                      : tab === 'past'
+                      ? pastBookings.length
+                      : cancelledBookings.length}
+                    )
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="text-xs text-stone-500">
+                Viewing all <strong>{bookings.filter(b => b.status === 'confirmed').length} confirmed stays</strong> across the travel schedule.
+              </div>
+            )}
+
+            {/* View Switcher Buttons */}
+            <div className="flex items-center gap-1 bg-stone-100 dark:bg-stone-800 p-1 rounded-2xl shrink-0 self-start sm:self-auto">
               <button
-                key={tab}
-                onClick={() => setTripFilter(tab)}
-                className={`px-3 py-1.5 rounded-full text-xs font-bold capitalize transition-all cursor-pointer ${
-                  tripFilter === tab
-                    ? 'bg-stone-900 text-white dark:bg-white dark:text-black shadow-sm'
-                    : 'bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-400 hover:bg-stone-200'
+                onClick={() => setTripsDisplayMode('list')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                  tripsDisplayMode === 'list'
+                    ? 'bg-white dark:bg-stone-900 text-stone-900 dark:text-white shadow-2xs'
+                    : 'text-stone-500 hover:text-stone-900 dark:hover:text-white'
                 }`}
               >
-                {tab} (
-                {tab === 'upcoming'
-                  ? upcomingBookings.length
-                  : tab === 'past'
-                  ? pastBookings.length
-                  : cancelledBookings.length}
-                )
+                <List className="w-3.5 h-3.5" />
+                <span>List View</span>
               </button>
-            ))}
+
+              <button
+                onClick={() => setTripsDisplayMode('calendar')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                  tripsDisplayMode === 'calendar'
+                    ? 'bg-[#e4002b] text-white shadow-2xs'
+                    : 'text-stone-500 hover:text-stone-900 dark:hover:text-white'
+                }`}
+              >
+                <CalendarDays className="w-3.5 h-3.5" />
+                <span>Calendar &amp; Timeline</span>
+                <span className="text-[10px] font-black px-1.5 py-0.2 rounded-full bg-white/20">
+                  {bookings.filter(b => b.status === 'confirmed').length}
+                </span>
+              </button>
+            </div>
           </div>
 
-          {currentTripList.length === 0 ? (
+          {tripsDisplayMode === 'calendar' ? (
+            <BookingCalendarView
+              bookings={bookings}
+              stays={stays}
+              onSelectStay={onSelectStay}
+              onChatHost={onChatHost}
+              currency={currency}
+            />
+          ) : currentTripList.length === 0 ? (
             <div className="p-12 text-center bg-white dark:bg-[#15171e] rounded-3xl border border-dashed border-stone-300 dark:border-stone-800">
               <Calendar className="w-10 h-10 text-stone-400 mx-auto mb-3" />
               <h3 className="text-base font-bold text-stone-800 dark:text-stone-200">No {tripFilter} trips found</h3>

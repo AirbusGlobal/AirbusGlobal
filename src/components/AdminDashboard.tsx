@@ -14,6 +14,9 @@ import {
   WalletRecord,
   ListingPromotion,
   DormantOwner,
+  TripDatingPaymentRequest,
+  TripDatingProfile,
+  TripDatingStats,
 } from '../types';
 import {
   ShieldCheck,
@@ -45,6 +48,8 @@ import {
   UserX,
   AlertOctagon,
   Clock,
+  Heart,
+  Flame,
 } from 'lucide-react';
 import { api } from '../api';
 
@@ -94,7 +99,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   showToast,
 }) => {
   const [tab, setTab] = useState<
-    'queue' | 'posts' | 'ads' | 'withdrawals' | 'settings' | 'treasury' | 'listings' | 'plans' | 'dormant' | 'users' | 'negotiations' | 'audit'
+    'queue' | 'posts' | 'ads' | 'withdrawals' | 'settings' | 'treasury' | 'listings' | 'plans' | 'dormant' | 'users' | 'negotiations' | 'audit' | 'trip-dating'
   >('queue');
 
   // Plan adjustment form state
@@ -112,6 +117,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [treasuryLedger, setTreasuryLedger] = useState<LedgerEntry[]>([]);
   const [treasuryWallet, setTreasuryWallet] = useState<WalletRecord | null>(null);
   const [dormantOwners, setDormantOwners] = useState<DormantOwner[]>([]);
+  const [datingRequests, setDatingRequests] = useState<TripDatingPaymentRequest[]>([]);
+  const [datingProfiles, setDatingProfiles] = useState<TripDatingProfile[]>([]);
+  const [datingStats, setDatingStats] = useState<TripDatingStats | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [feedbackMsg, setFeedbackMsg] = useState<string | null>(null);
 
@@ -125,6 +133,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     api.getWallet().then(res => {
       setTreasuryWallet(res.wallet);
       setTreasuryLedger(res.ledger);
+    }).catch(() => {});
+    api.getAdminTripDatingRequests().then(res => setDatingRequests(res.requests || [])).catch(() => {});
+    api.getAdminTripDatingStats().then(res => {
+      setDatingStats(res.stats);
+      setDatingProfiles(res.profiles || []);
     }).catch(() => {});
   };
 
@@ -234,6 +247,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         >
           <CreditCard className="w-4 h-4" />
           <span>M-Pesa ({pendingPayments.length})</span>
+        </button>
+
+        <button
+          onClick={() => setTab('trip-dating')}
+          className={`px-3.5 py-2 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ${
+            tab === 'trip-dating'
+              ? 'bg-gradient-to-r from-rose-500 to-pink-500 text-white font-extrabold shadow-sm'
+              : 'text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800'
+          }`}
+        >
+          <Flame className="w-4 h-4 text-rose-500" />
+          <span>Trip Dating KES 50 ({datingRequests.filter(r => r.status === 'pending').length})</span>
         </button>
 
         <button
@@ -1513,6 +1538,354 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* TAB 7: TRIP DATING MANAGEMENT & KES 50 APPROVALS */}
+      {tab === 'trip-dating' && (
+        <div className="space-y-6">
+          {/* Tagline & Info Banner */}
+          <div className="bg-gradient-to-r from-rose-950 via-neutral-900 to-pink-950/60 p-5 rounded-2xl border border-rose-500/20 text-white flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <Flame className="w-5 h-5 text-rose-500 fill-rose-500" />
+                <span className="text-xs font-bold uppercase tracking-wider text-rose-300">
+                  Trip Dating Operations & Moderation
+                </span>
+              </div>
+              <h3 className="text-xl font-bold">
+                Trip Dating – A Dating Services Near You
+              </h3>
+              <p className="text-xs text-rose-200/80 mt-0.5">
+                FREE TO JOIN. ENDLESS TO DISCOVER. KES 50 TO CONNECT (Till 943210).
+              </p>
+            </div>
+            <button
+              onClick={loadAdminData}
+              className="px-3 py-1.5 rounded-xl bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-xs font-semibold text-neutral-200 flex items-center gap-1.5 transition cursor-pointer"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              Refresh Dating Data
+            </button>
+          </div>
+
+          {/* Real-Time Metrics Cards */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            <div className="p-3.5 bg-white dark:bg-[#15171e] rounded-2xl border border-stone-200 dark:border-stone-800 text-center">
+              <span className="text-[11px] font-medium text-stone-500 dark:text-stone-400 block mb-0.5">Total Members</span>
+              <span className="text-xl font-black text-stone-900 dark:text-white">
+                {datingStats?.totalMembers || datingProfiles.length}
+              </span>
+            </div>
+
+            <div className="p-3.5 bg-white dark:bg-[#15171e] rounded-2xl border border-stone-200 dark:border-stone-800 text-center">
+              <span className="text-[11px] font-medium text-stone-500 dark:text-stone-400 block mb-0.5">Active Profiles</span>
+              <span className="text-xl font-black text-emerald-500">
+                {datingStats?.activeProfiles || datingProfiles.filter(p => p.status === 'active').length}
+              </span>
+            </div>
+
+            <div className="p-3.5 bg-white dark:bg-[#15171e] rounded-2xl border border-stone-200 dark:border-stone-800 text-center">
+              <span className="text-[11px] font-medium text-stone-500 dark:text-stone-400 block mb-0.5">Profile Views</span>
+              <span className="text-xl font-black text-cyan-500">
+                {datingStats?.totalViews || 0}
+              </span>
+            </div>
+
+            <div className="p-3.5 bg-white dark:bg-[#15171e] rounded-2xl border border-stone-200 dark:border-stone-800 text-center">
+              <span className="text-[11px] font-medium text-stone-500 dark:text-stone-400 block mb-0.5">Total Likes</span>
+              <span className="text-xl font-black text-rose-500">
+                {datingStats?.totalLikes || 0}
+              </span>
+            </div>
+
+            <div className="p-3.5 bg-white dark:bg-[#15171e] rounded-2xl border border-stone-200 dark:border-stone-800 text-center">
+              <span className="text-[11px] font-medium text-stone-500 dark:text-stone-400 block mb-0.5">Pending Unlocks</span>
+              <span className="text-xl font-black text-amber-500">
+                {datingRequests.filter(r => r.status === 'pending').length}
+              </span>
+            </div>
+
+            <div className="p-3.5 bg-gradient-to-br from-amber-500/10 to-emerald-500/10 rounded-2xl border border-amber-500/30 text-center">
+              <span className="text-[11px] font-medium text-amber-600 dark:text-amber-400 block mb-0.5">KES 50 Revenue</span>
+              <span className="text-xl font-black text-emerald-600 dark:text-emerald-400">
+                KES {(datingStats?.totalRevenueKes || datingRequests.filter(r => r.status === 'approved').length * 50).toLocaleString()}
+              </span>
+            </div>
+          </div>
+
+          {/* SECTION 1: KES 50 PAYMENT REQUESTS (TILL 943210 VERIFICATION) */}
+          <div className="bg-white dark:bg-[#15171e] rounded-2xl border border-stone-200 dark:border-stone-800 p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h4 className="font-bold text-stone-900 dark:text-white flex items-center gap-2">
+                  <CreditCard className="w-4 h-4 text-emerald-500" />
+                  KES 50 Contact Unlock Requests (Buy Goods Till 943210)
+                </h4>
+                <p className="text-xs text-stone-500 dark:text-stone-400">
+                  Approving a request activates an automatic 10-minute temporary unlock countdown window for the requester.
+                </p>
+              </div>
+              <span className="text-xs font-mono px-2.5 py-1 bg-stone-100 dark:bg-stone-800 rounded-lg text-stone-600 dark:text-stone-300">
+                {datingRequests.filter(r => r.status === 'pending').length} Pending
+              </span>
+            </div>
+
+            {datingRequests.length === 0 ? (
+              <p className="text-xs text-stone-400 py-6 text-center">No payment requests received yet.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs text-left">
+                  <thead>
+                    <tr className="border-b border-stone-200 dark:border-stone-800 text-stone-400">
+                      <th className="pb-2 font-semibold">Target Member</th>
+                      <th className="pb-2 font-semibold">Requester</th>
+                      <th className="pb-2 font-semibold">Payer Phone</th>
+                      <th className="pb-2 font-semibold">M-Pesa Code</th>
+                      <th className="pb-2 font-semibold">Amount</th>
+                      <th className="pb-2 font-semibold">Status</th>
+                      <th className="pb-2 font-semibold text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-stone-200 dark:divide-stone-800">
+                    {datingRequests.map(req => (
+                      <tr key={req.id} className="text-stone-700 dark:text-stone-300">
+                        <td className="py-3 font-semibold text-stone-900 dark:text-white">
+                          {req.profileName}
+                        </td>
+                        <td className="py-3 font-mono">{req.userEmail}</td>
+                        <td className="py-3 font-mono">{req.payerPhone}</td>
+                        <td className="py-3">
+                          <span className="font-mono font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 px-2 py-0.5 rounded border border-amber-200 dark:border-amber-800/40">
+                            {req.transactionCode}
+                          </span>
+                        </td>
+                        <td className="py-3 font-bold text-emerald-600">KES 50</td>
+                        <td className="py-3">
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                              req.status === 'approved'
+                                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-400'
+                                : req.status === 'rejected'
+                                ? 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-400'
+                                : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-400'
+                            }`}
+                          >
+                            {req.status}
+                          </span>
+                        </td>
+                        <td className="py-3 text-right">
+                          {req.status === 'pending' ? (
+                            <div className="flex items-center justify-end gap-2">
+                              <button
+                                onClick={async () => {
+                                  try {
+                                    setActionLoading(true);
+                                    await api.approveAdminTripDatingRequest(req.id);
+                                    showToast?.(`Approved KES 50 for ${req.profileName}. 10-minute contact window activated!`);
+                                    loadAdminData();
+                                  } catch (err: any) {
+                                    showToast?.(err.message || 'Approval failed');
+                                  } finally {
+                                    setActionLoading(false);
+                                  }
+                                }}
+                                className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-bold text-[11px] transition cursor-pointer"
+                              >
+                                Approve (Unlock 10m)
+                              </button>
+                              <button
+                                onClick={async () => {
+                                  const reason = prompt('Reason for rejection:');
+                                  if (!reason) return;
+                                  try {
+                                    setActionLoading(true);
+                                    await api.rejectAdminTripDatingRequest(req.id, reason);
+                                    showToast?.(`Rejected payment request for ${req.profileName}`);
+                                    loadAdminData();
+                                  } catch (err: any) {
+                                    showToast?.(err.message || 'Rejection failed');
+                                  } finally {
+                                    setActionLoading(false);
+                                  }
+                                }}
+                                className="px-2.5 py-1 bg-stone-200 dark:bg-stone-800 hover:bg-red-600 hover:text-white text-stone-600 dark:text-stone-300 rounded-lg font-bold text-[11px] transition cursor-pointer"
+                              >
+                                Reject
+                              </button>
+                            </div>
+                          ) : (
+                            <span className="text-[11px] text-stone-400">
+                              {req.reviewedBy ? `Reviewed by ${req.reviewedBy}` : 'Completed'}
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* SECTION 2: MEMBER PROFILES MODERATION & DIRECT ACCESS */}
+          <div className="bg-white dark:bg-[#15171e] rounded-2xl border border-stone-200 dark:border-stone-800 p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h4 className="font-bold text-stone-900 dark:text-white flex items-center gap-2">
+                  <Users className="w-4 h-4 text-rose-500" />
+                  Trip Dating Member Profiles Directory & Safety Moderation
+                </h4>
+                <p className="text-xs text-stone-500 dark:text-stone-400">
+                  Automated publication is active. Admins can audit, suspend, restore, or remove profiles.
+                </p>
+              </div>
+              <span className="text-xs font-mono px-2.5 py-1 bg-stone-100 dark:bg-stone-800 rounded-lg text-stone-600 dark:text-stone-300">
+                {datingProfiles.length} Members
+              </span>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs text-left">
+                <thead>
+                  <tr className="border-b border-stone-200 dark:border-stone-800 text-stone-400">
+                    <th className="pb-2 font-semibold">Member</th>
+                    <th className="pb-2 font-semibold">Gender / Age</th>
+                    <th className="pb-2 font-semibold">City & Location</th>
+                    <th className="pb-2 font-semibold">Dating Goal</th>
+                    <th className="pb-2 font-semibold">Photos</th>
+                    <th className="pb-2 font-semibold">Views / Likes</th>
+                    <th className="pb-2 font-semibold">Status</th>
+                    <th className="pb-2 font-semibold text-right">Moderation Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-stone-200 dark:divide-stone-800">
+                  {datingProfiles.map(p => (
+                    <tr key={p.id} className="text-stone-700 dark:text-stone-300">
+                      <td className="py-3">
+                        <div className="flex items-center gap-2.5">
+                          <img
+                            src={p.primaryPhoto || p.photos?.[0] || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=800&q=80'}
+                            alt=""
+                            className="w-9 h-9 rounded-full object-cover border border-stone-200 dark:border-stone-700"
+                          />
+                          <div>
+                            <span className="font-bold text-stone-900 dark:text-white block">
+                              {p.fullName}
+                            </span>
+                            <span className="text-[10px] text-stone-400 font-mono">
+                              {p.phoneNumber || 'Protected'}
+                            </span>
+                          </div>
+                        </div>
+                      </td>
+
+                      <td className="py-3 capitalize">
+                        {p.gender}, {p.age} yrs
+                      </td>
+
+                      <td className="py-3">
+                        <span className="block font-medium">{p.city}</span>
+                        <span className="text-[10px] text-stone-400">{p.location}</span>
+                      </td>
+
+                      <td className="py-3">
+                        <span className="px-2 py-0.5 rounded bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 text-[10px] font-medium border border-rose-200 dark:border-rose-900/40">
+                          {p.datingIntention?.replace(/_/g, ' ')}
+                        </span>
+                      </td>
+
+                      <td className="py-3 font-mono">{p.photos?.length || 1} photos</td>
+
+                      <td className="py-3 font-mono">
+                        {p.views || 0} views · {p.likes || 0} likes
+                      </td>
+
+                      <td className="py-3">
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                            p.status === 'active'
+                              ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-400'
+                              : p.status === 'suspended'
+                              ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-400'
+                              : 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-400'
+                          }`}
+                        >
+                          {p.status}
+                        </span>
+                      </td>
+
+                      <td className="py-3 text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          {p.status !== 'active' && (
+                            <button
+                              onClick={async () => {
+                                try {
+                                  setActionLoading(true);
+                                  await api.moderateAdminTripDatingProfile(p.id, 'active');
+                                  showToast?.(`Restored profile for ${p.fullName} to Active.`);
+                                  loadAdminData();
+                                } catch (err: any) {
+                                  showToast?.(err.message || 'Action failed');
+                                } finally {
+                                  setActionLoading(false);
+                                }
+                              }}
+                              className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-[10px] font-bold transition cursor-pointer"
+                            >
+                              Activate
+                            </button>
+                          )}
+
+                          {p.status === 'active' && (
+                            <button
+                              onClick={async () => {
+                                const reason = prompt('Reason for suspension (optional):');
+                                try {
+                                  setActionLoading(true);
+                                  await api.moderateAdminTripDatingProfile(p.id, 'suspended', reason || undefined);
+                                  showToast?.(`Suspended profile for ${p.fullName}.`);
+                                  loadAdminData();
+                                } catch (err: any) {
+                                  showToast?.(err.message || 'Action failed');
+                                } finally {
+                                  setActionLoading(false);
+                                }
+                              }}
+                              className="px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-stone-950 rounded-lg text-[10px] font-bold transition cursor-pointer"
+                            >
+                              Suspend
+                            </button>
+                          )}
+
+                          {p.status !== 'removed' && (
+                            <button
+                              onClick={async () => {
+                                if (!window.confirm(`Are you sure you want to remove ${p.fullName}'s profile?`)) return;
+                                try {
+                                  setActionLoading(true);
+                                  await api.moderateAdminTripDatingProfile(p.id, 'removed', 'Violated terms');
+                                  showToast?.(`Removed profile for ${p.fullName}.`);
+                                  loadAdminData();
+                                } catch (err: any) {
+                                  showToast?.(err.message || 'Action failed');
+                                } finally {
+                                  setActionLoading(false);
+                                }
+                              }}
+                              className="px-2.5 py-1 bg-red-600 hover:bg-red-500 text-white rounded-lg text-[10px] font-bold transition cursor-pointer"
+                            >
+                              Remove
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}

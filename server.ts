@@ -1530,6 +1530,52 @@ app.post('/api/ads/:id/click', (req, res) => {
   return res.json({ recorded });
 });
 
+// SnappAdd Video Advert Placement & Payment API
+app.get('/api/ads/snappadd', (req, res) => {
+  try {
+    const campaigns = db.getSnappAddCampaigns();
+    return res.json({ campaigns });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Failed to fetch campaigns' });
+  }
+});
+
+app.post('/api/ads/snappadd', (req, res) => {
+  try {
+    const user = getAuthUser(req);
+    const {
+      userEmail,
+      title,
+      description,
+      websiteUrl,
+      thumbnailUrl,
+      videoUrl,
+      durationDays,
+      coinsPaid,
+    } = req.body;
+
+    const email = user?.email || userEmail || 'host@airbus.ke';
+    if (!title || !websiteUrl) {
+      return res.status(400).json({ error: 'Title and website URL are required.' });
+    }
+
+    const result = db.createSnappAddCampaign({
+      userEmail: email,
+      title,
+      description: description || '',
+      websiteUrl,
+      thumbnailUrl: thumbnailUrl || '',
+      videoUrl,
+      durationDays: Number(durationDays) || 7,
+      coinsPaid: Number(coinsPaid) || 70,
+    });
+
+    return res.status(201).json(result);
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'Payment processing failed.' });
+  }
+});
+
 // -----------------------------------------------------------------------------
 // AFFILIATE / REFERRAL PROGRAM ("EARN" TAB)
 // -----------------------------------------------------------------------------
@@ -1558,6 +1604,269 @@ app.get('/api/analytics/price-trend/:stayId', (req, res) => {
 app.get('/api/analytics/virality/:id', (req, res) => {
   const report = db.getViralityReport(req.params.id);
   return res.json({ report });
+});
+
+// -----------------------------------------------------------------------------
+// TRIP DATING: A Dating Services Near You
+// Tagline: "Trip Dating – A Dating Services Near You. FREE TO JOIN. ENDLESS TO DISCOVER. KES 50 TO CONNECT."
+// -----------------------------------------------------------------------------
+
+app.get('/api/trip-dating/profiles', (req, res) => {
+  try {
+    const user = getAuthUser(req);
+    const clientSessionId = (req.headers['x-client-session'] as string) || (req.query.sessionId as string) || '';
+    const { gender, city, search, intention } = req.query;
+
+    const profiles = db.getTripDatingProfiles(user?.email, clientSessionId, {
+      gender: gender as string,
+      city: city as string,
+      search: search as string,
+      intention: intention as string,
+      showAllStatuses: false,
+    });
+
+    return res.json({ profiles });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Failed to fetch dating profiles' });
+  }
+});
+
+app.get('/api/trip-dating/profiles/:id', (req, res) => {
+  try {
+    const user = getAuthUser(req);
+    const clientSessionId = (req.headers['x-client-session'] as string) || (req.query.sessionId as string) || '';
+    const profile = db.getTripDatingProfileById(req.params.id, user?.email, clientSessionId);
+
+    if (!profile) {
+      return res.status(404).json({ error: 'Dating profile not found' });
+    }
+
+    return res.json({ profile });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Failed to fetch profile' });
+  }
+});
+
+// Free Instant Registration with Automated Policy Enforcement
+app.post('/api/trip-dating/profiles', (req, res) => {
+  try {
+    const user = getAuthUser(req);
+    const {
+      fullName,
+      phoneNumber,
+      gender,
+      age,
+      dob,
+      city,
+      location,
+      description,
+      lookingFor,
+      datingIntention,
+      photos,
+      primaryPhoto,
+      full_body_photo,
+      full_body_verified,
+    } = req.body;
+
+    if (!fullName || !phoneNumber || !city || !description || !gender) {
+      return res.status(400).json({ error: 'Full name, valid phone number, gender, city, and bio description are required.' });
+    }
+
+    // Part E: Server-side validation for Full-Body Photo (head to toe required, face-only rejected)
+    const bodyPhoto = full_body_photo || primaryPhoto || (Array.isArray(photos) && photos[0]);
+    if (!bodyPhoto) {
+      return res.status(400).json({
+        error: 'A full-body photo showing from head to toe is strictly required. Face-only photos are not accepted.',
+      });
+    }
+
+    // Validate image format (JPG, PNG, WebP)
+    const validFormatRegex = /\.(jpe?g|png|webp)($|\?)/i;
+    const isDataUrl = typeof bodyPhoto === 'string' && bodyPhoto.startsWith('data:image/');
+    const isHttpUrl = typeof bodyPhoto === 'string' && (bodyPhoto.startsWith('http://') || bodyPhoto.startsWith('https://'));
+    
+    if (!isDataUrl && !isHttpUrl) {
+      return res.status(400).json({
+        error: 'Invalid photo format. Only JPG, PNG, and WebP images are permitted.',
+      });
+    }
+
+    // Max 5MB file size limit check for Base64 uploads
+    if (isDataUrl && bodyPhoto.length > 7 * 1024 * 1024) {
+      return res.status(400).json({
+        error: 'Photo file size exceeds maximum limit of 5MB. Please upload a compressed photo.',
+      });
+    }
+
+    const result = db.createTripDatingProfile({
+      fullName,
+      phoneNumber,
+      gender,
+      age: Number(age) || 25,
+      dob,
+      country: 'Kenya',
+      city,
+      location: location || city,
+      description,
+      lookingFor: lookingFor || 'Genuine companionship and fun dates',
+      datingIntention,
+      photos: Array.isArray(photos) ? photos : [bodyPhoto],
+      primaryPhoto: primaryPhoto || bodyPhoto,
+      full_body_photo: bodyPhoto,
+      full_body_verified: full_body_verified !== undefined ? Boolean(full_body_verified) : true,
+      fullBodyModerationStatus: 'approved',
+      userId: user?.id || user?.email,
+    });
+
+    return res.status(201).json(result);
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'Registration rejected by safety policy.' });
+  }
+});
+
+app.put('/api/trip-dating/profiles/:id', (req, res) => {
+  try {
+    const user = getAuthUser(req);
+    const updated = db.updateTripDatingProfile(req.params.id, req.body, user?.email);
+    return res.json({ profile: updated });
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'Failed to update profile' });
+  }
+});
+
+app.post('/api/trip-dating/profiles/:id/like', (req, res) => {
+  try {
+    const user = getAuthUser(req);
+    const viewerEmail = user?.email || (req.headers['x-client-session'] as string) || 'guest@airbus.ke';
+    const result = db.toggleLikeTripDatingProfile(req.params.id, viewerEmail);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'Failed to like profile' });
+  }
+});
+
+app.post('/api/trip-dating/profiles/:id/view', (req, res) => {
+  try {
+    const views = db.incrementTripDatingProfileViews(req.params.id);
+    return res.json({ views });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Failed to record view' });
+  }
+});
+
+// Submit KES 50 Contact Unlock Payment Request
+app.post('/api/trip-dating/contact-requests', (req, res) => {
+  try {
+    const user = getAuthUser(req);
+    const { profileId, payerPhone, transactionCode, clientSessionId } = req.body;
+
+    if (!profileId || !payerPhone || !transactionCode) {
+      return res.status(400).json({ error: 'Profile ID, payer phone number, and M-Pesa transaction code are required.' });
+    }
+
+    const request = db.createTripDatingPaymentRequest({
+      profileId,
+      userEmail: user?.email || 'guest@airbus.ke',
+      clientSessionId: clientSessionId || (req.headers['x-client-session'] as string) || 'session_default',
+      payerPhone,
+      transactionCode,
+    });
+
+    return res.status(201).json({
+      request,
+      message: 'KES 50 payment submitted successfully! Our verification admin is reviewing the transaction code on Till 943210. Contact access unlocks immediately upon approval for 10 minutes.',
+    });
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'Failed to submit payment request' });
+  }
+});
+
+// Check Active 10-Minute Contact Unlock Status
+app.get('/api/trip-dating/contact-status/:profileId', (req, res) => {
+  try {
+    const user = getAuthUser(req);
+    const clientSessionId = (req.headers['x-client-session'] as string) || (req.query.sessionId as string) || '';
+    const unlock = db.checkActiveContactUnlock(req.params.profileId, user?.email, clientSessionId);
+
+    if (unlock && unlock.expiresAt > Date.now()) {
+      return res.json({
+        isUnlocked: true,
+        expiresAt: unlock.expiresAt,
+        remainingSeconds: Math.max(0, Math.round((unlock.expiresAt - Date.now()) / 1000)),
+        unlockedPhone: unlock.unlockedPhone,
+      });
+    }
+
+    return res.json({
+      isUnlocked: false,
+      remainingSeconds: 0,
+      unlockedPhone: null,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Failed to check unlock status' });
+  }
+});
+
+// --- ADMIN TRIP DATING MANAGEMENT ROUTES ---
+
+app.get('/api/admin/trip-dating/requests', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required.' });
+  }
+  const requests = db.getTripDatingPaymentRequests();
+  return res.json({ requests });
+});
+
+app.post('/api/admin/trip-dating/requests/:id/approve', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required.' });
+  }
+  try {
+    const result = db.approveTripDatingPayment(req.params.id, user.email);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'Approval failed' });
+  }
+});
+
+app.post('/api/admin/trip-dating/requests/:id/reject', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required.' });
+  }
+  try {
+    const { reason } = req.body;
+    const result = db.rejectTripDatingPayment(req.params.id, user.email, reason);
+    return res.json({ request: result });
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'Rejection failed' });
+  }
+});
+
+app.post('/api/admin/trip-dating/profiles/:id/moderate', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required.' });
+  }
+  try {
+    const { status, reason } = req.body;
+    const profile = db.adminModerateTripDatingProfile(req.params.id, status, reason, user.email);
+    return res.json({ profile });
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'Moderation action failed' });
+  }
+});
+
+app.get('/api/admin/trip-dating/stats', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required.' });
+  }
+  const stats = db.getTripDatingStats();
+  const allProfiles = db.getTripDatingProfiles(user.email, undefined, { showAllStatuses: true });
+  return res.json({ stats, profiles: allProfiles });
 });
 
 // -----------------------------------------------------------------------------

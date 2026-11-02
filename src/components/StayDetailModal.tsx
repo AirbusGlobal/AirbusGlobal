@@ -50,6 +50,7 @@ import { PriceTrendCard } from './PriceTrendCard';
 import { AdvertModal } from './AdvertModal';
 import { ViralityModal } from './ViralityModal';
 import { ComplimentaryGiftsSelector } from './ComplimentaryGiftsSelector';
+import { StayWeatherWidget } from './StayWeatherWidget';
 
 
 interface StayDetailModalProps {
@@ -636,6 +637,13 @@ export const StayDetailModal: React.FC<StayDetailModalProps> = ({
               <span>{stay.area} m²</span>
             </div>
           </div>
+
+          {/* Live Weather Widget & 3-Day Forecast */}
+          <StayWeatherWidget
+            lat={stay.lat}
+            lng={stay.lng}
+            locationName={stay.location}
+          />
 
           {/* Benevolent AirBus.AI Concierge Box */}
           <div className="p-4 sm:p-5 rounded-3xl bg-gradient-to-r from-purple-950/20 via-pink-950/20 to-stone-900/40 border border-purple-500/30 space-y-3">

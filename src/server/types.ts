@@ -36,5 +36,9 @@ export interface DatabaseSchema {
   reports: import('../types').ListingReport[];
   tickets: import('../types').SupportTicket[];
   auditLogs: import('../types').AuditLog[];
+  tripDatingProfiles: import('../types').TripDatingProfile[];
+  tripDatingPaymentRequests: import('../types').TripDatingPaymentRequest[];
+  tripDatingContactUnlocks: import('../types').TripDatingContactUnlock[];
+  snappAddCampaigns?: import('../types').SnappAddCampaign[];
 }
 

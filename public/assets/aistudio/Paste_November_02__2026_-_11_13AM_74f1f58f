@@ -1,0 +1,663 @@
+Include this on th footer
+About us
+
+Legal
+Support Mimic Airbnb footer
+Hosting Mimic Airbnb footer
+Find services near you Mimic Airbnb 
+Destinations for you Mimic Airbnb 
+
+Implement this and user find it on the header. 
+MASTER IMPLEMENTATION PROMPT: TRIP DATING – AIRBUS DATING SERVICES NEAR YOU
+1. PROJECT OVERVIEW
+Implement a fully functional dating service called TRIP DATING as an additional service within the existing AirBUS platform.
+Official tagline:
+Trip Dating – A Dating Services Near You.
+Trip Dating must be integrated into AirBUS, not developed as an unrelated standalone platform.
+Its purpose is to connect people looking for friendship, companionship, dating and genuine relationships through an endless stream of member photographs and descriptions.
+BUSINESS MODEL
+•	Free to join.
+•	Free to create and publish a dating profile.
+•	Free to browse all dating profiles.
+•	KES 50 to request access to a dating partner's phone number.
+•	Each approved contact unlock lasts exactly 10 minutes.
+•	After 10 minutes, the contact automatically locks.
+•	A new KES 50 payment and administrator approval are required to unlock it again.
+Trip Dating generates additional revenue for AirBUS.
+IMPORTANT: Build the actual working application with a real backend, database, payment verification workflow, contact unlocking system and administrator moderation controls.
+Do not build a static demonstration or frontend-only prototype.
+________________________________________
+2. INTEGRATE TRIP DATING INTO THE EXISTING AIRBUS HEADER
+This is a mandatory navigation requirement.
+Do not put Trip Dating in the AirBUS footer.
+Find the existing Trip Finder navigation item and add a new navigation item immediately NEXT TO IT.
+The navigation should read:
+Trip Finder | Trip Dating
+Requirements:
+•	Appear immediately next to Trip Finder.
+•	Use existing AirBUS header typography, spacing and styling.
+•	Be visible on desktop.
+•	Be accessible on mobile through responsive navigation.
+•	Be clickable.
+•	Open the Trip Dating landing experience.
+•	Preserve existing Trip Finder functionality.
+•	Preserve all other AirBUS navigation links.
+•	Do not replace or remove existing AirBUS header elements.
+Do not redesign the entire AirBUS header. Only add Trip Dating next to Trip Finder.
+Trip Dating should carry its own branding:
+TRIP DATING
+A Dating Services Near You.
+________________________________________
+3. SIMPLE THREE-STEP ENTRY EXPERIENCE
+When someone opens Trip Dating, display three simple questions.
+QUESTION 1: WHO ARE YOU?
+Options:
+•	Male
+•	Female
+•	Prefer to describe myself
+QUESTION 2: WHAT ARE YOU HERE FOR?
+Display two attractive options:
+A. I AM SEARCHING FOR A TRIP DATE
+For people looking for a dating partner.
+B. I WANT TO BE A TRIP DATE
+For people who want to create and publish a dating profile.
+QUESTION 3: WHERE ARE YOU?
+Allow the visitor to select:
+•	Country.
+•	County/city.
+•	Location.
+After completing the questions, direct them to the appropriate experience.
+Keep onboarding simple, with large clickable cards and minimal text.
+Do not introduce unnecessary registration requirements for people who only want to browse.
+________________________________________
+4. SEARCHING FOR A TRIP DATE – ENDLESS DISCOVERY FEED
+When someone selects "I AM SEARCHING FOR A TRIP DATE", immediately open an endless dating feed.
+The feed must have ONE CONTINUOUS VERTICAL COLUMN.
+Do not create multiple complicated pages, categories or horizontal carousels.
+Users should be able to scroll endlessly through dating profiles.
+ENDLESS FEED REQUIREMENTS
+•	Display real dating profiles from the database.
+•	Display only published and active profiles.
+•	Automatically load additional profiles as users scroll.
+•	Use cursor-based pagination.
+•	Support thousands or millions of profiles.
+•	Do not hardcode a maximum number of profiles.
+•	Do not use fake or demo members.
+•	Avoid unnecessary profile repetition.
+•	Prioritize nearby profiles where location information is available.
+•	Allow users to discover people from other locations.
+•	Include loading indicators.
+•	Optimize photographs for fast mobile loading.
+The user should be able to browse for hours without reaching an artificial end.
+DATING PROFILE CARD DESIGN
+Use the fashion and photography style from the supplied reference images.
+Photography direction:
+•	Well-dressed men and women.
+•	Elegant dresses.
+•	Smart casual outfits.
+•	Trousers, fashionable tops and shirts.
+•	Neat hairstyles, braids and natural hairstyles.
+•	Professional full-body portraits.
+•	Tasteful accessories.
+•	Attractive indoor and outdoor backgrounds.
+No nudity or sexually explicit photographs.
+Each profile card must have three sections.
+A. HEADER
+Display:
+•	Member name.
+•	Age, where verified and consented.
+•	Gender.
+•	Location.
+•	Short personal description.
+•	What the member is looking for.
+B. PHOTOGRAPHS
+•	One primary profile photograph.
+•	Up to three additional photographs.
+•	Maximum four photographs per member.
+•	Neatly arranged gallery.
+•	Professional image proportions.
+•	Clicking a photograph opens an enlarged viewer.
+C. FOOTER
+Display:
+•	Like icon.
+•	Number of likes.
+•	Eye icon.
+•	Number of photo/profile views.
+•	See Contact button with an eye icon.
+Display:
+SEE CONTACT · KES 50
+The actual phone number must NEVER appear in the public dating feed.
+Only approved public profile information and photographs should be visible before contact unlocking.
+ENGAGEMENT
+Implement real like and view functionality.
+Likes:
+•	Visitors can like profiles.
+•	Store likes in the database.
+•	Prevent repeated likes from the same authenticated account.
+•	Allow unlike functionality.
+Views:
+•	Record genuine profile/photo views.
+•	Avoid counting every refresh as a new view.
+•	Use reasonable session-based deduplication.
+•	Update counters dynamically.
+________________________________________
+5. BECOME A TRIP DATE – FREE PROFILE REGISTRATION AND AUTOMATIC PUBLICATION
+When someone selects:
+I WANT TO BE A TRIP DATE
+Open a small, beautiful registration modal.
+Registration must be completely FREE.
+REGISTRATION FIELDS
+1.	Full name.
+2.	Phone number.
+3.	Gender.
+4.	Age/date of birth, with 18+ eligibility verification.
+5.	Country.
+6.	County/city/location.
+7.	Short personal description.
+8.	What kind of dating partner they are looking for.
+9.	Dating intention.
+10.	Main profile photograph.
+11.	Up to three additional photographs.
+Maximum total photographs: FOUR.
+Allow users to:
+•	Upload photographs from their phone or computer.
+•	Preview photographs.
+•	Remove photographs.
+•	Rearrange their order.
+•	Select their primary photograph.
+Include a Post My Profile button.
+IMPORTANT: NO ADMIN APPROVAL REQUIRED FOR PROFILE PUBLICATION
+Trip Dating must use AUTOMATIC PROFILE PUBLICATION.
+When a member clicks Post My Profile:
+1.	Validate all registration information.
+2.	Verify the member's phone number through OTP.
+3.	Verify 18+ eligibility.
+4.	Validate uploaded photographs.
+5.	Check the profile description against Trip Dating content policies.
+6.	Save the profile in the database.
+7.	Automatically publish the profile if it passes the required validation and moderation checks.
+8.	Make the profile immediately visible in the endless dating feed.
+Do not place normal profiles into an administrator approval queue.
+Do not require an administrator to approve every new profile.
+Display the following success message:
+"Your Trip Dating profile has been submitted successfully and published. Your profile is now visible to people searching for a Trip Date. Please ensure that your photographs and description comply with Trip Dating policies. AirBUS reserves the right to remove or suspend any profile that violates these policies."
+If a profile fails automated validation or moderation, do not publish it until the issue is resolved.
+ADMINISTRATOR MODERATION RIGHTS
+Although profiles publish automatically, AirBUS administrators must have full moderation authority.
+Administrators can:
+•	View all published profiles.
+•	Pull down any profile that violates Trip Dating policies.
+•	Temporarily suspend profiles.
+•	Permanently remove profiles.
+•	Remove individual inappropriate photographs.
+•	Disable profile visibility.
+•	Investigate reported profiles.
+•	Review policy violations.
+•	Restore profiles after successful review where appropriate.
+If an administrator pulls down a profile, it must immediately disappear from the public dating feed.
+A removed or suspended profile must not remain discoverable through direct URLs or cached public API responses.
+The administrator must record:
+•	Profile ID.
+•	Member ID.
+•	Reason for removal.
+•	Date and time.
+•	Administrator responsible.
+•	Action taken.
+Notify the affected member when their profile is removed or suspended, explaining the reason.
+________________________________________
+6. TRIP DATING CONTENT POLICIES – MANDATORY
+Trip Dating is STRICTLY a DATING SERVICE.
+It is NOT an ecommerce marketplace, product marketplace, advertising platform, business directory, classified website or general social marketplace.
+Members are joining to present themselves as people seeking dating connections.
+A. MAIN PHOTOGRAPH POLICY – NO NAKED PHOTOGRAPHS
+The primary photograph and all additional photographs must show appropriately dressed individuals.
+Strictly prohibit:
+•	Naked photographs.
+•	Nude photographs.
+•	Explicit sexual photographs.
+•	Pornographic content.
+•	Exposed intimate body parts.
+•	Sexually explicit poses.
+•	Inappropriate sexual content.
+•	Photographs promoting sexual exploitation.
+Encourage:
+•	Professional portraits.
+•	Full-body photographs.
+•	Smart casual outfits.
+•	Elegant dresses.
+•	Shirts and trousers.
+•	Skirts and fashionable tops.
+•	Neat everyday clothing.
+•	Well-presented indoor and outdoor photographs.
+The goal is to maintain a respectable, attractive and trustworthy dating environment.
+B. NO MERCHANDISE OR PRODUCT SELLING
+Do not allow Trip Dating to become a marketplace.
+Strictly prohibit posting:
+•	Clothes for sale.
+•	Shoes.
+•	Handbags.
+•	Electronics.
+•	Furniture.
+•	Food products.
+•	Cosmetics.
+•	Consumable products.
+•	Household items.
+•	Business advertisements.
+•	Commercial services unrelated to dating.
+•	Product catalogues.
+•	Promotional offers.
+•	Buy-and-sell listings.
+A person must not use their dating profile to advertise or sell merchandise.
+C. NO DRUGS OR ILLEGAL PRODUCTS
+Strictly prohibit:
+•	Drug advertisements.
+•	Drug sales.
+•	Narcotics.
+•	Illegal substances.
+•	Controlled substances.
+•	Promotion of illegal products.
+•	Advertisements for prohibited goods.
+D. NO UNRELATED PLACES OR LOCATION ADVERTISEMENTS
+Do not allow members to post:
+•	Places for rent.
+•	Hotels for advertising purposes.
+•	Restaurants as promotional listings.
+•	Event venues.
+•	Commercial properties.
+•	Business premises.
+•	Tourist destinations as advertisements.
+•	Unrelated locations.
+•	Real estate listings.
+Trip Dating is not a property listing or travel destination advertising platform.
+Location is permitted ONLY as part of a person's dating profile, for example:
+"Nairobi, Kenya."
+It must not be used to advertise a commercial place.
+E. NO UNRELATED ADVERTISEMENTS OR PROMOTIONS
+Prohibit:
+•	Spam.
+•	Commercial promotions.
+•	Referral advertisements.
+•	External product advertisements.
+•	Unrelated promotional links.
+•	Business advertisements.
+•	Unrelated recruitment posts.
+•	Content that has nothing to do with finding a dating partner.
+F. DESCRIPTION POLICY
+Profile descriptions must relate to dating.
+Acceptable examples:
+"I am looking for a genuine relationship built on trust, respect and communication."
+"I enjoy travelling, meeting new people and having meaningful conversations. Looking for someone with similar interests."
+"I am interested in friendship that can grow into a serious relationship."
+Unacceptable examples:
+"Selling original designer handbags. Inbox for prices."
+"Available for delivery of products throughout Nairobi."
+"Visit my restaurant at..."
+"Buy my products at discounted prices."
+"Drugs available. Contact me."
+"Rooms and apartments available for rent."
+The platform must detect and prevent unrelated commercial and prohibited content.
+G. PROFILE REMOVAL DISCLAIMER
+Display this policy clearly during registration and in the Trip Dating terms.
+TRIP DATING CONTENT POLICY AND DISCLAIMER
+"Trip Dating is exclusively a dating and personal connection service. It is not a marketplace for selling merchandise, consumable products, drugs, commercial services, properties or advertising places.
+All members must upload decent, appropriately dressed photographs and provide descriptions related to dating, friendship or personal relationships.
+Naked photographs, sexually explicit content, merchandise advertisements, product listings, drug promotions, unrelated commercial advertisements and unrelated place listings are strictly prohibited.
+AirBUS reserves the right to remove any photograph, description or entire profile that violates Trip Dating policies, without requiring prior approval from the member.
+Profiles found to be advertising products, selling merchandise, promoting drugs, advertising places or posting unrelated commercial content will be pulled down.
+Repeated or serious violations may result in account suspension or permanent removal from Trip Dating.
+By posting a profile, you acknowledge and agree to these rules."
+Require users to tick:
+"I have read and agree to the Trip Dating Content Policy. I confirm that my photographs are decent and my profile is exclusively for dating purposes."
+The checkbox must be mandatory before publication.
+________________________________________
+7. CONTACT ACCESS – KES 50 PAYMENT THROUGH AIRBUS TILL
+Every dating profile must have its phone number hidden by default.
+When someone clicks:
+SEE CONTACT · KES 50
+Open a payment instruction modal.
+Display:
+TRIP DATING CONTACT ACCESS
+Amount: KES 50
+Payment method: AirBUS M-Pesa Till.
+Use the actual Till number from existing AirBUS payment configuration. Do not invent or hardcode a Till number.
+PAYMENT INSTRUCTIONS
+The visitor must:
+1.	Open M-Pesa.
+2.	Select Lipa na M-Pesa.
+3.	Select Buy Goods and Services.
+4.	Enter the AirBUS Till number.
+5.	Pay KES 50.
+6.	Enter the M-Pesa transaction confirmation code in Trip Dating.
+Payment form fields:
+•	M-Pesa transaction code.
+•	Amount paid.
+•	Phone number used for payment.
+•	Profile being requested.
+•	Payment submission button.
+The amount must be exactly KES 50 for a normal contact unlock.
+If the visitor enters a different amount, flag the transaction for review and do not unlock the contact.
+PAYMENT VERIFICATION
+After submission:
+•	Save payment request.
+•	Store transaction code.
+•	Store requested dating profile ID.
+•	Store visitor ID or session identity.
+•	Store submitted amount.
+•	Store submission timestamp.
+•	Assign unique payment request ID.
+•	Set status to PENDING ADMIN VERIFICATION.
+Do not reveal the phone number immediately after submission.
+The AirBUS administrator must verify the payment first.
+Where available, integrate M-Pesa Daraja and transaction verification to independently confirm the payment. For manual Till payments, provide an administrator verification interface.
+Prevent:
+•	Duplicate transaction codes.
+•	Reuse of the same transaction for multiple unlocks.
+•	Fake transaction codes.
+•	Amount manipulation.
+•	Unauthorized contact unlocking.
+________________________________________
+8. AIRBUS ADMINISTRATOR DASHBOARD – TRIP DATING MANAGEMENT
+Connect Trip Dating to the existing AirBUS administrator dashboard.
+Create a dedicated section:
+AIRBUS ADMIN → TRIP DATING
+Include the following management areas.
+A. PROFILE MANAGEMENT AND MODERATION
+Display:
+•	All published profiles.
+•	Active profiles.
+•	Suspended profiles.
+•	Removed profiles.
+•	Reported profiles.
+•	Profiles flagged by automated moderation.
+Administrator can:
+•	Search members.
+•	View profile details.
+•	View uploaded photographs.
+•	Edit moderation status.
+•	Pull down profiles.
+•	Suspend profiles.
+•	Permanently remove profiles.
+•	Remove individual photographs.
+•	Review reports.
+•	Restore profiles where appropriate.
+IMPORTANT:
+There must be NO routine profile approval queue.
+New compliant profiles publish automatically.
+Administrator moderation is for monitoring and removing policy violations, not approving every new member.
+B. CONTACT PAYMENT APPROVAL
+Display every submitted KES 50 contact payment request.
+Administrator must see:
+•	Payment request ID.
+•	Visitor's identity or session reference.
+•	Dating profile being requested.
+•	Amount submitted.
+•	M-Pesa transaction code.
+•	Payer's phone number.
+•	Date and time submitted.
+•	Payment verification status.
+Provide two actions:
+APPROVE PAYMENT AND UNLOCK CONTACT
+REJECT PAYMENT
+The administrator must verify that the payment was actually received by the AirBUS Till before approving.
+Upon approval:
+•	Record administrator identity.
+•	Record approval timestamp.
+•	Create contact-unlock authorization.
+•	Start the 10-minute access period.
+•	Make the requested phone number available to that specific visitor only.
+Upon rejection:
+•	Keep contact locked.
+•	Record reason for rejection.
+•	Notify visitor.
+•	Do not create access authorization.
+All approvals and rejections must have audit records.
+C. ADMIN ANALYTICS
+Display:
+•	Total registered members.
+•	Active published profiles.
+•	Suspended profiles.
+•	Removed profiles.
+•	Reported profiles.
+•	Total profile views.
+•	Total likes.
+•	Contact requests.
+•	Pending payment approvals.
+•	Approved payments.
+•	Rejected payments.
+•	Total successful contact unlocks.
+•	Total Trip Dating revenue.
+Allow filtering by date and payment status.
+Trip Dating revenue must be separately identifiable within AirBUS financial reporting.
+________________________________________
+9. TEN-MINUTE CONTACT UNLOCK ENFORCEMENT
+This requirement is mandatory.
+When the administrator approves a valid KES 50 payment, the visitor gets access to the selected member's contact for EXACTLY TEN MINUTES.
+Display:
+CONTACT UNLOCKED
+Phone number: [Verified member phone number]
+ACCESS TIME REMAINING:
+10:00
+The countdown must update every second.
+WHEN TEN MINUTES EXPIRE
+Automatically:
+1.	Revoke contact authorization.
+2.	Hide the phone number.
+3.	Lock the contact API endpoint.
+4.	Remove visible contact from the interface.
+5.	Change the button back to:
+SEE CONTACT · KES 50
+6.	Require a new KES 50 payment and administrator approval for another access period.
+ENFORCEMENT RULES
+•	Start timer only after administrator approval.
+•	Use backend/server timestamps.
+•	Do not rely on browser timers alone.
+•	Page refresh must not restart the timer.
+•	Logging out must not extend the timer.
+•	Switching devices must not extend the timer.
+•	Visitors must not manipulate the countdown.
+•	Expired authorization must not return phone numbers through API calls.
+•	Each unlock must be associated with a specific profile and visitor.
+•	A valid existing access period must not trigger another charge.
+•	A new payment request is required after expiration.
+Use server-side access authorization and automatic expiry checks.
+________________________________________
+10. CONTACT ACCESS DISCLAIMER
+Before every contact payment, display:
+IMPORTANT CONTACT ACCESS NOTICE
+"You are paying KES 50 for temporary access to the contact information of the selected Trip Dating member. Once approved by AirBUS administration, the contact will remain accessible for 10 minutes only. After 10 minutes, access will automatically expire and the contact will be locked again. To access the contact again, you must submit another KES 50 payment and receive administrator approval.
+Trip Dating provides a connection service only. AirBUS does not guarantee compatibility, relationships, meetings or personal conduct. Always exercise caution when communicating with or meeting someone you discover online. Never send money to someone you have not independently verified. Meet in public places and protect your personal information."
+Require the visitor to acknowledge this disclaimer before submitting payment.
+________________________________________
+11. MEMBER DASHBOARD
+Every registered Trip Dating member should have a simple dashboard.
+Allow members to:
+•	View published profile.
+•	Edit description.
+•	Change photographs.
+•	Update location.
+•	Update dating intentions.
+•	View profile likes.
+•	View profile views.
+•	Pause profile.
+•	Reactivate profile.
+•	Manage contact-sharing consent.
+•	Delete profile.
+•	Report suspicious activity.
+Material profile changes must pass the same content-policy checks as initial submissions.
+Compliant edits may publish automatically.
+Unacceptable changes must be blocked or flagged.
+The administrator must retain the ability to pull down the entire profile or individual photographs.
+The phone number must remain private until a properly approved contact unlock.
+________________________________________
+12. DATABASE AND BACKEND IMPLEMENTATION
+Build the complete backend using existing AirBUS infrastructure wherever practical.
+Reuse existing AirBUS authentication, database, storage and administrator roles where appropriate.
+Suggested database entities:
+•	users
+•	trip_dating_profiles
+•	trip_dating_photos
+•	trip_dating_likes
+•	trip_dating_views
+•	trip_dating_preferences
+•	trip_dating_payment_requests
+•	trip_dating_contact_unlocks
+•	trip_dating_profile_reports
+•	trip_dating_blocks
+•	trip_dating_moderation
+•	trip_dating_admin_audit_logs
+•	trip_dating_policy_acceptances
+Implement:
+•	Secure authentication.
+•	Phone verification.
+•	Profile management.
+•	Secure image uploads.
+•	Automatic compliant profile publication.
+•	Content moderation.
+•	Database-backed endless scrolling.
+•	Server-side payment verification.
+•	Administrator payment approval.
+•	Time-limited contact authorization.
+•	Role-based permissions.
+•	Database indexes.
+•	API rate limiting.
+•	Secure contact endpoints.
+•	Real-time status updates where appropriate.
+•	Error handling and logging.
+If using Supabase, implement strict Row Level Security policies.
+Public visitors must only read approved-by-policy, active and published profile information.
+Never expose private phone numbers in public database queries, frontend state, HTML source, browser storage or public API responses.
+Only an authorized visitor with an active approved unlock can access the corresponding contact.
+________________________________________
+13. SAFETY, MODERATION AND PRIVACY
+Trip Dating is an adult dating platform.
+Mandatory requirements:
+•	Strict 18+ registration.
+•	Phone verification.
+•	Explicit contact-sharing consent.
+•	Decent photograph policy.
+•	Automatic content-policy checks.
+•	Profile reporting and blocking.
+•	Administrator takedown rights.
+•	Spam prevention.
+•	Protection against automated scraping.
+•	Secure personal information storage.
+•	Account deletion.
+•	Privacy policy.
+•	Terms of service.
+Do not allow explicit or inappropriate photographs.
+Do not allow merchandise or unrelated advertisements.
+Do not publish a profile that fails mandatory content checks.
+Do not publish a member's phone number without consent.
+Do not allow impersonation.
+________________________________________
+14. AIRBUS REVENUE AND REPORTING
+Trip Dating operates as an additional revenue-generating service within AirBUS.
+Revenue model:
+KES 50 per approved contact unlock.
+Illustrative gross revenue:
+•	10 unlocks = KES 500.
+•	100 unlocks = KES 5,000.
+•	1,000 unlocks = KES 50,000.
+•	10,000 unlocks = KES 500,000.
+These are examples before transaction charges, applicable taxes and operating costs.
+All successful payments must be recorded in AirBUS financial reporting under the Trip Dating service category.
+Never record pending or rejected payments as earned revenue.
+________________________________________
+15. FINAL DESIGN AND USER EXPERIENCE
+Keep Trip Dating exceptionally simple.
+The main interface should focus on discovering people.
+VISITOR JOURNEY
+OPEN AIRBUS
+↓
+SEE TRIP FINDER AND TRIP DATING NEXT TO EACH OTHER IN THE HEADER
+↓
+CLICK TRIP DATING
+↓
+SEE: A DATING SERVICES NEAR YOU
+↓
+ANSWER THREE SIMPLE QUESTIONS
+↓
+CHOOSE: SEARCHING FOR A TRIP DATE
+↓
+SCROLL ENDLESSLY THROUGH MEMBER PHOTOGRAPHS
+↓
+READ DESCRIPTIONS
+↓
+FIND SOMEONE INTERESTING
+↓
+CLICK SEE CONTACT · KES 50
+↓
+PAY KES 50 TO AIRBUS TILL
+↓
+SUBMIT PAYMENT AMOUNT AND M-PESA TRANSACTION CODE
+↓
+AIRBUS ADMIN VERIFIES AND APPROVES PAYMENT
+↓
+CONTACT UNLOCKS FOR 10 MINUTES
+↓
+CONTACT AUTOMATICALLY LOCKS
+↓
+ANOTHER KES 50 PAYMENT AND ADMIN APPROVAL REQUIRED FOR ANOTHER ACCESS PERIOD.
+MEMBER JOURNEY
+OPEN AIRBUS
+↓
+CLICK TRIP DATING IN THE HEADER
+↓
+CHOOSE I WANT TO BE A TRIP DATE
+↓
+COMPLETE FREE PROFILE REGISTRATION
+↓
+UPLOAD DECENT PHOTOGRAPHS
+↓
+WRITE DATING-RELATED DESCRIPTION
+↓
+ACCEPT TRIP DATING CONTENT POLICY
+↓
+CLICK POST
+↓
+PROFILE IS AUTOMATICALLY PUBLISHED AFTER SUCCESSFUL VALIDATION
+↓
+PROFILE IMMEDIATELY APPEARS IN THE ENDLESS DATING FEED
+↓
+AIRBUS ADMIN CAN MONITOR AND PULL DOWN ANY PROFILE THAT VIOLATES POLICIES.
+________________________________________
+16. NON-NEGOTIABLE IMPLEMENTATION INSTRUCTIONS
+Build this directly into the existing AirBUS project.
+The Trip Dating navigation item MUST appear immediately next to Trip Finder in the existing AirBUS header.
+Do not put Trip Dating in the footer.
+Do not create an unrelated replacement website.
+Do not redesign or break existing AirBUS functionality.
+Do not use fake profiles, mock members, simulated payments or hardcoded data.
+Do not require administrator approval for every normal dating profile.
+Automatically publish compliant profiles after successful validation.
+The administrator must retain full authority to pull down profiles that violate Trip Dating policies.
+Enforce the NO NUDITY AND NO MERCHANDISE policy.
+Trip Dating is exclusively for dating services, not product sales, consumables, drugs, unrelated services or advertising places.
+Do not expose phone numbers before approved contact unlocking.
+Do not bypass administrator payment approval.
+Do not allow contact access to continue beyond 10 minutes.
+Do not charge members to register or post profiles.
+Do not artificially limit the endless dating feed.
+Do not leave buttons or backend workflows unfinished.
+Every feature must be connected to a working backend.
+The finished Trip Dating service must be production-ready, secure, responsive and fully integrated with the existing AirBUS administrator dashboard.
+FINAL BRANDING
+TRIP DATING
+A Date On Your Trip.
+FREE TO JOIN. ENDLESS TO DISCOVER. KES 50 TO CONNECT.
+Final distinction to preserve during implementation:
+Function	Requirement
+Member registration	Free
+Profile publication	Automatic, no admin approval
+Profile content moderation	Admin can pull down violations
+Naked/explicit photographs	Strictly prohibited
+Merchandise and product advertising	Strictly prohibited
+Unrelated places and commercial posts	Strictly prohibited
+Contact access	KES 50
+Payment approval	AirBUS administrator
+Contact visibility	10 minutes
+Repeated contact access	New KES 50 payment and approval
+
+ 
+Popular experiences Near You
+·© 2026 Airbus, Inc.   ·PrivacyTerms ,  ·Your Privacy Choices

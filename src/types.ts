@@ -447,3 +447,120 @@ export interface StayPriceTrend {
   points: PriceTrendPoint[];
 }
 
+// --- Weather Intelligence ---
+export interface WeatherForecastDay {
+  date: string;
+  day: string;
+  tempMax: number;
+  tempMin: number;
+  weatherCode: number;
+  condition: string;
+}
+
+export interface StayWeatherInfo {
+  temperature: number;
+  apparentTemp: number;
+  condition: string;
+  weatherCode: number;
+  humidity: number;
+  windSpeed: number;
+  isDay: boolean;
+  forecast: WeatherForecastDay[];
+}
+
+// --- TRIP DATING: A Dating Services Near You ---
+export type TripDatingGender = 'male' | 'female' | 'other';
+export type TripDatingIntention = 'serious_relationship' | 'dating_companionship' | 'travel_partner' | 'friendship';
+export type TripDatingProfileStatus = 'active' | 'suspended' | 'removed';
+
+export interface TripDatingProfile {
+  id: string;
+  userId?: string;
+  fullName: string;
+  phoneNumber?: string; // Hidden in public queries
+  gender: TripDatingGender;
+  age: number;
+  dob?: string;
+  country: string;
+  city: string;
+  location: string;
+  description: string;
+  lookingFor: string;
+  datingIntention: TripDatingIntention;
+  photos: string[]; // Max 4 photos
+  primaryPhoto: string;
+  full_body_photo?: string; // Required full-body photo from head to toe
+  full_body_verified: boolean;
+  fullBodyModerationStatus?: 'pending_review' | 'approved' | 'rejected';
+  likes: number;
+  likedByUserEmails?: string[];
+  views: number;
+  status: TripDatingProfileStatus;
+  removalReason?: string;
+  isUnlocked?: boolean;
+  unlockExpiresAt?: number;
+  isLikedByViewer?: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface TripDatingPaymentRequest {
+  id: string;
+  profileId: string;
+  profileName: string;
+  userEmail: string;
+  clientSessionId: string;
+  payerPhone: string;
+  transactionCode: string;
+  amount: number; // KES 50
+  status: 'pending' | 'approved' | 'rejected';
+  rejectionReason?: string;
+  reviewedBy?: string;
+  reviewedAt?: number;
+  createdAt: number;
+}
+
+export interface TripDatingContactUnlock {
+  id: string;
+  profileId: string;
+  profileName: string;
+  unlockedPhone: string;
+  userEmail: string;
+  clientSessionId: string;
+  unlockedAt: number;
+  expiresAt: number; // exactly 10 minutes from approval
+}
+
+export interface TripDatingStats {
+  totalMembers: number;
+  activeProfiles: number;
+  suspendedProfiles: number;
+  removedProfiles: number;
+  totalViews: number;
+  totalLikes: number;
+  totalContactRequests: number;
+  pendingApprovals: number;
+  approvedPayments: number;
+  rejectedPayments: number;
+  successfulUnlocks: number;
+  totalRevenueKes: number; // KES 50 * approved
+}
+
+export interface SnappAddCampaign {
+  id: string;
+  userEmail: string;
+  title: string;
+  description: string;
+  websiteUrl: string;
+  thumbnailUrl: string;
+  videoUrl?: string;
+  targetCategory: string; // e.g. "News & Politics: Local Campaign 3"
+  durationDays: number;
+  coinsPaid: number; // In SnappCoins (1 SC = 1 KES)
+  status: 'active' | 'completed';
+  createdAt: number;
+  expiresAt: number;
+}
+
+
+

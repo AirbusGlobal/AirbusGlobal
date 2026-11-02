@@ -23,6 +23,10 @@ import {
   StayCategory,
   ListingPromotion,
   DormantOwner,
+  TripDatingProfile,
+  TripDatingPaymentRequest,
+  TripDatingContactUnlock,
+  TripDatingStats,
 } from './types';
 
 
@@ -932,6 +936,123 @@ export const api = {
 
   async getViralityReport(id: string): Promise<{ report: ViralityReport }> {
     return this.request(`/api/analytics/virality/${id}`);
+  },
+
+  // --- TRIP DATING: A Dating Services Near You ---
+  async getTripDatingProfiles(params?: {
+    gender?: string;
+    city?: string;
+    search?: string;
+    intention?: string;
+    sessionId?: string;
+  }): Promise<{ profiles: TripDatingProfile[] }> {
+    const searchParams = new URLSearchParams();
+    if (params?.gender && params.gender !== 'all') searchParams.set('gender', params.gender);
+    if (params?.city && params.city !== 'all') searchParams.set('city', params.city);
+    if (params?.search) searchParams.set('search', params.search);
+    if (params?.intention && params.intention !== 'all') searchParams.set('intention', params.intention);
+    if (params?.sessionId) searchParams.set('sessionId', params.sessionId);
+    const qs = searchParams.toString();
+    return this.request<{ profiles: TripDatingProfile[] }>(`/api/trip-dating/profiles${qs ? '?' + qs : ''}`);
+  },
+
+  async getTripDatingProfile(id: string, sessionId?: string): Promise<{ profile: TripDatingProfile }> {
+    const qs = sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : '';
+    return this.request<{ profile: TripDatingProfile }>(`/api/trip-dating/profiles/${id}${qs}`);
+  },
+
+  async createTripDatingProfile(data: {
+    fullName: string;
+    phoneNumber: string;
+    gender: string;
+    age: number;
+    dob?: string;
+    city: string;
+    location?: string;
+    description: string;
+    lookingFor?: string;
+    datingIntention: string;
+    photos: string[];
+    primaryPhoto?: string;
+  }): Promise<{ profile: TripDatingProfile; message: string }> {
+    return this.request<{ profile: TripDatingProfile; message: string }>('/api/trip-dating/profiles', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async updateTripDatingProfile(id: string, data: Partial<TripDatingProfile>): Promise<{ profile: TripDatingProfile }> {
+    return this.request<{ profile: TripDatingProfile }>(`/api/trip-dating/profiles/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async likeTripDatingProfile(id: string): Promise<{ liked: boolean; totalLikes: number }> {
+    return this.request<{ liked: boolean; totalLikes: number }>(`/api/trip-dating/profiles/${id}/like`, {
+      method: 'POST',
+    });
+  },
+
+  async viewTripDatingProfile(id: string): Promise<{ views: number }> {
+    return this.request<{ views: number }>(`/api/trip-dating/profiles/${id}/view`, {
+      method: 'POST',
+    });
+  },
+
+  async requestTripDatingContact(data: {
+    profileId: string;
+    payerPhone: string;
+    transactionCode: string;
+    clientSessionId: string;
+  }): Promise<{ request: TripDatingPaymentRequest; message: string }> {
+    return this.request<{ request: TripDatingPaymentRequest; message: string }>('/api/trip-dating/contact-requests', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async checkTripDatingContactStatus(profileId: string, sessionId?: string): Promise<{
+    isUnlocked: boolean;
+    remainingSeconds: number;
+    unlockedPhone: string | null;
+    expiresAt?: number;
+  }> {
+    const qs = sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : '';
+    return this.request(`/api/trip-dating/contact-status/${profileId}${qs}`);
+  },
+
+  // Admin Trip Dating Methods
+  async getAdminTripDatingRequests(): Promise<{ requests: TripDatingPaymentRequest[] }> {
+    return this.request('/api/admin/trip-dating/requests');
+  },
+
+  async approveAdminTripDatingRequest(id: string): Promise<{
+    request: TripDatingPaymentRequest;
+    unlock: TripDatingContactUnlock | null;
+    message?: string;
+  }> {
+    return this.request(`/api/admin/trip-dating/requests/${id}/approve`, {
+      method: 'POST',
+    });
+  },
+
+  async rejectAdminTripDatingRequest(id: string, reason?: string): Promise<{ request: TripDatingPaymentRequest }> {
+    return this.request(`/api/admin/trip-dating/requests/${id}/reject`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
+  },
+
+  async moderateAdminTripDatingProfile(id: string, status: string, reason?: string): Promise<{ profile: TripDatingProfile }> {
+    return this.request(`/api/admin/trip-dating/profiles/${id}/moderate`, {
+      method: 'POST',
+      body: JSON.stringify({ status, reason }),
+    });
+  },
+
+  async getAdminTripDatingStats(): Promise<{ stats: TripDatingStats; profiles: TripDatingProfile[] }> {
+    return this.request('/api/admin/trip-dating/stats');
   },
 };
 

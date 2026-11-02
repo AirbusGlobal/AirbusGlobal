@@ -268,8 +268,9 @@ export const StayCard: React.FC<StayCardProps> = ({
           </div>
 
           <div className="text-[11px] text-stone-400 dark:text-stone-500 mt-0.5 flex items-center justify-between">
-            <span>
-              Source: <span className="font-semibold text-stone-600 dark:text-stone-300">{stay.source}</span>
+            <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block"></span>
+              AirBus Verified
             </span>
             {stay.hostName && (
               <span className="text-[10px] text-stone-400">
@@ -374,18 +375,7 @@ export const StayCard: React.FC<StayCardProps> = ({
             </div>
           )}
 
-          {/* Affiliate link if external source */}
-          {stay.affiliateLink && (
-            <a
-              href={stay.affiliateLink}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="w-full py-1.5 px-3 bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 text-stone-700 dark:text-stone-300 text-[11px] font-semibold rounded-lg flex items-center justify-center gap-1.5 transition-colors"
-            >
-              <span>View deal on {stay.source}</span>
-              <ExternalLink className="w-3 h-3 text-stone-400" />
-            </a>
-          )}
+
         </div>
       </div>
     </div>

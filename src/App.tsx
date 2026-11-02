@@ -25,8 +25,10 @@ import { PlanModal } from './components/PlanModal';
 import { TripFinderModal } from './components/TripFinderModal';
 import { NotificationsModal } from './components/NotificationsModal';
 import { EarnTab } from './components/EarnTab';
-import { AdvertisementManager } from './components/AdvertisementManager';
+import { PersistentAdCard } from './components/PersistentAdCard';
 import { SettingsModal } from './components/SettingsModal';
+import { TripDatingPage } from './components/trip-dating/TripDatingPage';
+import { Footer } from './components/Footer';
 import { Lock } from 'lucide-react';
 import {
   trigger24HourCheckinAlert,
@@ -187,6 +189,8 @@ export default function App() {
         setCurrentTab('shorts');
       } else if (hash === 'earn') {
         setCurrentTab('earn');
+      } else if (hash === 'trip-dating' || hash === 'dating') {
+        setCurrentTab('trip-dating');
       } else if (hash === 'guest') {
         setCurrentTab('guest');
       } else if (hash === 'owner' || hash === 'host') {
@@ -732,54 +736,31 @@ export default function App() {
             onGoToWallet={() => handleNavigate('owner')}
           />
         )}
+
+        {/* TRIP DATING: A Dating Services Near You */}
+        {currentTab === 'trip-dating' && (
+          <TripDatingPage
+            currentUser={user}
+            onNavigateToStays={() => handleNavigate('home')}
+            onOpenAuth={() => {
+              setAuthInitialMode('login');
+              setAuthModalOpen(true);
+            }}
+          />
+        )}
       </main>
 
-      {/* Footer */}
-      <footer className="mt-12 py-8 bg-white dark:bg-[#15171e] border-t border-[#e6e6e1] dark:border-[#262934] text-xs text-stone-500">
-        <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            <span className="font-extrabold text-[#e4002b] text-sm font-heading">AIRBUS</span>
-            <span>·</span>
-            <span>Video-First Stays &amp; Direct Booking</span>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-4 text-xs">
-            <button onClick={() => setTripFinderOpen(true)} className="hover:text-[#e4002b] cursor-pointer">
-              ✨ Trip Finder
-            </button>
-            <button
-              onClick={() => {
-                setPlanWalletMode(false);
-                setPlanModalOpen(true);
-              }}
-              className="hover:text-[#e4002b] cursor-pointer"
-            >
-              Hosting Plans
-            </button>
-            <button
-              onClick={() => handleNavigate('earn')}
-              className="hover:text-[#ff2e93] cursor-pointer font-bold flex items-center gap-1"
-            >
-              🎁 Earn 10% Affiliate
-            </button>
-            <button
-              onClick={() => {
-                if (user?.role === 'admin') handleNavigate('admin');
-                else if (user?.role === 'owner') handleNavigate('owner');
-                else if (user) handleNavigate('guest');
-                else setAuthModalOpen(true);
-              }}
-              className="hover:text-[#e4002b] cursor-pointer font-bold"
-            >
-              Dashboard
-            </button>
-          </div>
-
-          <div className="text-[11px] text-stone-400">
-            Nairobi · Mombasa · Diani · Naivasha · 0% Guest Platform Fees
-          </div>
-        </div>
-      </footer>
+      {/* Airbnb-Mimic Mega Footer with dynamic category tabs & Kenyan destinations */}
+      <Footer
+        onNavigate={handleNavigate}
+        currency={currency}
+        onCurrencyChange={setCurrency}
+        onOpenTripFinder={() => setTripFinderOpen(true)}
+        onOpenPlans={() => {
+          setPlanWalletMode(false);
+          setPlanModalOpen(true);
+        }}
+      />
 
       {/* MODALS */}
       {/* 1. Neon Auth Modal */}
@@ -929,12 +910,15 @@ export default function App() {
         />
       )}
 
-      {/* 9. Continuous Advertisement Popups in Bottom-Right Corner (Cycles 3s & redirects to stay) */}
-      <AdvertisementManager
+      {/* 9. Part D: Persistent Advert Card in Bottom-Right Corner (Fixed, NO CLOSE/DISMISS CONTROL) */}
+      <PersistentAdCard
         onSelectStay={id => {
           setActiveStayId(id);
           window.location.hash = `stay-${id}`;
         }}
+        userWalletBalance={user?.email === 'owner@airbus.ke' ? walletBalance : 8290}
+        userEmail={user?.email}
+        showToast={showToast}
       />
     </div>
   );

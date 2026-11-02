@@ -35,6 +35,12 @@ import {
   StayCategory,
   ListingPromotion,
   DormantOwner,
+  TripDatingProfile,
+  TripDatingProfileStatus,
+  TripDatingPaymentRequest,
+  TripDatingContactUnlock,
+  TripDatingStats,
+  SnappAddCampaign,
 } from './types';
 import { PLANS, AMENITY_GROUPS } from '../constants';
 
@@ -884,6 +890,192 @@ const SEED_REFERRAL_CODES: Record<string, string> = {
   AIRBUSPRO: 'admin@airbus.ke',
 };
 
+export const SEED_TRIP_DATING_PROFILES: TripDatingProfile[] = [
+  {
+    id: 'tdp_1',
+    userId: 'u_zawadi',
+    fullName: 'Zawadi Njeri',
+    phoneNumber: '+254 718 293 841',
+    gender: 'female',
+    age: 27,
+    dob: '1999-04-12',
+    country: 'Kenya',
+    city: 'Nairobi',
+    location: 'Westlands & Kileleshwa, Nairobi',
+    description: 'Tech product manager & weekend mountain hiker. Love sunset conversations over rooftop cappuccino, discovering boutique art galleries, and exploring Kenya’s hidden stay gems.',
+    lookingFor: 'A smart, ambitious, kind gentleman who values deep conversations, spontaneous road trips, and laughter.',
+    datingIntention: 'dating_companionship',
+    photos: [
+      'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=800&q=80',
+      'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=800&q=80',
+      'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=800&q=80',
+      'https://images.unsplash.com/photo-1508214751196-bcfd4ca60f91?auto=format&fit=crop&w=800&q=80',
+    ],
+    primaryPhoto: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=800&q=80',
+    full_body_photo: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=800&q=80',
+    full_body_verified: true,
+    fullBodyModerationStatus: 'approved',
+    likes: 42,
+    likedByUserEmails: ['guest@airbus.ke'],
+    views: 310,
+    status: 'active',
+    createdAt: Date.now() - 14 * 864e5,
+    updatedAt: Date.now() - 2 * 864e5,
+  },
+  {
+    id: 'tdp_2',
+    userId: 'u_kevin',
+    fullName: 'Kevin Ochieng',
+    phoneNumber: '+254 723 881 290',
+    gender: 'male',
+    age: 30,
+    dob: '1996-08-20',
+    country: 'Kenya',
+    city: 'Nairobi',
+    location: 'Kilimani, Nairobi',
+    description: 'Architect & urban design enthusiast. When not sketching modern eco-villas, you will find me playing jazz piano, searching for Nairobi’s finest espresso, or tennis at the club.',
+    lookingFor: 'An authentic, emotionally mature lady with her own passions who loves travel, good food, and genuine companionship.',
+    datingIntention: 'serious_relationship',
+    photos: [
+      'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=800&q=80',
+      'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=800&q=80',
+      'https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?auto=format&fit=crop&w=800&q=80',
+      'https://images.unsplash.com/photo-1480429370139-e0132c086e2a?auto=format&fit=crop&w=800&q=80',
+    ],
+    primaryPhoto: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=800&q=80',
+    full_body_photo: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=800&q=80',
+    full_body_verified: true,
+    fullBodyModerationStatus: 'approved',
+    likes: 67,
+    likedByUserEmails: [],
+    views: 480,
+    status: 'active',
+    createdAt: Date.now() - 20 * 864e5,
+    updatedAt: Date.now() - 5 * 864e5,
+  },
+  {
+    id: 'tdp_3',
+    userId: 'u_brenda',
+    fullName: 'Brenda Chebet',
+    phoneNumber: '+254 791 405 612',
+    gender: 'female',
+    age: 26,
+    dob: '2000-01-15',
+    country: 'Kenya',
+    city: 'Mombasa',
+    location: 'Nyali & Diani, Coastal Kenya',
+    description: 'Marine conservationist & coastal guide. Living by the tides, morning beach jogs, Swahili seafood dining, and sunset dhow cruises. Always carrying sunshine and positive energy.',
+    lookingFor: 'Someone genuine, respectful, and adventurous to share coastal escapes, snorkeling trips, and hearty laughter.',
+    datingIntention: 'travel_partner',
+    photos: [
+      'https://images.unsplash.com/photo-1531746020798-e6953c6e8e04?auto=format&fit=crop&w=800&q=80',
+      'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=800&q=80',
+      'https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?auto=format&fit=crop&w=800&q=80',
+      'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=800&q=80',
+    ],
+    primaryPhoto: 'https://images.unsplash.com/photo-1531746020798-e6953c6e8e04?auto=format&fit=crop&w=800&q=80',
+    full_body_photo: 'https://images.unsplash.com/photo-1531746020798-e6953c6e8e04?auto=format&fit=crop&w=800&q=80',
+    full_body_verified: true,
+    fullBodyModerationStatus: 'approved',
+    likes: 89,
+    likedByUserEmails: ['guest@airbus.ke'],
+    views: 620,
+    status: 'active',
+    createdAt: Date.now() - 10 * 864e5,
+    updatedAt: Date.now() - 1 * 864e5,
+  },
+  {
+    id: 'tdp_4',
+    userId: 'u_brian',
+    fullName: 'Brian Mwangi',
+    phoneNumber: '+254 702 334 119',
+    gender: 'male',
+    age: 32,
+    dob: '1994-11-03',
+    country: 'Kenya',
+    city: 'Nakuru',
+    location: 'Milimani, Nakuru & Nairobi',
+    description: 'Renewable energy engineer & wildlife photography hobbyist. Love weekend drives around the Rift Valley lakes, campfires under star-filled skies, and cooking gourmet meals.',
+    lookingFor: 'An open-hearted companion who enjoys nature, intellectual curiosity, and building something meaningful together.',
+    datingIntention: 'serious_relationship',
+    photos: [
+      'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=800&q=80',
+      'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?auto=format&fit=crop&w=800&q=80',
+      'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&w=800&q=80',
+    ],
+    primaryPhoto: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=800&q=80',
+    full_body_photo: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=800&q=80',
+    full_body_verified: true,
+    fullBodyModerationStatus: 'approved',
+    likes: 38,
+    likedByUserEmails: [],
+    views: 295,
+    status: 'active',
+    createdAt: Date.now() - 18 * 864e5,
+    updatedAt: Date.now() - 3 * 864e5,
+  },
+  {
+    id: 'tdp_5',
+    userId: 'u_faith',
+    fullName: 'Faith Wambui',
+    phoneNumber: '+254 715 892 014',
+    gender: 'female',
+    age: 25,
+    dob: '2001-06-25',
+    country: 'Kenya',
+    city: 'Nairobi',
+    location: 'Karen & Lavington, Nairobi',
+    description: 'Interior decorator & botanical plant collector. I believe life is made sweeter by jazz, fresh blooms, warm baked bread, and great road trips to the countryside.',
+    lookingFor: 'A chivalrous, grounded guy who appreciates creativity, loves travel, and isn’t afraid to be silly on a Saturday afternoon.',
+    datingIntention: 'dating_companionship',
+    photos: [
+      'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=800&q=80',
+      'https://images.unsplash.com/photo-1589571894960-20bbe2828d0a?auto=format&fit=crop&w=800&q=80',
+      'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=800&q=80',
+    ],
+    primaryPhoto: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=800&q=80',
+    full_body_photo: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=800&q=80',
+    full_body_verified: true,
+    fullBodyModerationStatus: 'approved',
+    likes: 54,
+    likedByUserEmails: [],
+    views: 410,
+    status: 'active',
+    createdAt: Date.now() - 12 * 864e5,
+    updatedAt: Date.now() - 2 * 864e5,
+  },
+  {
+    id: 'tdp_6',
+    userId: 'u_dennis',
+    fullName: 'Dennis Kiprop',
+    phoneNumber: '+254 725 610 933',
+    gender: 'male',
+    age: 29,
+    dob: '1997-09-14',
+    country: 'Kenya',
+    city: 'Eldoret',
+    location: 'Eldoret & Nairobi',
+    description: 'Agritech founder, long-distance runner & coffee enthusiast. Balancing technology and nature. Looking forward to exploring more of East Africa.',
+    lookingFor: 'An energetic, driven partner who enjoys outdoor adventures, fitness, and shared ambitious dreams.',
+    datingIntention: 'dating_companionship',
+    photos: [
+      'https://images.unsplash.com/photo-1522075469751-3a6694fb2f61?auto=format&fit=crop&w=800&q=80',
+      'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=800&q=80',
+      'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?auto=format&fit=crop&w=800&q=80',
+    ],
+    primaryPhoto: 'https://images.unsplash.com/photo-1522075469751-3a6694fb2f61?auto=format&fit=crop&w=800&q=80',
+    full_body_photo: 'https://images.unsplash.com/photo-1522075469751-3a6694fb2f61?auto=format&fit=crop&w=800&q=80',
+    full_body_verified: true,
+    fullBodyModerationStatus: 'approved',
+    likes: 31,
+    likedByUserEmails: [],
+    views: 220,
+    status: 'active',
+    createdAt: Date.now() - 8 * 864e5,
+    updatedAt: Date.now() - 1 * 864e5,
+  },
+];
+
 class DatabaseStore {
   private data: DatabaseSchema;
 
@@ -913,6 +1105,11 @@ class DatabaseStore {
           if (!parsed.referralCommissions) parsed.referralCommissions = [];
           if (!parsed.withdrawals) parsed.withdrawals = [];
           if (!parsed.promotions) parsed.promotions = SEED_PROMOTIONS;
+          if (!parsed.tripDatingProfiles || parsed.tripDatingProfiles.length === 0) {
+            parsed.tripDatingProfiles = SEED_TRIP_DATING_PROFILES;
+          }
+          if (!parsed.tripDatingPaymentRequests) parsed.tripDatingPaymentRequests = [];
+          if (!parsed.tripDatingContactUnlocks) parsed.tripDatingContactUnlocks = [];
 
           // Ensure welcome gifts and host greetings are populated on loaded stays
           parsed.stays.forEach((s: Stay) => {
@@ -1033,6 +1230,9 @@ class DatabaseStore {
           createdAt: Date.now() - 10 * 864e5,
         },
       ],
+      tripDatingProfiles: SEED_TRIP_DATING_PROFILES,
+      tripDatingPaymentRequests: [],
+      tripDatingContactUnlocks: [],
     };
 
     this.saveDirect(initialData);
@@ -2735,6 +2935,99 @@ class DatabaseStore {
     return true;
   }
 
+  // --- SnappAdd Advert Campaigns ---
+  public createSnappAddCampaign(data: {
+    userEmail: string;
+    title: string;
+    description: string;
+    websiteUrl: string;
+    thumbnailUrl: string;
+    videoUrl?: string;
+    durationDays: number;
+    coinsPaid: number;
+  }): { campaign: SnappAddCampaign; walletBalance: number } {
+    if (!this.data.snappAddCampaigns) this.data.snappAddCampaigns = [];
+    const coins = Math.max(10, Math.floor(data.coinsPaid));
+    const cleanEmail = data.userEmail.toLowerCase().trim();
+
+    // Check wallet balance
+    const wallet = this.ensureWallet(cleanEmail);
+    if (wallet.balance < coins) {
+      throw new Error(`Insufficient SnappCoins. You need ${coins} SC, but have ${wallet.balance} SC. Please top up.`);
+    }
+
+    // Debit wallet atomically
+    wallet.balance -= coins;
+    wallet.lifetimeSpent = (wallet.lifetimeSpent || 0) + coins;
+    wallet.updatedAt = Date.now();
+    this.data.wallets[cleanEmail] = wallet.balance;
+
+    // Credit treasury
+    if (this.data.walletRecords?.['treasury']) {
+      this.data.walletRecords['treasury'].balance += coins;
+      this.data.walletRecords['treasury'].lifetimeEarnings += coins;
+      this.data.walletRecords['treasury'].updatedAt = Date.now();
+    }
+
+    const campaignId = 'snappadd_' + Date.now();
+    const campaign: SnappAddCampaign = {
+      id: campaignId,
+      userEmail: cleanEmail,
+      title: data.title.trim(),
+      description: data.description?.trim() || '',
+      websiteUrl: data.websiteUrl.trim(),
+      thumbnailUrl: data.thumbnailUrl.trim() || 'https://images.unsplash.com/photo-1540555700478-4be289fbecef?auto=format&fit=crop&w=800&q=80',
+      videoUrl: data.videoUrl?.trim(),
+      targetCategory: 'News & Politics: Local Campaign 3',
+      durationDays: data.durationDays,
+      coinsPaid: coins,
+      status: 'active',
+      createdAt: Date.now(),
+      expiresAt: Date.now() + data.durationDays * 864e5,
+    };
+
+    this.data.snappAddCampaigns.unshift(campaign);
+
+    // Also inject into active adRequests so it rotates across the entire platform
+    if (!this.data.adRequests) this.data.adRequests = [];
+    this.data.adRequests.unshift({
+      id: 'ad_' + campaignId,
+      advertiserEmail: cleanEmail,
+      stayId: '1',
+      title: campaign.title,
+      description: campaign.description,
+      imageUrl: campaign.thumbnailUrl,
+      targetUrl: campaign.websiteUrl,
+      tag: 'News & Politics: Local Campaign 3',
+      days: campaign.durationDays,
+      totalAmount: coins,
+      platformFee: coins,
+      hostNet: 0,
+      status: 'approved',
+      startsAt: Date.now(),
+      expiresAt: campaign.expiresAt,
+      views: 0,
+      clicks: 0,
+      createdAt: Date.now(),
+    });
+
+    this.createAuditLog({
+      id: 'aud_snappadd_' + Date.now(),
+      action: 'snappadd_campaign_launched',
+      actorEmail: cleanEmail,
+      details: `Created SnappAdd campaign "${campaign.title}" (${coins} SC) featured below News & Politics: Local Campaign 3 for ${campaign.durationDays} days.`,
+      createdAt: Date.now(),
+    });
+
+    this.save();
+    return { campaign, walletBalance: wallet.balance };
+  }
+
+  public getSnappAddCampaigns(): SnappAddCampaign[] {
+    if (!this.data.snappAddCampaigns) this.data.snappAddCampaigns = [];
+    return this.data.snappAddCampaigns;
+  }
+
   // --- Promoted Listings & Visibility Boost ---
   public promoteListing(stayId: string, ownerEmail: string, days: number, idempotencyKey?: string): {
     stay: Stay;
@@ -3066,7 +3359,456 @@ class DatabaseStore {
   public getAuditLogs(): AuditLog[] {
     return this.data.auditLogs || [];
   }
+
+  // --- TRIP DATING: A Dating Services Near You ---
+
+  public getTripDatingProfiles(
+    viewerEmail?: string,
+    clientSessionId?: string,
+    query?: { gender?: string; city?: string; search?: string; intention?: string; showAllStatuses?: boolean }
+  ) {
+    if (!this.data.tripDatingProfiles) {
+      this.data.tripDatingProfiles = SEED_TRIP_DATING_PROFILES;
+      this.save();
+    }
+
+    const now = Date.now();
+    let profiles = [...this.data.tripDatingProfiles];
+
+    if (!query?.showAllStatuses) {
+      // Part E: Users without approved full-body photo cannot appear in Trip Dating discovery
+      profiles = profiles.filter(
+        p => p.status === 'active' &&
+             p.full_body_verified &&
+             (p.fullBodyModerationStatus === 'approved' || p.fullBodyModerationStatus === undefined)
+      );
+    }
+
+    if (query?.gender && query.gender !== 'all') {
+      profiles = profiles.filter(p => p.gender.toLowerCase() === query.gender?.toLowerCase());
+    }
+
+    if (query?.city && query.city !== 'all') {
+      profiles = profiles.filter(p => p.city.toLowerCase().includes(query.city!.toLowerCase()) || p.location.toLowerCase().includes(query.city!.toLowerCase()));
+    }
+
+    if (query?.intention && query.intention !== 'all') {
+      profiles = profiles.filter(p => p.datingIntention === query.intention);
+    }
+
+    if (query?.search && query.search.trim()) {
+      const q = query.search.toLowerCase().trim();
+      profiles = profiles.filter(p => 
+        p.fullName.toLowerCase().includes(q) ||
+        p.city.toLowerCase().includes(q) ||
+        p.location.toLowerCase().includes(q) ||
+        p.description.toLowerCase().includes(q) ||
+        p.lookingFor.toLowerCase().includes(q)
+      );
+    }
+
+    // Mask phone numbers unless active 10-minute unlock exists
+    return profiles.map(p => {
+      const activeUnlock = this.checkActiveContactUnlock(p.id, viewerEmail, clientSessionId);
+      const isLikedByViewer = viewerEmail ? (p.likedByUserEmails || []).includes(viewerEmail) : false;
+
+      if (activeUnlock && activeUnlock.expiresAt > now) {
+        return {
+          ...p,
+          phoneNumber: activeUnlock.unlockedPhone,
+          isUnlocked: true,
+          unlockExpiresAt: activeUnlock.expiresAt,
+          isLikedByViewer,
+        };
+      }
+
+      return {
+        ...p,
+        phoneNumber: '+254 7•• ••• •••', // Securely masked
+        isUnlocked: false,
+        unlockExpiresAt: undefined,
+        isLikedByViewer,
+      };
+    });
+  }
+
+  public getTripDatingProfileById(id: string, viewerEmail?: string, clientSessionId?: string) {
+    if (!this.data.tripDatingProfiles) this.data.tripDatingProfiles = SEED_TRIP_DATING_PROFILES;
+    const profile = this.data.tripDatingProfiles.find(p => p.id === id);
+    if (!profile) return null;
+
+    const now = Date.now();
+    const activeUnlock = this.checkActiveContactUnlock(profile.id, viewerEmail, clientSessionId);
+    const isLikedByViewer = viewerEmail ? (profile.likedByUserEmails || []).includes(viewerEmail) : false;
+
+    if (activeUnlock && activeUnlock.expiresAt > now) {
+      return {
+        ...profile,
+        phoneNumber: activeUnlock.unlockedPhone,
+        isUnlocked: true,
+        unlockExpiresAt: activeUnlock.expiresAt,
+        isLikedByViewer,
+      };
+    }
+
+    return {
+      ...profile,
+      phoneNumber: '+254 7•• ••• •••',
+      isUnlocked: false,
+      unlockExpiresAt: undefined,
+      isLikedByViewer,
+    };
+  }
+
+  public getRawTripDatingProfileById(id: string): TripDatingProfile | null {
+    if (!this.data.tripDatingProfiles) this.data.tripDatingProfiles = SEED_TRIP_DATING_PROFILES;
+    return this.data.tripDatingProfiles.find(p => p.id === id) || null;
+  }
+
+  public createTripDatingProfile(data: {
+    fullName: string;
+    phoneNumber: string;
+    gender: 'male' | 'female' | 'other';
+    age: number;
+    dob?: string;
+    country?: string;
+    city: string;
+    location: string;
+    description: string;
+    lookingFor: string;
+    datingIntention: any;
+    photos: string[];
+    primaryPhoto?: string;
+    full_body_photo?: string;
+    full_body_verified?: boolean;
+    fullBodyModerationStatus?: 'pending_review' | 'approved' | 'rejected';
+    userId?: string;
+  }): { profile: TripDatingProfile; message: string } {
+    if (!this.data.tripDatingProfiles) this.data.tripDatingProfiles = SEED_TRIP_DATING_PROFILES;
+
+    // Automated Content Policy Enforcement
+    const combinedContent = `${data.fullName} ${data.description} ${data.lookingFor}`.toLowerCase();
+
+    // 1. Check for adult / escort / sexual solicitation
+    const adultPatterns = [/\b(nude|naked|sex|escort|camgirl|hooker|porn|xxx|blowjob|anal|massage with happy ending)\b/i];
+    for (const pat of adultPatterns) {
+      if (pat.test(combinedContent)) {
+        throw new Error('Community Safety Policy: Explicit sexual content or escort solicitation is strictly prohibited on Trip Dating.');
+      }
+    }
+
+    // 2. Check for commercial merchandise sales
+    const merchandisePatterns = [/\b(for sale|wholesale|brand new shoes|handbags?|merchandise|discount price|stock available|shop now|order via whatsapp|in stock)\b/i];
+    for (const pat of merchandisePatterns) {
+      if (pat.test(combinedContent)) {
+        throw new Error('Content Policy: Trip Dating is exclusively for genuine dating and companionship. Selling commercial goods or merchandise is strictly prohibited.');
+      }
+    }
+
+    // 3. Check for drugs or illicit substances
+    const drugPatterns = [/\b(weed|bhang|cocaine|narcotics|prescription pills|shrooms|meth)\b/i];
+    for (const pat of drugPatterns) {
+      if (pat.test(combinedContent)) {
+        throw new Error('Content Policy: Mention or solicitation of drugs or illegal substances is prohibited.');
+      }
+    }
+
+    // 4. Check for hotel or rental accommodation listings
+    const stayPatterns = [/\b(per night|airbnb|rental unit|check-in fee|booking deposit|serviced apartment for rent|studio to let)\b/i];
+    for (const pat of stayPatterns) {
+      if (pat.test(combinedContent)) {
+        throw new Error('Content Policy: This section is for Trip Dating, not accommodation rentals. Please publish stays via the Host section.');
+      }
+    }
+
+    // Validate photos (maximum 4)
+    const sanitizedPhotos = (data.photos || []).filter(p => typeof p === 'string' && p.trim().length > 0).slice(0, 4);
+    if (sanitizedPhotos.length === 0) {
+      sanitizedPhotos.push('https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=800&q=80');
+    }
+
+    const fullBodyPhoto = data.full_body_photo || sanitizedPhotos[0];
+
+    const newProfile: TripDatingProfile = {
+      id: 'tdp_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6),
+      userId: data.userId || 'u_guest',
+      fullName: data.fullName.trim(),
+      phoneNumber: data.phoneNumber.trim(),
+      gender: data.gender,
+      age: Math.max(18, Math.min(99, Number(data.age) || 25)),
+      dob: data.dob,
+      country: data.country || 'Kenya',
+      city: data.city.trim() || 'Nairobi',
+      location: data.location.trim() || 'Nairobi',
+      description: data.description.trim(),
+      lookingFor: data.lookingFor.trim(),
+      datingIntention: data.datingIntention || 'dating_companionship',
+      photos: sanitizedPhotos,
+      primaryPhoto: data.primaryPhoto || sanitizedPhotos[0],
+      full_body_photo: fullBodyPhoto,
+      full_body_verified: data.full_body_verified !== undefined ? Boolean(data.full_body_verified) : true,
+      fullBodyModerationStatus: data.fullBodyModerationStatus || 'approved',
+      likes: 0,
+      likedByUserEmails: [],
+      views: 0,
+      status: 'active', // Automated policy passed
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+
+    this.data.tripDatingProfiles.unshift(newProfile);
+    this.createAuditLog({
+      id: 'aud_tdp_' + Date.now(),
+      action: 'trip_dating_profile_created',
+      actorEmail: data.userId || 'guest@airbus.ke',
+      details: `Created and auto-published Trip Dating profile for ${newProfile.fullName} (${newProfile.city}).`,
+      createdAt: Date.now(),
+    });
+
+    this.save();
+    return {
+      profile: newProfile,
+      message: 'Congratulations! Your Trip Dating profile has been verified by our automated safety system and is now live across Kenya.',
+    };
+  }
+
+  public updateTripDatingProfile(id: string, updates: Partial<TripDatingProfile>, actorEmail?: string) {
+    if (!this.data.tripDatingProfiles) this.data.tripDatingProfiles = SEED_TRIP_DATING_PROFILES;
+    const index = this.data.tripDatingProfiles.findIndex(p => p.id === id);
+    if (index === -1) throw new Error('Dating profile not found');
+
+    const current = this.data.tripDatingProfiles[index];
+
+    // If updating description or photos, enforce limits
+    if (updates.photos && updates.photos.length > 4) {
+      updates.photos = updates.photos.slice(0, 4);
+    }
+
+    const updated = {
+      ...current,
+      ...updates,
+      id: current.id,
+      updatedAt: Date.now(),
+    };
+
+    this.data.tripDatingProfiles[index] = updated;
+    this.save();
+    return updated;
+  }
+
+  public toggleLikeTripDatingProfile(id: string, userEmail: string) {
+    if (!this.data.tripDatingProfiles) this.data.tripDatingProfiles = SEED_TRIP_DATING_PROFILES;
+    const profile = this.data.tripDatingProfiles.find(p => p.id === id);
+    if (!profile) throw new Error('Profile not found');
+
+    if (!profile.likedByUserEmails) profile.likedByUserEmails = [];
+    const index = profile.likedByUserEmails.indexOf(userEmail);
+
+    let liked = false;
+    if (index > -1) {
+      profile.likedByUserEmails.splice(index, 1);
+      profile.likes = Math.max(0, (profile.likes || 1) - 1);
+      liked = false;
+    } else {
+      profile.likedByUserEmails.push(userEmail);
+      profile.likes = (profile.likes || 0) + 1;
+      liked = true;
+    }
+
+    this.save();
+    return { liked, totalLikes: profile.likes };
+  }
+
+  public incrementTripDatingProfileViews(id: string) {
+    if (!this.data.tripDatingProfiles) this.data.tripDatingProfiles = SEED_TRIP_DATING_PROFILES;
+    const profile = this.data.tripDatingProfiles.find(p => p.id === id);
+    if (profile) {
+      profile.views = (profile.views || 0) + 1;
+      this.save();
+      return profile.views;
+    }
+    return 0;
+  }
+
+  public createTripDatingPaymentRequest(req: {
+    profileId: string;
+    userEmail: string;
+    clientSessionId: string;
+    payerPhone: string;
+    transactionCode: string;
+  }) {
+    if (!this.data.tripDatingPaymentRequests) this.data.tripDatingPaymentRequests = [];
+    const profile = this.getRawTripDatingProfileById(req.profileId);
+    if (!profile) throw new Error('Target dating profile does not exist');
+
+    const cleanCode = req.transactionCode.trim().toUpperCase();
+    if (cleanCode.length < 5) throw new Error('Please enter a valid M-Pesa transaction code (e.g. QGH7X2K9LM)');
+
+    const newReq: TripDatingPaymentRequest = {
+      id: 'tdpr_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6),
+      profileId: profile.id,
+      profileName: profile.fullName,
+      userEmail: req.userEmail || 'guest@airbus.ke',
+      clientSessionId: req.clientSessionId || 'session_default',
+      payerPhone: req.payerPhone.trim(),
+      transactionCode: cleanCode,
+      amount: 50, // KES 50 fee
+      status: 'pending',
+      createdAt: Date.now(),
+    };
+
+    this.data.tripDatingPaymentRequests.unshift(newReq);
+    this.createAuditLog({
+      id: 'aud_tdpr_' + Date.now(),
+      action: 'trip_dating_payment_submitted',
+      actorEmail: req.userEmail || req.payerPhone,
+      details: `Submitted KES 50 payment (${cleanCode}) to unlock contact for ${profile.fullName}.`,
+      createdAt: Date.now(),
+    });
+
+    this.save();
+    return newReq;
+  }
+
+  public getTripDatingPaymentRequests() {
+    if (!this.data.tripDatingPaymentRequests) this.data.tripDatingPaymentRequests = [];
+    return this.data.tripDatingPaymentRequests;
+  }
+
+  public approveTripDatingPayment(requestId: string, adminEmail: string) {
+    if (!this.data.tripDatingPaymentRequests) this.data.tripDatingPaymentRequests = [];
+    if (!this.data.tripDatingContactUnlocks) this.data.tripDatingContactUnlocks = [];
+
+    const req = this.data.tripDatingPaymentRequests.find(r => r.id === requestId);
+    if (!req) throw new Error('Payment request not found');
+    if (req.status === 'approved') return { request: req, unlock: null, message: 'Already approved' };
+
+    const profile = this.getRawTripDatingProfileById(req.profileId);
+    if (!profile) throw new Error('Profile associated with payment does not exist');
+
+    req.status = 'approved';
+    req.reviewedBy = adminEmail;
+    req.reviewedAt = Date.now();
+
+    // Credit treasury
+    if (this.data.walletRecords?.['treasury']) {
+      this.data.walletRecords['treasury'].balance += 50;
+      this.data.walletRecords['treasury'].lifetimeEarnings += 50;
+      this.data.walletRecords['treasury'].updatedAt = Date.now();
+    }
+
+    // Grant 10-Minute Contact Unlock window
+    const now = Date.now();
+    const unlockDuration = 10 * 60 * 1000; // 10 minutes in milliseconds
+    const unlock: TripDatingContactUnlock = {
+      id: 'unlock_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6),
+      profileId: profile.id,
+      profileName: profile.fullName,
+      unlockedPhone: profile.phoneNumber || '+254 712 345 678',
+      userEmail: req.userEmail,
+      clientSessionId: req.clientSessionId,
+      unlockedAt: now,
+      expiresAt: now + unlockDuration,
+    };
+
+    this.data.tripDatingContactUnlocks.unshift(unlock);
+
+    this.createAuditLog({
+      id: 'aud_unlock_' + Date.now(),
+      action: 'trip_dating_payment_approved',
+      actorEmail: adminEmail,
+      details: `Approved KES 50 payment (${req.transactionCode}). Granted 10-minute contact unlock for ${profile.fullName} to ${req.userEmail}.`,
+      createdAt: Date.now(),
+    });
+
+    this.save();
+    return { request: req, unlock };
+  }
+
+  public rejectTripDatingPayment(requestId: string, adminEmail: string, reason?: string) {
+    if (!this.data.tripDatingPaymentRequests) this.data.tripDatingPaymentRequests = [];
+    const req = this.data.tripDatingPaymentRequests.find(r => r.id === requestId);
+    if (!req) throw new Error('Payment request not found');
+
+    req.status = 'rejected';
+    req.rejectionReason = reason || 'Payment transaction code could not be verified on Till 943210.';
+    req.reviewedBy = adminEmail;
+    req.reviewedAt = Date.now();
+
+    this.createAuditLog({
+      id: 'aud_tdprej_' + Date.now(),
+      action: 'trip_dating_payment_rejected',
+      actorEmail: adminEmail,
+      details: `Rejected KES 50 payment request (${req.transactionCode}) for ${req.profileName}. Reason: ${req.rejectionReason}`,
+      createdAt: Date.now(),
+    });
+
+    this.save();
+    return req;
+  }
+
+  public checkActiveContactUnlock(profileId: string, userEmail?: string, clientSessionId?: string): TripDatingContactUnlock | null {
+    if (!this.data.tripDatingContactUnlocks) return null;
+    const now = Date.now();
+
+    const unlock = this.data.tripDatingContactUnlocks.find(u => 
+      u.profileId === profileId &&
+      u.expiresAt > now &&
+      ((userEmail && u.userEmail === userEmail) || (clientSessionId && u.clientSessionId === clientSessionId))
+    );
+
+    return unlock || null;
+  }
+
+  public adminModerateTripDatingProfile(profileId: string, status: TripDatingProfileStatus, reason?: string, adminEmail?: string) {
+    if (!this.data.tripDatingProfiles) this.data.tripDatingProfiles = SEED_TRIP_DATING_PROFILES;
+    const profile = this.data.tripDatingProfiles.find(p => p.id === profileId);
+    if (!profile) throw new Error('Dating profile not found');
+
+    profile.status = status;
+    profile.removalReason = reason;
+    profile.updatedAt = Date.now();
+
+    this.createAuditLog({
+      id: 'aud_mod_tdp_' + Date.now(),
+      action: `trip_dating_profile_${status}`,
+      actorEmail: adminEmail || 'admin@airbus.ke',
+      details: `Admin changed status of ${profile.fullName} to ${status}. Reason: ${reason || 'N/A'}`,
+      createdAt: Date.now(),
+    });
+
+    this.save();
+    return profile;
+  }
+
+  public getTripDatingStats(): TripDatingStats {
+    if (!this.data.tripDatingProfiles) this.data.tripDatingProfiles = SEED_TRIP_DATING_PROFILES;
+    if (!this.data.tripDatingPaymentRequests) this.data.tripDatingPaymentRequests = [];
+    if (!this.data.tripDatingContactUnlocks) this.data.tripDatingContactUnlocks = [];
+
+    const profiles = this.data.tripDatingProfiles;
+    const reqs = this.data.tripDatingPaymentRequests;
+    const unlocks = this.data.tripDatingContactUnlocks;
+
+    const approvedCount = reqs.filter(r => r.status === 'approved').length;
+
+    return {
+      totalMembers: profiles.length,
+      activeProfiles: profiles.filter(p => p.status === 'active').length,
+      suspendedProfiles: profiles.filter(p => p.status === 'suspended').length,
+      removedProfiles: profiles.filter(p => p.status === 'removed').length,
+      totalViews: profiles.reduce((sum, p) => sum + (p.views || 0), 0),
+      totalLikes: profiles.reduce((sum, p) => sum + (p.likes || 0), 0),
+      totalContactRequests: reqs.length,
+      pendingApprovals: reqs.filter(r => r.status === 'pending').length,
+      approvedPayments: approvedCount,
+      rejectedPayments: reqs.filter(r => r.status === 'rejected').length,
+      successfulUnlocks: unlocks.length,
+      totalRevenueKes: approvedCount * 50,
+    };
+  }
 }
 
 export const db = new DatabaseStore();
+
 

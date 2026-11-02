@@ -63,7 +63,9 @@ export const HomeFeed: React.FC<HomeFeedProps> = ({
 
   // Filter states
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const [minPrice, setMinPrice] = useState<number>(0);
   const [maxPrice, setMaxPrice] = useState<number>(0);
+  const [entireHomeOnly, setEntireHomeOnly] = useState<boolean>(false);
   const [checkIn, setCheckIn] = useState<string>('');
   const [checkOut, setCheckOut] = useState<string>('');
   const [sortBy, setSortBy] = useState<string>('rec');
@@ -73,9 +75,13 @@ export const HomeFeed: React.FC<HomeFeedProps> = ({
   const [superhostOnly, setSuperhostOnly] = useState<boolean>(false);
   const [minBeds, setMinBeds] = useState<number>(0);
 
-  // Maximum price in dataset
+  // Dynamic price bounds in dataset
+  const absoluteMinPrice = useMemo(() => {
+    return stays.length > 0 ? Math.min(...stays.map(s => s.price)) : 1000;
+  }, [stays]);
+
   const absoluteMaxPrice = useMemo(() => {
-    return Math.max(...stays.map(s => s.price), 30000);
+    return stays.length > 0 ? Math.max(...stays.map(s => s.price), 30000) : 35000;
   }, [stays]);
 
   // Types list
@@ -98,7 +104,9 @@ export const HomeFeed: React.FC<HomeFeedProps> = ({
 
   const resetFilters = () => {
     setSelectedCategory('all');
+    setMinPrice(0);
     setMaxPrice(0);
+    setEntireHomeOnly(false);
     setCheckIn('');
     setCheckOut('');
     setSelectedTypes([]);
@@ -108,6 +116,22 @@ export const HomeFeed: React.FC<HomeFeedProps> = ({
     setMinBeds(0);
     setSortBy('rec');
   };
+
+  const resetMapOverlayFilters = () => {
+    setMinPrice(0);
+    setMaxPrice(0);
+    setEntireHomeOnly(false);
+    setInstantBookOnly(false);
+  };
+
+  const activeMapOverlayCount = useMemo(() => {
+    let count = 0;
+    if (instantBookOnly) count++;
+    if (entireHomeOnly) count++;
+    if (minPrice > absoluteMinPrice) count++;
+    if (maxPrice > 0 && maxPrice < absoluteMaxPrice) count++;
+    return count;
+  }, [instantBookOnly, entireHomeOnly, minPrice, maxPrice, absoluteMinPrice, absoluteMaxPrice]);
 
   // Filter & sort logic
   const filteredStays = useMemo(() => {
@@ -133,7 +157,10 @@ export const HomeFeed: React.FC<HomeFeedProps> = ({
         return false;
       }
 
-      // Max price
+      // Min & Max Price
+      if (minPrice > 0 && s.price < minPrice) {
+        return false;
+      }
       if (maxPrice > 0 && s.price > maxPrice) {
         return false;
       }
@@ -141,6 +168,12 @@ export const HomeFeed: React.FC<HomeFeedProps> = ({
       // Instant Book
       if (instantBookOnly && !s.instantBook) {
         return false;
+      }
+
+      // Entire Home
+      if (entireHomeOnly) {
+        const isEntire = /entire|villa|house|cottage|bungalow|penthouse/i.test(s.title + ' ' + s.type);
+        if (!isEntire) return false;
       }
 
       // Superhost
@@ -193,8 +226,10 @@ export const HomeFeed: React.FC<HomeFeedProps> = ({
     searchQuery,
     guestCount,
     minBeds,
+    minPrice,
     maxPrice,
     instantBookOnly,
+    entireHomeOnly,
     superhostOnly,
     selectedTypes,
     selectedAmenities,
@@ -513,6 +548,20 @@ export const HomeFeed: React.FC<HomeFeedProps> = ({
               onHoverStay={setHoveredStayId}
               onSelectStay={onSelectStay}
               currency={currency}
+              instantBookOnly={instantBookOnly}
+              onToggleInstantBook={() => setInstantBookOnly(!instantBookOnly)}
+              entireHomeOnly={entireHomeOnly}
+              onToggleEntireHome={() => setEntireHomeOnly(!entireHomeOnly)}
+              minPrice={minPrice}
+              maxPrice={maxPrice}
+              absoluteMinPrice={absoluteMinPrice}
+              absoluteMaxPrice={absoluteMaxPrice}
+              onPriceRangeChange={(min, max) => {
+                setMinPrice(min);
+                setMaxPrice(max);
+              }}
+              onResetOverlayFilters={resetMapOverlayFilters}
+              activeFilterCount={activeMapOverlayCount}
             />
           </div>
         </div>
@@ -585,6 +634,20 @@ export const HomeFeed: React.FC<HomeFeedProps> = ({
               onSelectStay={onSelectStay}
               currency={currency}
               className="h-full"
+              instantBookOnly={instantBookOnly}
+              onToggleInstantBook={() => setInstantBookOnly(!instantBookOnly)}
+              entireHomeOnly={entireHomeOnly}
+              onToggleEntireHome={() => setEntireHomeOnly(!entireHomeOnly)}
+              minPrice={minPrice}
+              maxPrice={maxPrice}
+              absoluteMinPrice={absoluteMinPrice}
+              absoluteMaxPrice={absoluteMaxPrice}
+              onPriceRangeChange={(min, max) => {
+                setMinPrice(min);
+                setMaxPrice(max);
+              }}
+              onResetOverlayFilters={resetMapOverlayFilters}
+              activeFilterCount={activeMapOverlayCount}
             />
           </div>
         </div>
