@@ -638,7 +638,7 @@
     }
   },
   "wallets": {
-    "owner@airbus.ke": 13410,
+    "owner@airbus.ke": 13340,
     "guest@airbus.ke": 4400,
     "treasury": 63840
   },
@@ -725,6 +725,20 @@
   "reports": [],
   "tickets": [],
   "auditLogs": [
+    {
+      "id": "aud_tdp_1793795327682",
+      "action": "trip_dating_profile_created",
+      "actorEmail": "guest@airbus.ke",
+      "details": "Created and auto-published Trip Dating profile for Faith Wanjiru (Nairobi).",
+      "createdAt": 1793795327682
+    },
+    {
+      "id": "aud_snappadd_1793795318243",
+      "action": "snappadd_campaign_launched",
+      "actorEmail": "owner@airbus.ke",
+      "details": "Created SnappAdd campaign \"Diani Sunset Cruise & Luxury Villa\" (70 SC) featured below News & Politics: Local Campaign 3 for 7 days.",
+      "createdAt": 1793795318243
+    },
     {
       "id": "aud_1793264151352",
       "action": "listing_promoted",
@@ -859,6 +873,26 @@
     }
   ],
   "adRequests": [
+    {
+      "id": "ad_snappadd_1793795318243",
+      "advertiserEmail": "owner@airbus.ke",
+      "stayId": "1",
+      "title": "Diani Sunset Cruise & Luxury Villa",
+      "description": "",
+      "imageUrl": "https://images.unsplash.com/photo-1540555700478-4be289fbecef?auto=format&fit=crop&w=800&q=80",
+      "targetUrl": "https://airbus.ke/stay/1",
+      "tag": "News & Politics: Local Campaign 3",
+      "days": 7,
+      "totalAmount": 70,
+      "platformFee": 70,
+      "hostNet": 0,
+      "status": "approved",
+      "startsAt": 1793795318243,
+      "expiresAt": 1794400118243,
+      "views": 0,
+      "clicks": 0,
+      "createdAt": 1793795318243
+    },
     {
       "id": "ad_1",
       "advertiserEmail": "guest@airbus.ke",
@@ -1006,11 +1040,11 @@
   "walletRecords": {
     "owner@airbus.ke": {
       "email": "owner@airbus.ke",
-      "balance": 13410,
+      "balance": 13340,
       "holdBalance": 0,
       "lifetimeEarnings": 21210,
-      "lifetimeSpent": 7800,
-      "updatedAt": 1793264151340
+      "lifetimeSpent": 7870,
+      "updatedAt": 1793795318242
     },
     "guest@airbus.ke": {
       "email": "guest@airbus.ke",
@@ -1030,11 +1064,11 @@
     },
     "treasury": {
       "email": "treasury",
-      "balance": 63840,
+      "balance": 63910,
       "holdBalance": 0,
-      "lifetimeEarnings": 66390,
+      "lifetimeEarnings": 66460,
       "lifetimeSpent": 2550,
-      "updatedAt": 1793264151340
+      "updatedAt": 1793795318243
     }
   },
   "referrals": {
@@ -1123,6 +1157,240 @@
       "impressions": 891,
       "clicks": 142,
       "createdAt": 1793091342708
+    }
+  ],
+  "tripDatingProfiles": [
+    {
+      "id": "tdp_mw23f936_umtm",
+      "userId": "u_guest",
+      "fullName": "Faith Wanjiru",
+      "phoneNumber": "0712345678",
+      "gender": "female",
+      "age": 25,
+      "country": "Kenya",
+      "city": "Nairobi",
+      "location": "Nairobi",
+      "description": "Adventurous traveler loving stays",
+      "lookingFor": "Genuine companionship and fun dates",
+      "datingIntention": "dating_companionship",
+      "photos": [
+        "https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?auto=format&fit=crop&w=800&q=80"
+      ],
+      "primaryPhoto": "https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?auto=format&fit=crop&w=800&q=80",
+      "full_body_photo": "https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?auto=format&fit=crop&w=800&q=80",
+      "full_body_verified": true,
+      "fullBodyModerationStatus": "approved",
+      "likes": 0,
+      "likedByUserEmails": [],
+      "views": 0,
+      "status": "active",
+      "createdAt": 1793795327682,
+      "updatedAt": 1793795327682
+    },
+    {
+      "id": "tdp_1",
+      "userId": "u_zawadi",
+      "fullName": "Zawadi Njeri",
+      "phoneNumber": "+254 718 293 841",
+      "gender": "female",
+      "age": 27,
+      "dob": "1999-04-12",
+      "country": "Kenya",
+      "city": "Nairobi",
+      "location": "Westlands & Kileleshwa, Nairobi",
+      "description": "Tech product manager & weekend mountain hiker. Love sunset conversations over rooftop cappuccino, discovering boutique art galleries, and exploring Kenya’s hidden stay gems.",
+      "lookingFor": "A smart, ambitious, kind gentleman who values deep conversations, spontaneous road trips, and laughter.",
+      "datingIntention": "dating_companionship",
+      "photos": [
+        "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=800&q=80",
+        "https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=800&q=80",
+        "https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=800&q=80",
+        "https://images.unsplash.com/photo-1508214751196-bcfd4ca60f91?auto=format&fit=crop&w=800&q=80"
+      ],
+      "primaryPhoto": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=800&q=80",
+      "full_body_photo": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=800&q=80",
+      "full_body_verified": true,
+      "fullBodyModerationStatus": "approved",
+      "likes": 42,
+      "likedByUserEmails": [
+        "guest@airbus.ke"
+      ],
+      "views": 310,
+      "status": "active",
+      "createdAt": 1792585706976,
+      "updatedAt": 1793622506976
+    },
+    {
+      "id": "tdp_2",
+      "userId": "u_kevin",
+      "fullName": "Kevin Ochieng",
+      "phoneNumber": "+254 723 881 290",
+      "gender": "male",
+      "age": 30,
+      "dob": "1996-08-20",
+      "country": "Kenya",
+      "city": "Nairobi",
+      "location": "Kilimani, Nairobi",
+      "description": "Architect & urban design enthusiast. When not sketching modern eco-villas, you will find me playing jazz piano, searching for Nairobi’s finest espresso, or tennis at the club.",
+      "lookingFor": "An authentic, emotionally mature lady with her own passions who loves travel, good food, and genuine companionship.",
+      "datingIntention": "serious_relationship",
+      "photos": [
+        "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=800&q=80",
+        "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=800&q=80",
+        "https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?auto=format&fit=crop&w=800&q=80",
+        "https://images.unsplash.com/photo-1480429370139-e0132c086e2a?auto=format&fit=crop&w=800&q=80"
+      ],
+      "primaryPhoto": "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=800&q=80",
+      "full_body_photo": "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=800&q=80",
+      "full_body_verified": true,
+      "fullBodyModerationStatus": "approved",
+      "likes": 67,
+      "likedByUserEmails": [],
+      "views": 480,
+      "status": "active",
+      "createdAt": 1792067306976,
+      "updatedAt": 1793363306976
+    },
+    {
+      "id": "tdp_3",
+      "userId": "u_brenda",
+      "fullName": "Brenda Chebet",
+      "phoneNumber": "+254 791 405 612",
+      "gender": "female",
+      "age": 26,
+      "dob": "2000-01-15",
+      "country": "Kenya",
+      "city": "Mombasa",
+      "location": "Nyali & Diani, Coastal Kenya",
+      "description": "Marine conservationist & coastal guide. Living by the tides, morning beach jogs, Swahili seafood dining, and sunset dhow cruises. Always carrying sunshine and positive energy.",
+      "lookingFor": "Someone genuine, respectful, and adventurous to share coastal escapes, snorkeling trips, and hearty laughter.",
+      "datingIntention": "travel_partner",
+      "photos": [
+        "https://images.unsplash.com/photo-1531746020798-e6953c6e8e04?auto=format&fit=crop&w=800&q=80",
+        "https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=800&q=80",
+        "https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?auto=format&fit=crop&w=800&q=80",
+        "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=800&q=80"
+      ],
+      "primaryPhoto": "https://images.unsplash.com/photo-1531746020798-e6953c6e8e04?auto=format&fit=crop&w=800&q=80",
+      "full_body_photo": "https://images.unsplash.com/photo-1531746020798-e6953c6e8e04?auto=format&fit=crop&w=800&q=80",
+      "full_body_verified": true,
+      "fullBodyModerationStatus": "approved",
+      "likes": 89,
+      "likedByUserEmails": [
+        "guest@airbus.ke"
+      ],
+      "views": 620,
+      "status": "active",
+      "createdAt": 1792931306976,
+      "updatedAt": 1793708906976
+    },
+    {
+      "id": "tdp_4",
+      "userId": "u_brian",
+      "fullName": "Brian Mwangi",
+      "phoneNumber": "+254 702 334 119",
+      "gender": "male",
+      "age": 32,
+      "dob": "1994-11-03",
+      "country": "Kenya",
+      "city": "Nakuru",
+      "location": "Milimani, Nakuru & Nairobi",
+      "description": "Renewable energy engineer & wildlife photography hobbyist. Love weekend drives around the Rift Valley lakes, campfires under star-filled skies, and cooking gourmet meals.",
+      "lookingFor": "An open-hearted companion who enjoys nature, intellectual curiosity, and building something meaningful together.",
+      "datingIntention": "serious_relationship",
+      "photos": [
+        "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=800&q=80",
+        "https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?auto=format&fit=crop&w=800&q=80",
+        "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&w=800&q=80"
+      ],
+      "primaryPhoto": "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=800&q=80",
+      "full_body_photo": "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=800&q=80",
+      "full_body_verified": true,
+      "fullBodyModerationStatus": "approved",
+      "likes": 38,
+      "likedByUserEmails": [],
+      "views": 295,
+      "status": "active",
+      "createdAt": 1792240106976,
+      "updatedAt": 1793536106976
+    },
+    {
+      "id": "tdp_5",
+      "userId": "u_faith",
+      "fullName": "Faith Wambui",
+      "phoneNumber": "+254 715 892 014",
+      "gender": "female",
+      "age": 25,
+      "dob": "2001-06-25",
+      "country": "Kenya",
+      "city": "Nairobi",
+      "location": "Karen & Lavington, Nairobi",
+      "description": "Interior decorator & botanical plant collector. I believe life is made sweeter by jazz, fresh blooms, warm baked bread, and great road trips to the countryside.",
+      "lookingFor": "A chivalrous, grounded guy who appreciates creativity, loves travel, and isn’t afraid to be silly on a Saturday afternoon.",
+      "datingIntention": "dating_companionship",
+      "photos": [
+        "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=800&q=80",
+        "https://images.unsplash.com/photo-1589571894960-20bbe2828d0a?auto=format&fit=crop&w=800&q=80",
+        "https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=800&q=80"
+      ],
+      "primaryPhoto": "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=800&q=80",
+      "full_body_photo": "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=800&q=80",
+      "full_body_verified": true,
+      "fullBodyModerationStatus": "approved",
+      "likes": 54,
+      "likedByUserEmails": [],
+      "views": 410,
+      "status": "active",
+      "createdAt": 1792758506976,
+      "updatedAt": 1793622506976
+    },
+    {
+      "id": "tdp_6",
+      "userId": "u_dennis",
+      "fullName": "Dennis Kiprop",
+      "phoneNumber": "+254 725 610 933",
+      "gender": "male",
+      "age": 29,
+      "dob": "1997-09-14",
+      "country": "Kenya",
+      "city": "Eldoret",
+      "location": "Eldoret & Nairobi",
+      "description": "Agritech founder, long-distance runner & coffee enthusiast. Balancing technology and nature. Looking forward to exploring more of East Africa.",
+      "lookingFor": "An energetic, driven partner who enjoys outdoor adventures, fitness, and shared ambitious dreams.",
+      "datingIntention": "dating_companionship",
+      "photos": [
+        "https://images.unsplash.com/photo-1522075469751-3a6694fb2f61?auto=format&fit=crop&w=800&q=80",
+        "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=800&q=80",
+        "https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?auto=format&fit=crop&w=800&q=80"
+      ],
+      "primaryPhoto": "https://images.unsplash.com/photo-1522075469751-3a6694fb2f61?auto=format&fit=crop&w=800&q=80",
+      "full_body_photo": "https://images.unsplash.com/photo-1522075469751-3a6694fb2f61?auto=format&fit=crop&w=800&q=80",
+      "full_body_verified": true,
+      "fullBodyModerationStatus": "approved",
+      "likes": 31,
+      "likedByUserEmails": [],
+      "views": 220,
+      "status": "active",
+      "createdAt": 1793104106976,
+      "updatedAt": 1793708906976
+    }
+  ],
+  "tripDatingPaymentRequests": [],
+  "tripDatingContactUnlocks": [],
+  "snappAddCampaigns": [
+    {
+      "id": "snappadd_1793795318243",
+      "userEmail": "owner@airbus.ke",
+      "title": "Diani Sunset Cruise & Luxury Villa",
+      "description": "",
+      "websiteUrl": "https://airbus.ke/stay/1",
+      "thumbnailUrl": "https://images.unsplash.com/photo-1540555700478-4be289fbecef?auto=format&fit=crop&w=800&q=80",
+      "targetCategory": "News & Politics: Local Campaign 3",
+      "durationDays": 7,
+      "coinsPaid": 70,
+      "status": "active",
+      "createdAt": 1793795318243,
+      "expiresAt": 1794400118243
     }
   ]
 }

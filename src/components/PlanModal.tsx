@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
-import { HostPlanStatus, StayCategory } from '../types';
-import { X, Check, ShieldCheck, ArrowRight, ArrowLeft, Wallet, Zap } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { HostPlanStatus, StayCategory, SubscriptionRecord } from '../types';
+import { X, Check, ShieldCheck, ArrowRight, ArrowLeft, Wallet, Zap, AlertCircle, Clock } from 'lucide-react';
 import { PLANS } from '../constants';
+import { api } from '../api';
 
 interface PlanModalProps {
   isOpen: boolean;
@@ -40,6 +41,23 @@ export const PlanModal: React.FC<PlanModalProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
+  const [activeSub, setActiveSub] = useState<SubscriptionRecord | null>(null);
+  const [pendingSub, setPendingSub] = useState<SubscriptionRecord | null>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+    api.getCurrentSubscription()
+      .then(res => {
+        if (!isMounted) return;
+        if (res.activeSubscription) setActiveSub(res.activeSubscription);
+        if (res.pendingSubscription) setPendingSub(res.pendingSubscription);
+      })
+      .catch(() => {});
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   const tierDetails = {
     Silver: {
       monthlyPrice: PLANS.Silver.p,
@@ -48,7 +66,7 @@ export const PlanModal: React.FC<PlanModalProps> = ({
       limit: '3 live listings',
       features: [
         '3 active video-first listings',
-        'Exposure in Feed & Shorts',
+        'Exposure in Home feed & Shorts',
         'Direct booking requests & chat',
         'Zero commission on guest payouts',
       ],
@@ -86,9 +104,33 @@ export const PlanModal: React.FC<PlanModalProps> = ({
     ? selectedDetails.annualPrice
     : selectedDetails.monthlyPrice;
 
+  // Subscription Enforcement Rules:
+  const isCurrentlyActive = (activeSub !== null && activeSub.status === 'active' && activeSub.endsAt > Date.now()) ||
+    (currentPlan.status === 'active' && currentPlan.expiresAt > Date.now());
+  const activeExpiryDate = activeSub?.endsAt
+    ? new Date(activeSub.endsAt).toLocaleDateString()
+    : currentPlan.expiresAt > 0
+    ? new Date(currentPlan.expiresAt).toLocaleDateString()
+    : '';
+
+  const hasPendingApproval = pendingSub !== null && pendingSub.status === 'pending';
+
+  // Can purchase new plan if NOT in wallet mode?
+  const isPlanPurchaseBlocked = !walletMode && (isCurrentlyActive || hasPendingApproval);
+
   const handlePaySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+
+    if (isPlanPurchaseBlocked) {
+      if (hasPendingApproval) {
+        setError('You already have a subscription payment pending admin approval.');
+      } else {
+        setError(`You have an active subscription expiring on ${activeExpiryDate}. Upgrades or new subscriptions can only be purchased after the current period ends.`);
+      }
+      return;
+    }
+
     const cleanCode = mpesaCode.trim().toUpperCase();
     if (!cleanCode || !/^[A-Z0-9]{10}$/.test(cleanCode)) {
       setError('M-Pesa code must be exactly 10 letters/digits (e.g. QGH7X2K9LM).');
@@ -104,7 +146,7 @@ export const PlanModal: React.FC<PlanModalProps> = ({
         cleanCode,
         walletMode ? undefined : billingCycle
       );
-      setSuccessMsg('Receipt submitted successfully! Admin will verify within 2–24 hours (or instantly in Admin Console).');
+      setSuccessMsg('Receipt submitted successfully! Admin will verify and activate your plan.');
       setTimeout(() => {
         onClose();
       }, 2500);
@@ -136,6 +178,39 @@ export const PlanModal: React.FC<PlanModalProps> = ({
                 Hosting on AirBus is a flat subscription with zero guest commission. Guests pay you directly.
               </p>
             </div>
+
+            {/* Server-Enforced Active Subscription Alert */}
+            {isCurrentlyActive && (
+              <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400 mb-4 text-xs">
+                <div className="flex items-start gap-2.5">
+                  <Clock className="w-5 h-5 shrink-0 text-amber-500 mt-0.5" />
+                  <div>
+                    <h4 className="font-extrabold text-sm">Active Subscription In Progress</h4>
+                    <p className="mt-1 leading-relaxed text-[11px] text-stone-600 dark:text-stone-300">
+                      You currently have an active <strong>{activeSub?.tier || currentPlan.tier}</strong> plan that expires on{' '}
+                      <strong className="text-amber-500">{activeExpiryDate}</strong>.
+                      Per AirBus platform rules, only one active subscription is allowed at a time. You can upgrade or switch to another plan immediately after your current period finishes.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Pending Subscription Alert */}
+            {hasPendingApproval && (
+              <div className="p-4 rounded-2xl bg-blue-500/10 border border-blue-500/30 text-blue-600 dark:text-blue-400 mb-4 text-xs">
+                <div className="flex items-start gap-2.5">
+                  <ShieldCheck className="w-5 h-5 shrink-0 text-blue-500 mt-0.5" />
+                  <div>
+                    <h4 className="font-extrabold text-sm">Payment Awaiting Admin Approval</h4>
+                    <p className="mt-1 leading-relaxed text-[11px] text-stone-600 dark:text-stone-300">
+                      You have submitted a payment for a <strong>{pendingSub?.tier}</strong> ({pendingSub?.billing}) subscription.
+                      Our admin is reviewing the transaction code. Second purchases are blocked while approval is pending.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Monthly vs Annual Toggle */}
             <div className="flex items-center justify-center my-4">
@@ -172,7 +247,7 @@ export const PlanModal: React.FC<PlanModalProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
               {(['Silver', 'Diamond', 'Gold'] as StayCategory[]).map(t => {
                 const isSelected = selectedTier === t;
-                const isCurrent = currentPlan.tier === t && currentPlan.status === 'active';
+                const isCurrent = (activeSub?.tier || currentPlan.tier) === t && isCurrentlyActive;
                 const d = tierDetails[t];
                 const displayPrice = billingCycle === 'annual' ? d.annualPrice : d.monthlyPrice;
 
@@ -191,7 +266,7 @@ export const PlanModal: React.FC<PlanModalProps> = ({
                         <h3 className="font-extrabold text-sm text-stone-900 dark:text-white">{t}</h3>
                         {isCurrent && (
                           <span className="text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 px-2 py-0.5 rounded-full">
-                            Current
+                            Active
                           </span>
                         )}
                       </div>
@@ -225,35 +300,27 @@ export const PlanModal: React.FC<PlanModalProps> = ({
 
                     <button
                       type="button"
+                      disabled={isPlanPurchaseBlocked}
                       onClick={() => {
                         setSelectedTier(t);
                         setInPayStep(true);
                       }}
-                      className={`w-full py-2 rounded-xl text-xs font-bold mt-4 transition-colors cursor-pointer ${
+                      className={`w-full py-2 rounded-xl text-xs font-bold mt-4 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
                         isSelected
                           ? 'bg-[#e4002b] text-white'
                           : 'bg-stone-200 dark:bg-stone-800 text-stone-700 dark:text-stone-300 hover:bg-stone-300'
                       }`}
                     >
-                      {isCurrent ? 'Renew Plan' : `Select ${t}`}
+                      {isCurrentlyActive
+                        ? `Active until ${activeExpiryDate}`
+                        : hasPendingApproval
+                        ? 'Approval Pending'
+                        : `Select ${t}`}
                     </button>
                   </div>
                 );
               })}
             </div>
-
-            {/* Upgrade / Downgrade Policy Notice */}
-            {currentPlan.status === 'active' && currentPlan.expiresAt > Date.now() && currentPlan.tier !== selectedTier && (
-              <div className="p-3.5 rounded-2xl bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800/60 text-xs text-blue-900 dark:text-blue-200 mb-4 space-y-1">
-                <div className="flex items-center gap-1.5 font-bold">
-                  <ShieldCheck className="w-4 h-4 text-blue-600" />
-                  <span>Subscription Upgrade / Downgrade Policy</span>
-                </div>
-                <p className="text-[11px] text-blue-800 dark:text-blue-300 leading-relaxed">
-                  Per AirBus policy, you must complete the remaining period of your current active <strong>{currentPlan.tier}</strong> plan (ends {new Date(currentPlan.expiresAt).toLocaleDateString()}). Activating <strong>{selectedTier}</strong> now will schedule it to automatically take effect the moment your current period finishes.
-                </p>
-              </div>
-            )}
 
             {/* Wallet Coin & Insufficient Coins Banner */}
             {userWalletBalance < (billingCycle === 'annual' ? selectedDetails.annualPrice : selectedDetails.monthlyPrice) && (
@@ -302,6 +369,10 @@ export const PlanModal: React.FC<PlanModalProps> = ({
                   <button
                     type="button"
                     onClick={async () => {
+                      if (isPlanPurchaseBlocked) {
+                        setError(`Active subscription ongoing until ${activeExpiryDate}. Please finish the current period first.`);
+                        return;
+                      }
                       const cost = billingCycle === 'annual' ? selectedDetails.annualPrice : selectedDetails.monthlyPrice;
                       if (userWalletBalance < cost) {
                         const diff = cost - userWalletBalance;
@@ -320,7 +391,7 @@ export const PlanModal: React.FC<PlanModalProps> = ({
                         setWalletPaying(false);
                       }
                     }}
-                    disabled={walletPaying || userWalletBalance < (billingCycle === 'annual' ? selectedDetails.annualPrice : selectedDetails.monthlyPrice)}
+                    disabled={isPlanPurchaseBlocked || walletPaying || userWalletBalance < (billingCycle === 'annual' ? selectedDetails.annualPrice : selectedDetails.monthlyPrice)}
                     className="flex-1 sm:flex-initial px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:opacity-95 text-white rounded-full font-extrabold flex items-center justify-center gap-1.5 cursor-pointer shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     <Zap className="w-3.5 h-3.5" />
@@ -328,8 +399,9 @@ export const PlanModal: React.FC<PlanModalProps> = ({
                   </button>
                 )}
                 <button
+                  disabled={isPlanPurchaseBlocked}
                   onClick={() => setInPayStep(true)}
-                  className="flex-1 sm:flex-initial px-5 py-2 bg-gradient-to-r from-[#ff2e93] to-[#8b5cf6] text-white rounded-full font-bold flex items-center justify-center gap-1.5 cursor-pointer shadow hover:opacity-95"
+                  className="flex-1 sm:flex-initial px-5 py-2 bg-gradient-to-r from-[#ff2e93] to-[#8b5cf6] text-white rounded-full font-bold flex items-center justify-center gap-1.5 cursor-pointer shadow hover:opacity-95 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   <span>Pay with M-Pesa</span>
                   <ArrowRight className="w-3.5 h-3.5" />
@@ -344,7 +416,7 @@ export const PlanModal: React.FC<PlanModalProps> = ({
               {!walletMode && (
                 <button
                   onClick={() => setInPayStep(false)}
-                  className="p-1 rounded-full hover:bg-stone-100 text-stone-400"
+                  className="p-1 rounded-full hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-400 cursor-pointer"
                 >
                   <ArrowLeft className="w-4 h-4" />
                 </button>
@@ -420,7 +492,7 @@ export const PlanModal: React.FC<PlanModalProps> = ({
               <button
                 type="submit"
                 disabled={submitting}
-                className="w-full py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-full text-xs font-extrabold shadow-md hover:shadow-lg transition-all cursor-pointer"
+                className="w-full py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-full text-xs font-extrabold shadow-md hover:shadow-lg transition-all cursor-pointer disabled:opacity-50"
               >
                 {submitting ? 'Submitting Receipt...' : 'I Have Paid — Submit for Verification'}
               </button>

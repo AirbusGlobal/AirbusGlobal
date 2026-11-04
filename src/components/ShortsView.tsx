@@ -304,22 +304,20 @@ export const ShortsView: React.FC<ShortsViewProps> = ({
 
       {/* Right Side Social Actions Column */}
       <div className="absolute bottom-24 right-3 z-20 flex flex-col items-center gap-3.5 pointer-events-auto">
-        {/* Follow Host Avatar */}
+        {/* Follow Host Action (No profile photo / avatar) */}
         <button
           onClick={handleToggleFollow}
-          className="relative flex flex-col items-center group cursor-pointer"
+          className="flex flex-col items-center gap-1 text-white group cursor-pointer"
           title={isFollowing ? 'Following Host' : 'Follow Host'}
         >
-          <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-[#e4002b] to-[#8b5cf6] flex items-center justify-center text-white font-bold text-xs border-2 border-white shadow-md">
-            {(currentStay.hostName || 'H')[0].toUpperCase()}
-          </div>
           <div
-            className={`absolute -bottom-1 w-4 h-4 rounded-full flex items-center justify-center text-[10px] text-white ${
-              isFollowing ? 'bg-emerald-500' : 'bg-[#e4002b]'
+            className={`w-11 h-11 rounded-full flex items-center justify-center backdrop-blur-md transition-all ${
+              isFollowing ? 'bg-emerald-600 text-white shadow-[0_0_15px_rgba(16,185,129,0.5)]' : 'bg-black/60 hover:bg-black/80'
             }`}
           >
-            {isFollowing ? '✓' : '+'}
+            {isFollowing ? <UserCheck className="w-5 h-5" /> : <UserPlus className="w-5 h-5 text-white" />}
           </div>
+          <span className="text-[10px] font-bold drop-shadow">{isFollowing ? 'Following' : 'Follow'}</span>
         </button>
 
         {/* Like Button */}

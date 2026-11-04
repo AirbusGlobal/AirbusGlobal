@@ -246,7 +246,22 @@ export const StayDetailModal: React.FC<StayDetailModalProps> = ({
     }
   };
 
-  // Handle like toggle
+  // Load real-time stats
+  useEffect(() => {
+    api.getListingStats(stay.id)
+      .then(res => {
+        if (res) {
+          setFollowerCount(res.followerCount ?? followerCount);
+          setIsFollowing(res.isFollowing ?? isFollowing);
+          setLikesCount(res.likesCount ?? likesCount);
+          setLiked(res.isLiked ?? liked);
+          setViewsCount(res.viewsCount ?? viewsCount);
+        }
+      })
+      .catch(() => {});
+  }, [stay.id]);
+
+  // Handle like toggle with optimistic updates
   const handleToggleLike = async () => {
     if (!user) {
       alert('Please sign in to like this video stay.');
@@ -258,8 +273,8 @@ export const StayDetailModal: React.FC<StayDetailModalProps> = ({
     setLikesCount(newCount);
 
     try {
-      const res = await api.toggleLikeStay(stay.id);
-      setLiked(res.liked);
+      const res = await api.toggleListingLike(stay.id);
+      setLiked(res.isLiked);
       setLikesCount(res.likesCount);
       onUpdateStay?.(stay.id, { likesCount: res.likesCount });
     } catch (e) {
@@ -268,20 +283,20 @@ export const StayDetailModal: React.FC<StayDetailModalProps> = ({
     }
   };
 
-  // Handle follow toggle
+  // Handle follow toggle with optimistic updates
   const handleToggleFollow = async () => {
     if (!user) {
       alert('Please sign in to follow this host.');
       return;
     }
-    const hostEmail = stay.owner || 'host@airbus.ke';
+    const hostEmail = stay.ownerEmail || stay.owner || 'host@airbus.ke';
     const newFollowing = !isFollowing;
     const newCount = newFollowing ? followerCount + 1 : Math.max(0, followerCount - 1);
     setIsFollowing(newFollowing);
     setFollowerCount(newCount);
 
     try {
-      const res = await api.toggleFollowHost(hostEmail);
+      const res = await api.toggleFollow(hostEmail);
       setIsFollowing(res.isFollowing);
       setFollowerCount(res.followerCount);
       onUpdateStay?.(stay.id, { hostFollowerCount: res.followerCount });
@@ -979,6 +994,11 @@ export const StayDetailModal: React.FC<StayDetailModalProps> = ({
                       <br />
                       Settle payment directly with your host at check-in.
                     </div>
+
+                    {/* Prominent Platform Liability Disclaimer */}
+                    <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-[10px] text-amber-900 dark:text-amber-200 text-left leading-relaxed">
+                      <strong>Platform Notice: </strong>Airbus does not hold any money, provides no escrow, and is not liable for any money lost. We advise guests to pay on arrival, after confirming the listing exists. Agree on payment and viewing directly with the host, outside the platform.
+                    </div>
                   </div>
                 ) : checkoutStep === 'details' ? (
                   /* STEP 1: DETAILS (Dates, Guests, Complimentary Gifts) */
@@ -1094,13 +1114,13 @@ export const StayDetailModal: React.FC<StayDetailModalProps> = ({
                         }}
                         className="w-full py-3 rounded-full bg-[#e4002b] hover:bg-[#c90026] text-white font-extrabold text-xs shadow-lg transition-all cursor-pointer flex items-center justify-center gap-1.5"
                       >
-                        <span>Continue to Payment (Step 2 of 3)</span>
+                        <span>Continue to Booking &amp; Payment (Step 2 of 3)</span>
                         <ArrowRight className="w-4 h-4" />
                       </button>
                     )}
                   </div>
                 ) : (
-                  /* STEP 2: PAYMENT (Payment method, Deposit acknowledgement, Price breakdown) */
+                  /* STEP 2: PAYMENT & BOOKING CONFIRMATION */
                   <form onSubmit={handleBookingSubmit} className="space-y-3 animate-in fade-in duration-150">
                     <div className="flex items-center justify-between pb-1 border-b border-stone-200 dark:border-stone-800">
                       <button
@@ -1114,6 +1134,12 @@ export const StayDetailModal: React.FC<StayDetailModalProps> = ({
                       <span className="text-[11px] text-stone-400">
                         {nights} {nights === 1 ? 'night' : 'nights'} · {guestCount} guests
                       </span>
+                    </div>
+
+                    {/* Prominent Platform Liability Disclaimer */}
+                    <div className="p-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-[11px] text-amber-900 dark:text-amber-200 leading-relaxed">
+                      <span className="font-extrabold block mb-0.5">⚠️ Platform Payment Policy:</span>
+                      Airbus does not hold any money, provides no escrow, and is not liable for any money lost. We advise guests to pay on arrival, after confirming the listing exists. Agree on payment and viewing directly with the host, outside the platform.
                     </div>
 
                     {/* Optional Security Deposit Terms Box */}
@@ -1345,7 +1371,7 @@ export const StayDetailModal: React.FC<StayDetailModalProps> = ({
                     className="w-full py-2 px-3 bg-[#16a34a] hover:bg-[#15803d] text-white text-xs font-bold rounded-full flex items-center justify-center gap-1.5 transition-colors shadow-sm"
                   >
                     <PhoneCall className="w-3.5 h-3.5" />
-                    <span>Direct WhatsApp Host</span>
+                    <span>Chat on WhatsApp</span>
                   </a>
                 )}
 

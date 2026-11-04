@@ -193,16 +193,145 @@ export interface HostPlanStatus {
   scheduledPeriod?: 'monthly' | 'annual';
 }
 
+export type PaymentRecordType = 'advert' | 'subscription' | 'booking_fee';
+export type PaymentRecordMethod = 'wallet' | 'mpesa';
+export type PaymentRecordStatus = 'pending' | 'approved' | 'rejected' | 'refunded';
+
 export interface PaymentRecord {
   id: string;
-  hostEmail: string;
-  kind: 'plan' | 'wallet';
-  tier?: StayCategory;
-  amount: number;
-  mpesaCode: string;
-  status: 'pending' | 'approved' | 'rejected';
-  rejectionReason?: string;
+  userId: string;
+  user_id?: string;
+  hostEmail?: string;
+  kind?: 'plan' | 'wallet' | 'advert';
+  type: PaymentRecordType;
+  method: PaymentRecordMethod;
+  amountSc: number;
+  amount_sc?: number;
+  amountKes?: number;
+  amount_kes?: number;
+  amount: number; // Compatibility
+  status: PaymentRecordStatus;
+  referenceId: string; // advert_id or subscription_id
+  reference_id?: string;
+  mpesaCode?: string;
+  mpesa_code?: string;
+  planTier?: StayCategory | string;
+  plan_tier?: string;
+  tier?: StayCategory | string;
+  durationDays?: number;
+  duration_days?: number;
   period?: 'monthly' | 'annual';
+  approvedBy?: string;
+  approved_by?: string;
+  approvedAt?: number;
+  approved_at?: number;
+  rejectionReason?: string;
+  rejection_reason?: string;
+  createdAt: number;
+  created_at?: number;
+  updatedAt: number;
+  updated_at?: number;
+}
+
+export interface WalletTransaction {
+  id: string;
+  walletId: string;
+  wallet_id?: string;
+  direction: 'debit' | 'credit';
+  amountSc: number;
+  amount_sc?: number;
+  relatedPaymentId?: string;
+  related_payment_id?: string;
+  note: string;
+  createdAt: number;
+  created_at?: number;
+}
+
+export interface AdSlot {
+  id: string;
+  ownerId: string;
+  owner_id?: string;
+  title: string;
+  description: string;
+  linkUrl: string;
+  link_url?: string;
+  thumbnailUrl: string;
+  thumbnail_url?: string;
+  videoUrl?: string;
+  video_url?: string;
+  durationDays: number;
+  duration_days?: number;
+  costSc: number;
+  cost_sc?: number;
+  status: 'pending_approval' | 'active' | 'rejected' | 'expired';
+  paymentId: string;
+  payment_id?: string;
+  paymentMethod: 'wallet' | 'mpesa';
+  mpesaCode?: string;
+  impressions: number;
+  clicks: number;
+  startsAt?: number;
+  endsAt?: number;
+  rejectionReason?: string;
+  createdAt: number;
+  created_at?: number;
+  updatedAt: number;
+  updated_at?: number;
+}
+
+export interface SubscriptionRecord {
+  id: string;
+  ownerId: string;
+  owner_id?: string;
+  tier: StayCategory;
+  billing: 'monthly' | 'annual';
+  status: 'pending' | 'active' | 'expired' | 'rejected';
+  startsAt?: number;
+  endsAt?: number;
+  paymentId?: string;
+  createdAt: number;
+  created_at?: number;
+  updatedAt: number;
+  updated_at?: number;
+}
+
+export interface FollowRecord {
+  id: string;
+  followerId: string;
+  ownerId: string;
+  createdAt: number;
+}
+
+export interface ListingLikeRecord {
+  id: string;
+  userId: string;
+  listingId: string;
+  createdAt: number;
+}
+
+export interface ListingViewRecord {
+  id: string;
+  listingId: string;
+  viewerId?: string;
+  sessionId: string;
+  createdAt: number;
+}
+
+export interface AutoShortRecord {
+  id: string;
+  listingId: string;
+  ownerId: string;
+  title: string;
+  description: string;
+  videoUrl: string;
+  thumbnailUrl: string;
+  durationSeconds: number;
+  sourceStartSec: number;
+  sourceEndSec: number;
+  status: 'ready' | 'processing';
+  aspectRatio: '9:16';
+  views: number;
+  likes: number;
   createdAt: number;
 }
 

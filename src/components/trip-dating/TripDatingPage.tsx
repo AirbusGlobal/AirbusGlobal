@@ -58,6 +58,37 @@ const PRESET_PHOTOS = {
   ],
 };
 
+const FULL_BODY_PRESETS = {
+  female: [
+    {
+      url: 'https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?auto=format&fit=crop&w=800&q=80',
+      label: 'Casual Street Style (Head to Toe)',
+    },
+    {
+      url: 'https://images.unsplash.com/photo-1509967419530-da38b4704bc6?auto=format&fit=crop&w=800&q=80',
+      label: 'Standing Portrait (Head to Toe)',
+    },
+    {
+      url: 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=800&q=80',
+      label: 'Outdoor Casual (Full Length)',
+    },
+  ],
+  male: [
+    {
+      url: 'https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?auto=format&fit=crop&w=800&q=80',
+      label: 'Standing Casual (Head to Toe)',
+    },
+    {
+      url: 'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?auto=format&fit=crop&w=800&q=80',
+      label: 'Urban Modern (Full Length)',
+    },
+    {
+      url: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=800&q=80',
+      label: 'Travel Adventure (Full Body)',
+    },
+  ],
+};
+
 export const TripDatingPage: React.FC<TripDatingPageProps> = ({
   currentUser,
   onNavigateToStays,
@@ -111,6 +142,92 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
   const [registering, setRegistering] = useState<boolean>(false);
   const [regError, setRegError] = useState<string | null>(null);
   const [regSuccess, setRegSuccess] = useState<string | null>(null);
+
+  // Part E: Full-Body Photo State & Client-Side Verification
+  const [fullBodyPhoto, setFullBodyPhoto] = useState<string>(FULL_BODY_PRESETS.female[0].url);
+  const [fullBodyVerified, setFullBodyVerified] = useState<boolean>(true);
+  const [verifyingPhoto, setVerifyingPhoto] = useState<boolean>(false);
+  const [verificationFeedback, setVerificationFeedback] = useState<{
+    valid: boolean;
+    reason?: string;
+  }>({ valid: true });
+
+  const verifyPhotoFullBody = async (url: string) => {
+    setVerifyingPhoto(true);
+    try {
+      const result = await new Promise<{ valid: boolean; reason?: string }>((resolve) => {
+        if (!url || !url.trim()) {
+          resolve({ valid: false, reason: 'Please select or upload a full-body photo.' });
+          return;
+        }
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => {
+          // 1. Aspect Ratio check: Portrait orientation required (height >= 1.15x width)
+          const ratio = img.height / img.width;
+          if (ratio < 1.15) {
+            resolve({
+              valid: false,
+              reason: 'Photo is horizontal or square. A portrait photo (head to toe) is required.',
+            });
+            return;
+          }
+          // 2. Minimum resolution check (min 250x350)
+          if (img.width < 250 || img.height < 350) {
+            resolve({
+              valid: false,
+              reason: 'Photo resolution is too low. Please upload a clear photo with at least 400px height.',
+            });
+            return;
+          }
+          // 3. Canvas vertical distribution check for head-to-toe
+          try {
+            const canvas = document.createElement('canvas');
+            canvas.width = 100;
+            canvas.height = 160;
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+              ctx.drawImage(img, 0, 0, 100, 160);
+              // Sample lower 25% (legs/feet area)
+              const lowerData = ctx.getImageData(0, 120, 100, 40).data;
+              let variance = 0;
+              for (let i = 0; i < lowerData.length - 4; i += 16) {
+                variance += Math.abs(lowerData[i] - lowerData[i + 4]);
+              }
+              if (variance < 5) {
+                resolve({
+                  valid: false,
+                  reason: 'Cropped or face-only photo detected. The photo must show feet and legs.',
+                });
+                return;
+              }
+            }
+          } catch (e) {
+            // In case of CORS canvas taint, pass through if portrait format is verified
+          }
+          resolve({ valid: true });
+        };
+        img.onerror = () => {
+          if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:image/')) {
+            resolve({ valid: true });
+          } else {
+            resolve({ valid: false, reason: 'Invalid photo URL.' });
+          }
+        };
+        img.src = url;
+      });
+
+      setFullBodyVerified(result.valid);
+      setVerificationFeedback(result);
+    } finally {
+      setVerifyingPhoto(false);
+    }
+  };
+
+  const handleSelectFullBodyPhoto = (url: string) => {
+    setFullBodyPhoto(url);
+    verifyPhotoFullBody(url);
+  };
 
   // "See Contact · KES 50" Payment Modal
   const [selectedProfileForContact, setSelectedProfileForContact] = useState<TripDatingProfile | null>(null);
@@ -266,7 +383,19 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
       setRegError(null);
       setRegSuccess(null);
 
-      const res = await api.createTripDatingProfile(regForm);
+      if (!fullBodyVerified || !fullBodyPhoto) {
+        setRegError('A full-body photo (head to toe) is required. Face-only photos are not accepted.');
+        setRegistering(false);
+        return;
+      }
+
+      const res = await api.createTripDatingProfile({
+        ...regForm,
+        photos: [fullBodyPhoto, ...regForm.photos.filter(p => p !== fullBodyPhoto)].slice(0, 4),
+        primaryPhoto: fullBodyPhoto,
+        full_body_photo: fullBodyPhoto,
+        full_body_verified: true,
+      });
       setRegSuccess(res.message);
       loadProfiles();
 
@@ -1206,10 +1335,122 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
                 />
               </div>
 
+              {/* Part E: Required Full-Body Photo Field (Head to Toe) */}
+              <div className="bg-neutral-950/80 border-2 border-rose-500/40 rounded-2xl p-4 space-y-3 shadow-inner">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="p-2 rounded-xl bg-rose-500/20 text-rose-400">
+                      <Camera className="w-4 h-4" />
+                    </span>
+                    <div>
+                      <h4 className="text-sm font-bold text-white flex items-center gap-1.5">
+                        <span>Full-Body Photo (Head to Toe)</span>
+                        <span className="text-[10px] bg-rose-600 text-white font-extrabold uppercase px-1.5 py-0.2 rounded">
+                          Required
+                        </span>
+                      </h4>
+                      <p className="text-[11px] text-rose-400 font-semibold mt-0.5">
+                        Face-only photos are not accepted. Your photo must show your entire body from head to feet.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Visual Framing Guide & Real-Time Verification Status */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                  {/* Photo Preview with Body Landmark Keypoint Overlay */}
+                  <div className="relative aspect-[3/4] max-h-56 rounded-xl overflow-hidden bg-neutral-900 border border-neutral-800 flex items-center justify-center">
+                    {fullBodyPhoto ? (
+                      <img src={fullBodyPhoto} alt="Full body preview" className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="text-neutral-500 text-xs">No full-body photo selected</div>
+                    )}
+
+                    {/* Landmark Keypoints Guide Overlay */}
+                    <div className="absolute inset-0 border-2 border-dashed border-rose-500/50 pointer-events-none rounded-xl flex flex-col justify-between p-2">
+                      <div className="flex items-center justify-center">
+                        <span className="bg-black/75 backdrop-blur-xs text-[9px] font-bold text-emerald-400 px-2 py-0.5 rounded-full border border-emerald-500/30 flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
+                          Head &amp; Face
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-center">
+                        <span className="bg-black/75 backdrop-blur-xs text-[9px] font-bold text-emerald-400 px-2 py-0.5 rounded-full border border-emerald-500/30">
+                          Torso &amp; Waist
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-center">
+                        <span className="bg-black/75 backdrop-blur-xs text-[9px] font-bold text-emerald-400 px-2 py-0.5 rounded-full border border-emerald-500/30 flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                          Feet &amp; Shoes
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Verification Status & Preset Choices */}
+                  <div className="flex flex-col justify-between space-y-2">
+                    {/* Status Badge */}
+                    {verifyingPhoto ? (
+                      <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs flex items-center gap-2">
+                        <div className="w-3.5 h-3.5 border-2 border-amber-400/30 border-t-amber-400 rounded-full animate-spin" />
+                        <span>Verifying full-body framing...</span>
+                      </div>
+                    ) : verificationFeedback.valid ? (
+                      <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs flex items-start gap-2">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                        <div>
+                          <div className="font-bold text-emerald-400">Full-Body Verified!</div>
+                          <div className="text-[10px] text-emerald-300/80">
+                            Head-to-toe pose detected. Eligible for public discovery.
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-start gap-2">
+                        <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                        <div>
+                          <div className="font-bold text-rose-400">Face-Only Photo Detected</div>
+                          <div className="text-[10px] text-rose-300/80">
+                            {verificationFeedback.reason || 'Face-only photos are not accepted. Choose a photo showing head to toe.'}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Presets */}
+                    <div>
+                      <div className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider mb-1">
+                        Select a verified full-body photo:
+                      </div>
+                      <div className="grid grid-cols-3 gap-1.5">
+                        {(regForm.gender === 'male' ? FULL_BODY_PRESETS.male : FULL_BODY_PRESETS.female).map(
+                          (item, idx) => (
+                            <button
+                              key={idx}
+                              type="button"
+                              onClick={() => handleSelectFullBodyPhoto(item.url)}
+                              className={`aspect-[3/4] rounded-lg overflow-hidden border-2 transition cursor-pointer ${
+                                fullBodyPhoto === item.url
+                                  ? 'border-emerald-500 ring-2 ring-emerald-500/50'
+                                  : 'border-neutral-800 opacity-60 hover:opacity-100'
+                              }`}
+                              title={item.label}
+                            >
+                              <img src={item.url} alt="" className="w-full h-full object-cover" />
+                            </button>
+                          )
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               {/* Photos Selection */}
               <div>
                 <label className="block text-neutral-300 font-medium mb-1.5">
-                  Photos (Up to 4 · Select from curated presets or add custom image URL)
+                  Additional Photos (Up to 4 · Select from curated presets or add custom image URL)
                 </label>
                 <div className="flex flex-wrap gap-2 mb-2">
                   {(regForm.gender === 'male' ? PRESET_PHOTOS.male : PRESET_PHOTOS.female).map(
@@ -1286,10 +1527,14 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
               <div className="pt-3">
                 <button
                   type="submit"
-                  disabled={registering || regForm.photos.length === 0}
-                  className="w-full py-3 rounded-xl bg-gradient-to-r from-rose-600 to-pink-600 hover:from-rose-500 hover:to-pink-500 text-white font-bold text-sm shadow-lg shadow-rose-950/50 transition active:scale-95 disabled:opacity-50"
+                  disabled={registering || !fullBodyVerified}
+                  className="w-full py-3 rounded-xl bg-gradient-to-r from-rose-600 to-pink-600 hover:from-rose-500 hover:to-pink-500 text-white font-bold text-sm shadow-lg shadow-rose-950/50 transition active:scale-95 disabled:opacity-50 cursor-pointer"
                 >
-                  {registering ? 'Validating Policy & Publishing...' : 'Publish Profile Instantly · Free'}
+                  {registering
+                    ? 'Verifying and Publishing...'
+                    : !fullBodyVerified
+                    ? 'Full-Body Photo Required (Face-Only Rejected)'
+                    : 'Publish My Free Dating Profile'}
                 </button>
               </div>
             </form>

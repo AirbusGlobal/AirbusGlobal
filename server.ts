@@ -411,6 +411,13 @@ app.post('/api/stays', (req, res) => {
     return res.status(400).json({ error: 'Title, location, and price are required.' });
   }
 
+  const cleanedWhatsapp = typeof whatsapp === 'string' ? whatsapp.trim().replace(/\s+/g, '') : '';
+  if (cleanedWhatsapp && !/^\+[1-9]\d{7,14}$/.test(cleanedWhatsapp)) {
+    return res.status(400).json({
+      error: 'Host WhatsApp number must be in E.164 international format (e.g. +254712345678).',
+    });
+  }
+
   const parsedLat = Number(lat);
   const parsedLng = Number(lng);
   if (lat === undefined || lng === undefined || isNaN(parsedLat) || isNaN(parsedLng)) {
@@ -908,33 +915,331 @@ app.get('/api/host/plan', (req, res) => {
   return res.json({ plan, wallet, availablePlans: PLANS });
 });
 
+// ============================================================================
+// 1. PAYMENT MODULE & WALLET TRANSACTIONS LEDGER
+// ============================================================================
+
+// List payment records with filtering and search
+app.get('/api/payments', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ error: 'Please sign in to view payments.' });
+
+  const { status, type, method, search } = req.query;
+
+  // Non-admins can only view their own payments
+  if (user.role !== 'admin') {
+    const list = db.getPaymentRecords({
+      status: status as any,
+      type: type as any,
+      method: method as any,
+      search: search as string,
+    }).filter(p => (p.userId || p.hostEmail)?.toLowerCase() === user.email.toLowerCase());
+    return res.json({ payments: list, count: list.length });
+  }
+
+  // Admins see all filtered payments
+  const payments = db.getPaymentRecords({
+    status: status as any,
+    type: type as any,
+    method: method as any,
+    search: search as string,
+  });
+
+  const pendingCount = payments.filter(p => p.status === 'pending').length;
+  return res.json({ payments, count: payments.length, pendingCount });
+});
+
+// Atomic Wallet Payment
+app.post('/api/payments/wallet', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ error: 'Please sign in to pay from wallet.' });
+
+  const { type, amountSc, referenceId, planTier, durationDays, period, note } = req.body;
+
+  if (!type || !['advert', 'subscription', 'booking_fee'].includes(type)) {
+    return res.status(400).json({ error: 'Valid payment type (advert, subscription, booking_fee) is required.' });
+  }
+
+  const intAmount = Math.floor(Number(amountSc) || 0);
+  if (intAmount <= 0) {
+    return res.status(400).json({ error: 'Payment amount must be greater than 0 Coins.' });
+  }
+
+  try {
+    const result = db.payWithWallet({
+      userId: user.email,
+      type,
+      amountSc: intAmount,
+      referenceId: referenceId || ('ref_' + Date.now()),
+      planTier,
+      durationDays: Number(durationDays) || undefined,
+      period,
+      note,
+    });
+    return res.status(201).json(result);
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'Wallet payment failed.' });
+  }
+});
+
+// M-Pesa Payment Submission
+app.post('/api/payments/mpesa', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ error: 'Please sign in to submit M-Pesa payment.' });
+
+  const { type, amountKes, mpesaCode, referenceId, planTier, durationDays, period } = req.body;
+
+  if (!type || !['advert', 'subscription', 'booking_fee'].includes(type)) {
+    return res.status(400).json({ error: 'Valid payment type is required.' });
+  }
+
+  const intAmount = Math.floor(Number(amountKes) || 0);
+  if (intAmount <= 0) {
+    return res.status(400).json({ error: 'Amount must be greater than 0.' });
+  }
+
+  if (!mpesaCode || !/^[A-Z0-9]{10}$/i.test(String(mpesaCode).trim())) {
+    return res.status(400).json({
+      error: 'M-Pesa receipt code must be exactly 10 alphanumeric characters (e.g. QGH7X2K9LM).',
+    });
+  }
+
+  try {
+    const payment = db.createMpesaPayment({
+      userId: user.email,
+      type,
+      amountKes: intAmount,
+      mpesaCode: String(mpesaCode).trim().toUpperCase(),
+      referenceId: referenceId || ('ref_' + Date.now()),
+      planTier,
+      durationDays: Number(durationDays) || undefined,
+      period,
+    });
+    return res.status(201).json({ payment });
+  } catch (err: any) {
+    return res.status(409).json({ error: err.message || 'M-Pesa payment submission failed.' });
+  }
+});
+
+// Legacy / backward-compatible POST /api/payments
 app.post('/api/payments', (req, res) => {
   const user = getAuthUser(req);
   if (!user) return res.status(401).json({ error: 'Not authenticated' });
-  const { kind, tier, amount, mpesaCode } = req.body;
+  const { kind, tier, amount, mpesaCode, period, referenceId } = req.body;
 
-  if (!mpesaCode || !/^[A-Z0-9]{10}$/i.test(mpesaCode.trim())) {
-    return res.status(400).json({ error: 'M-Pesa reference code must be exactly 10 alphanumeric characters (e.g. QGH7X2K9LM).' });
+  if (!mpesaCode || !/^[A-Z0-9]{10}$/i.test(String(mpesaCode).trim())) {
+    return res.status(400).json({
+      error: 'M-Pesa reference code must be exactly 10 alphanumeric characters (e.g. QGH7X2K9LM).',
+    });
   }
 
-  const codeClean = mpesaCode.trim().toUpperCase();
-  if (db.getPayments().some(p => p.mpesaCode === codeClean && p.status !== 'rejected')) {
-    return res.status(409).json({ error: 'This M-Pesa receipt code has already been submitted.' });
-  }
+  const cleanCode = String(mpesaCode).trim().toUpperCase();
+  const paymentType: PaymentRecordType = kind === 'advert' ? 'advert' : 'subscription';
 
-  const payment = db.createPayment({
-    id: 'pay_' + Date.now(),
-    hostEmail: user.email,
-    kind: kind === 'wallet' ? 'wallet' : 'plan',
-    tier: tier || 'Silver',
-    amount: Number(amount) || 1000,
-    mpesaCode: codeClean,
-    status: 'pending',
-    period: req.body.period === 'annual' ? 'annual' : 'monthly',
-    createdAt: Date.now(),
+  try {
+    const payment = db.createMpesaPayment({
+      userId: user.email,
+      type: paymentType,
+      amountKes: Number(amount) || 1000,
+      mpesaCode: cleanCode,
+      referenceId: referenceId || ('ref_' + Date.now()),
+      planTier: tier || 'Silver',
+      period: period === 'annual' ? 'annual' : 'monthly',
+      durationDays: period === 'annual' ? 365 : 30,
+    });
+    return res.status(201).json({ payment });
+  } catch (err: any) {
+    return res.status(409).json({ error: err.message || 'Payment submission failed.' });
+  }
+});
+
+// ============================================================================
+// 2. SUBSCRIPTIONS (SERVER ENFORCED RULES)
+// ============================================================================
+
+app.get('/api/subscriptions/current', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ error: 'Not authenticated' });
+
+  const active = db.getActiveSubscription(user.email);
+  const pending = db.getPendingSubscription(user.email);
+  const hostPlan = db.getHostPlan(user.email);
+  const wallet = db.getWallet(user.email);
+
+  return res.json({
+    activeSubscription: active || null,
+    pendingSubscription: pending || null,
+    hostPlan,
+    wallet,
+    availablePlans: PLANS,
   });
+});
 
-  return res.status(201).json({ payment });
+app.post('/api/subscriptions/purchase', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ error: 'Please sign in to purchase a hosting plan.' });
+
+  const { tier, billing, method, mpesaCode } = req.body;
+
+  if (!['Silver', 'Diamond', 'Gold'].includes(tier)) {
+    return res.status(400).json({ error: 'Invalid plan tier selected.' });
+  }
+  if (!['monthly', 'annual'].includes(billing)) {
+    return res.status(400).json({ error: 'Invalid billing cycle. Choose monthly (30 days) or annual (365 days).' });
+  }
+  if (!['wallet', 'mpesa'].includes(method)) {
+    return res.status(400).json({ error: 'Payment method must be wallet or mpesa.' });
+  }
+
+  try {
+    const result = db.purchaseSubscription({
+      ownerId: user.email,
+      tier,
+      billing,
+      method,
+      mpesaCode,
+    });
+    return res.status(201).json(result);
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message });
+  }
+});
+
+// ============================================================================
+// 3. ADVERT SLOTS ("ADVERTISE HERE" & PERSISTENT AD CARD)
+// ============================================================================
+
+app.post('/api/ads/slots', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ error: 'Please sign in to advertise on AirBus.' });
+
+  const {
+    title,
+    description,
+    linkUrl,
+    thumbnailUrl,
+    videoUrl,
+    durationDays,
+    paymentMethod,
+    mpesaCode,
+  } = req.body;
+
+  if (!title || !description || !linkUrl) {
+    return res.status(400).json({ error: 'Title, description, and link URL are required.' });
+  }
+
+  // Validate URL format
+  try {
+    new URL(linkUrl.startsWith('http') ? linkUrl : `https://${linkUrl}`);
+  } catch {
+    return res.status(400).json({ error: 'Please enter a valid website destination URL.' });
+  }
+
+  const days = Math.min(90, Math.max(1, Math.floor(Number(durationDays) || 7)));
+  const method = paymentMethod === 'wallet' ? 'wallet' : 'mpesa';
+
+  try {
+    const result = db.createAdSlot({
+      ownerId: user.email,
+      title,
+      description,
+      linkUrl: linkUrl.startsWith('http') ? linkUrl : `https://${linkUrl}`,
+      thumbnailUrl: thumbnailUrl || '',
+      videoUrl: videoUrl || undefined,
+      durationDays: days,
+      paymentMethod: method,
+      mpesaCode,
+    });
+    return res.status(201).json(result);
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'Ad slot creation failed.' });
+  }
+});
+
+// Return active ads for persistent round-robin display
+app.get('/api/ads/active', (req, res) => {
+  const activeSlots = db.getActiveAdSlots();
+
+  // If no slots yet, fallback to approved legacy ad requests
+  if (activeSlots.length === 0) {
+    const approvedLegacy = db.getAdRequests({ status: 'approved' });
+    const formatted = approvedLegacy.map(a => ({
+      id: a.id,
+      ownerId: a.advertiserEmail,
+      title: a.title,
+      description: a.description,
+      linkUrl: a.targetUrl,
+      thumbnailUrl: a.imageUrl,
+      durationDays: a.days,
+      costSc: a.totalAmount,
+      status: 'active' as const,
+      paymentId: '',
+      paymentMethod: 'wallet' as const,
+      impressions: a.views || 0,
+      clicks: a.clicks || 0,
+      createdAt: a.createdAt,
+      updatedAt: a.createdAt,
+    }));
+    return res.json({ ads: formatted, count: formatted.length });
+  }
+
+  return res.json({ ads: activeSlots, count: activeSlots.length });
+});
+
+app.post('/api/ads/slots/:id/view', (req, res) => {
+  db.recordAdSlotImpression(req.params.id);
+  return res.json({ success: true });
+});
+
+app.post('/api/ads/slots/:id/click', (req, res) => {
+  db.recordAdSlotClick(req.params.id);
+  return res.json({ success: true });
+});
+
+// ============================================================================
+// 4. SOCIAL METRICS: FOLLOW, VIEWS, AND LIKES BACKEND
+// ============================================================================
+
+app.post('/api/owners/:id/follow', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ error: 'Please sign in to follow this host.' });
+
+  const ownerId = req.params.id;
+  if (!ownerId) return res.status(400).json({ error: 'Owner ID is required.' });
+
+  const result = db.toggleFollow(user.email, ownerId);
+  return res.json(result);
+});
+
+app.post('/api/listings/:id/like', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ error: 'Please sign in to like this stay.' });
+
+  try {
+    const result = db.toggleListingLike(user.email, req.params.id);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(404).json({ error: err.message || 'Listing not found.' });
+  }
+});
+
+app.post('/api/listings/:id/view', (req, res) => {
+  const user = getAuthUser(req);
+  const { sessionId } = req.body;
+  const ipSession = sessionId || req.ip || ('sess_' + Math.random().toString(36).substring(2, 8));
+
+  try {
+    const result = db.recordListingView(req.params.id, user?.email, ipSession);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(404).json({ error: err.message || 'Listing not found.' });
+  }
+});
+
+app.get('/api/listings/:id/stats', (req, res) => {
+  const user = getAuthUser(req);
+  const stats = db.getListingStats(req.params.id, user?.email);
+  return res.json(stats);
 });
 
 // Wishlist

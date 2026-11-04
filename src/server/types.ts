@@ -1,7 +1,5 @@
 export * from '../types';
 
-export * from '../types';
-
 export interface DatabaseSchema {
   users: import('../types').User[];
   stays: import('../types').Stay[];
@@ -9,6 +7,14 @@ export interface DatabaseSchema {
   reviews: import('../types').Review[];
   threads: import('../types').ChatThread[];
   payments: import('../types').PaymentRecord[];
+  paymentRecords: import('../types').PaymentRecord[];
+  walletTransactions: import('../types').WalletTransaction[];
+  adSlots: import('../types').AdSlot[];
+  subscriptions: import('../types').SubscriptionRecord[];
+  follows: import('../types').FollowRecord[];
+  listingLikes: import('../types').ListingLikeRecord[];
+  listingViews: import('../types').ListingViewRecord[];
+  autoShorts: import('../types').AutoShortRecord[];
   hostPlans: Record<string, import('../types').HostPlanStatus>;
   wallets: Record<string, number>;
   walletRecords: Record<string, import('../types').WalletRecord>;
@@ -41,4 +47,3 @@ export interface DatabaseSchema {
   tripDatingContactUnlocks: import('../types').TripDatingContactUnlock[];
   snappAddCampaigns?: import('../types').SnappAddCampaign[];
 }
-

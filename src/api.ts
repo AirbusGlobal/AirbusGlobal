@@ -27,6 +27,12 @@ import {
   TripDatingPaymentRequest,
   TripDatingContactUnlock,
   TripDatingStats,
+  AdSlot,
+  SubscriptionRecord,
+  WalletTransaction,
+  PaymentRecordType,
+  PaymentRecordMethod,
+  PaymentRecordStatus,
 } from './types';
 
 
@@ -641,6 +647,139 @@ export const api = {
     return this.request('/api/host/plan');
   },
 
+  // Payments (Ledger & Audit)
+  async getPaymentRecords(filter?: {
+    status?: string;
+    type?: string;
+    method?: string;
+    search?: string;
+  }): Promise<{ payments: PaymentRecord[]; count: number; pendingCount?: number }> {
+    const params = new URLSearchParams();
+    if (filter?.status && filter.status !== 'all') params.set('status', filter.status);
+    if (filter?.type && filter.type !== 'all') params.set('type', filter.type);
+    if (filter?.method && filter.method !== 'all') params.set('method', filter.method);
+    if (filter?.search) params.set('search', filter.search);
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    return this.request<{ payments: PaymentRecord[]; count: number; pendingCount?: number }>(`/api/payments${qs}`);
+  },
+
+  async payWithWallet(data: {
+    type: PaymentRecordType;
+    amountSc: number;
+    referenceId: string;
+    planTier?: string;
+    durationDays?: number;
+    period?: 'monthly' | 'annual';
+    note?: string;
+  }): Promise<{ payment: PaymentRecord; userTx: WalletTransaction; adminTx: WalletTransaction }> {
+    return this.request('/api/payments/wallet', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async submitMpesaPayment(data: {
+    type: PaymentRecordType;
+    amountKes: number;
+    mpesaCode: string;
+    referenceId: string;
+    planTier?: string;
+    durationDays?: number;
+    period?: 'monthly' | 'annual';
+  }): Promise<{ payment: PaymentRecord }> {
+    return this.request('/api/payments/mpesa', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async approvePayment(paymentId: string): Promise<{ payment: PaymentRecord }> {
+    return this.request(`/api/admin/payments/${paymentId}/approve`, {
+      method: 'POST',
+    });
+  },
+
+  async rejectPayment(paymentId: string, reason?: string): Promise<{ payment: PaymentRecord }> {
+    return this.request(`/api/admin/payments/${paymentId}/reject`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
+  },
+
+  // Subscriptions (Server Enforced)
+  async getCurrentSubscription(): Promise<{
+    activeSubscription: SubscriptionRecord | null;
+    pendingSubscription: SubscriptionRecord | null;
+    hostPlan: HostPlanStatus;
+    wallet: number;
+    availablePlans: any;
+  }> {
+    return this.request('/api/subscriptions/current');
+  },
+
+  async purchaseSubscription(data: {
+    tier: StayCategory;
+    billing: 'monthly' | 'annual';
+    method: 'wallet' | 'mpesa';
+    mpesaCode?: string;
+  }): Promise<{ subscription: SubscriptionRecord; payment: PaymentRecord }> {
+    return this.request('/api/subscriptions/purchase', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  // Ad Slots (Advertise Here)
+  async createAdSlot(slotData: {
+    title: string;
+    description: string;
+    linkUrl: string;
+    thumbnailUrl: string;
+    videoUrl?: string;
+    durationDays: number;
+    paymentMethod: 'wallet' | 'mpesa';
+    mpesaCode?: string;
+  }): Promise<{ slot: AdSlot; payment: PaymentRecord }> {
+    return this.request('/api/ads/slots', {
+      method: 'POST',
+      body: JSON.stringify(slotData),
+    });
+  },
+
+  async getActiveAds(): Promise<{ ads: AdSlot[]; count: number }> {
+    return this.request<{ ads: AdSlot[]; count: number }>('/api/ads/active');
+  },
+
+  // Social Stats: Follow, Likes, Views
+  async toggleFollow(ownerId: string): Promise<{ isFollowing: boolean; followerCount: number }> {
+    return this.request(`/api/owners/${encodeURIComponent(ownerId)}/follow`, {
+      method: 'POST',
+    });
+  },
+
+  async toggleListingLike(stayId: string): Promise<{ isLiked: boolean; likesCount: number }> {
+    return this.request(`/api/listings/${encodeURIComponent(stayId)}/like`, {
+      method: 'POST',
+    });
+  },
+
+  async recordListingView(stayId: string, sessionId?: string): Promise<{ recorded: boolean; viewsCount: number }> {
+    return this.request(`/api/listings/${encodeURIComponent(stayId)}/view`, {
+      method: 'POST',
+      body: JSON.stringify({ sessionId }),
+    });
+  },
+
+  async getListingStats(stayId: string): Promise<{
+    followerCount: number;
+    isFollowing: boolean;
+    likesCount: number;
+    isLiked: boolean;
+    viewsCount: number;
+  }> {
+    return this.request(`/api/listings/${encodeURIComponent(stayId)}/stats`);
+  },
+
   async submitPayment(paymentData: {
     kind: 'plan' | 'wallet';
     tier?: string;
@@ -974,6 +1113,8 @@ export const api = {
     datingIntention: string;
     photos: string[];
     primaryPhoto?: string;
+    full_body_photo?: string;
+    full_body_verified?: boolean;
   }): Promise<{ profile: TripDatingProfile; message: string }> {
     return this.request<{ profile: TripDatingProfile; message: string }>('/api/trip-dating/profiles', {
       method: 'POST',

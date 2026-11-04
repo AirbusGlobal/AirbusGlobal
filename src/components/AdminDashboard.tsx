@@ -123,7 +123,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [actionLoading, setActionLoading] = useState(false);
   const [feedbackMsg, setFeedbackMsg] = useState<string | null>(null);
 
+  // Payments Tab State
+  const [allPayments, setAllPayments] = useState<PaymentRecord[]>(payments || []);
+  const [paymentStatusFilter, setPaymentStatusFilter] = useState<'all' | 'pending' | 'approved' | 'rejected' | 'refunded'>('all');
+  const [paymentTypeFilter, setPaymentTypeFilter] = useState<'all' | 'advert' | 'subscription' | 'booking_fee'>('all');
+  const [paymentMethodFilter, setPaymentMethodFilter] = useState<'all' | 'wallet' | 'mpesa'>('all');
+  const [paymentSearch, setPaymentSearch] = useState('');
+  const [rejectModalPayment, setRejectModalPayment] = useState<PaymentRecord | null>(null);
+  const [rejectReason, setRejectReason] = useState('Invalid or unverified receipt code.');
+  const [approveModalPayment, setApproveModalPayment] = useState<PaymentRecord | null>(null);
+  const [processingPayment, setProcessingPayment] = useState(false);
+
   const loadAdminData = () => {
+    api.getPaymentRecords().then(res => {
+      if (res && res.payments) setAllPayments(res.payments);
+    }).catch(() => {});
     api.getPosts().then(res => setPosts(res.posts)).catch(() => {});
     api.getAds().then(res => setAds(res.ads)).catch(() => {});
     api.getOwnerPromotions().then(res => setPromotions(res.promotions || [])).catch(() => {});
@@ -174,8 +188,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     loadAdminData();
   }, []);
 
-
-  const pendingPayments = payments.filter(p => p.status === 'pending');
+  const currentPaymentsList = allPayments.length > 0 ? allPayments : payments;
+  const pendingPayments = currentPaymentsList.filter(p => p.status === 'pending');
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-8">
@@ -246,7 +260,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           }`}
         >
           <CreditCard className="w-4 h-4" />
-          <span>M-Pesa ({pendingPayments.length})</span>
+          <span>Payments</span>
+          {pendingPayments.length > 0 && (
+            <span className="ml-1 px-1.5 py-0.5 rounded-full bg-rose-600 text-white text-[10px] font-black animate-pulse">
+              {pendingPayments.length}
+            </span>
+          )}
         </button>
 
         <button
@@ -394,76 +413,390 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </button>
       </div>
 
-      {/* TAB 1: M-PESA APPROVALS QUEUE */}
+      {/* TAB 1: PAYMENTS MODULE & AUDIT LEDGER */}
       {tab === 'queue' && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="text-base font-bold text-stone-900 dark:text-white">Pending M-Pesa Payment Submissions</h3>
-            <span className="text-xs text-stone-500">Paybill 222111 / Acc: ff1314</span>
+        <div className="space-y-5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-stone-200 dark:border-stone-800">
+            <div>
+              <h3 className="text-base font-extrabold text-stone-900 dark:text-white flex items-center gap-2">
+                <span>Payments &amp; Ledger Audit</span>
+                <span className="px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 text-xs font-bold">
+                  {currentPaymentsList.length} total
+                </span>
+              </h3>
+              <p className="text-xs text-stone-500 mt-0.5">
+                Verify and moderate all M-Pesa receipts and atomic wallet transactions for adverts, subscriptions, and platform bookings.
+              </p>
+            </div>
+            <button
+              onClick={loadAdminData}
+              className="self-start sm:self-auto px-3 py-1.5 rounded-xl border border-stone-200 dark:border-stone-800 text-xs font-bold text-stone-700 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800 flex items-center gap-1.5 cursor-pointer shadow-xs"
+            >
+              <RefreshCw className="w-3.5 h-3.5 text-stone-400" />
+              <span>Refresh</span>
+            </button>
           </div>
 
-          {pendingPayments.length === 0 ? (
-            <div className="p-12 text-center bg-white dark:bg-[#15171e] rounded-3xl border border-dashed border-stone-300 dark:border-stone-800 text-xs text-stone-400">
-              <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto mb-2" />
-              All M-Pesa payments have been verified and processed.
+          {/* Filtering & Search Toolbar */}
+          <div className="p-4 bg-stone-50 dark:bg-[#1a1c24] rounded-2xl border border-stone-200 dark:border-stone-800 space-y-3">
+            {/* Search Input */}
+            <div className="relative">
+              <input
+                type="text"
+                value={paymentSearch}
+                onChange={e => setPaymentSearch(e.target.value)}
+                placeholder="Search payments by user email, reference ID, or M-Pesa receipt code..."
+                className="w-full pl-9 pr-4 py-2 bg-white dark:bg-[#12141a] border border-stone-200 dark:border-stone-700 rounded-xl text-xs outline-none focus:border-amber-500 transition-colors"
+              />
+              <CreditCard className="w-4 h-4 text-stone-400 absolute left-3 top-2.5" />
             </div>
-          ) : (
-            <div className="space-y-3">
-              {pendingPayments.map(p => (
-                <div
-                  key={p.id}
-                  className="p-5 bg-white dark:bg-[#15171e] rounded-3xl border border-amber-200 dark:border-amber-900/60 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4"
-                >
-                  <div>
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-xs font-black uppercase bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 px-2.5 py-0.5 rounded-full">
-                        {p.kind === 'plan' ? `${p.tier} Plan` : 'Wallet Deposit'}
-                      </span>
-                      <span className="text-sm font-extrabold text-stone-900 dark:text-white">
-                        KES {p.amount.toLocaleString()}
-                      </span>
-                    </div>
 
-                    <div className="text-xs text-stone-600 dark:text-stone-300">
-                      Host: <span className="font-bold">{p.hostEmail}</span>
-                    </div>
+            {/* Filter Pills */}
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              {/* Status Filter */}
+              <div className="flex items-center gap-1 bg-white dark:bg-[#12141a] px-2 py-1 rounded-xl border border-stone-200 dark:border-stone-700">
+                <span className="text-[10px] text-stone-400 font-bold uppercase">Status:</span>
+                {(['all', 'pending', 'approved', 'rejected', 'refunded'] as const).map(s => (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => setPaymentStatusFilter(s)}
+                    className={`px-2 py-0.5 rounded-lg text-[11px] font-bold capitalize transition-all cursor-pointer ${
+                      paymentStatusFilter === s
+                        ? 'bg-amber-500 text-stone-950 font-black shadow-xs'
+                        : 'text-stone-500 hover:text-stone-900 dark:hover:text-stone-200'
+                    }`}
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
 
-                    <div className="text-xs text-stone-400 mt-0.5">
-                      M-Pesa Reference Code:{' '}
-                      <span className="font-mono font-bold text-stone-800 dark:text-stone-200 bg-stone-100 dark:bg-stone-800 px-2 py-0.5 rounded">
-                        {p.mpesaCode}
-                      </span>{' '}
-                      · Submitted {new Date(p.createdAt).toLocaleTimeString()}
-                    </div>
-                  </div>
+              {/* Type Filter */}
+              <div className="flex items-center gap-1 bg-white dark:bg-[#12141a] px-2 py-1 rounded-xl border border-stone-200 dark:border-stone-700">
+                <span className="text-[10px] text-stone-400 font-bold uppercase">Type:</span>
+                {(['all', 'advert', 'subscription', 'booking_fee'] as const).map(t => (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => setPaymentTypeFilter(t)}
+                    className={`px-2 py-0.5 rounded-lg text-[11px] font-bold capitalize transition-all cursor-pointer ${
+                      paymentTypeFilter === t
+                        ? 'bg-[#e4002b] text-white font-black shadow-xs'
+                        : 'text-stone-500 hover:text-stone-900 dark:hover:text-stone-200'
+                    }`}
+                  >
+                    {t === 'booking_fee' ? 'Booking' : t}
+                  </button>
+                ))}
+              </div>
 
-                  <div className="flex items-center gap-2 shrink-0">
-                    <button
-                      onClick={() => onApprovePayment(p.id)}
-                      className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-full text-xs font-bold transition-all shadow cursor-pointer flex items-center gap-1"
-                    >
-                      <CheckCircle2 className="w-4 h-4" />
-                      <span>Approve &amp; Activate</span>
-                    </button>
+              {/* Method Filter */}
+              <div className="flex items-center gap-1 bg-white dark:bg-[#12141a] px-2 py-1 rounded-xl border border-stone-200 dark:border-stone-700">
+                <span className="text-[10px] text-stone-400 font-bold uppercase">Method:</span>
+                {(['all', 'wallet', 'mpesa'] as const).map(m => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setPaymentMethodFilter(m)}
+                    className={`px-2 py-0.5 rounded-lg text-[11px] font-bold uppercase transition-all cursor-pointer ${
+                      paymentMethodFilter === m
+                        ? 'bg-emerald-600 text-white font-black shadow-xs'
+                        : 'text-stone-500 hover:text-stone-900 dark:hover:text-stone-200'
+                    }`}
+                  >
+                    {m}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
 
-                    <button
-                      onClick={async () => {
-                        const reason = window.prompt(
-                          'Enter reason for declining this payment:',
-                          'Invalid or unverified M-Pesa receipt code'
-                        );
-                        if (reason !== null) {
-                          await onRejectPayment(p.id, reason.trim());
-                        }
-                      }}
-                      className="px-4 py-2 bg-stone-100 dark:bg-stone-800 hover:bg-rose-100 text-rose-600 rounded-full text-xs font-bold transition-all cursor-pointer flex items-center gap-1"
-                    >
-                      <XCircle className="w-4 h-4" />
-                      <span>Decline</span>
-                    </button>
-                  </div>
+          {/* Payment Records List */}
+          {(() => {
+            const filtered = currentPaymentsList.filter(p => {
+              if (paymentStatusFilter !== 'all' && p.status !== paymentStatusFilter) return false;
+              if (paymentTypeFilter !== 'all') {
+                const matchType = p.type === paymentTypeFilter || (paymentTypeFilter === 'subscription' && p.kind === 'plan');
+                if (!matchType) return false;
+              }
+              if (paymentMethodFilter !== 'all') {
+                const method = p.method || 'mpesa';
+                if (method !== paymentMethodFilter) return false;
+              }
+              if (paymentSearch.trim()) {
+                const q = paymentSearch.toLowerCase().trim();
+                const matched =
+                  (p.id && p.id.toLowerCase().includes(q)) ||
+                  (p.userId && p.userId.toLowerCase().includes(q)) ||
+                  (p.hostEmail && p.hostEmail.toLowerCase().includes(q)) ||
+                  (p.referenceId && p.referenceId.toLowerCase().includes(q)) ||
+                  (p.mpesaCode && p.mpesaCode.toLowerCase().includes(q));
+                if (!matched) return false;
+              }
+              return true;
+            });
+
+            if (filtered.length === 0) {
+              return (
+                <div className="p-12 text-center bg-white dark:bg-[#15171e] rounded-3xl border border-dashed border-stone-300 dark:border-stone-800 text-xs text-stone-400">
+                  <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto mb-2" />
+                  No payment records found matching the current filters.
                 </div>
-              ))}
+              );
+            }
+
+            return (
+              <div className="space-y-3">
+                {filtered.map(p => {
+                  const isPending = p.status === 'pending';
+                  const isApproved = p.status === 'approved';
+                  const isRejected = p.status === 'rejected';
+                  const isRefunded = p.status === 'refunded';
+                  const amountDisplay = p.amountSc || p.amount;
+
+                  return (
+                    <div
+                      key={p.id}
+                      className={`p-5 bg-white dark:bg-[#15171e] rounded-3xl border shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all ${
+                        isPending
+                          ? 'border-amber-300 dark:border-amber-800/80 ring-1 ring-amber-400/20'
+                          : isApproved
+                          ? 'border-emerald-200 dark:border-emerald-900/40'
+                          : 'border-stone-200 dark:border-stone-800 opacity-90'
+                      }`}
+                    >
+                      <div className="space-y-1.5 flex-1 min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          {/* Status Badge */}
+                          <span
+                            className={`text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full ${
+                              isPending
+                                ? 'bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 animate-pulse'
+                                : isApproved
+                                ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300'
+                                : 'bg-rose-100 dark:bg-rose-950 text-rose-800 dark:text-rose-300'
+                            }`}
+                          >
+                            {p.status}
+                          </span>
+
+                          {/* Type Badge */}
+                          <span className="text-[10px] font-black uppercase bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 px-2 py-0.5 rounded-full">
+                            {p.type || p.kind || 'Payment'}
+                          </span>
+
+                          {/* Method Badge */}
+                          <span
+                            className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full flex items-center gap-1 ${
+                              p.method === 'wallet'
+                                ? 'bg-purple-100 dark:bg-purple-950 text-purple-800 dark:text-purple-300'
+                                : 'bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300'
+                            }`}
+                          >
+                            {p.method === 'wallet' ? <Wallet className="w-3 h-3" /> : <CreditCard className="w-3 h-3" />}
+                            <span>{p.method || 'M-Pesa'}</span>
+                          </span>
+
+                          {/* Amount */}
+                          <span className="text-sm font-black text-stone-900 dark:text-white font-mono">
+                            {p.method === 'wallet' ? `${amountDisplay.toLocaleString()} SC` : `KES ${amountDisplay.toLocaleString()}`}
+                          </span>
+                        </div>
+
+                        {/* User & Reference info */}
+                        <div className="text-xs text-stone-700 dark:text-stone-300 flex flex-wrap items-center gap-x-3 gap-y-1">
+                          <span>User: <strong className="text-stone-900 dark:text-white">{p.userId || p.hostEmail}</strong></span>
+                          {p.referenceId && (
+                            <span className="text-stone-400">
+                              Ref: <span className="font-mono text-stone-600 dark:text-stone-300">{p.referenceId}</span>
+                            </span>
+                          )}
+                          {p.planTier && (
+                            <span className="text-amber-600 dark:text-amber-400 font-bold">
+                              Tier: {p.planTier} ({p.period || (p.durationDays && p.durationDays > 30 ? '365d' : '30d')})
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Receipt Code and Dates */}
+                        <div className="text-[11px] text-stone-400 flex flex-wrap items-center gap-x-3 gap-y-1">
+                          {p.mpesaCode && (
+                            <span>
+                              M-Pesa Code:{' '}
+                              <span className="font-mono font-bold text-stone-900 dark:text-stone-100 bg-stone-100 dark:bg-stone-800 px-1.5 py-0.5 rounded">
+                                {p.mpesaCode}
+                              </span>
+                            </span>
+                          )}
+                          <span>Submitted: {new Date(p.createdAt).toLocaleString()}</span>
+                          {p.approvedAt && <span>Approved: {new Date(p.approvedAt).toLocaleTimeString()}</span>}
+                        </div>
+
+                        {/* Rejection notice */}
+                        {p.rejectionReason && (
+                          <div className="text-[11px] text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 p-2 rounded-xl">
+                            <strong>Decline Reason: </strong>{p.rejectionReason}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Action Buttons for Pending Payments */}
+                      {isPending && (
+                        <div className="flex items-center gap-2 shrink-0 pt-2 md:pt-0 border-t md:border-t-0 border-stone-100 dark:border-stone-800">
+                          <button
+                            type="button"
+                            onClick={() => setApproveModalPayment(p)}
+                            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-full text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center gap-1.5 active:scale-95"
+                          >
+                            <CheckCircle2 className="w-4 h-4" />
+                            <span>Approve &amp; Activate</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setRejectModalPayment(p);
+                              setRejectReason('Invalid or unverified receipt details.');
+                            }}
+                            className="px-4 py-2 bg-stone-100 dark:bg-stone-800 hover:bg-rose-100 text-rose-600 rounded-full text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 active:scale-95"
+                          >
+                            <XCircle className="w-4 h-4" />
+                            <span>Decline / Refund</span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
+
+          {/* APPROVE MODAL */}
+          {approveModalPayment && (
+            <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
+              <div className="bg-white dark:bg-[#15171e] text-stone-900 dark:text-stone-100 rounded-3xl p-6 max-w-md w-full shadow-2xl border border-stone-200 dark:border-stone-800 space-y-4">
+                <div className="flex items-center gap-2 text-emerald-600">
+                  <CheckCircle2 className="w-6 h-6" />
+                  <h4 className="text-base font-extrabold text-stone-900 dark:text-white">
+                    Confirm Payment Approval
+                  </h4>
+                </div>
+
+                <div className="p-3 bg-stone-50 dark:bg-stone-900 rounded-2xl text-xs space-y-1 text-stone-600 dark:text-stone-300">
+                  <div>User: <strong className="text-stone-900 dark:text-white">{approveModalPayment.userId || approveModalPayment.hostEmail}</strong></div>
+                  <div>Type: <strong className="capitalize">{approveModalPayment.type || approveModalPayment.kind}</strong></div>
+                  <div>Amount: <strong className="font-mono text-emerald-600">{approveModalPayment.amountSc || approveModalPayment.amount} {approveModalPayment.method === 'wallet' ? 'SC' : 'KES'}</strong></div>
+                  {approveModalPayment.mpesaCode && <div>Receipt: <strong className="font-mono">{approveModalPayment.mpesaCode}</strong></div>}
+                </div>
+
+                <p className="text-xs text-stone-500 leading-relaxed">
+                  Approving this payment will immediately activate the item (advert slot or host subscription) and send an automatic real-time notification to the user.
+                </p>
+
+                <div className="flex items-center justify-end gap-2 pt-2">
+                  <button
+                    type="button"
+                    disabled={processingPayment}
+                    onClick={() => setApproveModalPayment(null)}
+                    className="px-4 py-2 rounded-full border border-stone-200 dark:border-stone-700 text-xs font-bold text-stone-600 hover:bg-stone-100 cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={processingPayment}
+                    onClick={async () => {
+                      setProcessingPayment(true);
+                      try {
+                        await api.approvePayment(approveModalPayment.id);
+                        showToast?.('Payment approved and activated successfully.');
+                        setApproveModalPayment(null);
+                        loadAdminData();
+                      } catch (err: any) {
+                        alert(err.message || 'Approval failed.');
+                      } finally {
+                        setProcessingPayment(false);
+                      }
+                    }}
+                    className="px-5 py-2 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md cursor-pointer disabled:opacity-50"
+                  >
+                    {processingPayment ? 'Activating...' : 'Yes, Approve & Activate'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* REJECT & REFUND MODAL */}
+          {rejectModalPayment && (
+            <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
+              <div className="bg-white dark:bg-[#15171e] text-stone-900 dark:text-stone-100 rounded-3xl p-6 max-w-md w-full shadow-2xl border border-stone-200 dark:border-stone-800 space-y-4">
+                <div className="flex items-center gap-2 text-rose-600">
+                  <XCircle className="w-6 h-6" />
+                  <h4 className="text-base font-extrabold text-stone-900 dark:text-white">
+                    Decline Payment Submission
+                  </h4>
+                </div>
+
+                <div className="p-3 bg-stone-50 dark:bg-stone-900 rounded-2xl text-xs space-y-1 text-stone-600 dark:text-stone-300">
+                  <div>User: <strong className="text-stone-900 dark:text-white">{rejectModalPayment.userId || rejectModalPayment.hostEmail}</strong></div>
+                  <div>Method: <strong className="uppercase">{rejectModalPayment.method || 'M-Pesa'}</strong></div>
+                  <div>Amount: <strong className="font-mono text-rose-600">{rejectModalPayment.amountSc || rejectModalPayment.amount} Coins</strong></div>
+                </div>
+
+                {rejectModalPayment.method === 'wallet' && (
+                  <div className="p-3 rounded-2xl bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800 text-[11px] text-purple-900 dark:text-purple-200">
+                    <strong>Atomic Reversal: </strong>Since this payment was deducted from the user's wallet, declining will automatically credit {rejectModalPayment.amountSc || rejectModalPayment.amount} Coins back to their wallet with reversal ledger rows.
+                  </div>
+                )}
+
+                <div>
+                  <label className="text-xs font-bold text-stone-700 dark:text-stone-300 block mb-1">
+                    Reason for Rejection *
+                  </label>
+                  <textarea
+                    rows={3}
+                    value={rejectReason}
+                    onChange={e => setRejectReason(e.target.value)}
+                    placeholder="Enter specific reason (e.g. M-Pesa receipt could not be verified on Daraja statement)..."
+                    className="w-full px-3 py-2 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-xs outline-none focus:border-rose-500"
+                    required
+                  />
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-2">
+                  <button
+                    type="button"
+                    disabled={processingPayment}
+                    onClick={() => setRejectModalPayment(null)}
+                    className="px-4 py-2 rounded-full border border-stone-200 dark:border-stone-700 text-xs font-bold text-stone-600 hover:bg-stone-100 cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={processingPayment || !rejectReason.trim()}
+                    onClick={async () => {
+                      setProcessingPayment(true);
+                      try {
+                        await api.rejectPayment(rejectModalPayment.id, rejectReason.trim());
+                        showToast?.('Payment declined and ledger updated.');
+                        setRejectModalPayment(null);
+                        loadAdminData();
+                      } catch (err: any) {
+                        alert(err.message || 'Decline failed.');
+                      } finally {
+                        setProcessingPayment(false);
+                      }
+                    }}
+                    className="px-5 py-2 rounded-full bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow-md cursor-pointer disabled:opacity-50"
+                  >
+                    {processingPayment ? 'Processing...' : 'Confirm Decline & Notify'}
+                  </button>
+                </div>
+              </div>
             </div>
           )}
         </div>

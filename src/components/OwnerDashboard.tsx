@@ -304,6 +304,12 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
       return;
     }
 
+    const cleanWhatsapp = whatsapp ? whatsapp.trim().replace(/\s+/g, '') : '';
+    if (!cleanWhatsapp || !/^\+[1-9]\d{7,14}$/.test(cleanWhatsapp)) {
+      setWizardError('Host WhatsApp number is required in E.164 international format (e.g. +254712345678) so guests can chat with you.');
+      return;
+    }
+
     if (!videoUrl && !youtubeVideoId) {
       setWizardError('AirBus is video-first! Please upload a tour video (MP4/MOV) or provide a YouTube / Shorts link.');
       return;

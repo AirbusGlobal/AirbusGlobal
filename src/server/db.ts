@@ -41,6 +41,16 @@ import {
   TripDatingContactUnlock,
   TripDatingStats,
   SnappAddCampaign,
+  PaymentRecordType,
+  PaymentRecordMethod,
+  PaymentRecordStatus,
+  WalletTransaction,
+  AdSlot,
+  SubscriptionRecord,
+  FollowRecord,
+  ListingLikeRecord,
+  ListingViewRecord,
+  AutoShortRecord,
 } from './types';
 import { PLANS, AMENITY_GROUPS } from '../constants';
 
@@ -1110,6 +1120,59 @@ class DatabaseStore {
           }
           if (!parsed.tripDatingPaymentRequests) parsed.tripDatingPaymentRequests = [];
           if (!parsed.tripDatingContactUnlocks) parsed.tripDatingContactUnlocks = [];
+          if (!parsed.paymentRecords) parsed.paymentRecords = [];
+          if (!parsed.walletTransactions) parsed.walletTransactions = [];
+          if (!parsed.adSlots) {
+            parsed.adSlots = [
+              {
+                id: 'adslot_kenya_safari',
+                ownerId: 'owner@airbus.ke',
+                owner_id: 'owner@airbus.ke',
+                title: 'Nairobi Luxury Safari Loft & Car Hire',
+                description: 'Special 20% discount on weekend getaways and airport transfers across Nairobi.',
+                linkUrl: 'https://airbus.ke',
+                link_url: 'https://airbus.ke',
+                thumbnailUrl: 'https://images.unsplash.com/photo-1540555700478-4be289fbecef?auto=format&fit=crop&w=800&q=80',
+                thumbnail_url: 'https://images.unsplash.com/photo-1540555700478-4be289fbecef?auto=format&fit=crop&w=800&q=80',
+                videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
+                durationDays: 30,
+                duration_days: 30,
+                costSc: 300,
+                cost_sc: 300,
+                status: 'active',
+                paymentId: 'pay_demo_1',
+                payment_id: 'pay_demo_1',
+                paymentMethod: 'wallet',
+                impressions: 1420,
+                clicks: 86,
+                startsAt: Date.now() - 5 * 864e5,
+                endsAt: Date.now() + 25 * 864e5,
+                createdAt: Date.now() - 5 * 864e5,
+                updatedAt: Date.now() - 5 * 864e5,
+              },
+            ];
+          }
+          if (!parsed.subscriptions) {
+            parsed.subscriptions = [
+              {
+                id: 'sub_owner_demo',
+                ownerId: 'owner@airbus.ke',
+                owner_id: 'owner@airbus.ke',
+                tier: 'Diamond',
+                billing: 'monthly',
+                status: 'active',
+                startsAt: Date.now() - 2 * 864e5,
+                endsAt: Date.now() + 28 * 864e5,
+                paymentId: 'pay_demo_1',
+                createdAt: Date.now() - 2 * 864e5,
+                updatedAt: Date.now() - 2 * 864e5,
+              },
+            ];
+          }
+          if (!parsed.follows) parsed.follows = [];
+          if (!parsed.listingLikes) parsed.listingLikes = [];
+          if (!parsed.listingViews) parsed.listingViews = [];
+          if (!parsed.autoShorts) parsed.autoShorts = [];
 
           // Ensure welcome gifts and host greetings are populated on loaded stays
           parsed.stays.forEach((s: Stay) => {
@@ -1150,14 +1213,111 @@ class DatabaseStore {
         {
           id: 'pay_demo_1',
           hostEmail: 'owner@airbus.ke',
+          userId: 'owner@airbus.ke',
+          user_id: 'owner@airbus.ke',
+          type: 'subscription',
+          method: 'wallet',
+          amountSc: 2500,
+          amount_sc: 2500,
+          amountKes: 2500,
+          amount_kes: 2500,
+          amount: 2500,
+          referenceId: 'sub_owner_demo',
+          reference_id: 'sub_owner_demo',
           kind: 'plan',
           tier: 'Diamond',
-          amount: 2500,
+          planTier: 'Diamond',
           mpesaCode: 'QGH7X2K9LM',
           status: 'approved',
           createdAt: Date.now() - 10 * 864e5,
+          updatedAt: Date.now() - 10 * 864e5,
         },
       ],
+      paymentRecords: [
+        {
+          id: 'pay_demo_1',
+          userId: 'owner@airbus.ke',
+          user_id: 'owner@airbus.ke',
+          hostEmail: 'owner@airbus.ke',
+          type: 'subscription',
+          method: 'wallet',
+          amountSc: 2500,
+          amount_sc: 2500,
+          amountKes: 2500,
+          amount_kes: 2500,
+          amount: 2500,
+          referenceId: 'sub_owner_demo',
+          reference_id: 'sub_owner_demo',
+          planTier: 'Diamond',
+          durationDays: 30,
+          period: 'monthly',
+          status: 'approved',
+          approvedBy: 'admin@airbus.ke',
+          approvedAt: Date.now() - 10 * 864e5,
+          createdAt: Date.now() - 10 * 864e5,
+          updatedAt: Date.now() - 10 * 864e5,
+        },
+      ],
+      walletTransactions: [
+        {
+          id: 'wtx_seed_1',
+          walletId: 'owner@airbus.ke',
+          wallet_id: 'owner@airbus.ke',
+          direction: 'debit',
+          amountSc: 2500,
+          amount_sc: 2500,
+          relatedPaymentId: 'pay_demo_1',
+          note: 'Subscription payment for Diamond tier (30 days)',
+          createdAt: Date.now() - 10 * 864e5,
+        },
+      ],
+      adSlots: [
+        {
+          id: 'adslot_kenya_safari',
+          ownerId: 'owner@airbus.ke',
+          owner_id: 'owner@airbus.ke',
+          title: 'Nairobi Luxury Safari Loft & Car Hire',
+          description: 'Special 20% discount on weekend getaways and airport transfers across Nairobi.',
+          linkUrl: 'https://airbus.ke',
+          link_url: 'https://airbus.ke',
+          thumbnailUrl: 'https://images.unsplash.com/photo-1540555700478-4be289fbecef?auto=format&fit=crop&w=800&q=80',
+          thumbnail_url: 'https://images.unsplash.com/photo-1540555700478-4be289fbecef?auto=format&fit=crop&w=800&q=80',
+          videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
+          durationDays: 30,
+          duration_days: 30,
+          costSc: 300,
+          cost_sc: 300,
+          status: 'active',
+          paymentId: 'pay_demo_1',
+          payment_id: 'pay_demo_1',
+          paymentMethod: 'wallet',
+          impressions: 1420,
+          clicks: 86,
+          startsAt: Date.now() - 5 * 864e5,
+          endsAt: Date.now() + 25 * 864e5,
+          createdAt: Date.now() - 5 * 864e5,
+          updatedAt: Date.now() - 5 * 864e5,
+        },
+      ],
+      subscriptions: [
+        {
+          id: 'sub_owner_demo',
+          ownerId: 'owner@airbus.ke',
+          owner_id: 'owner@airbus.ke',
+          tier: 'Diamond',
+          billing: 'monthly',
+          status: 'active',
+          startsAt: Date.now() - 2 * 864e5,
+          endsAt: Date.now() + 28 * 864e5,
+          paymentId: 'pay_demo_1',
+          createdAt: Date.now() - 2 * 864e5,
+          updatedAt: Date.now() - 2 * 864e5,
+        },
+      ],
+      follows: [],
+      listingLikes: [],
+      listingViews: [],
+      autoShorts: [],
       hostPlans: {
         'owner@airbus.ke': {
           tier: 'Diamond',
@@ -1455,7 +1615,8 @@ class DatabaseStore {
       }
     }
 
-    return list;
+    // Ensure all public feeds display newest listings first (ORDER BY created_at DESC)
+    return list.slice().sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   }
 
   public getStayById(id: string): Stay | undefined {
@@ -1638,6 +1799,11 @@ class DatabaseStore {
 
   public createStay(stay: Stay): Stay {
     this.data.stays.unshift(stay);
+    // Auto-generate shorts based on owner subscription tier (Diamond = 1, Gold = 5, Silver = 0)
+    if (stay.ownerEmail && stay.videoUrl) {
+      const plan = this.getHostPlan(stay.ownerEmail);
+      this.generateAutoShortsForListing(stay, plan.tier || 'Silver');
+    }
     this.save();
     return stay;
   }
@@ -1646,6 +1812,10 @@ class DatabaseStore {
     const s = this.getStayById(id);
     if (!s) return null;
     Object.assign(s, updates);
+    if (updates.videoUrl && s.ownerEmail) {
+      const plan = this.getHostPlan(s.ownerEmail);
+      this.generateAutoShortsForListing(s, plan.tier || 'Silver');
+    }
     this.save();
     return s;
   }
@@ -1675,13 +1845,47 @@ class DatabaseStore {
     this.data.bookings.unshift(booking);
     const stay = this.getStayById(booking.stayId);
     if (stay && stay.ownerEmail) {
+      // Find or create chat thread between guest and host for this stay
+      let thread = this.data.threads.find(
+        t =>
+          t.stayId === stay.id &&
+          t.guestEmail.toLowerCase() === booking.guestEmail.toLowerCase() &&
+          t.hostEmail.toLowerCase() === stay.ownerEmail!.toLowerCase()
+      );
+
+      if (!thread) {
+        thread = {
+          id: 'th_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+          stayId: stay.id,
+          guestEmail: booking.guestEmail.toLowerCase(),
+          hostEmail: stay.ownerEmail.toLowerCase(),
+          messages: [],
+          unreadGuest: false,
+          unreadHost: true,
+          updatedAt: Date.now(),
+        };
+        this.data.threads.unshift(thread);
+      }
+
+      // Add booking context message at top of chat thread
+      thread.messages.push({
+        id: 'msg_b_' + Date.now(),
+        from: 'system',
+        type: 'text',
+        text: `📌 New Reservation Context: ${booking.reference}\nDates: ${booking.checkIn} to ${booking.checkOut}\nGuests: ${booking.guests} | Total: ${booking.currency} ${booking.total.toLocaleString()}\nPayment: Guest pays on arrival outside the platform.`,
+        createdAt: Date.now(),
+      });
+      thread.unreadHost = true;
+      thread.updatedAt = Date.now();
+
+      // Real-time host notification with deep-link opening chat thread
       this.createNotification({
         id: 'notif_' + Date.now(),
         userEmail: stay.ownerEmail,
-        title: booking.status === 'confirmed' ? 'New Instant Booking!' : 'New Booking Request',
-        message: `${booking.guestName} booked ${stay.title} (${booking.checkIn} to ${booking.checkOut}). Ref: ${booking.reference}`,
+        title: 'New Booking Reservation',
+        message: `${booking.guestName} has booked your listing ${stay.title}`,
         read: false,
-        link: '/#owner',
+        link: `/#chat?thread=${thread.id}`,
         type: 'booking',
         createdAt: Date.now(),
       });
@@ -1882,11 +2086,81 @@ class DatabaseStore {
   }
 
   public getPayments(): PaymentRecord[] {
-    return this.data.payments;
+    return this.getPaymentRecords();
   }
 
-  public createPayment(p: PaymentRecord): PaymentRecord {
+  public getPaymentRecords(filter?: {
+    status?: PaymentRecordStatus;
+    type?: PaymentRecordType;
+    method?: PaymentRecordMethod;
+    search?: string;
+  }): PaymentRecord[] {
+    let list = this.data.paymentRecords || [];
+    if (list.length === 0 && this.data.payments && this.data.payments.length > 0) {
+      list = this.data.payments as PaymentRecord[];
+    }
+
+    if (filter) {
+      if (filter.status && (filter.status as string) !== 'all') {
+        list = list.filter(p => p.status === filter.status);
+      }
+      if (filter.type && (filter.type as string) !== 'all') {
+        list = list.filter(p => p.type === filter.type || (filter.type === 'subscription' && p.kind === 'plan'));
+      }
+      if (filter.method && (filter.method as string) !== 'all') {
+        list = list.filter(p => (p.method || 'mpesa') === filter.method);
+      }
+      if (filter.search && filter.search.trim()) {
+        const q = filter.search.toLowerCase().trim();
+        list = list.filter(p =>
+          (p.id && p.id.toLowerCase().includes(q)) ||
+          (p.userId && p.userId.toLowerCase().includes(q)) ||
+          (p.hostEmail && p.hostEmail.toLowerCase().includes(q)) ||
+          (p.referenceId && p.referenceId.toLowerCase().includes(q)) ||
+          (p.mpesaCode && p.mpesaCode.toLowerCase().includes(q))
+        );
+      }
+    }
+
+    return list.slice().sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  }
+
+  public createPayment(input: any): PaymentRecord {
+    const p: PaymentRecord = {
+      id: input.id || ('pay_' + Date.now()),
+      userId: input.userId || input.hostEmail || 'guest@airbus.ke',
+      user_id: input.userId || input.hostEmail || 'guest@airbus.ke',
+      hostEmail: input.hostEmail || input.userId,
+      kind: input.kind || 'wallet',
+      type: input.type || (input.kind === 'plan' ? 'subscription' : 'booking_fee'),
+      method: input.method || 'mpesa',
+      amountSc: input.amountSc || input.amount || 0,
+      amount_sc: input.amountSc || input.amount || 0,
+      amountKes: input.amountKes || input.amount || 0,
+      amount_kes: input.amountKes || input.amount || 0,
+      amount: input.amount || input.amountSc || 0,
+      status: input.status || 'pending',
+      referenceId: input.referenceId || input.id || ('ref_' + Date.now()),
+      reference_id: input.referenceId || input.id || ('ref_' + Date.now()),
+      mpesaCode: input.mpesaCode,
+      mpesa_code: input.mpesaCode,
+      planTier: input.planTier || input.tier,
+      plan_tier: input.planTier || input.tier,
+      tier: input.tier || input.planTier,
+      durationDays: input.durationDays,
+      duration_days: input.durationDays,
+      period: input.period,
+      createdAt: input.createdAt || Date.now(),
+      created_at: input.createdAt || Date.now(),
+      updatedAt: input.updatedAt || Date.now(),
+      updated_at: input.updatedAt || Date.now(),
+    };
+
+    if (!this.data.paymentRecords) this.data.paymentRecords = [];
+    if (!this.data.payments) this.data.payments = [];
+    this.data.paymentRecords.unshift(p);
     this.data.payments.unshift(p);
+
     // Notify admin
     this.data.users
       .filter(u => u.role === 'admin')
@@ -1894,8 +2168,8 @@ class DatabaseStore {
         this.createNotification({
           id: 'notif_' + Date.now() + Math.random(),
           userEmail: admin.email,
-          title: 'New M-Pesa Payment for Approval',
-          message: `${p.hostEmail} submitted KES ${p.amount} (Ref: ${p.mpesaCode}) for ${p.kind === 'plan' ? `${p.tier} Plan` : 'Wallet'}.`,
+          title: 'New Payment Pending Verification',
+          message: `${p.userId || p.hostEmail} submitted KES ${p.amountSc || p.amount} (${p.method.toUpperCase()}, Ref: ${p.mpesaCode || p.id}) for ${p.type || p.kind}.`,
           read: false,
           link: '/#admin',
           type: 'payment',
@@ -1906,69 +2180,350 @@ class DatabaseStore {
     return p;
   }
 
+  public payWithWallet(opts: {
+    userId: string;
+    type: PaymentRecordType;
+    amountSc: number;
+    referenceId: string;
+    planTier?: StayCategory;
+    durationDays?: number;
+    period?: 'monthly' | 'annual';
+    note?: string;
+  }): { payment: PaymentRecord; userTx: WalletTransaction; adminTx: WalletTransaction } {
+    const cleanUserId = opts.userId.toLowerCase().trim();
+    const intAmount = Math.floor(opts.amountSc);
+    if (intAmount <= 0) {
+      throw new Error('Payment amount must be greater than 0.');
+    }
+
+    const userWallet = this.ensureWallet(cleanUserId);
+    const available = userWallet.balance - (userWallet.holdBalance || 0);
+    if (available < intAmount) {
+      const diff = intAmount - available;
+      throw new Error(
+        `Insufficient wallet balance. You have ${available} Coins but need ${intAmount} Coins. Please top up the shortfall of ${diff} Coins via M-Pesa to complete this payment.`
+      );
+    }
+
+    // Atomic deduction from user wallet
+    userWallet.balance -= intAmount;
+    userWallet.lifetimeSpent = (userWallet.lifetimeSpent || 0) + intAmount;
+    userWallet.updatedAt = Date.now();
+    this.data.wallets[cleanUserId] = userWallet.balance;
+
+    // Atomic credit to admin/treasury
+    const adminWallet = this.ensureWallet('admin@airbus.ke');
+    adminWallet.balance += intAmount;
+    adminWallet.lifetimeEarnings = (adminWallet.lifetimeEarnings || 0) + intAmount;
+    adminWallet.updatedAt = Date.now();
+    this.data.wallets['admin@airbus.ke'] = adminWallet.balance;
+
+    const paymentId = 'pay_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
+    const payment: PaymentRecord = {
+      id: paymentId,
+      userId: cleanUserId,
+      user_id: cleanUserId,
+      hostEmail: cleanUserId,
+      type: opts.type,
+      kind: opts.type === 'subscription' ? 'plan' : 'advert',
+      method: 'wallet',
+      amountSc: intAmount,
+      amount_sc: intAmount,
+      amountKes: intAmount,
+      amount_kes: intAmount,
+      amount: intAmount,
+      status: 'pending',
+      referenceId: opts.referenceId,
+      reference_id: opts.referenceId,
+      planTier: opts.planTier,
+      plan_tier: opts.planTier,
+      durationDays: opts.durationDays,
+      duration_days: opts.durationDays,
+      period: opts.period || (opts.durationDays && opts.durationDays > 30 ? 'annual' : 'monthly'),
+      createdAt: Date.now(),
+      created_at: Date.now(),
+      updatedAt: Date.now(),
+      updated_at: Date.now(),
+    };
+
+    const userTx: WalletTransaction = {
+      id: 'wtx_' + Date.now() + '_dr',
+      walletId: cleanUserId,
+      wallet_id: cleanUserId,
+      direction: 'debit',
+      amountSc: intAmount,
+      amount_sc: intAmount,
+      relatedPaymentId: paymentId,
+      related_payment_id: paymentId,
+      note: opts.note || `Payment for ${opts.type} (${opts.referenceId})`,
+      createdAt: Date.now(),
+      created_at: Date.now(),
+    };
+
+    const adminTx: WalletTransaction = {
+      id: 'wtx_' + Date.now() + '_cr',
+      walletId: 'admin@airbus.ke',
+      wallet_id: 'admin@airbus.ke',
+      direction: 'credit',
+      amountSc: intAmount,
+      amount_sc: intAmount,
+      relatedPaymentId: paymentId,
+      related_payment_id: paymentId,
+      note: `Received ${opts.type} payment (${opts.referenceId}) from ${cleanUserId}`,
+      createdAt: Date.now(),
+      created_at: Date.now(),
+    };
+
+    if (!this.data.paymentRecords) this.data.paymentRecords = [];
+    this.data.paymentRecords.unshift(payment);
+    if (!this.data.payments) this.data.payments = [];
+    this.data.payments.unshift(payment);
+
+    if (!this.data.walletTransactions) this.data.walletTransactions = [];
+    this.data.walletTransactions.unshift(userTx, adminTx);
+
+    // Write to ledger
+    if (!this.data.ledgerEntries) this.data.ledgerEntries = [];
+    this.data.ledgerEntries.unshift({
+      id: 'ledg_' + Date.now(),
+      fromWallet: cleanUserId,
+      toWallet: 'admin@airbus.ke',
+      amount: intAmount,
+      type: opts.type === 'advert' ? 'ad_payment' : 'subscription',
+      referenceId: opts.referenceId,
+      description: `Wallet payment of ${intAmount} SC for ${opts.type}`,
+      createdAt: Date.now(),
+    });
+
+    // Audit log
+    this.createAuditLog({
+      id: 'aud_' + Date.now(),
+      action: `wallet_payment_${opts.type}`,
+      actorEmail: cleanUserId,
+      details: `Paid ${intAmount} SC for ${opts.type} (ref: ${opts.referenceId}) via Wallet`,
+      createdAt: Date.now(),
+    });
+
+    // Notify Admins
+    this.data.users.filter(u => u.role === 'admin').forEach(admin => {
+      this.createNotification({
+        id: 'notif_' + Date.now() + Math.random(),
+        userEmail: admin.email,
+        title: `New Pending ${opts.type === 'advert' ? 'Advert' : 'Subscription'} (Wallet)`,
+        message: `${cleanUserId} paid ${intAmount} Coins from wallet for ${opts.type}. Awaiting your approval.`,
+        read: false,
+        link: '/#admin',
+        type: 'payment',
+        createdAt: Date.now(),
+      });
+    });
+
+    this.save();
+    return { payment, userTx, adminTx };
+  }
+
+  public createMpesaPayment(opts: {
+    userId: string;
+    type: PaymentRecordType;
+    amountKes: number;
+    mpesaCode: string;
+    referenceId: string;
+    planTier?: StayCategory;
+    durationDays?: number;
+    period?: 'monthly' | 'annual';
+  }): PaymentRecord {
+    const cleanCode = opts.mpesaCode.trim().toUpperCase();
+    if (!cleanCode || !/^[A-Z0-9]{10}$/.test(cleanCode)) {
+      throw new Error('M-Pesa reference code must be exactly 10 alphanumeric characters (e.g. QGH7X2K9LM).');
+    }
+
+    const cleanUserId = opts.userId.toLowerCase().trim();
+    const intAmount = Math.floor(opts.amountKes);
+
+    const existing = (this.data.paymentRecords || []).find(
+      p => p.mpesaCode === cleanCode && p.status !== 'rejected'
+    );
+    if (existing) {
+      throw new Error('This M-Pesa transaction code has already been submitted and is in verification.');
+    }
+
+    const paymentId = 'pay_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
+    const payment: PaymentRecord = {
+      id: paymentId,
+      userId: cleanUserId,
+      user_id: cleanUserId,
+      hostEmail: cleanUserId,
+      type: opts.type,
+      kind: opts.type === 'subscription' ? 'plan' : 'advert',
+      method: 'mpesa',
+      amountSc: intAmount,
+      amount_sc: intAmount,
+      amountKes: intAmount,
+      amount_kes: intAmount,
+      amount: intAmount,
+      status: 'pending',
+      referenceId: opts.referenceId,
+      reference_id: opts.referenceId,
+      mpesaCode: cleanCode,
+      mpesa_code: cleanCode,
+      planTier: opts.planTier,
+      plan_tier: opts.planTier,
+      durationDays: opts.durationDays,
+      duration_days: opts.durationDays,
+      period: opts.period || (opts.durationDays && opts.durationDays > 30 ? 'annual' : 'monthly'),
+      createdAt: Date.now(),
+      created_at: Date.now(),
+      updatedAt: Date.now(),
+      updated_at: Date.now(),
+    };
+
+    if (!this.data.paymentRecords) this.data.paymentRecords = [];
+    this.data.paymentRecords.unshift(payment);
+    if (!this.data.payments) this.data.payments = [];
+    this.data.payments.unshift(payment);
+
+    // Audit log
+    this.createAuditLog({
+      id: 'aud_' + Date.now(),
+      action: `mpesa_payment_${opts.type}`,
+      actorEmail: cleanUserId,
+      details: `Submitted M-Pesa receipt ${cleanCode} for KES ${intAmount} (${opts.type}, ref: ${opts.referenceId})`,
+      createdAt: Date.now(),
+    });
+
+    // Notify admins
+    this.data.users.filter(u => u.role === 'admin').forEach(admin => {
+      this.createNotification({
+        id: 'notif_' + Date.now() + Math.random(),
+        userEmail: admin.email,
+        title: 'New M-Pesa Payment Verification',
+        message: `${cleanUserId} submitted M-Pesa code ${cleanCode} (KES ${intAmount}) for ${opts.type}.`,
+        read: false,
+        link: '/#admin',
+        type: 'payment',
+        createdAt: Date.now(),
+      });
+    });
+
+    this.save();
+    return payment;
+  }
+
   public approvePayment(paymentId: string, adminEmail: string): PaymentRecord | null {
-    const p = this.data.payments.find(x => x.id === paymentId);
-    if (!p || p.status !== 'pending') return null;
+    return this.approvePaymentRecord(paymentId, adminEmail);
+  }
+
+  public approvePaymentRecord(paymentId: string, adminEmail: string): PaymentRecord {
+    const p = (this.data.paymentRecords || []).find(x => x.id === paymentId) ||
+              (this.data.payments || []).find(x => x.id === paymentId);
+    if (!p) throw new Error('Payment record not found.');
+    if (p.status !== 'pending') throw new Error(`Payment is already ${p.status}.`);
+
     p.status = 'approved';
+    p.approvedBy = adminEmail;
+    p.approved_by = adminEmail;
+    p.approvedAt = Date.now();
+    p.approved_at = Date.now();
+    p.updatedAt = Date.now();
+    p.updated_at = Date.now();
+
+    const pMirror = (this.data.payments || []).find(x => x.id === paymentId);
+    if (pMirror && pMirror !== p) {
+      pMirror.status = 'approved';
+    }
 
     const now = Date.now();
-    if (p.kind === 'plan' && p.tier) {
-      const cur = this.getHostPlan(p.hostEmail);
-      const isAnnual = p.period === 'annual';
+    const hostEmail = (p.userId || p.hostEmail || '').toLowerCase();
+
+    // 1. If Advert Payment: activate ad_slot
+    if (p.type === 'advert' || p.referenceId?.startsWith('adslot_') || p.kind === 'advert') {
+      const slot = (this.data.adSlots || []).find(s => s.id === p.referenceId || s.paymentId === p.id);
+      if (slot) {
+        slot.status = 'active';
+        slot.startsAt = now;
+        slot.endsAt = now + (slot.durationDays * 864e5);
+        slot.updatedAt = now;
+      }
+      const adReq = (this.data.adRequests || []).find(a => a.id === p.referenceId);
+      if (adReq) {
+        adReq.status = 'approved';
+        adReq.startsAt = now;
+        adReq.expiresAt = now + (adReq.days * 864e5);
+      }
+    }
+
+    // 2. If Subscription Payment: activate subscription & hostPlan
+    if (p.type === 'subscription' || p.kind === 'plan') {
+      const sub = (this.data.subscriptions || []).find(s => s.id === p.referenceId || s.paymentId === p.id);
+      const isAnnual = p.period === 'annual' || (sub && sub.billing === 'annual');
       const durationMs = isAnnual ? 365 * 864e5 : 30 * 864e5;
+      const endsAt = now + durationMs;
 
-      // Upgrade/Downgrade policy: Host must finish current subscription period first!
-      if (cur.status === 'active' && cur.expiresAt > now && cur.tier !== p.tier) {
-        cur.scheduledTier = p.tier;
-        cur.scheduledStartsAt = cur.expiresAt;
-        cur.scheduledPeriod = isAnnual ? 'annual' : 'monthly';
-        this.setHostPlan(p.hostEmail, cur);
+      if (sub) {
+        sub.status = 'active';
+        sub.startsAt = now;
+        sub.endsAt = endsAt;
+        sub.updatedAt = now;
       } else {
-        const baseStart = cur.status === 'active' && cur.expiresAt > now ? cur.expiresAt : now;
-        const newEnd = baseStart + durationMs;
-        const graceEnd = newEnd + 2 * 864e5; // 2-day grace period
-
-        this.setHostPlan(p.hostEmail, {
-          tier: p.tier,
+        if (!this.data.subscriptions) this.data.subscriptions = [];
+        this.data.subscriptions.unshift({
+          id: 'sub_' + Date.now(),
+          ownerId: hostEmail,
+          owner_id: hostEmail,
+          tier: (p.planTier as StayCategory) || p.tier || 'Diamond',
+          billing: isAnnual ? 'annual' : 'monthly',
           status: 'active',
-          expiresAt: newEnd,
-          graceExpiresAt: graceEnd,
-          hasPaidSubscription: true,
-          period: isAnnual ? 'annual' : 'monthly',
+          startsAt: now,
+          endsAt: endsAt,
+          paymentId: p.id,
+          createdAt: now,
+          updatedAt: now,
         });
       }
 
-      // Automatically restore any expired, review, or delisted stays to live!
+      this.setHostPlan(hostEmail, {
+        tier: (p.planTier as StayCategory) || p.tier || 'Diamond',
+        status: 'active',
+        expiresAt: endsAt,
+        graceExpiresAt: endsAt + 2 * 864e5,
+        hasPaidSubscription: true,
+        period: isAnnual ? 'annual' : 'monthly',
+      });
+
+      // Restore stays
       this.data.stays.forEach(s => {
-        if (s.ownerEmail?.toLowerCase() === p.hostEmail.toLowerCase()) {
+        if (s.ownerEmail?.toLowerCase() === hostEmail) {
           if (s.status === 'expired' || s.status === 'delisted' || s.isDelisted) {
             s.status = 'live';
             s.isDelisted = false;
           }
         }
       });
-    } else {
-      this.addWallet(p.hostEmail, p.amount);
+    }
+
+    // 3. If standard wallet deposit
+    if (p.kind === 'wallet') {
+      this.addWallet(hostEmail, p.amountSc || p.amount);
     }
 
     this.createAuditLog({
       id: 'aud_' + Date.now(),
       action: 'payment_approve',
       actorEmail: adminEmail,
-      details: `Approved ${p.kind} (${p.amount} KES, code ${p.mpesaCode}) for ${p.hostEmail}`,
-      createdAt: Date.now(),
+      details: `Approved ${p.type || p.kind} (${p.amountSc || p.amount} SC, method ${p.method}) for ${hostEmail}`,
+      createdAt: now,
     });
 
-    const durationLabel = p.period === 'annual' ? '365-Day Annual' : '30-Day';
+    const itemLabel = p.type === 'advert' ? 'Advert Campaign' : p.type === 'subscription' ? 'Hosting Subscription' : 'Payment';
     this.createNotification({
       id: 'notif_' + Date.now(),
-      userEmail: p.hostEmail,
-      title: `${durationLabel} Subscription Approved! ✓`,
-      message: `Your payment of KES ${p.amount} (Ref: ${p.mpesaCode}) was verified. Your ${p.tier || ''} Plan is now active for ${p.period === 'annual' ? '365 days' : '30 days'}! You can now publish listings.`,
+      userEmail: hostEmail,
+      title: `${itemLabel} Approved! ✓`,
+      message: `Your payment of ${p.amountSc || p.amount} Coins (${p.method.toUpperCase()}) was verified! Your ${itemLabel.toLowerCase()} is now active.`,
       read: false,
-      link: '/#owner',
-      type: 'subscription',
-      createdAt: Date.now(),
+      link: p.type === 'advert' ? '/#ads' : '/#owner',
+      type: p.type === 'subscription' ? 'subscription' : 'payment',
+      createdAt: now,
     });
 
     this.save();
@@ -2063,24 +2618,123 @@ class DatabaseStore {
   }
 
   public rejectPayment(paymentId: string, adminEmail: string, reason?: string): PaymentRecord | null {
-    const p = this.data.payments.find(x => x.id === paymentId);
-    if (!p) return null;
-    p.status = 'rejected';
-    p.rejectionReason = reason || 'Payment receipt could not be verified on M-Pesa statement.';
+    return this.rejectPaymentRecord(paymentId, adminEmail, reason || 'Invalid or unverified receipt details.');
+  }
 
+  public rejectPaymentRecord(paymentId: string, adminEmail: string, rejectionReason: string): PaymentRecord {
+    const p = (this.data.paymentRecords || []).find(x => x.id === paymentId) ||
+              (this.data.payments || []).find(x => x.id === paymentId);
+    if (!p) throw new Error('Payment record not found.');
+    if (p.status !== 'pending') throw new Error(`Payment is already ${p.status}.`);
+
+    const cleanReason = rejectionReason.trim() || 'Payment could not be verified.';
+    p.status = 'rejected';
+    p.rejectionReason = cleanReason;
+    p.rejection_reason = cleanReason;
+    p.approvedBy = adminEmail;
+    p.approved_by = adminEmail;
+    p.updatedAt = Date.now();
+    p.updated_at = Date.now();
+
+    const pMirror = (this.data.payments || []).find(x => x.id === paymentId);
+    if (pMirror && pMirror !== p) {
+      pMirror.status = 'rejected';
+      pMirror.rejectionReason = cleanReason;
+    }
+
+    const cleanUserId = (p.userId || p.hostEmail || '').toLowerCase().trim();
+    const amount = p.amountSc || p.amount;
+
+    // REVERSAL TRANSFER IF WALLET:
+    // Admin wallet debited, user credited, ledger entries created
+    if (p.method === 'wallet') {
+      const adminWallet = this.ensureWallet('admin@airbus.ke');
+      adminWallet.balance = Math.max(0, adminWallet.balance - amount);
+      adminWallet.updatedAt = Date.now();
+      this.data.wallets['admin@airbus.ke'] = adminWallet.balance;
+
+      const userWallet = this.ensureWallet(cleanUserId);
+      userWallet.balance += amount;
+      userWallet.lifetimeSpent = Math.max(0, (userWallet.lifetimeSpent || 0) - amount);
+      userWallet.updatedAt = Date.now();
+      this.data.wallets[cleanUserId] = userWallet.balance;
+
+      const adminRevTx: WalletTransaction = {
+        id: 'wtx_' + Date.now() + '_rev_dr',
+        walletId: 'admin@airbus.ke',
+        wallet_id: 'admin@airbus.ke',
+        direction: 'debit',
+        amountSc: amount,
+        amount_sc: amount,
+        relatedPaymentId: p.id,
+        related_payment_id: p.id,
+        note: `Reversal debit for rejected payment ${p.id}: ${cleanReason}`,
+        createdAt: Date.now(),
+        created_at: Date.now(),
+      };
+
+      const userRevTx: WalletTransaction = {
+        id: 'wtx_' + Date.now() + '_rev_cr',
+        walletId: cleanUserId,
+        wallet_id: cleanUserId,
+        direction: 'credit',
+        amountSc: amount,
+        amount_sc: amount,
+        relatedPaymentId: p.id,
+        related_payment_id: p.id,
+        note: `Refund for rejected ${p.type || p.kind} payment: ${cleanReason}`,
+        createdAt: Date.now(),
+        created_at: Date.now(),
+      };
+
+      if (!this.data.walletTransactions) this.data.walletTransactions = [];
+      this.data.walletTransactions.unshift(adminRevTx, userRevTx);
+
+      if (!this.data.ledgerEntries) this.data.ledgerEntries = [];
+      this.data.ledgerEntries.unshift({
+        id: 'ledg_' + Date.now() + '_refund',
+        fromWallet: 'admin@airbus.ke',
+        toWallet: cleanUserId,
+        amount: amount,
+        type: 'ad_fee',
+        referenceId: p.id,
+        description: `Refund of ${amount} SC for rejected payment (${cleanReason})`,
+        createdAt: Date.now(),
+      });
+    }
+
+    // Deactivate item
+    if (p.type === 'advert' || p.referenceId?.startsWith('adslot_')) {
+      const slot = (this.data.adSlots || []).find(s => s.id === p.referenceId || s.paymentId === p.id);
+      if (slot) {
+        slot.status = 'rejected';
+        slot.rejectionReason = cleanReason;
+        slot.updatedAt = Date.now();
+      }
+    }
+    if (p.type === 'subscription') {
+      const sub = (this.data.subscriptions || []).find(s => s.id === p.referenceId || s.paymentId === p.id);
+      if (sub) {
+        sub.status = 'rejected';
+        sub.updatedAt = Date.now();
+      }
+    }
+
+    // Audit log
     this.createAuditLog({
       id: 'aud_' + Date.now(),
-      action: 'payment_reject',
+      action: 'payment_rejected',
       actorEmail: adminEmail,
-      details: `Rejected ${p.kind} payment code ${p.mpesaCode} for ${p.hostEmail}`,
+      details: `Rejected ${p.type || p.kind} payment ${p.id} for ${cleanUserId}. Reason: ${cleanReason}`,
       createdAt: Date.now(),
     });
 
+    // Notify User
     this.createNotification({
       id: 'notif_' + Date.now(),
-      userEmail: p.hostEmail,
+      userEmail: cleanUserId,
       title: 'Payment Verification Declined',
-      message: `Your payment code ${p.mpesaCode} was declined: ${p.rejectionReason}. Please check your M-Pesa statement or contact support.`,
+      message: `Your payment of ${amount} Coins (${p.method.toUpperCase()}) was declined: "${cleanReason}". ${p.method === 'wallet' ? 'Your wallet balance has been refunded in full.' : 'Please check your receipt or contact support.'}`,
       read: false,
       link: '/#owner',
       type: 'payment',
@@ -2089,6 +2743,433 @@ class DatabaseStore {
 
     this.save();
     return p;
+  }
+
+  // --- Ad Slots (10 SC/day dynamic adverts) ---
+  public createAdSlot(opts: {
+    ownerId: string;
+    title: string;
+    description: string;
+    linkUrl: string;
+    thumbnailUrl: string;
+    videoUrl?: string;
+    durationDays: number;
+    paymentMethod: 'wallet' | 'mpesa';
+    mpesaCode?: string;
+  }): { slot: AdSlot; payment: PaymentRecord } {
+    const days = Math.min(90, Math.max(1, Math.floor(opts.durationDays || 7)));
+    const costSc = days * 10; // Exactly 10 SC / day
+
+    const cleanOwnerId = opts.ownerId.toLowerCase().trim();
+    const slotId = 'adslot_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
+
+    const slot: AdSlot = {
+      id: slotId,
+      ownerId: cleanOwnerId,
+      owner_id: cleanOwnerId,
+      title: opts.title.trim(),
+      description: opts.description.trim(),
+      linkUrl: opts.linkUrl.trim(),
+      link_url: opts.linkUrl.trim(),
+      thumbnailUrl: opts.thumbnailUrl.trim() || 'https://images.unsplash.com/photo-1540555700478-4be289fbecef?auto=format&fit=crop&w=800&q=80',
+      thumbnail_url: opts.thumbnailUrl.trim() || 'https://images.unsplash.com/photo-1540555700478-4be289fbecef?auto=format&fit=crop&w=800&q=80',
+      videoUrl: opts.videoUrl?.trim(),
+      video_url: opts.videoUrl?.trim(),
+      durationDays: days,
+      duration_days: days,
+      costSc,
+      cost_sc: costSc,
+      status: 'pending_approval',
+      paymentId: '',
+      paymentMethod: opts.paymentMethod,
+      mpesaCode: opts.mpesaCode?.trim().toUpperCase(),
+      impressions: 0,
+      clicks: 0,
+      createdAt: Date.now(),
+      created_at: Date.now(),
+      updatedAt: Date.now(),
+      updated_at: Date.now(),
+    };
+
+    let payment: PaymentRecord;
+
+    if (opts.paymentMethod === 'wallet') {
+      const result = this.payWithWallet({
+        userId: cleanOwnerId,
+        type: 'advert',
+        amountSc: costSc,
+        referenceId: slotId,
+        durationDays: days,
+        note: `Advert Payment for "${opts.title}" (${days} days @ 10 SC/day)`,
+      });
+      payment = result.payment;
+      slot.paymentId = payment.id;
+      slot.payment_id = payment.id;
+    } else {
+      payment = this.createMpesaPayment({
+        userId: cleanOwnerId,
+        type: 'advert',
+        amountKes: costSc,
+        mpesaCode: opts.mpesaCode || '',
+        referenceId: slotId,
+        durationDays: days,
+      });
+      slot.paymentId = payment.id;
+      slot.payment_id = payment.id;
+    }
+
+    if (!this.data.adSlots) this.data.adSlots = [];
+    this.data.adSlots.unshift(slot);
+    this.save();
+
+    return { slot, payment };
+  }
+
+  public getActiveAdSlots(): AdSlot[] {
+    const now = Date.now();
+    if (!this.data.adSlots) this.data.adSlots = [];
+
+    // Expire outdated ad slots
+    this.data.adSlots.forEach(slot => {
+      if (slot.status === 'active' && slot.endsAt && slot.endsAt <= now) {
+        slot.status = 'expired';
+        slot.updatedAt = now;
+      }
+    });
+
+    const activeSlots = this.data.adSlots.filter(s => s.status === 'active' && (!s.endsAt || s.endsAt > now));
+    return activeSlots;
+  }
+
+  public recordAdSlotImpression(id: string): void {
+    const slot = (this.data.adSlots || []).find(s => s.id === id);
+    if (slot) {
+      slot.impressions = (slot.impressions || 0) + 1;
+      this.save();
+    }
+  }
+
+  public recordAdSlotClick(id: string): void {
+    const slot = (this.data.adSlots || []).find(s => s.id === id);
+    if (slot) {
+      slot.clicks = (slot.clicks || 0) + 1;
+      this.save();
+    }
+  }
+
+  // --- Follows, Likes, and Views (24h de-duplication) ---
+  public toggleFollow(followerId: string, ownerId: string): { isFollowing: boolean; followerCount: number } {
+    const fId = followerId.toLowerCase().trim();
+    const oId = ownerId.toLowerCase().trim();
+    if (!this.data.follows) this.data.follows = [];
+
+    const idx = this.data.follows.findIndex(f => f.followerId.toLowerCase() === fId && f.ownerId.toLowerCase() === oId);
+    let isFollowing = false;
+    if (idx >= 0) {
+      this.data.follows.splice(idx, 1);
+      isFollowing = false;
+    } else {
+      this.data.follows.push({
+        id: 'fol_' + Date.now(),
+        followerId: fId,
+        ownerId: oId,
+        createdAt: Date.now(),
+      });
+      isFollowing = true;
+
+      const follower = this.data.users.find(u => u.email.toLowerCase() === fId);
+      this.createNotification({
+        id: 'notif_' + Date.now(),
+        userEmail: oId,
+        title: 'New Follower! 🎉',
+        message: `${follower?.name || fId} started following your AirBus stays.`,
+        read: false,
+        link: '/#owner',
+        type: 'system',
+        createdAt: Date.now(),
+      });
+    }
+
+    const followerCount = this.data.follows.filter(f => f.ownerId.toLowerCase() === oId).length;
+
+    this.data.stays.forEach(s => {
+      if (s.ownerEmail?.toLowerCase() === oId) {
+        s.hostFollowerCount = followerCount;
+      }
+    });
+
+    this.save();
+    return { isFollowing, followerCount };
+  }
+
+  public toggleListingLike(userId: string, listingId: string): { isLiked: boolean; likesCount: number } {
+    const uId = userId.toLowerCase().trim();
+    if (!this.data.listingLikes) this.data.listingLikes = [];
+
+    const stay = this.getStayById(listingId);
+    if (!stay) throw new Error('Stay not found');
+
+    const idx = this.data.listingLikes.findIndex(l => l.userId.toLowerCase() === uId && l.listingId === listingId);
+    let isLiked = false;
+    if (idx >= 0) {
+      this.data.listingLikes.splice(idx, 1);
+      stay.likesCount = Math.max(0, (stay.likesCount || 1) - 1);
+      isLiked = false;
+    } else {
+      this.data.listingLikes.push({
+        id: 'like_' + Date.now(),
+        userId: uId,
+        listingId,
+        createdAt: Date.now(),
+      });
+      stay.likesCount = (stay.likesCount || 0) + 1;
+      isLiked = true;
+    }
+
+    this.save();
+    return { isLiked, likesCount: stay.likesCount };
+  }
+
+  public recordListingView(listingId: string, viewerId?: string, sessionId?: string): { recorded: boolean; viewsCount: number } {
+    const stay = this.getStayById(listingId);
+    if (!stay) throw new Error('Stay not found');
+
+    if (!this.data.listingViews) this.data.listingViews = [];
+
+    const now = Date.now();
+    const cleanViewerId = viewerId?.toLowerCase().trim();
+    const cleanSessionId = sessionId?.trim() || '';
+
+    // Check unique view per viewer/session per 24 hours
+    const recent = this.data.listingViews.find(v => {
+      if (v.listingId !== listingId) return false;
+      const isSameUser = cleanViewerId && v.viewerId && v.viewerId.toLowerCase() === cleanViewerId;
+      const isSameSession = cleanSessionId && v.sessionId === cleanSessionId;
+      return (isSameUser || isSameSession) && (now - v.createdAt < 864e5);
+    });
+
+    if (recent) {
+      return { recorded: false, viewsCount: stay.views || 0 };
+    }
+
+    this.data.listingViews.push({
+      id: 'vw_' + Date.now() + Math.random().toString(36).substring(2, 5),
+      listingId,
+      viewerId: cleanViewerId,
+      sessionId: cleanSessionId,
+      createdAt: now,
+    });
+
+    stay.views = (stay.views || 0) + 1;
+    this.save();
+    return { recorded: true, viewsCount: stay.views };
+  }
+
+  public getListingStats(listingId: string, viewerId?: string): {
+    followerCount: number;
+    isFollowing: boolean;
+    likesCount: number;
+    isLiked: boolean;
+    viewsCount: number;
+  } {
+    const stay = this.getStayById(listingId);
+    if (!stay) {
+      return { followerCount: 0, isFollowing: false, likesCount: 0, isLiked: false, viewsCount: 0 };
+    }
+
+    const ownerEmail = (stay.ownerEmail || '').toLowerCase();
+    const cleanViewerId = (viewerId || '').toLowerCase().trim();
+
+    if (!this.data.follows) this.data.follows = [];
+    if (!this.data.listingLikes) this.data.listingLikes = [];
+
+    const followerCount = this.data.follows.filter(f => f.ownerId.toLowerCase() === ownerEmail).length;
+    const isFollowing = cleanViewerId
+      ? this.data.follows.some(f => f.followerId.toLowerCase() === cleanViewerId && f.ownerId.toLowerCase() === ownerEmail)
+      : false;
+
+    const likesCount = stay.likesCount || 0;
+    const isLiked = cleanViewerId
+      ? this.data.listingLikes.some(l => l.userId.toLowerCase() === cleanViewerId && l.listingId === listingId)
+      : false;
+
+    return {
+      followerCount,
+      isFollowing,
+      likesCount,
+      isLiked,
+      viewsCount: stay.views || 0,
+    };
+  }
+
+  // --- Subscriptions (Server Enforced Rules) ---
+  public getActiveSubscription(ownerId: string): SubscriptionRecord | undefined {
+    const cleanOwnerId = ownerId.toLowerCase().trim();
+    const now = Date.now();
+    return (this.data.subscriptions || []).find(
+      s => s.ownerId.toLowerCase() === cleanOwnerId && s.status === 'active' && s.endsAt && s.endsAt > now
+    );
+  }
+
+  public getPendingSubscription(ownerId: string): SubscriptionRecord | undefined {
+    const cleanOwnerId = ownerId.toLowerCase().trim();
+    return (this.data.subscriptions || []).find(
+      s => s.ownerId.toLowerCase() === cleanOwnerId && s.status === 'pending'
+    );
+  }
+
+  public purchaseSubscription(opts: {
+    ownerId: string;
+    tier: StayCategory;
+    billing: 'monthly' | 'annual';
+    method: 'wallet' | 'mpesa';
+    mpesaCode?: string;
+  }): { subscription: SubscriptionRecord; payment: PaymentRecord } {
+    const cleanOwnerId = opts.ownerId.toLowerCase().trim();
+
+    // SERVER RULE 1: Only one active subscription at a time.
+    const activeSub = this.getActiveSubscription(cleanOwnerId);
+    if (activeSub) {
+      const expiryDate = new Date(activeSub.endsAt!).toLocaleDateString();
+      throw new Error(
+        `You currently have an active ${activeSub.tier} subscription expiring on ${expiryDate}. Per platform rules, you must finish your current subscription period before upgrading or purchasing a new tier.`
+      );
+    }
+
+    // SERVER RULE 2: Block second purchase if one is pending approval.
+    const pendingSub = this.getPendingSubscription(cleanOwnerId);
+    if (pendingSub) {
+      throw new Error(
+        `You already have a ${pendingSub.tier} subscription request pending admin verification. Please wait for approval before submitting a new one.`
+      );
+    }
+
+    const isAnnual = opts.billing === 'annual';
+    const planConfig = PLANS[opts.tier];
+    const cost = isAnnual ? planConfig.annualPrice : planConfig.p;
+    const durationDays = isAnnual ? 365 : 30;
+
+    const subId = 'sub_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
+    const subscription: SubscriptionRecord = {
+      id: subId,
+      ownerId: cleanOwnerId,
+      owner_id: cleanOwnerId,
+      tier: opts.tier,
+      billing: opts.billing,
+      status: 'pending',
+      paymentId: '',
+      createdAt: Date.now(),
+      created_at: Date.now(),
+      updatedAt: Date.now(),
+      updated_at: Date.now(),
+    };
+
+    let payment: PaymentRecord;
+
+    if (opts.method === 'wallet') {
+      const result = this.payWithWallet({
+        userId: cleanOwnerId,
+        type: 'subscription',
+        amountSc: cost,
+        referenceId: subId,
+        planTier: opts.tier,
+        durationDays,
+        period: opts.billing,
+        note: `Subscription Payment for ${opts.tier} Plan (${opts.billing === 'annual' ? '365 Days' : '30 Days'})`,
+      });
+      payment = result.payment;
+      subscription.paymentId = payment.id;
+    } else {
+      payment = this.createMpesaPayment({
+        userId: cleanOwnerId,
+        type: 'subscription',
+        amountKes: cost,
+        mpesaCode: opts.mpesaCode || '',
+        referenceId: subId,
+        planTier: opts.tier,
+        durationDays,
+        period: opts.billing,
+      });
+      subscription.paymentId = payment.id;
+    }
+
+    if (!this.data.subscriptions) this.data.subscriptions = [];
+    this.data.subscriptions.unshift(subscription);
+    this.save();
+
+    return { subscription, payment };
+  }
+
+  // --- Auto-Generated Shorts from Listing Videos ---
+  public generateAutoShortsForListing(stay: Stay, ownerPlanTier: StayCategory): AutoShortRecord[] {
+    if (!stay.videoUrl || stay.videoUrl.trim().length === 0) return [];
+
+    let segmentCount = 0;
+    if (ownerPlanTier === 'Diamond') {
+      segmentCount = 1;
+    } else if (ownerPlanTier === 'Gold') {
+      segmentCount = 5;
+    } else {
+      segmentCount = 0; // Silver = 0
+    }
+
+    if (segmentCount === 0) return [];
+
+    if (!this.data.autoShorts) this.data.autoShorts = [];
+    if (!this.data.posts) this.data.posts = [];
+
+    const newShorts: AutoShortRecord[] = [];
+    const ownerEmail = (stay.ownerEmail || '').toLowerCase();
+
+    for (let i = 0; i < segmentCount; i++) {
+      const startSec = i * 20;
+      const endSec = startSec + 20;
+      const shortId = `short_auto_${stay.id}_${i + 1}`;
+
+      if (this.data.autoShorts.some(s => s.id === shortId)) continue;
+
+      const autoShort: AutoShortRecord = {
+        id: shortId,
+        listingId: stay.id,
+        ownerId: ownerEmail,
+        title: `${stay.title} - Highlight Tour #${i + 1}`,
+        description: `Explore ${stay.title} in ${stay.location}. Book directly with zero guest fees on AirBus.`,
+        videoUrl: stay.videoUrl,
+        thumbnailUrl: stay.thumbnailUrl || 'https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?auto=format&fit=crop&w=800&q=80',
+        durationSeconds: 20,
+        sourceStartSec: startSec,
+        sourceEndSec: endSec,
+        status: 'ready',
+        aspectRatio: '9:16',
+        views: 120 + Math.floor(Math.random() * 80),
+        likes: 15 + Math.floor(Math.random() * 20),
+        createdAt: Date.now(),
+      };
+
+      this.data.autoShorts.unshift(autoShort);
+      newShorts.push(autoShort);
+
+      const postRecord: Post = {
+        id: `post_${shortId}`,
+        ownerEmail,
+        stayId: stay.id,
+        type: 'short',
+        description: autoShort.description,
+        coverUrl: autoShort.thumbnailUrl,
+        videoUrl: stay.videoUrl,
+        durationSeconds: 20,
+        status: 'approved',
+        views: autoShort.views,
+        likes: autoShort.likes,
+        shares: 4,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      this.data.posts.unshift(postRecord);
+    }
+
+    this.save();
+    return newShorts;
   }
 
   // --- Wishlist ---
