@@ -9,6 +9,8 @@ export interface DatabaseSchema {
   payments: import('../types').PaymentRecord[];
   paymentRecords: import('../types').PaymentRecord[];
   walletTransactions: import('../types').WalletTransaction[];
+  boosts: import('../types').BoostRecord[];
+  sponsorSlots: import('../types').SponsorSlot[];
   adSlots: import('../types').AdSlot[];
   subscriptions: import('../types').SubscriptionRecord[];
   follows: import('../types').FollowRecord[];

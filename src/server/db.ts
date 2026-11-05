@@ -45,6 +45,8 @@ import {
   PaymentRecordMethod,
   PaymentRecordStatus,
   WalletTransaction,
+  BoostRecord,
+  SponsorSlot,
   AdSlot,
   SubscriptionRecord,
   FollowRecord,
@@ -61,6 +63,11 @@ export const DEFAULT_SETTINGS: PlatformSettings = {
   referralCommissionPercent: 10,
   referralDurationDays: 365,
   minWithdrawalKes: 500,
+  mpesaPaybill: '222111',
+  mpesaTill: '987654',
+  mpesaAccountPrefix: 'AIRBUS',
+  scToKesRate: 10,
+  dailyRateSc: 10,
   planPrices: {
     Silver: 1000,
     Diamond: 2500,
@@ -1173,6 +1180,8 @@ class DatabaseStore {
           if (!parsed.listingLikes) parsed.listingLikes = [];
           if (!parsed.listingViews) parsed.listingViews = [];
           if (!parsed.autoShorts) parsed.autoShorts = [];
+          if (!parsed.boosts) parsed.boosts = [];
+          if (!parsed.sponsorSlots) parsed.sponsorSlots = [];
 
           // Ensure welcome gifts and host greetings are populated on loaded stays
           parsed.stays.forEach((s: Stay) => {
@@ -1318,6 +1327,8 @@ class DatabaseStore {
       listingLikes: [],
       listingViews: [],
       autoShorts: [],
+      boosts: [],
+      sponsorSlots: [],
       hostPlans: {
         'owner@airbus.ke': {
           tier: 'Diamond',
@@ -1470,6 +1481,57 @@ class DatabaseStore {
     }
   }
 
+  public checkAllExpirations() {
+    this.checkSubscriptionExpirations();
+    const now = Date.now();
+    let changed = false;
+
+    // 1. Expire boosts
+    if (this.data.boosts) {
+      for (const boost of this.data.boosts) {
+        if (boost.status === 'active' && boost.ends_at && boost.ends_at < now) {
+          boost.status = 'expired';
+          changed = true;
+          const stayId = boost.listing_id || boost.listingId;
+          const otherActive = this.data.boosts.some(
+            b => (b.listing_id === stayId || b.listingId === stayId) && b.status === 'active' && b.ends_at && b.ends_at >= now
+          );
+          if (!otherActive && stayId) {
+            const stay = this.data.stays.find(s => s.id === stayId);
+            if (stay) {
+              stay.isPromoted = false;
+              stay.promotedUntil = undefined;
+            }
+          }
+        }
+      }
+    }
+
+    // 2. Expire sponsor slots
+    if (this.data.sponsorSlots) {
+      for (const slot of this.data.sponsorSlots) {
+        if (slot.status === 'active' && slot.ends_at && slot.ends_at < now) {
+          slot.status = 'expired';
+          changed = true;
+        }
+      }
+    }
+
+    // 3. Expire adSlots
+    if (this.data.adSlots) {
+      for (const slot of this.data.adSlots) {
+        if (slot.status === 'active' && slot.endsAt && slot.endsAt < now) {
+          slot.status = 'expired';
+          changed = true;
+        }
+      }
+    }
+
+    if (changed) {
+      this.save();
+    }
+  }
+
   // --- Users & Auth ---
   public findUserByEmail(email: string): User | undefined {
     return this.data.users.find(u => u.email.toLowerCase() === email.toLowerCase());
@@ -1531,7 +1593,7 @@ class DatabaseStore {
     beds?: number;
     includePendingForAdmin?: boolean;
   }): Stay[] {
-    this.checkSubscriptionExpirations();
+    this.checkAllExpirations();
 
     let list = this.data.stays;
 
@@ -1615,8 +1677,15 @@ class DatabaseStore {
       }
     }
 
-    // Ensure all public feeds display newest listings first (ORDER BY created_at DESC)
-    return list.slice().sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    // Active boosts rank listings at top of feed with Promoted Boost badge, followed by newest
+    const now = Date.now();
+    return list.slice().sort((a, b) => {
+      const aBoosted = Boolean(a.isPromoted && a.promotedUntil && a.promotedUntil > now);
+      const bBoosted = Boolean(b.isPromoted && b.promotedUntil && b.promotedUntil > now);
+      if (aBoosted && !bBoosted) return -1;
+      if (!aBoosted && bBoosted) return 1;
+      return (b.createdAt || 0) - (a.createdAt || 0);
+    });
   }
 
   public getStayById(id: string): Stay | undefined {
@@ -2435,8 +2504,43 @@ class DatabaseStore {
     const now = Date.now();
     const hostEmail = (p.userId || p.hostEmail || '').toLowerCase();
 
-    // 1. If Advert Payment: activate ad_slot
-    if (p.type === 'advert' || p.referenceId?.startsWith('adslot_') || p.kind === 'advert') {
+    // 1. If Boost Payment: activate boost & stay promotion
+    if (p.type === 'boost' || p.referenceId?.startsWith('boost_') || p.kind === 'boost') {
+      const boost = (this.data.boosts || []).find(b => b.id === p.referenceId || b.payment_id === p.id);
+      if (boost) {
+        boost.status = 'active';
+        boost.starts_at = now;
+        boost.startsAt = now;
+        boost.ends_at = now + (boost.days * 864e5);
+        boost.endsAt = boost.ends_at;
+
+        // Activate stay promotion
+        const stay = this.getStayById(boost.listing_id || boost.listingId || '');
+        if (stay) {
+          stay.isPromoted = true;
+          stay.promotedUntil = boost.ends_at;
+        }
+
+        // Sync legacy promotions table
+        if (!this.data.promotions) this.data.promotions = [];
+        this.data.promotions.unshift({
+          id: boost.id,
+          stayId: boost.listing_id || boost.listingId || '',
+          ownerEmail: boost.owner_id || boost.ownerId || hostEmail,
+          days: boost.days,
+          cost: (boost.cost_sc || 70) * 10,
+          startsAt: now,
+          expiresAt: boost.ends_at,
+          status: 'active',
+          impressions: 0,
+          clicks: 0,
+          createdAt: now,
+        });
+      }
+    }
+
+    // 2. If Advert / Sponsor Payment: activate slot & perform 70/30 host/platform revenue split
+    if (p.type === 'advert' || p.referenceId?.startsWith('adslot_') || p.referenceId?.startsWith('sponsor_') || p.kind === 'advert') {
       const slot = (this.data.adSlots || []).find(s => s.id === p.referenceId || s.paymentId === p.id);
       if (slot) {
         slot.status = 'active';
@@ -2444,15 +2548,86 @@ class DatabaseStore {
         slot.endsAt = now + (slot.durationDays * 864e5);
         slot.updatedAt = now;
       }
+      const spSlot = (this.data.sponsorSlots || []).find(s => s.id === p.referenceId || s.payment_id === p.id);
+      if (spSlot) {
+        spSlot.status = 'active';
+        spSlot.starts_at = now;
+        spSlot.startsAt = now;
+        spSlot.ends_at = now + (spSlot.duration_days * 864e5);
+        spSlot.endsAt = spSlot.ends_at;
+      }
       const adReq = (this.data.adRequests || []).find(a => a.id === p.referenceId);
       if (adReq) {
         adReq.status = 'approved';
         adReq.startsAt = now;
         adReq.expiresAt = now + (adReq.days * 864e5);
       }
+
+      // 70/30 REVENUE SPLIT:
+      // On admin approval, move 70% of amount from admin wallet to listing host's wallet with ledger rows.
+      // 30% stays with platform.
+      const stayId = spSlot?.listing_id || spSlot?.listingId || adReq?.stayId;
+      const stay = stayId ? this.getStayById(stayId) : undefined;
+      const stayHostEmail = (stay?.ownerEmail || '').toLowerCase().trim();
+      const totalAmountSc = p.amountSc || Math.floor((p.amount || 0) / 10) || 70;
+      const hostShareSc = Math.floor(totalAmountSc * 0.7);
+
+      if (stayHostEmail && hostShareSc > 0) {
+        const adminWallet = this.ensureWallet('admin@airbus.ke');
+        adminWallet.balance = Math.max(0, adminWallet.balance - (hostShareSc * 10));
+        adminWallet.updatedAt = now;
+        this.data.wallets['admin@airbus.ke'] = adminWallet.balance;
+
+        const hostWallet = this.ensureWallet(stayHostEmail);
+        hostWallet.balance += (hostShareSc * 10);
+        hostWallet.lifetimeEarnings = (hostWallet.lifetimeEarnings || 0) + (hostShareSc * 10);
+        hostWallet.updatedAt = now;
+        this.data.wallets[stayHostEmail] = hostWallet.balance;
+
+        if (!this.data.walletTransactions) this.data.walletTransactions = [];
+        this.data.walletTransactions.unshift(
+          {
+            id: 'wtx_' + now + '_admin_split_dr',
+            walletId: 'admin@airbus.ke',
+            wallet_id: 'admin@airbus.ke',
+            direction: 'debit',
+            amountSc: hostShareSc,
+            amount_sc: hostShareSc,
+            relatedPaymentId: p.id,
+            related_payment_id: p.id,
+            note: `70% host ad payout for stay "${stay?.title || stayId}"`,
+            createdAt: now,
+            created_at: now,
+          },
+          {
+            id: 'wtx_' + now + '_host_split_cr',
+            walletId: stayHostEmail,
+            wallet_id: stayHostEmail,
+            direction: 'credit',
+            amountSc: hostShareSc,
+            amount_sc: hostShareSc,
+            relatedPaymentId: p.id,
+            related_payment_id: p.id,
+            note: `70% sponsor ad revenue received for stay "${stay?.title || stayId}"`,
+            createdAt: now,
+            created_at: now,
+          }
+        );
+
+        this.createNotification({
+          id: 'notif_' + now + '_host_split',
+          userEmail: stayHostEmail,
+          title: 'Sponsor Ad Revenue Credited! 💰',
+          message: `You earned ${hostShareSc} SC (KES ${(hostShareSc * 10).toLocaleString()}) from an approved sponsor ad on your listing "${stay?.title}".`,
+          read: false,
+          link: '/#owner',
+          type: 'payment',
+          createdAt: now,
+        });
+      }
     }
 
-    // 2. If Subscription Payment: activate subscription & hostPlan
+    // 3. If Subscription Payment: activate subscription & hostPlan
     if (p.type === 'subscription' || p.kind === 'plan') {
       const sub = (this.data.subscriptions || []).find(s => s.id === p.referenceId || s.paymentId === p.id);
       const isAnnual = p.period === 'annual' || (sub && sub.billing === 'annual');
@@ -2501,9 +2676,9 @@ class DatabaseStore {
       });
     }
 
-    // 3. If standard wallet deposit
-    if (p.kind === 'wallet') {
-      this.addWallet(hostEmail, p.amountSc || p.amount);
+    // 4. If standard wallet deposit
+    if (p.kind === 'wallet' || p.type === 'wallet_topup') {
+      this.addWallet(hostEmail, (p.amountSc || p.amount) * 10);
     }
 
     this.createAuditLog({
@@ -2514,7 +2689,7 @@ class DatabaseStore {
       createdAt: now,
     });
 
-    const itemLabel = p.type === 'advert' ? 'Advert Campaign' : p.type === 'subscription' ? 'Hosting Subscription' : 'Payment';
+    const itemLabel = p.type === 'boost' ? 'Visibility Boost' : p.type === 'advert' ? 'Advert Campaign' : p.type === 'subscription' ? 'Hosting Subscription' : 'Payment';
     this.createNotification({
       id: 'notif_' + Date.now(),
       userEmail: hostEmail,
@@ -2704,12 +2879,22 @@ class DatabaseStore {
     }
 
     // Deactivate item
-    if (p.type === 'advert' || p.referenceId?.startsWith('adslot_')) {
+    if (p.type === 'boost' || p.referenceId?.startsWith('boost_') || p.kind === 'boost') {
+      const boost = (this.data.boosts || []).find(b => b.id === p.referenceId || b.payment_id === p.id);
+      if (boost) {
+        boost.status = 'rejected';
+      }
+    }
+    if (p.type === 'advert' || p.referenceId?.startsWith('adslot_') || p.referenceId?.startsWith('sponsor_') || p.kind === 'advert') {
       const slot = (this.data.adSlots || []).find(s => s.id === p.referenceId || s.paymentId === p.id);
       if (slot) {
         slot.status = 'rejected';
         slot.rejectionReason = cleanReason;
         slot.updatedAt = Date.now();
+      }
+      const sp = (this.data.sponsorSlots || []).find(s => s.id === p.referenceId || s.payment_id === p.id);
+      if (sp) {
+        sp.status = 'rejected';
       }
     }
     if (p.type === 'subscription') {
@@ -4218,6 +4403,454 @@ class DatabaseStore {
       if (promo) promo.clicks = (promo.clicks || 0) + 1;
       this.save();
     }
+  }
+
+  // --- Real Visibility Boosts (Atomic Wallet & M-Pesa Verification) ---
+  public purchasePromotion(opts: {
+    listingId: string;
+    ownerEmail: string;
+    days: number;
+    paymentMethod: 'wallet' | 'mpesa';
+    mpesaCode?: string;
+  }): {
+    boost: BoostRecord;
+    payment: PaymentRecord;
+    message: string;
+  } {
+    const cleanEmail = opts.ownerEmail.toLowerCase().trim();
+    const stay = this.getStayById(opts.listingId);
+    if (!stay) throw new Error('Listing not found');
+    if (stay.ownerEmail && stay.ownerEmail.toLowerCase() !== cleanEmail) {
+      throw new Error('Only the listing owner can activate a boost on this listing');
+    }
+
+    // Pricing calculation strictly on server:
+    // 10 SC per day: 1 day = 10 SC, 7 days = 70 SC, 30 days = 300 SC
+    const days = Math.max(1, Math.floor(opts.days || 7));
+    const costSc = days === 30 ? 300 : days * 10;
+    const costKes = costSc * 10;
+
+    const boostId = 'boost_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+    const paymentId = 'pay_boost_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+
+    let paymentRecord: PaymentRecord;
+
+    if (opts.paymentMethod === 'wallet') {
+      const userWallet = this.ensureWallet(cleanEmail);
+      const available = userWallet.balance - (userWallet.holdBalance || 0);
+      if (available < costSc) {
+        throw new Error('Not enough SC. Top up your wallet or pay with M-Pesa');
+      }
+
+      // Debit owner, credit admin
+      userWallet.balance -= costSc;
+      userWallet.lifetimeSpent = (userWallet.lifetimeSpent || 0) + costSc;
+      userWallet.updatedAt = Date.now();
+      this.data.wallets[cleanEmail] = userWallet.balance;
+
+      const adminWallet = this.ensureWallet('admin@airbus.ke');
+      adminWallet.balance += costSc;
+      adminWallet.lifetimeEarnings = (adminWallet.lifetimeEarnings || 0) + costSc;
+      adminWallet.updatedAt = Date.now();
+      this.data.wallets['admin@airbus.ke'] = adminWallet.balance;
+
+      paymentRecord = {
+        id: paymentId,
+        userId: cleanEmail,
+        user_id: cleanEmail,
+        type: 'boost',
+        kind: 'boost',
+        method: 'wallet',
+        amountSc: costSc,
+        amount_sc: costSc,
+        amountKes: costKes,
+        amount_kes: costKes,
+        amount: costSc,
+        status: 'pending',
+        referenceId: boostId,
+        reference_id: boostId,
+        durationDays: days,
+        duration_days: days,
+        createdAt: Date.now(),
+        created_at: Date.now(),
+        updatedAt: Date.now(),
+        updated_at: Date.now(),
+      };
+
+      const userTx: WalletTransaction = {
+        id: 'wtx_' + Date.now() + '_boost_dr',
+        walletId: cleanEmail,
+        wallet_id: cleanEmail,
+        direction: 'debit',
+        amountSc: costSc,
+        amount_sc: costSc,
+        relatedPaymentId: paymentId,
+        related_payment_id: paymentId,
+        note: `Boost payment for "${stay.title}" (${days} days)`,
+        createdAt: Date.now(),
+        created_at: Date.now(),
+      };
+
+      const adminTx: WalletTransaction = {
+        id: 'wtx_' + Date.now() + '_boost_cr',
+        walletId: 'admin@airbus.ke',
+        wallet_id: 'admin@airbus.ke',
+        direction: 'credit',
+        amountSc: costSc,
+        amount_sc: costSc,
+        relatedPaymentId: paymentId,
+        related_payment_id: paymentId,
+        note: `Boost revenue for "${stay.title}" (${days} days) from ${cleanEmail}`,
+        createdAt: Date.now(),
+        created_at: Date.now(),
+      };
+
+      if (!this.data.walletTransactions) this.data.walletTransactions = [];
+      this.data.walletTransactions.unshift(userTx, adminTx);
+    } else {
+      const cleanCode = (opts.mpesaCode || '').trim().toUpperCase();
+      if (!/^[A-Z0-9]{10}$/.test(cleanCode)) {
+        throw new Error('Please enter a valid 10-character alphanumeric M-Pesa receipt code (e.g. QGH7X2K9LM).');
+      }
+      const duplicate = (this.data.paymentRecords || []).some(
+        p => (p.mpesaCode?.toUpperCase() === cleanCode || p.mpesa_code?.toUpperCase() === cleanCode)
+      );
+      if (duplicate) {
+        throw new Error('This M-Pesa transaction code has already been submitted. Please check your receipt.');
+      }
+
+      paymentRecord = {
+        id: paymentId,
+        userId: cleanEmail,
+        user_id: cleanEmail,
+        type: 'boost',
+        kind: 'boost',
+        method: 'mpesa',
+        amountSc: costSc,
+        amount_sc: costSc,
+        amountKes: costKes,
+        amount_kes: costKes,
+        amount: costKes,
+        mpesaCode: cleanCode,
+        mpesa_code: cleanCode,
+        status: 'pending',
+        referenceId: boostId,
+        reference_id: boostId,
+        durationDays: days,
+        duration_days: days,
+        createdAt: Date.now(),
+        created_at: Date.now(),
+        updatedAt: Date.now(),
+        updated_at: Date.now(),
+      };
+    }
+
+    if (!this.data.paymentRecords) this.data.paymentRecords = [];
+    this.data.paymentRecords.unshift(paymentRecord);
+    if (!this.data.payments) this.data.payments = [];
+    this.data.payments.unshift(paymentRecord);
+
+    const boost: BoostRecord = {
+      id: boostId,
+      listing_id: stay.id,
+      listingId: stay.id,
+      owner_id: cleanEmail,
+      ownerId: cleanEmail,
+      days,
+      cost_sc: costSc,
+      costSc,
+      status: 'pending',
+      payment_id: paymentId,
+      paymentId,
+      created_at: Date.now(),
+      createdAt: Date.now(),
+    };
+
+    if (!this.data.boosts) this.data.boosts = [];
+    this.data.boosts.unshift(boost);
+
+    this.createAuditLog({
+      id: 'aud_' + Date.now(),
+      action: 'boost_purchase',
+      actorEmail: cleanEmail,
+      details: `Submitted boost for "${stay.title}" (${days} days, ${costSc} SC / KES ${costKes}) via ${opts.paymentMethod.toUpperCase()}`,
+      createdAt: Date.now(),
+    });
+
+    this.data.users.filter(u => u.role === 'admin').forEach(admin => {
+      this.createNotification({
+        id: 'notif_' + Date.now() + Math.random(),
+        userEmail: admin.email,
+        title: 'New Boost Pending Approval',
+        message: `${cleanEmail} requested a ${days}-day boost for "${stay.title}" (${opts.paymentMethod.toUpperCase()}).`,
+        read: false,
+        link: '/#admin',
+        type: 'payment',
+        createdAt: Date.now(),
+      });
+    });
+
+    this.save();
+
+    return {
+      boost,
+      payment: paymentRecord,
+      message: 'Boost submitted. It goes live once the admin approves.',
+    };
+  }
+
+  public getBoosts(ownerEmail?: string): BoostRecord[] {
+    this.checkAllExpirations();
+    if (!this.data.boosts) this.data.boosts = [];
+    if (!ownerEmail) return this.data.boosts;
+    const clean = ownerEmail.toLowerCase().trim();
+    return this.data.boosts.filter(b => (b.owner_id || b.ownerId || '').toLowerCase() === clean);
+  }
+
+  // --- Dynamic Sponsor Slots (1 to 10 Slots with 70/30 Split) ---
+  public purchaseSponsorSlot(opts: {
+    listingId: string;
+    advertiserEmail: string;
+    title: string;
+    description: string;
+    linkUrl: string;
+    thumbnailUrl: string;
+    durationDays: number;
+    paymentMethod: 'wallet' | 'mpesa';
+    mpesaCode?: string;
+  }): {
+    sponsorSlot: SponsorSlot;
+    payment: PaymentRecord;
+    message: string;
+  } {
+    const cleanEmail = opts.advertiserEmail.toLowerCase().trim();
+    const stay = this.getStayById(opts.listingId);
+    if (!stay) throw new Error('Listing stay not found');
+
+    const existingSlots = (this.data.sponsorSlots || []).filter(
+      s => (s.listing_id === stay.id || s.listingId === stay.id) && (s.status === 'active' || s.status === 'pending_approval')
+    );
+    if (existingSlots.length >= 10) {
+      throw new Error('Slots full: All 10 sponsor slots for this listing are currently occupied.');
+    }
+
+    const nextSlotNumber = existingSlots.length + 1;
+    const days = Math.max(1, Math.floor(opts.durationDays || 30));
+    const costSc = days === 30 ? 300 : days * 10;
+    const costKes = costSc * 10;
+
+    const slotId = 'sponsor_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+    const paymentId = 'pay_sponsor_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+
+    let paymentRecord: PaymentRecord;
+
+    if (opts.paymentMethod === 'wallet') {
+      const userWallet = this.ensureWallet(cleanEmail);
+      const available = userWallet.balance - (userWallet.holdBalance || 0);
+      if (available < costSc) {
+        throw new Error('Not enough SC. Top up your wallet or pay with M-Pesa');
+      }
+
+      userWallet.balance -= costSc;
+      userWallet.lifetimeSpent = (userWallet.lifetimeSpent || 0) + costSc;
+      userWallet.updatedAt = Date.now();
+      this.data.wallets[cleanEmail] = userWallet.balance;
+
+      const adminWallet = this.ensureWallet('admin@airbus.ke');
+      adminWallet.balance += costSc;
+      adminWallet.lifetimeEarnings = (adminWallet.lifetimeEarnings || 0) + costSc;
+      adminWallet.updatedAt = Date.now();
+      this.data.wallets['admin@airbus.ke'] = adminWallet.balance;
+
+      paymentRecord = {
+        id: paymentId,
+        userId: cleanEmail,
+        user_id: cleanEmail,
+        type: 'advert',
+        kind: 'advert',
+        method: 'wallet',
+        amountSc: costSc,
+        amount_sc: costSc,
+        amountKes: costKes,
+        amount_kes: costKes,
+        amount: costSc,
+        status: 'pending',
+        referenceId: slotId,
+        reference_id: slotId,
+        durationDays: days,
+        duration_days: days,
+        createdAt: Date.now(),
+        created_at: Date.now(),
+        updatedAt: Date.now(),
+        updated_at: Date.now(),
+      };
+
+      const userTx: WalletTransaction = {
+        id: 'wtx_' + Date.now() + '_slot_dr',
+        walletId: cleanEmail,
+        wallet_id: cleanEmail,
+        direction: 'debit',
+        amountSc: costSc,
+        amount_sc: costSc,
+        relatedPaymentId: paymentId,
+        related_payment_id: paymentId,
+        note: `Sponsor slot #${nextSlotNumber} on "${stay.title}" (${days} days)`,
+        createdAt: Date.now(),
+        created_at: Date.now(),
+      };
+
+      const adminTx: WalletTransaction = {
+        id: 'wtx_' + Date.now() + '_slot_cr',
+        walletId: 'admin@airbus.ke',
+        wallet_id: 'admin@airbus.ke',
+        direction: 'credit',
+        amountSc: costSc,
+        amount_sc: costSc,
+        relatedPaymentId: paymentId,
+        related_payment_id: paymentId,
+        note: `Sponsor slot payment for "${stay.title}" from ${cleanEmail}`,
+        createdAt: Date.now(),
+        created_at: Date.now(),
+      };
+
+      if (!this.data.walletTransactions) this.data.walletTransactions = [];
+      this.data.walletTransactions.unshift(userTx, adminTx);
+    } else {
+      const cleanCode = (opts.mpesaCode || '').trim().toUpperCase();
+      if (!/^[A-Z0-9]{10}$/.test(cleanCode)) {
+        throw new Error('Please enter a valid 10-character alphanumeric M-Pesa receipt code (e.g. QGH7X2K9LM).');
+      }
+      const duplicate = (this.data.paymentRecords || []).some(
+        p => (p.mpesaCode?.toUpperCase() === cleanCode || p.mpesa_code?.toUpperCase() === cleanCode)
+      );
+      if (duplicate) {
+        throw new Error('This M-Pesa transaction code has already been submitted. Please check your receipt.');
+      }
+
+      paymentRecord = {
+        id: paymentId,
+        userId: cleanEmail,
+        user_id: cleanEmail,
+        type: 'advert',
+        kind: 'advert',
+        method: 'mpesa',
+        amountSc: costSc,
+        amount_sc: costSc,
+        amountKes: costKes,
+        amount_kes: costKes,
+        amount: costKes,
+        mpesaCode: cleanCode,
+        mpesa_code: cleanCode,
+        status: 'pending',
+        referenceId: slotId,
+        reference_id: slotId,
+        durationDays: days,
+        duration_days: days,
+        createdAt: Date.now(),
+        created_at: Date.now(),
+        updatedAt: Date.now(),
+        updated_at: Date.now(),
+      };
+    }
+
+    if (!this.data.paymentRecords) this.data.paymentRecords = [];
+    this.data.paymentRecords.unshift(paymentRecord);
+    if (!this.data.payments) this.data.payments = [];
+    this.data.payments.unshift(paymentRecord);
+
+    const sponsorSlot: SponsorSlot = {
+      id: slotId,
+      listing_id: stay.id,
+      listingId: stay.id,
+      advertiser_id: cleanEmail,
+      advertiserId: cleanEmail,
+      title: opts.title.trim(),
+      description: opts.description.trim(),
+      link_url: opts.linkUrl.trim(),
+      linkUrl: opts.linkUrl.trim(),
+      thumbnail_url: opts.thumbnailUrl.trim(),
+      thumbnailUrl: opts.thumbnailUrl.trim(),
+      duration_days: days,
+      durationDays: days,
+      cost_sc: costSc,
+      costSc,
+      status: 'pending_approval',
+      slot_number: nextSlotNumber,
+      slotNumber: nextSlotNumber,
+      payment_id: paymentId,
+      paymentId,
+      impressions: 0,
+      clicks: 0,
+      created_at: Date.now(),
+      createdAt: Date.now(),
+    };
+
+    if (!this.data.sponsorSlots) this.data.sponsorSlots = [];
+    this.data.sponsorSlots.unshift(sponsorSlot);
+
+    if (!this.data.adSlots) this.data.adSlots = [];
+    this.data.adSlots.unshift({
+      id: slotId,
+      ownerId: cleanEmail,
+      owner_id: cleanEmail,
+      title: opts.title.trim(),
+      description: opts.description.trim(),
+      linkUrl: opts.linkUrl.trim(),
+      link_url: opts.linkUrl.trim(),
+      thumbnailUrl: opts.thumbnailUrl.trim(),
+      thumbnail_url: opts.thumbnailUrl.trim(),
+      durationDays: days,
+      costSc,
+      cost_sc: costSc,
+      costCoins: costSc,
+      cost_coins: costSc,
+      paymentMethod: opts.paymentMethod,
+      status: 'pending',
+      paymentId,
+      impressions: 0,
+      clicks: 0,
+      createdAt: Date.now(),
+      created_at: Date.now(),
+      updatedAt: Date.now(),
+      updated_at: Date.now(),
+    });
+
+    this.createAuditLog({
+      id: 'aud_' + Date.now(),
+      action: 'sponsor_slot_purchase',
+      actorEmail: cleanEmail,
+      details: `Reserved sponsor slot #${nextSlotNumber} on "${stay.title}" (${days} days) via ${opts.paymentMethod.toUpperCase()}`,
+      createdAt: Date.now(),
+    });
+
+    this.save();
+
+    return {
+      sponsorSlot,
+      payment: paymentRecord,
+      message: 'Sponsor advert submitted. It goes live once approved by the admin.',
+    };
+  }
+
+  public getSponsorSlots(listingId?: string): {
+    slots: SponsorSlot[];
+    activeCount: number;
+    maxSlots: number;
+    isFull: boolean;
+  } {
+    this.checkAllExpirations();
+    if (!this.data.sponsorSlots) this.data.sponsorSlots = [];
+    let list = this.data.sponsorSlots;
+    if (listingId) {
+      list = list.filter(s => s.listing_id === listingId || s.listingId === listingId);
+    }
+    const activeList = list.filter(s => s.status === 'active');
+    return {
+      slots: list,
+      activeCount: activeList.length,
+      maxSlots: 10,
+      isFull: activeList.length >= 10,
+    };
   }
 
   // --- Affiliate & Referral Program ---

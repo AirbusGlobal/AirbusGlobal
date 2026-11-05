@@ -36,6 +36,7 @@ export const PersistentAdCard: React.FC<PersistentAdCardProps> = ({
   const [isFading, setIsFading] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [showModal, setShowModal] = useState(false);
+  const [isDismissed, setIsDismissed] = useState(false);
 
   // Form Fields
   const [title, setTitle] = useState('');
@@ -215,35 +216,66 @@ export const PersistentAdCard: React.FC<PersistentAdCardProps> = ({
     );
   }
 
+  if (isDismissed) {
+    return (
+      <aside className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-30 select-none">
+        <button
+          type="button"
+          onClick={() => setIsDismissed(false)}
+          className="p-2 sm:px-3 sm:py-1.5 rounded-full bg-stone-900/90 hover:bg-stone-800 border border-stone-700 text-stone-300 hover:text-white shadow-lg backdrop-blur-md transition-all cursor-pointer flex items-center gap-1.5 text-xs font-bold"
+          title="Show sponsored cards"
+        >
+          <Megaphone className="w-3.5 h-3.5 text-rose-500" />
+          <span className="hidden sm:inline text-[10px]">Sponsored</span>
+        </button>
+      </aside>
+    );
+  }
+
   return (
     <>
       {/* ============================================================ */}
-      {/* Persistent Advert Card (NO CLOSE / NO DISMISS)               */}
+      {/* Dismissible Floating Advert Card                             */}
       {/* ============================================================ */}
       {currentAd && (
         <aside
-          className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-30 w-[300px] sm:w-[320px] select-none shadow-[0_14px_45px_rgba(0,0,0,0.5)] rounded-2xl overflow-hidden border border-stone-800 bg-stone-900/95 backdrop-blur-md text-white transition-all duration-300 hover:border-rose-500/70"
+          className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-30 w-[calc(100vw-2rem)] max-w-[320px] select-none shadow-[0_14px_45px_rgba(0,0,0,0.5)] rounded-2xl overflow-hidden border border-stone-800 bg-stone-900/95 backdrop-blur-md text-white transition-all duration-300 hover:border-rose-500/70"
           onMouseEnter={() => setIsPaused(true)}
           onMouseLeave={() => setIsPaused(false)}
           role="complementary"
-          aria-label="Persistent Advert Card"
+          aria-label="Floating Advert Card"
         >
           {/* Top glowing gradient stripe */}
           <div className="h-1 w-full bg-gradient-to-r from-[#e4002b] via-[#ff2e93] to-[#8b5cf6]" />
 
           <div className="p-3">
-            {/* Header row: Badge and Round-robin counter */}
+            {/* Header row: Badge, Round-robin counter & Close (X) */}
             <div className="flex items-center justify-between gap-2 mb-2">
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-gradient-to-r from-[#e4002b] to-[#ff2e93] text-white shadow-2xs">
-                <Megaphone className="w-2.5 h-2.5" />
-                <span>Sponsored · 10 SC/day</span>
-              </span>
-
-              {ads.length > 1 && (
-                <span className="text-[10px] text-stone-400 font-mono">
-                  {currentIndex + 1} of {ads.length}
+              <div className="flex items-center gap-2">
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-gradient-to-r from-[#e4002b] to-[#ff2e93] text-white shadow-2xs">
+                  <Megaphone className="w-2.5 h-2.5" />
+                  <span>Sponsored · 10 SC/day</span>
                 </span>
-              )}
+
+                {ads.length > 1 && (
+                  <span className="text-[10px] text-stone-400 font-mono">
+                    {currentIndex + 1} of {ads.length}
+                  </span>
+                )}
+              </div>
+
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsDismissed(true);
+                }}
+                className="p-1 rounded-full text-stone-400 hover:text-white hover:bg-stone-800 transition-colors cursor-pointer"
+                title="Dismiss sponsor card"
+                aria-label="Dismiss sponsor card"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
             </div>
 
             {/* Clickable Ad Body */}

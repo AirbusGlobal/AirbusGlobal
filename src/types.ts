@@ -193,16 +193,69 @@ export interface HostPlanStatus {
   scheduledPeriod?: 'monthly' | 'annual';
 }
 
-export type PaymentRecordType = 'advert' | 'subscription' | 'booking_fee';
+export type PaymentRecordType = 'boost' | 'advert' | 'subscription' | 'booking_fee' | 'wallet_topup';
 export type PaymentRecordMethod = 'wallet' | 'mpesa';
 export type PaymentRecordStatus = 'pending' | 'approved' | 'rejected' | 'refunded';
+
+export interface BoostRecord {
+  id: string;
+  listing_id: string;
+  listingId?: string;
+  owner_id: string;
+  ownerId?: string;
+  days: number;
+  cost_sc: number;
+  costSc?: number;
+  status: 'pending' | 'pending_approval' | 'active' | 'expired' | 'rejected';
+  starts_at?: number;
+  startsAt?: number;
+  ends_at?: number;
+  endsAt?: number;
+  payment_id: string;
+  paymentId?: string;
+  impressions?: number;
+  clicks?: number;
+  created_at: number;
+  createdAt?: number;
+}
+
+export interface SponsorSlot {
+  id: string;
+  listing_id: string;
+  listingId?: string;
+  advertiser_id: string;
+  advertiserId?: string;
+  title: string;
+  description: string;
+  link_url: string;
+  linkUrl?: string;
+  thumbnail_url: string;
+  thumbnailUrl?: string;
+  duration_days: number;
+  durationDays?: number;
+  cost_sc: number;
+  costSc?: number;
+  status: 'pending' | 'pending_payment' | 'pending_approval' | 'active' | 'expired' | 'rejected';
+  slot_number: number;
+  slotNumber?: number;
+  starts_at?: number;
+  startsAt?: number;
+  ends_at?: number;
+  endsAt?: number;
+  payment_id: string;
+  paymentId?: string;
+  impressions: number;
+  clicks: number;
+  created_at: number;
+  createdAt?: number;
+}
 
 export interface PaymentRecord {
   id: string;
   userId: string;
   user_id?: string;
   hostEmail?: string;
-  kind?: 'plan' | 'wallet' | 'advert';
+  kind?: 'plan' | 'wallet' | 'advert' | 'boost';
   type: PaymentRecordType;
   method: PaymentRecordMethod;
   amountSc: number;
@@ -211,7 +264,7 @@ export interface PaymentRecord {
   amount_kes?: number;
   amount: number; // Compatibility
   status: PaymentRecordStatus;
-  referenceId: string; // advert_id or subscription_id
+  referenceId: string; // advert_id, boost_id or subscription_id
   reference_id?: string;
   mpesaCode?: string;
   mpesa_code?: string;
@@ -237,6 +290,7 @@ export interface WalletTransaction {
   id: string;
   walletId: string;
   wallet_id?: string;
+  user_id?: string;
   direction: 'debit' | 'credit';
   amountSc: number;
   amount_sc?: number;
@@ -263,7 +317,9 @@ export interface AdSlot {
   duration_days?: number;
   costSc: number;
   cost_sc?: number;
-  status: 'pending_approval' | 'active' | 'rejected' | 'expired';
+  costCoins?: number;
+  cost_coins?: number;
+  status: 'pending' | 'pending_approval' | 'active' | 'rejected' | 'expired';
   paymentId: string;
   payment_id?: string;
   paymentMethod: 'wallet' | 'mpesa';
@@ -518,6 +574,11 @@ export interface PlatformSettings {
   referralCommissionPercent: number; // Default: 10%
   referralDurationDays: number; // Default: 365
   minWithdrawalKes: number; // Default: 500
+  mpesaPaybill?: string; // Default: '222111'
+  mpesaTill?: string; // Default: '987654'
+  mpesaAccountPrefix?: string; // Default: 'AIRBUS'
+  scToKesRate?: number; // 1 SC = 10 KES
+  dailyRateSc?: number; // 10 SC / day
   planPrices: {
     Silver: number; // 1000 KES
     Diamond: number; // 2500 KES

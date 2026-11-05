@@ -4,7 +4,7 @@ import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { GoogleGenAI } from '@google/genai';
 import { db, hashPassword, PLANS } from './src/server/db';
-import { User, Stay, Booking, ChatThread, ChatMessage } from './src/types';
+import { User, Stay, Booking, ChatThread, ChatMessage, PaymentRecordType, PaymentRecordMethod } from './src/types';
 
 dotenv.config();
 
@@ -566,29 +566,98 @@ app.patch('/api/stays/:id', (req, res) => {
   return res.json({ stay: updatedStay });
 });
 
-// Promote Listing (KES 100/day visibility boost)
-app.post('/api/listings/:id/promote', (req, res) => {
+// Promote Listing (KES 100/day visibility boost - atomic wallet or M-Pesa verification)
+app.post('/api/promotions/purchase', (req, res) => {
   const user = getAuthUser(req);
-  if (!user) return res.status(401).json({ error: 'Not authenticated' });
+  if (!user) return res.status(401).json({ error: 'Please sign in to boost listings.' });
 
-  const { days, idempotencyKey } = req.body;
-  const numDays = Number(days) || 3;
+  const { listingId, days, paymentMethod, mpesaCode } = req.body;
+  if (!listingId) return res.status(400).json({ error: 'Listing ID is required.' });
 
   try {
-    const result = db.promoteListing(req.params.id, user.email, numDays, idempotencyKey);
+    const result = db.purchasePromotion({
+      listingId,
+      ownerEmail: user.email,
+      days: Number(days) || 7,
+      paymentMethod: paymentMethod === 'mpesa' ? 'mpesa' : 'wallet',
+      mpesaCode,
+    });
     return res.status(201).json(result);
   } catch (err: any) {
     return res.status(400).json({ error: err.message });
   }
 });
 
-// Get Owner Promotions
+// Backwards-compatible promote endpoint
+app.post('/api/listings/:id/promote', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ error: 'Not authenticated' });
+
+  const { days, paymentMethod, mpesaCode } = req.body;
+  try {
+    const result = db.purchasePromotion({
+      listingId: req.params.id,
+      ownerEmail: user.email,
+      days: Number(days) || 7,
+      paymentMethod: paymentMethod === 'mpesa' ? 'mpesa' : 'wallet',
+      mpesaCode,
+    });
+    return res.status(201).json(result);
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message });
+  }
+});
+
+// Get Owner Boost Campaigns (Real database-backed)
+app.get('/api/promotions/campaigns', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ error: 'Not authenticated' });
+
+  const boosts = db.getBoosts(user.role === 'admin' ? undefined : user.email);
+  return res.json({ campaigns: boosts, boosts });
+});
+
+// Dynamic Listing Sponsor Slots (1 to 10 Slots)
+app.post('/api/listings/:id/sponsors', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ error: 'Please sign in to reserve sponsor slots.' });
+
+  const { title, description, linkUrl, thumbnailUrl, durationDays, paymentMethod, mpesaCode } = req.body;
+  if (!title || !linkUrl) {
+    return res.status(400).json({ error: 'Headline title and target link are required.' });
+  }
+
+  try {
+    const result = db.purchaseSponsorSlot({
+      listingId: req.params.id,
+      advertiserEmail: user.email,
+      title,
+      description: description || '',
+      linkUrl,
+      thumbnailUrl: thumbnailUrl || '',
+      durationDays: Number(durationDays) || 30,
+      paymentMethod: paymentMethod === 'mpesa' ? 'mpesa' : 'wallet',
+      mpesaCode,
+    });
+    return res.status(201).json(result);
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message });
+  }
+});
+
+app.get('/api/listings/:id/sponsors', (req, res) => {
+  const result = db.getSponsorSlots(req.params.id);
+  return res.json(result);
+});
+
+// Get Owner Promotions (legacy compatibility)
 app.get('/api/owner/promotions', (req, res) => {
   const user = getAuthUser(req);
   if (!user) return res.status(401).json({ error: 'Not authenticated' });
 
+  const boosts = db.getBoosts(user.role === 'admin' ? undefined : user.email);
   const promotions = db.getPromotions(user.role === 'admin' ? undefined : user.email);
-  return res.json({ promotions });
+  return res.json({ promotions, boosts });
 });
 
 // Record Promotion Impression
@@ -1156,12 +1225,49 @@ app.post('/api/ads/slots', (req, res) => {
   }
 });
 
-// Return active ads for persistent round-robin display
+// Return active ads for persistent round-robin display with fair rotation
 app.get('/api/ads/active', (req, res) => {
-  const activeSlots = db.getActiveAdSlots();
+  const activeSlots = (db.getActiveAdSlots() || []).map(a => ({
+    id: a.id,
+    ownerId: a.ownerId || a.owner_id,
+    title: a.title,
+    description: a.description,
+    linkUrl: a.linkUrl || a.link_url,
+    thumbnailUrl: a.thumbnailUrl || a.thumbnail_url,
+    durationDays: a.durationDays || a.duration_days,
+    costSc: a.costSc || a.cost_sc || a.costCoins || 70,
+    status: 'active' as const,
+    paymentId: a.paymentId || '',
+    paymentMethod: a.paymentMethod || 'wallet',
+    impressions: a.impressions || 0,
+    clicks: a.clicks || 0,
+    createdAt: a.createdAt || a.created_at || Date.now(),
+    updatedAt: a.updatedAt || a.updated_at || Date.now(),
+  }));
+
+  const spRes = db.getSponsorSlots();
+  const activeSponsors = (spRes.slots || []).filter(s => s.status === 'active').map(s => ({
+    id: s.id,
+    ownerId: s.advertiser_id || s.advertiserId,
+    title: s.title,
+    description: s.description,
+    linkUrl: s.link_url || s.linkUrl,
+    thumbnailUrl: s.thumbnail_url || s.thumbnailUrl,
+    durationDays: s.duration_days || s.durationDays,
+    costSc: s.cost_sc || s.costSc,
+    status: 'active' as const,
+    paymentId: s.payment_id || s.paymentId,
+    paymentMethod: 'wallet' as const,
+    impressions: s.impressions || 0,
+    clicks: s.clicks || 0,
+    createdAt: s.created_at || s.createdAt,
+    updatedAt: s.created_at || s.createdAt,
+  }));
+
+  const combined = [...activeSlots, ...activeSponsors];
 
   // If no slots yet, fallback to approved legacy ad requests
-  if (activeSlots.length === 0) {
+  if (combined.length === 0) {
     const approvedLegacy = db.getAdRequests({ status: 'approved' });
     const formatted = approvedLegacy.map(a => ({
       id: a.id,
@@ -1183,7 +1289,10 @@ app.get('/api/ads/active', (req, res) => {
     return res.json({ ads: formatted, count: formatted.length });
   }
 
-  return res.json({ ads: activeSlots, count: activeSlots.length });
+  // Fair rotation: lowest impressions served first so campaigns get balanced exposure
+  combined.sort((a, b) => (a.impressions || 0) - (b.impressions || 0));
+
+  return res.json({ ads: combined, count: combined.length });
 });
 
 app.post('/api/ads/slots/:id/view', (req, res) => {

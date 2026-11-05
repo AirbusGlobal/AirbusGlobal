@@ -7,6 +7,7 @@ import {
   Currency,
   CURRENCY_RATES,
   ListingPromotion,
+  BoostRecord,
 } from '../types';
 import { api } from '../api';
 import {
@@ -85,13 +86,19 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
 
   // Promoted Listings & Visibility Boost State
   const [promotions, setPromotions] = useState<ListingPromotion[]>([]);
+  const [boostCampaigns, setBoostCampaigns] = useState<BoostRecord[]>([]);
   const [selectedStayIdForPromo, setSelectedStayIdForPromo] = useState<string>(myStays[0]?.id || '');
-  const [promoDays, setPromoDays] = useState<number>(3);
+  const [promoDays, setPromoDays] = useState<number>(7);
+  const [promoPaymentMethod, setPromoPaymentMethod] = useState<'wallet' | 'mpesa'>('wallet');
+  const [promoMpesaCode, setPromoMpesaCode] = useState<string>('');
   const [promoLoading, setPromoLoading] = useState<boolean>(false);
   const [promoFeedback, setPromoFeedback] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
 
-  // Load host promotions
+  // Load host promotions and boosts
   const fetchPromotions = () => {
+    api.getBoosts()
+      .then(res => setBoostCampaigns(res.campaigns || res.boosts || []))
+      .catch(() => {});
     api.getOwnerPromotions()
       .then(res => setPromotions(res.promotions || []))
       .catch(() => {});
@@ -382,31 +389,44 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
       setPromoFeedback({ type: 'error', msg: 'Please select a listing to boost.' });
       return;
     }
-    const cost = promoDays * 100;
-    if (walletBalance < cost) {
+    const costSc = promoDays === 30 ? 300 : promoDays * 10;
+
+    if (promoPaymentMethod === 'wallet' && walletBalance < costSc) {
       setPromoFeedback({
         type: 'error',
-        msg: `Insufficient wallet balance (KES ${walletBalance}). Boost requires KES ${cost}. Please top up via M-Pesa.`,
+        msg: 'Not enough SC. Top up your wallet or pay with M-Pesa',
       });
       return;
+    }
+
+    if (promoPaymentMethod === 'mpesa') {
+      const cleanCode = promoMpesaCode.trim().toUpperCase();
+      if (!/^[A-Z0-9]{10}$/.test(cleanCode)) {
+        setPromoFeedback({
+          type: 'error',
+          msg: 'Please enter a valid 10-character M-Pesa transaction receipt code (e.g. QGH7X2K9LM).',
+        });
+        return;
+      }
     }
 
     setPromoLoading(true);
     setPromoFeedback(null);
     try {
-      const idempotencyKey = `promo_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-      const res = await api.promoteListing(selectedStayIdForPromo, promoDays, idempotencyKey);
+      const res = await api.purchasePromotion(
+        selectedStayIdForPromo,
+        promoDays,
+        promoPaymentMethod,
+        promoPaymentMethod === 'mpesa' ? promoMpesaCode.trim().toUpperCase() : undefined
+      );
       setPromoFeedback({
         type: 'success',
-        msg: `🚀 Promotion activated for ${res.promotion.days} days! Your listing now enjoys top-of-feed placement and the Promoted Boost badge.`,
+        msg: res.message || 'Boost submitted. It goes live once the admin approves.',
       });
+      setPromoMpesaCode('');
       fetchPromotions();
-      await onUpdateStay(selectedStayIdForPromo, {
-        isPromoted: true,
-        promotedUntil: res.promotion.expiresAt,
-      });
     } catch (err: any) {
-      setPromoFeedback({ type: 'error', msg: err.message || 'Promotion failed.' });
+      setPromoFeedback({ type: 'error', msg: err.message || 'Boost submission failed.' });
     } finally {
       setPromoLoading(false);
     }
@@ -1105,14 +1125,34 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
 
             {promoFeedback && (
               <div
-                className={`p-3.5 rounded-2xl text-xs font-semibold flex items-center gap-2 ${
+                className={`p-4 rounded-2xl text-xs font-semibold flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
                   promoFeedback.type === 'success'
-                    ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-300'
-                    : 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-300'
+                    ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-800'
+                    : 'bg-rose-50 dark:bg-rose-950/40 text-rose-800 dark:text-rose-200 border border-rose-300 dark:border-rose-800'
                 }`}
               >
-                {promoFeedback.type === 'success' ? <CheckCircle2 className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
-                <span>{promoFeedback.msg}</span>
+                <div className="flex items-center gap-2">
+                  {promoFeedback.type === 'success' ? <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" /> : <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />}
+                  <span>{promoFeedback.msg}</span>
+                </div>
+                {promoFeedback.msg === 'Not enough SC. Top up your wallet or pay with M-Pesa' && (
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={onOpenTopupModal}
+                      className="px-3 py-1.5 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] cursor-pointer"
+                    >
+                      Top Up Wallet
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPromoPaymentMethod('mpesa')}
+                      className="px-3 py-1.5 rounded-full bg-stone-800 dark:bg-stone-200 text-white dark:text-stone-900 font-bold text-[11px] cursor-pointer"
+                    >
+                      Pay with M-Pesa
+                    </button>
+                  </div>
+                )}
               </div>
             )}
 
@@ -1143,15 +1183,15 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
               {/* Select Duration */}
               <div>
                 <label className="text-xs font-bold text-stone-700 dark:text-stone-300 block mb-1.5">
-                  2. Choose Boost Duration (@ KES 100/day)
+                  2. Choose Boost Duration (10 SC / day = KES 100/day)
                 </label>
                 <div className="grid grid-cols-5 gap-1.5">
                   {[
-                    { days: 1, label: '1 Day', cost: 100 },
-                    { days: 3, label: '3 Days', cost: 300 },
-                    { days: 7, label: '7 Days', cost: 700 },
-                    { days: 14, label: '14 Days', cost: 1400 },
-                    { days: 30, label: '30 Days', cost: 3000 },
+                    { days: 1, label: '1 Day', sc: 10, kes: 100 },
+                    { days: 3, label: '3 Days', sc: 30, kes: 300 },
+                    { days: 7, label: '7 Days', sc: 70, kes: 700 },
+                    { days: 14, label: '14 Days', sc: 140, kes: 1400 },
+                    { days: 30, label: '30 Days', sc: 300, kes: 3000 },
                   ].map(opt => (
                     <button
                       key={opt.days}
@@ -1164,19 +1204,88 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                       }`}
                     >
                       <span className="text-xs font-bold block">{opt.label}</span>
-                      <span className="text-[10px] opacity-80 font-mono">KES {opt.cost}</span>
+                      <span className="text-[10px] opacity-80 font-mono block">{opt.sc} SC</span>
+                      <span className="text-[9px] opacity-60 font-mono block">KES {opt.kes}</span>
                     </button>
                   ))}
                 </div>
               </div>
             </div>
 
+            {/* Payment Method Selector */}
+            <div className="p-4 rounded-2xl bg-stone-50 dark:bg-stone-900/60 border border-stone-200 dark:border-stone-800 space-y-3">
+              <label className="text-xs font-bold text-stone-700 dark:text-stone-300 block">
+                3. Select Payment Method
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPromoPaymentMethod('wallet')}
+                  className={`p-3 rounded-xl border text-left flex items-start gap-3 transition-all cursor-pointer ${
+                    promoPaymentMethod === 'wallet'
+                      ? 'bg-amber-50 dark:bg-amber-950/30 border-amber-500 text-amber-900 dark:text-amber-200'
+                      : 'bg-white dark:bg-[#15171e] border-stone-200 dark:border-stone-700 text-stone-700 dark:text-stone-300'
+                  }`}
+                >
+                  <Wallet className="w-4 h-4 mt-0.5 text-amber-500 shrink-0" />
+                  <div>
+                    <div className="text-xs font-bold">AirBus Wallet</div>
+                    <div className="text-[11px] text-stone-500">
+                      Balance: <span className="font-mono font-bold text-stone-900 dark:text-white">{walletBalance} SC</span> (KES {(walletBalance * 10).toLocaleString()})
+                    </div>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setPromoPaymentMethod('mpesa')}
+                  className={`p-3 rounded-xl border text-left flex items-start gap-3 transition-all cursor-pointer ${
+                    promoPaymentMethod === 'mpesa'
+                      ? 'bg-amber-50 dark:bg-amber-950/30 border-amber-500 text-amber-900 dark:text-amber-200'
+                      : 'bg-white dark:bg-[#15171e] border-stone-200 dark:border-stone-700 text-stone-700 dark:text-stone-300'
+                  }`}
+                >
+                  <CreditCard className="w-4 h-4 mt-0.5 text-emerald-500 shrink-0" />
+                  <div>
+                    <div className="text-xs font-bold">M-Pesa Manual Paybill / Till</div>
+                    <div className="text-[11px] text-stone-500">Till 987654 / Paybill 222111</div>
+                  </div>
+                </button>
+              </div>
+
+              {promoPaymentMethod === 'mpesa' && (
+                <div className="p-3.5 bg-emerald-50 dark:bg-emerald-950/30 rounded-xl border border-emerald-200 dark:border-emerald-800 space-y-2">
+                  <div className="text-xs text-emerald-900 dark:text-emerald-200 leading-relaxed">
+                    <p className="font-bold">M-Pesa Payment Instructions:</p>
+                    <p>1. Go to M-Pesa &gt; Lipa na M-Pesa &gt; Buy Goods: <span className="font-mono font-black text-stone-900 dark:text-white">Till 987654</span> (or Paybill <span className="font-mono font-black">222111</span>, Acct: <span className="font-mono font-black">BOOST-{selectedStayIdForPromo.slice(-4).toUpperCase()}</span>)</p>
+                    <p>2. Enter Amount: <span className="font-mono font-black text-stone-900 dark:text-white">KES {((promoDays === 30 ? 300 : promoDays * 10) * 10).toLocaleString()}</span></p>
+                    <p>3. Enter your M-Pesa PIN and paste the 10-character confirmation code below:</p>
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold text-stone-700 dark:text-stone-300 block mb-1">
+                      M-Pesa 10-Character Receipt Code *
+                    </label>
+                    <input
+                      type="text"
+                      maxLength={10}
+                      value={promoMpesaCode}
+                      onChange={e => setPromoMpesaCode(e.target.value.toUpperCase())}
+                      placeholder="e.g. QGH7X2K9LM"
+                      className="w-full sm:w-64 px-3 py-2 bg-white dark:bg-stone-900 border border-stone-300 dark:border-stone-700 rounded-xl text-xs font-mono font-bold uppercase tracking-wider outline-none focus:border-amber-500"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
             <div className="p-4 rounded-2xl bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
               <div>
-                <span className="text-xs text-stone-500 block">Total Campaign Investment:</span>
+                <span className="text-xs text-stone-500 block">Total Campaign Cost:</span>
                 <div className="text-lg font-black text-stone-900 dark:text-white">
-                  KES {(promoDays * 100).toLocaleString()}{' '}
-                  <span className="text-xs font-normal text-stone-400">({promoDays} days of top placement)</span>
+                  {promoDays === 30 ? 300 : promoDays * 10} SC{' '}
+                  <span className="text-xs font-normal text-stone-500">
+                    (KES {((promoDays === 30 ? 300 : promoDays * 10) * 10).toLocaleString()} • {promoDays} days boost)
+                  </span>
                 </div>
               </div>
 
@@ -1186,7 +1295,11 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                 className="px-6 py-2.5 rounded-full bg-gradient-to-r from-amber-500 via-rose-500 to-purple-600 hover:opacity-95 text-white font-extrabold text-xs shadow-md transition-all cursor-pointer disabled:opacity-50 flex items-center gap-2"
               >
                 <Rocket className="w-4 h-4" />
-                <span>{promoLoading ? 'Activating Boost...' : `Activate Boost for KES ${promoDays * 100}`}</span>
+                <span>
+                  {promoLoading
+                    ? 'Submitting Boost...'
+                    : `Activate Boost for KES ${((promoDays === 30 ? 300 : promoDays * 10) * 10).toLocaleString()} (${promoDays === 30 ? 300 : promoDays * 10} SC)`}
+                </span>
               </button>
             </div>
           </div>
@@ -1195,66 +1308,111 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
           <div className="p-6 bg-white dark:bg-[#15171e] rounded-3xl border border-stone-200 dark:border-stone-800 shadow-sm space-y-4">
             <div className="flex items-center justify-between">
               <h4 className="text-sm font-extrabold text-stone-900 dark:text-white">
-                Active &amp; Past Boost Campaigns ({promotions.length})
+                Active &amp; Past Boost Campaigns ({boostCampaigns.length > 0 ? boostCampaigns.length : promotions.length})
               </h4>
               <button
                 onClick={fetchPromotions}
-                className="text-xs font-bold text-stone-500 hover:text-stone-900 dark:hover:text-white cursor-pointer"
+                className="text-xs font-bold text-amber-600 hover:text-amber-700 dark:text-amber-400 cursor-pointer flex items-center gap-1"
               >
-                Refresh
+                <span>Refresh</span>
               </button>
             </div>
 
-            {promotions.length === 0 ? (
+            {boostCampaigns.length === 0 && promotions.length === 0 ? (
               <div className="p-8 text-center border border-dashed border-stone-200 dark:border-stone-800 rounded-2xl text-xs text-stone-400">
-                No promotions launched yet. Choose a listing above to start getting more bookings!
+                No boost campaigns launched yet. Choose a listing above to get top-of-feed placement and increase your bookings!
               </div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
+                <table className="w-full text-left text-xs min-w-[600px]">
                   <thead className="border-b border-stone-200 dark:border-stone-800 text-[10px] uppercase font-bold text-stone-400">
                     <tr>
                       <th className="py-2.5 px-3">Listing</th>
                       <th className="py-2.5 px-3">Duration</th>
                       <th className="py-2.5 px-3">Cost</th>
                       <th className="py-2.5 px-3">Status</th>
-                      <th className="py-2.5 px-3">Impressions</th>
-                      <th className="py-2.5 px-3">Clicks</th>
                       <th className="py-2.5 px-3">Days Left</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-stone-100 dark:divide-stone-800">
-                    {promotions.map(p => {
-                      const stay = myStays.find(s => s.id === p.stayId);
-                      const isStillActive = p.expiresAt > Date.now();
-                      const daysLeft = Math.max(0, Math.ceil((p.expiresAt - Date.now()) / 864e5));
-                      return (
-                        <tr key={p.id} className="hover:bg-stone-50 dark:hover:bg-stone-900/50">
-                          <td className="py-3 px-3 font-bold text-stone-900 dark:text-white flex items-center gap-2">
-                            <span>🚀</span>
-                            <span className="truncate max-w-[200px]">{stay?.title || `Stay #${p.stayId}`}</span>
-                          </td>
-                          <td className="py-3 px-3">{p.days} Days</td>
-                          <td className="py-3 px-3 font-mono font-bold">KES {p.cost}</td>
-                          <td className="py-3 px-3">
-                            <span
-                              className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase ${
-                                isStillActive
-                                  ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
-                                  : 'bg-stone-100 text-stone-600 dark:bg-stone-800 dark:text-stone-400'
-                              }`}
-                            >
-                              {isStillActive ? 'Active' : 'Completed'}
-                            </span>
-                          </td>
-                          <td className="py-3 px-3 font-mono">{p.impressions || stay?.promotionImpressions || 0}</td>
-                          <td className="py-3 px-3 font-mono">{p.clicks || stay?.promotionClicks || 0}</td>
-                          <td className="py-3 px-3 text-stone-500 font-semibold">
-                            {isStillActive ? `${daysLeft} days` : '0 days'}
-                          </td>
-                        </tr>
-                      );
-                    })}
+                    {boostCampaigns.length > 0
+                      ? boostCampaigns.map(b => {
+                          const stay = myStays.find(s => s.id === (b.listing_id || b.listingId));
+                          const isStillActive = b.status === 'active' && Boolean(b.ends_at && b.ends_at > Date.now());
+                          const daysLeft = b.ends_at ? Math.max(0, Math.ceil((b.ends_at - Date.now()) / 864e5)) : 0;
+                          return (
+                            <tr key={b.id} className="hover:bg-stone-50 dark:hover:bg-stone-900/50">
+                              <td className="py-3 px-3 font-bold text-stone-900 dark:text-white flex items-center gap-2">
+                                <span>🚀</span>
+                                <span className="truncate max-w-[200px]">{stay?.title || `Stay #${b.listing_id || b.listingId}`}</span>
+                              </td>
+                              <td className="py-3 px-3">{b.days} Days</td>
+                              <td className="py-3 px-3 font-mono font-bold">
+                                {b.cost_sc || b.costSc || 70} SC{' '}
+                                <span className="text-[10px] text-stone-400 font-normal">
+                                  (KES {((b.cost_sc || b.costSc || 70) * 10).toLocaleString()})
+                                </span>
+                              </td>
+                              <td className="py-3 px-3">
+                                <span
+                                  className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase ${
+                                    b.status === 'active' && isStillActive
+                                      ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
+                                      : b.status === 'pending'
+                                      ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
+                                      : b.status === 'rejected'
+                                      ? 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300'
+                                      : 'bg-stone-100 text-stone-600 dark:bg-stone-800 dark:text-stone-400'
+                                  }`}
+                                >
+                                  {b.status === 'pending'
+                                    ? 'Pending Approval'
+                                    : b.status === 'active' && isStillActive
+                                    ? 'Active Boost 🚀'
+                                    : b.status === 'rejected'
+                                    ? 'Declined'
+                                    : 'Expired'}
+                                </span>
+                              </td>
+                              <td className="py-3 px-3 text-stone-500 font-semibold">
+                                {b.status === 'pending'
+                                  ? 'Awaiting review'
+                                  : isStillActive
+                                  ? `${daysLeft} days`
+                                  : 'Completed'}
+                              </td>
+                            </tr>
+                          );
+                        })
+                      : promotions.map(p => {
+                          const stay = myStays.find(s => s.id === p.stayId);
+                          const isStillActive = p.expiresAt > Date.now();
+                          const daysLeft = Math.max(0, Math.ceil((p.expiresAt - Date.now()) / 864e5));
+                          return (
+                            <tr key={p.id} className="hover:bg-stone-50 dark:hover:bg-stone-900/50">
+                              <td className="py-3 px-3 font-bold text-stone-900 dark:text-white flex items-center gap-2">
+                                <span>🚀</span>
+                                <span className="truncate max-w-[200px]">{stay?.title || `Stay #${p.stayId}`}</span>
+                              </td>
+                              <td className="py-3 px-3">{p.days} Days</td>
+                              <td className="py-3 px-3 font-mono font-bold">KES {p.cost}</td>
+                              <td className="py-3 px-3">
+                                <span
+                                  className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase ${
+                                    isStillActive
+                                      ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
+                                      : 'bg-stone-100 text-stone-600 dark:bg-stone-800 dark:text-stone-400'
+                                  }`}
+                                >
+                                  {isStillActive ? 'Active' : 'Completed'}
+                                </span>
+                              </td>
+                              <td className="py-3 px-3 text-stone-500 font-semibold">
+                                {isStillActive ? `${daysLeft} days` : '0 days'}
+                              </td>
+                            </tr>
+                          );
+                        })}
                   </tbody>
                 </table>
               </div>

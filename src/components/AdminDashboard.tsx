@@ -126,7 +126,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // Payments Tab State
   const [allPayments, setAllPayments] = useState<PaymentRecord[]>(payments || []);
   const [paymentStatusFilter, setPaymentStatusFilter] = useState<'all' | 'pending' | 'approved' | 'rejected' | 'refunded'>('all');
-  const [paymentTypeFilter, setPaymentTypeFilter] = useState<'all' | 'advert' | 'subscription' | 'booking_fee'>('all');
+  const [paymentTypeFilter, setPaymentTypeFilter] = useState<'all' | 'advert' | 'boost' | 'subscription' | 'booking_fee'>('all');
   const [paymentMethodFilter, setPaymentMethodFilter] = useState<'all' | 'wallet' | 'mpesa'>('all');
   const [paymentSearch, setPaymentSearch] = useState('');
   const [rejectModalPayment, setRejectModalPayment] = useState<PaymentRecord | null>(null);
@@ -475,7 +475,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               {/* Type Filter */}
               <div className="flex items-center gap-1 bg-white dark:bg-[#12141a] px-2 py-1 rounded-xl border border-stone-200 dark:border-stone-700">
                 <span className="text-[10px] text-stone-400 font-bold uppercase">Type:</span>
-                {(['all', 'advert', 'subscription', 'booking_fee'] as const).map(t => (
+                {(['all', 'boost', 'advert', 'subscription', 'booking_fee'] as const).map(t => (
                   <button
                     key={t}
                     type="button"
@@ -517,7 +517,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             const filtered = currentPaymentsList.filter(p => {
               if (paymentStatusFilter !== 'all' && p.status !== paymentStatusFilter) return false;
               if (paymentTypeFilter !== 'all') {
-                const matchType = p.type === paymentTypeFilter || (paymentTypeFilter === 'subscription' && p.kind === 'plan');
+                const matchType = p.type === paymentTypeFilter || 
+                  (paymentTypeFilter === 'subscription' && p.kind === 'plan') ||
+                  (paymentTypeFilter === 'boost' && (p.kind === 'boost' || p.referenceId?.startsWith('boost_')));
                 if (!matchType) return false;
               }
               if (paymentMethodFilter !== 'all') {

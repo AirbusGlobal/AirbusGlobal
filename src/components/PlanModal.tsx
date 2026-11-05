@@ -105,7 +105,7 @@ export const PlanModal: React.FC<PlanModalProps> = ({
     : selectedDetails.monthlyPrice;
 
   // Subscription Enforcement Rules:
-  const isCurrentlyActive = (activeSub !== null && activeSub.status === 'active' && activeSub.endsAt > Date.now()) ||
+  const isCurrentlyActive = (activeSub !== null && activeSub.status === 'active' && Boolean(activeSub.endsAt && activeSub.endsAt > Date.now())) ||
     (currentPlan.status === 'active' && currentPlan.expiresAt > Date.now());
   const activeExpiryDate = activeSub?.endsAt
     ? new Date(activeSub.endsAt).toLocaleDateString()

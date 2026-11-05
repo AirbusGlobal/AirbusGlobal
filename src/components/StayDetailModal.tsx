@@ -1586,14 +1586,24 @@ export const StayDetailModal: React.FC<StayDetailModalProps> = ({
                 </div>
               </div>
               <button
+                disabled={activeAds.length >= 10}
                 onClick={() => {
+                  if (activeAds.length >= 10) return;
                   if (!user) onOpenAuth?.();
                   else setAdvertModalOpen(true);
                 }}
-                className="px-3.5 py-1.5 rounded-full bg-gradient-to-r from-[#ff2e93] to-[#8b5cf6] hover:opacity-95 text-white text-[11px] font-extrabold flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
+                className={`px-3.5 py-1.5 rounded-full text-white text-[11px] font-extrabold flex items-center gap-1.5 shadow-sm transition-all cursor-pointer ${
+                  activeAds.length >= 10
+                    ? 'bg-stone-400 dark:bg-stone-700 opacity-60 cursor-not-allowed'
+                    : 'bg-gradient-to-r from-[#ff2e93] to-[#8b5cf6] hover:opacity-95'
+                }`}
               >
                 <Sparkles className="w-3.5 h-3.5" />
-                <span>Advertise Here (@ KES 100/day)</span>
+                <span>
+                  {activeAds.length >= 10
+                    ? 'Slots full'
+                    : `Advertise Here (@ KES 100/day)`}
+                </span>
               </button>
             </div>
 

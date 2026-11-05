@@ -33,6 +33,8 @@ import {
   PaymentRecordType,
   PaymentRecordMethod,
   PaymentRecordStatus,
+  BoostRecord,
+  SponsorSlot,
 } from './types';
 
 
@@ -848,19 +850,6 @@ export const api = {
     return this.request('/api/admin/overview');
   },
 
-  async approvePayment(id: string): Promise<{ payment: PaymentRecord }> {
-    return this.request(`/api/admin/payments/${id}/approve`, {
-      method: 'POST',
-    });
-  },
-
-  async rejectPayment(id: string, reason?: string): Promise<{ payment: PaymentRecord }> {
-    return this.request(`/api/admin/payments/${id}/reject`, {
-      method: 'POST',
-      body: JSON.stringify({ reason }),
-    });
-  },
-
   async verifyUser(email: string): Promise<{ user: User }> {
     return this.request(`/api/admin/users/${encodeURIComponent(email)}/verify`, {
       method: 'POST',
@@ -1032,7 +1021,47 @@ export const api = {
     return this.request(`/api/ads/${id}/click`, { method: 'POST' });
   },
 
-  // Listing Promotions (KES 100/day visibility boost)
+  // Listing Promotions (KES 100/day visibility boost - wallet deduction or M-Pesa manual verification)
+  async purchasePromotion(
+    listingId: string,
+    days: number,
+    paymentMethod: 'wallet' | 'mpesa',
+    mpesaCode?: string
+  ): Promise<{ boost: BoostRecord; payment: PaymentRecord; message: string }> {
+    return this.request('/api/promotions/purchase', {
+      method: 'POST',
+      body: JSON.stringify({ listingId, days, paymentMethod, mpesaCode }),
+    });
+  },
+
+  async getBoosts(): Promise<{ campaigns: BoostRecord[]; boosts: BoostRecord[] }> {
+    return this.request('/api/promotions/campaigns');
+  },
+
+  async purchaseSponsorSlot(
+    listingId: string,
+    payload: {
+      title: string;
+      description?: string;
+      linkUrl: string;
+      thumbnailUrl?: string;
+      durationDays: number;
+      paymentMethod: 'wallet' | 'mpesa';
+      mpesaCode?: string;
+    }
+  ): Promise<{ sponsorSlot: SponsorSlot; payment: PaymentRecord; message: string }> {
+    return this.request(`/api/listings/${listingId}/sponsors`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async getListingSponsorSlots(
+    listingId: string
+  ): Promise<{ slots: SponsorSlot[]; activeCount: number; maxSlots: number; isFull: boolean }> {
+    return this.request(`/api/listings/${listingId}/sponsors`);
+  },
+
   async promoteListing(
     stayId: string,
     days: number,
@@ -1044,7 +1073,7 @@ export const api = {
     });
   },
 
-  async getOwnerPromotions(): Promise<{ promotions: ListingPromotion[] }> {
+  async getOwnerPromotions(): Promise<{ promotions: ListingPromotion[]; boosts?: BoostRecord[] }> {
     return this.request('/api/owner/promotions');
   },
 

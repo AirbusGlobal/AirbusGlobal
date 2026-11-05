@@ -264,8 +264,8 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           )}
 
-          {/* Profile Menu Trigger & Dropdown Container */}
-          <div className="relative" ref={profileMenuRef}>
+          {/* Profile Menu Trigger & Dropdown Container (Desktop only: hidden md:block prevents duplicate menu on mobile) */}
+          <div className="relative hidden md:block" ref={profileMenuRef}>
             <button
               ref={profileButtonRef}
               type="button"
