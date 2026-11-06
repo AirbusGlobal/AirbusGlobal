@@ -16,8 +16,14 @@ import { HomeFeed } from './components/HomeFeed';
 import { ShortsView } from './components/ShortsView';
 import { GuestDashboard } from './components/GuestDashboard';
 import { OwnerDashboard } from './components/OwnerDashboard';
-import { AdminDashboard } from './components/AdminDashboard';
 import { AuthModal } from './components/AuthModal';
+import { AdminPortalLanding } from './components/AdminPortalLanding';
+import { isAdminRoute, ADMIN_PORTAL_PATH } from './config/adminRoute';
+
+// Dynamic lazy import: AdminDashboard bundle is NEVER shipped to public visitors
+const AdminDashboard = React.lazy(() =>
+  import('./components/AdminDashboard').then(m => ({ default: m.AdminDashboard }))
+);
 import { StayDetailModal } from './components/StayDetailModal';
 import { NegotiateModal } from './components/NegotiateModal';
 import { ChatModal } from './components/ChatModal';
@@ -40,6 +46,7 @@ import {
 export default function App() {
   // Navigation & View
   const [currentTab, setCurrentTab] = useState<string>('home');
+  const [isOnAdminRoute, setIsOnAdminRoute] = useState<boolean>(() => isAdminRoute());
   const [currency, setCurrency] = useState<Currency>('KES');
   const [searchQuery, setSearchQuery] = useState('');
   const [guestCount, setGuestCount] = useState(2);
@@ -179,12 +186,20 @@ export default function App() {
     }
   }, []);
 
-  // URL Hash Routing Sync
+  // URL Hash Routing Sync (Public site only; /#admin is permanently eliminated)
   useEffect(() => {
     const handleHashChange = () => {
       const hash = window.location.hash.slice(1);
-      if (!hash || hash === 'home') {
+      if (!hash || hash === 'home' || hash === 'admin') {
         setCurrentTab('home');
+        if (hash === 'admin') {
+          // Requirement 1: Wipe hash completely so /#admin never renders an admin console
+          try {
+            window.history.replaceState(null, '', window.location.pathname + window.location.search);
+          } catch {
+            window.location.hash = '';
+          }
+        }
       } else if (hash === 'shorts') {
         setCurrentTab('shorts');
       } else if (hash === 'earn') {
@@ -195,8 +210,6 @@ export default function App() {
         setCurrentTab('guest');
       } else if (hash === 'owner' || hash === 'host') {
         setCurrentTab('owner');
-      } else if (hash === 'admin') {
-        setCurrentTab('admin');
       } else if (hash === 'inbox') {
         if (!user) {
           setAuthModalOpen(true);
@@ -215,6 +228,30 @@ export default function App() {
     window.addEventListener('hashchange', handleHashChange);
     return () => window.removeEventListener('hashchange', handleHashChange);
   }, [user]);
+
+  // Private Admin Portal Route Sync & Robots Meta Tag Injection (Requirements 2 & 3)
+  useEffect(() => {
+    const handleRouteSync = () => {
+      const match = isAdminRoute(window.location.pathname);
+      setIsOnAdminRoute(match);
+
+      let robotsMeta = document.querySelector('meta[name="robots"]') as HTMLMetaElement | null;
+      if (match) {
+        if (!robotsMeta) {
+          robotsMeta = document.createElement('meta');
+          robotsMeta.name = 'robots';
+          document.head.appendChild(robotsMeta);
+        }
+        robotsMeta.content = 'noindex, nofollow';
+      } else if (robotsMeta) {
+        robotsMeta.content = 'index, follow';
+      }
+    };
+
+    handleRouteSync();
+    window.addEventListener('popstate', handleRouteSync);
+    return () => window.removeEventListener('popstate', handleRouteSync);
+  }, []);
 
   // Load reviews when active stay opens
   useEffect(() => {
@@ -287,9 +324,12 @@ export default function App() {
     showToast(`Welcome back, ${loggedInUser.name}!`);
     await loadUserData(loggedInUser);
 
-    // Route to dedicated dashboard
-    if (loggedInUser.role === 'admin') handleNavigate('admin');
-    else if (loggedInUser.role === 'owner') handleNavigate('owner');
+    // Route to dedicated dashboard on public site (Admin is handled strictly via private portal)
+    if (isOnAdminRoute) {
+      // Stay on admin portal route
+      return;
+    }
+    if (loggedInUser.role === 'owner') handleNavigate('owner');
     else handleNavigate('guest');
   };
 
@@ -461,6 +501,89 @@ export default function App() {
   const activeThread = threads.find(t => t.id === chatStayId || t.stayId === chatStayId) || null;
 
   const totalUnreadMessages = threads.filter(t => (user?.role === 'owner' ? t.unreadHost : t.unreadGuest)).length;
+
+  // PRIVATE ADMIN PORTAL (Requirements 2, 3, 4, 5, 6)
+  if (isOnAdminRoute) {
+    if (!user || user.role !== 'admin') {
+      return (
+        <AdminPortalLanding
+          onAdminAuthenticated={adminUser => {
+            setUser(adminUser);
+            showToast(`Welcome Administrator, ${adminUser.name}`);
+            loadUserData(adminUser);
+          }}
+          onLogin={async (email, pass) => api.login(email, pass)}
+        />
+      );
+    }
+
+    return (
+      <div className="min-h-screen bg-[#fbfbf8] dark:bg-[#0b0c10] text-[#0a0a0a] dark:text-[#f4f4f2] transition-colors">
+        {toastMessage && (
+          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-[#0a0a0a] dark:bg-white text-white dark:text-black text-xs sm:text-sm font-bold px-5 py-2.5 rounded-full shadow-2xl animate-in slide-in-from-bottom duration-200 border border-stone-700 pointer-events-none">
+            {toastMessage}
+          </div>
+        )}
+
+        <React.Suspense
+          fallback={
+            <div className="min-h-screen w-full bg-[#0d0f14] flex flex-col items-center justify-center text-white">
+              <div className="flex items-center gap-3">
+                <div className="w-6 h-6 border-2 border-[#e4002b] border-t-transparent rounded-full animate-spin" />
+                <span className="text-sm font-bold tracking-wide">Loading AirBus Administrative Console...</span>
+              </div>
+            </div>
+          }
+        >
+          <AdminDashboard
+            adminUser={user}
+            metrics={adminOverview.metrics}
+            stays={stays}
+            users={adminOverview.users}
+            payments={adminOverview.payments}
+            threads={threads}
+            auditLogs={adminOverview.auditLogs}
+            onApprovePayment={async id => {
+              await api.approvePayment(id);
+              const updated = await api.getAdminOverview();
+              setAdminOverview(updated);
+              const sRes = await api.getStays();
+              setStays(sRes.stays);
+              showToast('Payment approved & subscription activated!');
+            }}
+            onRejectPayment={async (id, reason) => {
+              await api.rejectPayment(id, reason);
+              const updated = await api.getAdminOverview();
+              setAdminOverview(updated);
+              showToast('Payment marked as rejected.');
+            }}
+            onVerifyUser={async email => {
+              await api.verifyUser(email);
+              const updated = await api.getAdminOverview();
+              setAdminOverview(updated);
+              showToast('User ID verification toggled.');
+            }}
+            onUpdateStay={handleUpdateStay}
+            onDeleteStay={handleDeleteStay}
+            onAdjustHostPlan={async (hostEmail, tier, days) => {
+              await api.adjustHostPlan(hostEmail, tier, days);
+              showToast(`Plan updated for ${hostEmail}.`);
+            }}
+            currency={currency}
+            onBackToFeed={() => {
+              const basePrefix = window.location.pathname.startsWith('/AirbusGlobal') ? '/AirbusGlobal/' : '/';
+              window.history.pushState({}, '', basePrefix);
+              setIsOnAdminRoute(false);
+              setCurrentTab('home');
+            }}
+            showToast={showToast}
+            onLogout={handleLogout}
+            onUpdateAdminUser={updated => setUser(updated)}
+          />
+        </React.Suspense>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex flex-col bg-[#fbfbf8] dark:bg-[#0b0c10] text-[#0a0a0a] dark:text-[#f4f4f2] transition-colors">
@@ -660,65 +783,6 @@ export default function App() {
               onDeleteStay={handleDeleteStay}
               onUpdateBookingStatus={handleUpdateBookingStatus}
               onDescribeStayAI={params => api.describeStayAI(params)}
-              currency={currency}
-              onBackToFeed={() => handleNavigate('home')}
-            />
-          )
-        )}
-
-        {/* ADMIN DASHBOARD (Private) */}
-        {currentTab === 'admin' && (
-          !user || user.role !== 'admin' ? (
-            <div className="max-w-md mx-auto my-12 p-8 bg-white dark:bg-[#15171e] rounded-3xl border border-stone-200 dark:border-stone-800 text-center space-y-4 shadow-xl">
-              <div className="w-12 h-12 rounded-2xl bg-rose-500/10 text-rose-600 flex items-center justify-center mx-auto">
-                <Lock className="w-6 h-6" />
-              </div>
-              <h3 className="text-lg font-bold text-stone-900 dark:text-white">Admin Console Restricted</h3>
-              <p className="text-xs text-stone-500 leading-relaxed">
-                Access to the AirBus Admin Console is strictly restricted to verified platform administrators.
-              </p>
-              <button
-                onClick={() => handleNavigate('home')}
-                className="px-6 py-2.5 bg-stone-900 dark:bg-white text-white dark:text-stone-900 rounded-full text-xs font-bold shadow cursor-pointer hover:opacity-90"
-              >
-                Return to Public Feed
-              </button>
-            </div>
-          ) : (
-            <AdminDashboard
-              adminUser={user}
-              metrics={adminOverview.metrics}
-              stays={stays}
-              users={adminOverview.users}
-              payments={adminOverview.payments}
-              threads={threads}
-              auditLogs={adminOverview.auditLogs}
-              onApprovePayment={async id => {
-                await api.approvePayment(id);
-                const updated = await api.getAdminOverview();
-                setAdminOverview(updated);
-                const sRes = await api.getStays();
-                setStays(sRes.stays);
-                showToast('Payment approved & subscription activated!');
-              }}
-              onRejectPayment={async (id, reason) => {
-                await api.rejectPayment(id, reason);
-                const updated = await api.getAdminOverview();
-                setAdminOverview(updated);
-                showToast('Payment marked as rejected.');
-              }}
-              onVerifyUser={async email => {
-                await api.verifyUser(email);
-                const updated = await api.getAdminOverview();
-                setAdminOverview(updated);
-                showToast('User ID verification toggled.');
-              }}
-              onUpdateStay={handleUpdateStay}
-              onDeleteStay={handleDeleteStay}
-              onAdjustHostPlan={async (hostEmail, tier, days) => {
-                await api.adjustHostPlan(hostEmail, tier, days);
-                showToast(`Plan updated for ${hostEmail}.`);
-              }}
               currency={currency}
               onBackToFeed={() => handleNavigate('home')}
             />

@@ -104,8 +104,7 @@ export const Header: React.FC<HeaderProps> = ({
       onOpenAuth('login');
       return;
     }
-    if (user.role === 'admin') onNavigate('admin');
-    else if (user.role === 'owner') onNavigate('owner');
+    if (user.role === 'owner') onNavigate('owner');
     else onNavigate('guest');
     setProfileDropdownOpen(false);
     setMobileMenuOpen(false);
@@ -252,18 +251,6 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           )}
 
-          {/* Admin shortcut badge if admin */}
-          {user?.role === 'admin' && (
-            <button
-              type="button"
-              onClick={() => onNavigate('admin')}
-              className="hidden sm:flex bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800 px-2.5 py-1 rounded-lg font-bold items-center gap-1 hover:bg-amber-200 transition-colors cursor-pointer"
-            >
-              <ShieldCheck className="w-3.5 h-3.5" />
-              <span>Admin</span>
-            </button>
-          )}
-
           {/* Profile Menu Trigger & Dropdown Container (Desktop only: hidden md:block prevents duplicate menu on mobile) */}
           <div className="relative hidden md:block" ref={profileMenuRef}>
             <button
@@ -311,7 +298,7 @@ export const Header: React.FC<HeaderProps> = ({
                       onClick={handleDashboardClick}
                       className="mt-2 w-full text-center py-1.5 bg-stone-900 dark:bg-white text-white dark:text-stone-900 rounded-lg font-bold hover:opacity-90 transition-opacity cursor-pointer"
                     >
-                      Open {user.role === 'admin' ? 'Admin Panel' : user.role === 'owner' ? 'Owner Hub' : 'Guest Dashboard'}
+                      Open {user.role === 'owner' ? 'Owner Hub' : 'Guest Dashboard'}
                     </button>
                   </div>
                 ) : (

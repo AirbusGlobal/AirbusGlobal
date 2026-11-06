@@ -119,19 +119,6 @@ const SEED_USERS: User[] = [
     idVerified: true,
     createdAt: Date.now() - 60 * 864e5,
   },
-  {
-    id: 'u_admin',
-    name: 'Alex Kamau',
-    email: 'admin@airbus.ke',
-    role: 'admin',
-    passwordHash: hashPassword('password123'),
-    phone: '+254 700 000 001',
-    location: 'Headquarters, Nairobi',
-    bio: 'Lead Operations & Platform Verification Administrator at AirBus.',
-    languages: 'English, Swahili',
-    idVerified: true,
-    createdAt: Date.now() - 120 * 864e5,
-  },
 ];
 
 const SEED_COMMENTS: VideoComment[] = [
@@ -1574,6 +1561,109 @@ class DatabaseStore {
 
   public getAllUsers(): User[] {
     return this.data.users;
+  }
+
+  // --- Single Admin Management ---
+  public hasAdminAccount(): boolean {
+    return this.data.users.some(u => u.role === 'admin');
+  }
+
+  public getAdminUser(): User | undefined {
+    return this.data.users.find(u => u.role === 'admin');
+  }
+
+  public getAdminEmail(): string {
+    const admin = this.getAdminUser();
+    return admin ? admin.email : 'admin@airbus.ke';
+  }
+
+  public registerSingleAdmin(data: {
+    name: string;
+    email: string;
+    passwordHash: string;
+    phone?: string;
+    location?: string;
+  }): User {
+    if (this.hasAdminAccount()) {
+      throw new Error('An administrator account is already registered. Registration is permanently closed.');
+    }
+    const cleanEmail = data.email.trim().toLowerCase();
+    const existing = this.findUserByEmail(cleanEmail);
+    if (existing) {
+      throw new Error('An account with this email already exists.');
+    }
+
+    const newAdmin: User = {
+      id: 'u_admin_' + Date.now(),
+      name: data.name.trim(),
+      email: cleanEmail,
+      role: 'admin',
+      passwordHash: data.passwordHash,
+      phone: data.phone || '+254 700 000 000',
+      location: data.location || 'Headquarters, Nairobi',
+      bio: 'Platform Administrator at AirBus Global.',
+      languages: 'English, Swahili',
+      idVerified: true,
+      createdAt: Date.now(),
+    } as any;
+
+    this.data.users.push(newAdmin);
+    this.data.isSingleAdminRegistered = true;
+    this.ensureWallet(cleanEmail);
+    this.save();
+    return newAdmin;
+  }
+
+  public updateAdminCredentials(
+    currentEmail: string,
+    currentPasswordHash: string,
+    updates: {
+      newName?: string;
+      newEmail?: string;
+      newPasswordHash?: string;
+    }
+  ): User {
+    const admin = this.findUserByEmail(currentEmail);
+    if (!admin || admin.role !== 'admin') {
+      throw new Error('Admin user not found.');
+    }
+    if (admin.passwordHash !== currentPasswordHash) {
+      throw new Error('Incorrect current password.');
+    }
+
+    if (updates.newName && updates.newName.trim()) {
+      admin.name = updates.newName.trim();
+    }
+
+    if (updates.newPasswordHash) {
+      admin.passwordHash = updates.newPasswordHash;
+    }
+
+    if (updates.newEmail) {
+      const cleanNewEmail = updates.newEmail.trim().toLowerCase();
+      if (cleanNewEmail !== admin.email) {
+        const existing = this.findUserByEmail(cleanNewEmail);
+        if (existing) {
+          throw new Error('An account with that email already exists.');
+        }
+        const oldEmail = admin.email;
+        admin.email = cleanNewEmail;
+
+        if (this.data.wallets[oldEmail] !== undefined) {
+          this.data.wallets[cleanNewEmail] = this.data.wallets[oldEmail];
+          delete this.data.wallets[oldEmail];
+        }
+        if (this.data.walletRecords[oldEmail] !== undefined) {
+          const rec = this.data.walletRecords[oldEmail];
+          rec.email = cleanNewEmail;
+          this.data.walletRecords[cleanNewEmail] = rec;
+          delete this.data.walletRecords[oldEmail];
+        }
+      }
+    }
+
+    this.save();
+    return admin;
   }
 
   // --- Stays & Powerful Search ---

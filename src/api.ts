@@ -450,6 +450,43 @@ export const api = {
     });
   },
 
+  // Admin Portal Private Methods
+  async getAdminPortalStatus(): Promise<{ hasAdmin: boolean; canRegisterAdmin: boolean }> {
+    return this.request<{ hasAdmin: boolean; canRegisterAdmin: boolean }>('/api/admin-portal/status');
+  },
+
+  async setupAdminAccount(data: {
+    name: string;
+    email: string;
+    password: string;
+    setupKey: string;
+    phone?: string;
+    location?: string;
+  }): Promise<{ user: User; token: string; message: string }> {
+    const res = await this.request<{ user: User; token: string; message: string }>('/api/admin-portal/setup', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+    this.setToken(res.token);
+    return res;
+  },
+
+  async changeAdminCredentials(data: {
+    currentPassword: string;
+    newPassword?: string;
+    newName?: string;
+    newEmail?: string;
+  }): Promise<{ user: User; token: string; message: string }> {
+    const res = await this.request<{ user: User; token: string; message: string }>('/api/admin/change-credentials', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+    if (res.token) {
+      this.setToken(res.token);
+    }
+    return res;
+  },
+
   logout() {
     this.setToken(null);
   },

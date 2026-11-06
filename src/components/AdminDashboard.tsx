@@ -50,6 +50,10 @@ import {
   Clock,
   Heart,
   Flame,
+  LogOut,
+  Key,
+  Lock,
+  Shield,
 } from 'lucide-react';
 import { api } from '../api';
 
@@ -78,6 +82,8 @@ interface AdminDashboardProps {
   currency: Currency;
   onBackToFeed?: () => void;
   showToast?: (msg: string) => void;
+  onLogout?: () => void;
+  onUpdateAdminUser?: (updated: User) => void;
 }
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
@@ -97,6 +103,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   currency,
   onBackToFeed,
   showToast,
+  onLogout,
+  onUpdateAdminUser,
 }) => {
   const [tab, setTab] = useState<
     'queue' | 'posts' | 'ads' | 'withdrawals' | 'settings' | 'treasury' | 'listings' | 'plans' | 'dormant' | 'users' | 'negotiations' | 'audit' | 'trip-dating'
@@ -133,6 +141,88 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [rejectReason, setRejectReason] = useState('Invalid or unverified receipt code.');
   const [approveModalPayment, setApproveModalPayment] = useState<PaymentRecord | null>(null);
   const [processingPayment, setProcessingPayment] = useState(false);
+
+  // Admin Account & Security State (Requirement 5)
+  const [adminUsername, setAdminUsername] = useState(adminUser?.name || '');
+  const [adminEmailInput, setAdminEmailInput] = useState(adminUser?.email || '');
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [securityLoading, setSecurityLoading] = useState(false);
+  const [securitySuccess, setSecuritySuccess] = useState<string | null>(null);
+  const [securityError, setSecurityError] = useState<string | null>(null);
+
+  // Keep state updated if adminUser prop updates
+  useEffect(() => {
+    if (adminUser) {
+      setAdminUsername(adminUser.name || '');
+      setAdminEmailInput(adminUser.email || '');
+    }
+  }, [adminUser]);
+
+  // Real-time password strength evaluator
+  const calculatePasswordStrength = (pass: string): { score: number; label: string; color: string; width: string } => {
+    if (!pass) return { score: 0, label: 'None', color: 'bg-stone-300 dark:bg-stone-700', width: 'w-0' };
+    let score = 0;
+    if (pass.length >= 6) score += 1;
+    if (pass.length >= 10) score += 1;
+    if (/[A-Z]/.test(pass)) score += 1;
+    if (/[0-9]/.test(pass)) score += 1;
+    if (/[^A-Za-z0-9]/.test(pass)) score += 1;
+
+    if (score <= 2) return { score, label: 'Weak', color: 'bg-red-500', width: 'w-1/3' };
+    if (score === 3 || score === 4) return { score, label: 'Medium', color: 'bg-amber-500', width: 'w-2/3' };
+    return { score, label: 'Strong', color: 'bg-emerald-500', width: 'w-full' };
+  };
+
+  const handleUpdateAdminAccount = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSecurityError(null);
+    setSecuritySuccess(null);
+
+    if (!currentPassword) {
+      setSecurityError('Current password is required to verify identity.');
+      return;
+    }
+
+    if (newPassword) {
+      if (newPassword.length < 6) {
+        setSecurityError('New password must be at least 6 characters long.');
+        return;
+      }
+      if (newPassword !== confirmPassword) {
+        setSecurityError('New password and confirmation do not match.');
+        return;
+      }
+      if (newPassword === currentPassword) {
+        setSecurityError('New password must be different from current password.');
+        return;
+      }
+    }
+
+    setSecurityLoading(true);
+    try {
+      const res = await api.changeAdminCredentials({
+        currentPassword,
+        newPassword: newPassword || undefined,
+        newName: adminUsername.trim() || undefined,
+        newEmail: adminEmailInput.trim() || undefined,
+      });
+
+      setSecuritySuccess('Admin credentials updated successfully! Session preserved.');
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      if (res.user) {
+        onUpdateAdminUser?.(res.user);
+      }
+      showToast?.('Admin account updated successfully.');
+    } catch (err: any) {
+      setSecurityError(err.message || 'Failed to update credentials.');
+    } finally {
+      setSecurityLoading(false);
+    }
+  };
 
   const loadAdminData = () => {
     api.getPaymentRecords().then(res => {
@@ -193,7 +283,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-8">
-      {/* Ubiquitous Go Back to Feed Navigation */}
+      {/* Ubiquitous Go Back to Feed Navigation & Admin Logout */}
       <div className="mb-6 flex items-center justify-between">
         <button
           onClick={onBackToFeed}
@@ -202,6 +292,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <ArrowLeft className="w-4 h-4 text-[#e4002b]" />
           <span>Go Back to Stays Feed</span>
         </button>
+
+        {onLogout && (
+          <button
+            type="button"
+            onClick={() => {
+              if (window.confirm('Are you sure you want to log out of the AirBus Admin Console?')) {
+                onLogout();
+              }
+            }}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-red-500/10 hover:bg-red-500/20 text-red-600 dark:text-red-400 border border-red-500/30 text-xs font-bold transition-all shadow-sm cursor-pointer"
+            title="Log out from Administrative Session"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+            <span>Log Out</span>
+          </button>
+        )}
       </div>
 
       {/* Admin Header */}
@@ -1275,17 +1381,201 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
       )}
 
-      {/* TAB: DYNAMIC SETTINGS EDITOR */}
-      {tab === 'settings' && settings && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-base font-bold text-stone-900 dark:text-white">Dynamic Platform Settings</h3>
-              <p className="text-xs text-stone-500">All fees, ad slot pricing, referral rates and constraints are dynamic and stored in database.</p>
+      {/* TAB: SETTINGS (Admin Account & Security + Dynamic Platform Settings) */}
+      {tab === 'settings' && (
+        <div className="space-y-6">
+          {/* SECTION 1: ADMIN ACCOUNT & SECURITY (Requirement 5) */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-bold text-stone-900 dark:text-white flex items-center gap-2">
+                  <ShieldCheck className="w-4 h-4 text-amber-500" />
+                  <span>Admin Account &amp; Security</span>
+                </h3>
+                <p className="text-xs text-stone-500">
+                  Update your administrator display name, email, and password as many times as desired.
+                </p>
+              </div>
+            </div>
+
+            <div className="p-5 sm:p-6 bg-white dark:bg-[#15171e] rounded-3xl border border-stone-200 dark:border-stone-800 shadow-sm space-y-5 text-xs">
+              {/* Active Admin Pill */}
+              <div className="p-3 rounded-2xl bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-800 flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-500 flex items-center justify-center font-black text-sm">
+                    {adminUser.name?.charAt(0).toUpperCase() || 'A'}
+                  </div>
+                  <div>
+                    <div className="font-extrabold text-stone-900 dark:text-white text-sm">
+                      {adminUser.name}
+                    </div>
+                    <div className="text-[11px] text-stone-500 font-mono">{adminUser.email}</div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 flex items-center gap-1">
+                    <Shield className="w-3 h-3" /> Sole Administrator
+                  </span>
+                  {onLogout && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (window.confirm('Log out of AirBus Administrative Console?')) {
+                          onLogout();
+                        }
+                      }}
+                      className="px-3 py-1 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-600 dark:text-red-400 font-bold text-xs flex items-center gap-1 transition-colors cursor-pointer"
+                    >
+                      <LogOut className="w-3 h-3" />
+                      <span>Log Out</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Security Feedback Banners */}
+              {securitySuccess && (
+                <div className="p-3 bg-emerald-950/40 border border-emerald-500/50 rounded-2xl text-emerald-200 text-xs flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>{securitySuccess}</span>
+                </div>
+              )}
+              {securityError && (
+                <div className="p-3 bg-red-950/40 border border-red-500/50 rounded-2xl text-red-200 text-xs flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+                  <span>{securityError}</span>
+                </div>
+              )}
+
+              {/* Form to change username and password */}
+              <form onSubmit={handleUpdateAdminAccount} className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="font-bold text-stone-700 dark:text-stone-300 block mb-1">
+                      Administrator Name (Username)
+                    </label>
+                    <input
+                      type="text"
+                      value={adminUsername}
+                      onChange={e => setAdminUsername(e.target.value)}
+                      placeholder="e.g. Alex Kamau"
+                      className="w-full px-3 py-2 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-xl font-medium text-xs text-stone-900 dark:text-white"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="font-bold text-stone-700 dark:text-stone-300 block mb-1">
+                      Administrator Email
+                    </label>
+                    <input
+                      type="email"
+                      value={adminEmailInput}
+                      onChange={e => setAdminEmailInput(e.target.value)}
+                      placeholder="admin@airbus.ke"
+                      className="w-full px-3 py-2 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-xl font-medium text-xs text-stone-900 dark:text-white"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="pt-3 border-t border-stone-100 dark:border-stone-800 space-y-4">
+                  <div>
+                    <label className="font-bold text-stone-700 dark:text-stone-300 block mb-1 flex items-center justify-between">
+                      <span className="flex items-center gap-1.5">
+                        <Lock className="w-3.5 h-3.5 text-stone-400" /> Current Password (Identity Verification)
+                      </span>
+                      <span className="text-[10px] text-amber-500 font-semibold">*Required for any change</span>
+                    </label>
+                    <input
+                      type="password"
+                      value={currentPassword}
+                      onChange={e => setCurrentPassword(e.target.value)}
+                      placeholder="Enter current password"
+                      className="w-full px-3 py-2 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-xl font-medium text-xs text-stone-900 dark:text-white"
+                      required
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="font-bold text-stone-700 dark:text-stone-300 block mb-1 flex items-center justify-between">
+                        <span>New Password</span>
+                        <span className="text-[10px] text-stone-400 font-normal">(Leave blank if keeping current)</span>
+                      </label>
+                      <input
+                        type="password"
+                        value={newPassword}
+                        onChange={e => setNewPassword(e.target.value)}
+                        placeholder="••••••••"
+                        className="w-full px-3 py-2 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-xl font-medium text-xs text-stone-900 dark:text-white"
+                      />
+
+                      {/* Real-time Password Strength Indicator */}
+                      {newPassword && (
+                        <div className="mt-2 space-y-1">
+                          <div className="flex items-center justify-between text-[10px]">
+                            <span className="text-stone-500 font-semibold">Password Strength:</span>
+                            <span className={`font-bold capitalize ${
+                              calculatePasswordStrength(newPassword).label === 'Strong' ? 'text-emerald-500' :
+                              calculatePasswordStrength(newPassword).label === 'Medium' ? 'text-amber-500' : 'text-red-500'
+                            }`}>
+                              {calculatePasswordStrength(newPassword).label}
+                            </span>
+                          </div>
+                          <div className="h-1.5 w-full bg-stone-200 dark:bg-stone-800 rounded-full overflow-hidden">
+                            <div
+                              className={`h-full transition-all duration-300 ${calculatePasswordStrength(newPassword).color} ${calculatePasswordStrength(newPassword).width}`}
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    <div>
+                      <label className="font-bold text-stone-700 dark:text-stone-300 block mb-1">
+                        Confirm New Password
+                      </label>
+                      <input
+                        type="password"
+                        value={confirmPassword}
+                        onChange={e => setConfirmPassword(e.target.value)}
+                        placeholder="••••••••"
+                        className="w-full px-3 py-2 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-xl font-medium text-xs text-stone-900 dark:text-white"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+                  <button
+                    type="submit"
+                    disabled={securityLoading}
+                    className="px-6 py-2.5 rounded-full bg-stone-900 dark:bg-white text-white dark:text-stone-900 hover:opacity-90 font-extrabold text-xs cursor-pointer shadow-md transition-all flex items-center gap-2"
+                  >
+                    <Key className="w-3.5 h-3.5 text-amber-500" />
+                    <span>{securityLoading ? 'Saving credentials...' : 'Save Account & Security Changes'}</span>
+                  </button>
+
+                  <span className="text-[11px] text-stone-400">
+                    Your session will remain authenticated after credential changes.
+                  </span>
+                </div>
+              </form>
             </div>
           </div>
 
-          <div className="p-5 sm:p-6 bg-white dark:bg-[#15171e] rounded-3xl border border-stone-200 dark:border-stone-800 shadow-sm space-y-4 text-xs">
+          {/* SECTION 2: DYNAMIC PLATFORM SETTINGS */}
+          {settings && (
+            <div className="space-y-3 pt-4 border-t border-stone-200 dark:border-stone-800">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-base font-bold text-stone-900 dark:text-white">Dynamic Platform Settings</h3>
+                  <p className="text-xs text-stone-500">All fees, ad slot pricing, referral rates and constraints are dynamic and stored in database.</p>
+                </div>
+              </div>
+
+              <div className="p-5 sm:p-6 bg-white dark:bg-[#15171e] rounded-3xl border border-stone-200 dark:border-stone-800 shadow-sm space-y-4 text-xs">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div>
                 <label className="font-bold text-stone-700 dark:text-stone-300 block mb-1">Ad Price per Day (KES)</label>
@@ -1408,6 +1698,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </div>
         </div>
       )}
+    </div>
+  )}
 
       {/* TAB: TREASURY & LEDGER STREAM */}
       {tab === 'treasury' && (

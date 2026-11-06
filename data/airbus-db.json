@@ -27,17 +27,17 @@
       "createdAt": 1787910650938
     },
     {
-      "id": "u_admin",
+      "id": "u_admin_1793976423324",
       "name": "Alex Kamau",
       "email": "admin@airbus.ke",
       "role": "admin",
       "passwordHash": "76580e2e33f5435a5d01f7df3b2022d8709da5f1efa27a07cf98402cdd29950b",
-      "phone": "+254 700 000 001",
+      "phone": "+254 700 000 000",
       "location": "Headquarters, Nairobi",
-      "bio": "Lead Operations & Platform Verification Administrator at AirBus.",
+      "bio": "Platform Administrator at AirBus Global.",
       "languages": "English, Swahili",
       "idVerified": true,
-      "createdAt": 1782726650938
+      "createdAt": 1793976423324
     }
   ],
   "stays": [
@@ -1392,5 +1392,57 @@
       "createdAt": 1793795318243,
       "expiresAt": 1794400118243
     }
-  ]
+  ],
+  "paymentRecords": [],
+  "walletTransactions": [],
+  "adSlots": [
+    {
+      "id": "adslot_kenya_safari",
+      "ownerId": "owner@airbus.ke",
+      "owner_id": "owner@airbus.ke",
+      "title": "Nairobi Luxury Safari Loft & Car Hire",
+      "description": "Special 20% discount on weekend getaways and airport transfers across Nairobi.",
+      "linkUrl": "https://airbus.ke",
+      "link_url": "https://airbus.ke",
+      "thumbnailUrl": "https://images.unsplash.com/photo-1540555700478-4be289fbecef?auto=format&fit=crop&w=800&q=80",
+      "thumbnail_url": "https://images.unsplash.com/photo-1540555700478-4be289fbecef?auto=format&fit=crop&w=800&q=80",
+      "videoUrl": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
+      "durationDays": 30,
+      "duration_days": 30,
+      "costSc": 300,
+      "cost_sc": 300,
+      "status": "active",
+      "paymentId": "pay_demo_1",
+      "payment_id": "pay_demo_1",
+      "paymentMethod": "wallet",
+      "impressions": 1421,
+      "clicks": 86,
+      "startsAt": 1793543326423,
+      "endsAt": 1796135326423,
+      "createdAt": 1793543326423,
+      "updatedAt": 1793543326423
+    }
+  ],
+  "subscriptions": [
+    {
+      "id": "sub_owner_demo",
+      "ownerId": "owner@airbus.ke",
+      "owner_id": "owner@airbus.ke",
+      "tier": "Diamond",
+      "billing": "monthly",
+      "status": "active",
+      "startsAt": 1793802526423,
+      "endsAt": 1796394526423,
+      "paymentId": "pay_demo_1",
+      "createdAt": 1793802526423,
+      "updatedAt": 1793802526423
+    }
+  ],
+  "follows": [],
+  "listingLikes": [],
+  "listingViews": [],
+  "autoShorts": [],
+  "boosts": [],
+  "sponsorSlots": [],
+  "isSingleAdminRegistered": true
 }

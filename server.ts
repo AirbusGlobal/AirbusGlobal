@@ -1,5 +1,6 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { GoogleGenAI } from '@google/genai';
@@ -44,6 +45,37 @@ function getAuthUser(req: express.Request): User | null {
   return db.findUserByEmail(token) || null;
 }
 
+// In-Memory Rate Limiting Store
+interface RateLimitRecord {
+  count: number;
+  resetAt: number;
+}
+const loginRateLimitMap = new Map<string, RateLimitRecord>();
+const adminSetupRateLimitMap = new Map<string, RateLimitRecord>();
+
+function checkRateLimit(
+  map: Map<string, RateLimitRecord>,
+  key: string,
+  maxAttempts: number,
+  windowMs: number
+): { allowed: boolean; retryAfterSeconds: number } {
+  const now = Date.now();
+  const entry = map.get(key);
+
+  if (!entry || now > entry.resetAt) {
+    map.set(key, { count: 1, resetAt: now + windowMs });
+    return { allowed: true, retryAfterSeconds: 0 };
+  }
+
+  if (entry.count >= maxAttempts) {
+    const retryAfterSeconds = Math.ceil((entry.resetAt - now) / 1000);
+    return { allowed: false, retryAfterSeconds };
+  }
+
+  entry.count += 1;
+  return { allowed: true, retryAfterSeconds: 0 };
+}
+
 // -----------------------------------------------------------------------------
 // REST API ENDPOINTS
 // -----------------------------------------------------------------------------
@@ -53,13 +85,126 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', service: 'AirBus Backend', time: new Date().toISOString() });
 });
 
-// Authentication
+// Serve robots.txt directly
+app.get('/robots.txt', (req, res) => {
+  const robotsPath = path.resolve(process.cwd(), 'public', 'robots.txt');
+  if (fs.existsSync(robotsPath)) {
+    res.type('text/plain');
+    return res.sendFile(robotsPath);
+  }
+  res.type('text/plain').send('User-agent: *\nDisallow: /admin-portal-k7x2q9\nDisallow: /AirbusGlobal/admin-portal-k7x2q9\nAllow: /\n');
+});
+
+// Admin Portal Status (checks if single admin exists)
+app.get('/api/admin-portal/status', (req, res) => {
+  const hasAdmin = db.hasAdminAccount();
+  return res.json({
+    hasAdmin,
+    canRegisterAdmin: !hasAdmin,
+  });
+});
+
+// One-time Admin Registration on Private Portal
+app.post('/api/admin-portal/setup', (req, res) => {
+  try {
+    const clientIp = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || 'unknown';
+    const rateCheck = checkRateLimit(adminSetupRateLimitMap, `setup_${clientIp}`, 5, 15 * 60 * 1000);
+    if (!rateCheck.allowed) {
+      return res.status(429).json({
+        error: `Too many setup attempts. Please try again in ${rateCheck.retryAfterSeconds} seconds.`,
+      });
+    }
+
+    if (db.hasAdminAccount()) {
+      return res.status(403).json({
+        error: 'Admin registration is permanently closed. There is already a registered administrator.',
+      });
+    }
+
+    const { name, email, password, setupKey, phone, location } = req.body;
+    if (!name || !email || !password || !setupKey) {
+      return res.status(400).json({ error: 'Name, email, password, and setup key are required.' });
+    }
+
+    const expectedSetupKey = process.env.ADMIN_SETUP_KEY || 'airbus-setup-2026';
+    if (String(setupKey).trim() !== expectedSetupKey.trim()) {
+      return res.status(401).json({ error: 'Invalid admin setup key.' });
+    }
+
+    if (String(password).length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters.' });
+    }
+
+    const newAdmin = db.registerSingleAdmin({
+      name: String(name).trim(),
+      email: String(email).trim().toLowerCase(),
+      passwordHash: hashPassword(String(password)),
+      phone,
+      location,
+    });
+
+    const { passwordHash, ...safeUser } = newAdmin as any;
+    return res.status(201).json({
+      message: 'Sole administrator account successfully created.',
+      user: safeUser,
+      token: safeUser.email,
+    });
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'Failed to setup admin account.' });
+  }
+});
+
+// Change Admin Credentials (username, email, password) from inside dashboard
+app.post('/api/admin/change-credentials', (req, res) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user || user.role !== 'admin') {
+      return res.status(403).json({ error: 'Admin access required.' });
+    }
+
+    const { currentPassword, newPassword, newName, newEmail } = req.body;
+    if (!currentPassword) {
+      return res.status(400).json({ error: 'Current password is required to update credentials.' });
+    }
+
+    if (newPassword && String(newPassword).length < 6) {
+      return res.status(400).json({ error: 'New password must be at least 6 characters long.' });
+    }
+
+    const updated = db.updateAdminCredentials(
+      user.email,
+      hashPassword(String(currentPassword)),
+      {
+        newName: newName ? String(newName).trim() : undefined,
+        newEmail: newEmail ? String(newEmail).trim().toLowerCase() : undefined,
+        newPasswordHash: newPassword ? hashPassword(String(newPassword)) : undefined,
+      }
+    );
+
+    const { passwordHash, ...safeUser } = updated as any;
+    return res.json({
+      message: 'Admin credentials successfully updated.',
+      user: safeUser,
+      token: safeUser.email,
+    });
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'Failed to update admin credentials.' });
+  }
+});
+
+// Public Authentication (Never allows admin registration)
 app.post('/api/auth/register', (req, res) => {
   try {
     const { name, email, password, role, phone, location } = req.body;
     if (!name || !email || !password) {
       return res.status(400).json({ error: 'Name, email, and password are required.' });
     }
+
+    // Strict security: Public registration CANNOT create admin accounts!
+    if (role === 'admin') {
+      return res.status(403).json({ error: 'Admin registration is not permitted through public sign-up.' });
+    }
+
     const cleanEmail = String(email).trim().toLowerCase();
     if (db.findUserByEmail(cleanEmail)) {
       return res.status(409).json({ error: 'An account with that email already exists.' });
@@ -68,7 +213,7 @@ app.post('/api/auth/register', (req, res) => {
       return res.status(400).json({ error: 'Password must be at least 6 characters.' });
     }
 
-    const assignedRole = role === 'admin' ? 'admin' : role === 'owner' ? 'owner' : 'guest';
+    const assignedRole = role === 'owner' ? 'owner' : 'guest';
     const newUser: User = {
       id: 'u_' + Date.now(),
       name: name.trim(),
@@ -77,7 +222,7 @@ app.post('/api/auth/register', (req, res) => {
       passwordHash: hashPassword(password),
       phone: phone || '',
       location: location || 'Nairobi, Kenya',
-      idVerified: assignedRole === 'admin',
+      idVerified: false,
       createdAt: Date.now(),
     } as any;
 
@@ -96,6 +241,14 @@ app.post('/api/auth/register', (req, res) => {
 
 app.post('/api/auth/login', (req, res) => {
   try {
+    const clientIp = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || 'unknown';
+    const rateCheck = checkRateLimit(loginRateLimitMap, `login_${clientIp}`, 10, 15 * 60 * 1000);
+    if (!rateCheck.allowed) {
+      return res.status(429).json({
+        error: `Too many login attempts. Please try again in ${rateCheck.retryAfterSeconds} seconds.`,
+      });
+    }
+
     const { email, password } = req.body;
     if (!email || !password) {
       return res.status(400).json({ error: 'Email and password are required.' });
@@ -105,6 +258,9 @@ app.post('/api/auth/login', (req, res) => {
     if (!user || user.passwordHash !== hashPassword(password)) {
       return res.status(401).json({ error: 'Invalid email or password.' });
     }
+
+    // Reset rate limiter on successful login
+    loginRateLimitMap.delete(`login_${clientIp}`);
 
     const { passwordHash, ...safeUser } = user;
     return res.json({ user: safeUser, token: safeUser.email });
@@ -2293,9 +2449,12 @@ async function startServer() {
       server: { middlewareMode: true },
       appType: 'spa',
     });
-    // Seamlessly redirect root to /AirbusGlobal/ in dev
+    // Seamlessly redirect root and direct root admin portal in dev
     app.get('/', (req, res) => {
       res.redirect('/AirbusGlobal/');
+    });
+    app.get('/admin-portal-k7x2q9', (req, res) => {
+      res.redirect('/AirbusGlobal/admin-portal-k7x2q9');
     });
     app.use(vite.middlewares);
   } else {
