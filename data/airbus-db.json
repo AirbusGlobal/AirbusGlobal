@@ -27,17 +27,17 @@
       "createdAt": 1787910650938
     },
     {
-      "id": "u_admin_1793976423324",
-      "name": "Alex Kamau",
-      "email": "admin@airbus.ke",
+      "id": "u_admin_master",
+      "name": "Kamala Hari",
+      "email": "kamalahari93@gmail.com",
       "role": "admin",
-      "passwordHash": "76580e2e33f5435a5d01f7df3b2022d8709da5f1efa27a07cf98402cdd29950b",
-      "phone": "+254 700 000 000",
+      "passwordHash": "bf9cf609604a058893544342849665e80dfe1ef536e238ab87dd21b65488aa73",
+      "phone": "+254 700 000 001",
       "location": "Headquarters, Nairobi",
-      "bio": "Platform Administrator at AirBus Global.",
+      "bio": "Lead Platform Administrator at AirBus Global.",
       "languages": "English, Swahili",
       "idVerified": true,
-      "createdAt": 1793976423324
+      "createdAt": 1794059163487
     }
   ],
   "stays": [
@@ -640,7 +640,8 @@
   "wallets": {
     "owner@airbus.ke": 13340,
     "guest@airbus.ke": 4400,
-    "treasury": 63840
+    "treasury": 63840,
+    "kamalahari93@gmail.com": 50000
   },
   "wishlists": [
     {
@@ -1069,6 +1070,14 @@
       "lifetimeEarnings": 66460,
       "lifetimeSpent": 2550,
       "updatedAt": 1793795318243
+    },
+    "kamalahari93@gmail.com": {
+      "email": "kamalahari93@gmail.com",
+      "balance": 50000,
+      "holdBalance": 0,
+      "lifetimeEarnings": 65000,
+      "lifetimeSpent": 2500,
+      "updatedAt": 1794059163487
     }
   },
   "referrals": {

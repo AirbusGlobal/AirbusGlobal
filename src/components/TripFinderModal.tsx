@@ -30,8 +30,6 @@ export const TripFinderModal: React.FC<TripFinderModalProps> = ({
   onNegotiate,
   currency,
 }) => {
-  if (!isOpen) return null;
-
   const [dates, setDates] = useState('');
   const [budget, setBudget] = useState('10000');
   const [location, setLocation] = useState('Westlands');
@@ -42,6 +40,8 @@ export const TripFinderModal: React.FC<TripFinderModalProps> = ({
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<Array<{ stay: Stay; matchReason: string }>>([]);
   const [searched, setSearched] = useState(false);
+
+  if (!isOpen) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

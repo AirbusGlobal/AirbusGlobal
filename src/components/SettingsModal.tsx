@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { User, Currency, Booking, Stay } from '../types';
 import { api } from '../api';
 import {
@@ -49,8 +49,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   bookings = [],
   stays = [],
 }) => {
-  if (!isOpen) return null;
-
   const [activeTab, setActiveTab] = useState<'profile' | 'security' | 'notifications' | 'privacy'>('profile');
 
   // Notification State
@@ -59,6 +57,35 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     if (typeof window === 'undefined') return true;
     return localStorage.getItem('airbus_notif_24h_disabled') !== 'true';
   });
+
+  // Profile Form State
+  const [name, setName] = useState(user?.name || '');
+  const [phone, setPhone] = useState(user?.phone || '');
+  const [location, setLocation] = useState(user?.location || '');
+  const [bio, setBio] = useState(user?.bio || '');
+  const [languages, setLanguages] = useState(user?.languages || 'English, Swahili');
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileMsg, setProfileMsg] = useState<string | null>(null);
+
+  // Password Change Form State
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [pwSaving, setPwSaving] = useState(false);
+  const [pwError, setPwError] = useState<string | null>(null);
+  const [pwSuccess, setPwSuccess] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (user) {
+      setName(user.name || '');
+      setPhone(user.phone || '');
+      setLocation(user.location || '');
+      setBio(user.bio || '');
+      setLanguages(user.languages || 'English, Swahili');
+    }
+  }, [user]);
+
+  if (!isOpen || !user) return null;
 
   const handleToggleAlerts = (enabled: boolean) => {
     setAlertsEnabled(enabled);
@@ -127,23 +154,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     const alertData = trigger24HourCheckinAlert(sampleBooking, sampleStay, 24, true);
     showToast?.(alertData.toastMessage);
   };
-
-  // Profile Form State
-  const [name, setName] = useState(user.name);
-  const [phone, setPhone] = useState(user.phone || '');
-  const [location, setLocation] = useState(user.location || '');
-  const [bio, setBio] = useState(user.bio || '');
-  const [languages, setLanguages] = useState(user.languages || 'English, Swahili');
-  const [profileSaving, setProfileSaving] = useState(false);
-  const [profileMsg, setProfileMsg] = useState<string | null>(null);
-
-  // Password Change Form State
-  const [currentPassword, setCurrentPassword] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [pwSaving, setPwSaving] = useState(false);
-  const [pwError, setPwError] = useState<string | null>(null);
-  const [pwSuccess, setPwSuccess] = useState<string | null>(null);
 
   const handleProfileSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

@@ -1,11 +1,12 @@
-import React, { useState } from 'react';
-import { X, Sparkles, CheckCircle2, UserCheck, Shield, Key } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, Sparkles, CheckCircle2, UserCheck, Shield, Key, KeyRound, RotateCcw } from 'lucide-react';
 import { User, UserRole } from '../types';
+import { api } from '../api';
 
 interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
-  initialMode?: 'login' | 'register';
+  initialMode?: 'login' | 'register' | 'reset-password';
   onLoginSuccess: (user: User) => void;
   onLogin: (email: string, pass: string) => Promise<{ user: User }>;
   onRegister: (data: any) => Promise<{ user: User }>;
@@ -34,8 +35,16 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [role, setRole] = useState<UserRole>('guest');
 
   // Form states
-  const [loginEmail, setLoginEmail] = useState('');
+  const [loginEmail, setLoginEmail] = useState(adminPortalMode ? 'kamalahari93@gmail.com' : '');
   const [loginPassword, setLoginPassword] = useState('');
+
+  // Admin Reset Password State
+  const [isResetMode, setIsResetMode] = useState(initialMode === 'reset-password');
+  const [resetEmail, setResetEmail] = useState(adminPortalMode ? 'kamalahari93@gmail.com' : '');
+  const [resetSetupKey, setResetSetupKey] = useState('');
+  const [resetNewPassword, setResetNewPassword] = useState('');
+  const [resetConfirmPassword, setResetConfirmPassword] = useState('');
+  const [resetSuccess, setResetSuccess] = useState<string | null>(null);
 
   const [registerName, setRegisterName] = useState('');
   const [registerEmail, setRegisterEmail] = useState('');
@@ -52,7 +61,65 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (isOpen) {
+      if (initialMode === 'reset-password') {
+        setIsResetMode(true);
+        setIsSignUp(false);
+      } else if (initialMode === 'register' && (!adminPortalMode || canRegisterAdmin)) {
+        setIsSignUp(true);
+        setIsResetMode(false);
+      } else {
+        setIsSignUp(false);
+        setIsResetMode(false);
+      }
+      if (adminPortalMode) {
+        setLoginEmail('kamalahari93@gmail.com');
+        setResetEmail('kamalahari93@gmail.com');
+      }
+      setError(null);
+      setResetSuccess(null);
+    }
+  }, [isOpen, initialMode, adminPortalMode, canRegisterAdmin]);
+
   if (!isOpen) return null;
+
+  const handleResetPasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setResetSuccess(null);
+
+    if (!resetEmail || !resetSetupKey || !resetNewPassword) {
+      setError('Please provide your admin email, master setup key, and new password.');
+      return;
+    }
+    if (resetNewPassword.length < 6) {
+      setError('New password must be at least 6 characters.');
+      return;
+    }
+    if (resetNewPassword !== resetConfirmPassword) {
+      setError('New password and confirmation do not match.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const res = await api.resetAdminPassword({
+        email: resetEmail.trim(),
+        setupKey: resetSetupKey.trim(),
+        newPassword: resetNewPassword,
+      });
+      setResetSuccess('Password reset successfully! Logging in...');
+      setTimeout(() => {
+        onLoginSuccess(res.user);
+        onClose();
+      }, 700);
+    } catch (err: any) {
+      setError(err.message || 'Failed to reset admin password. Check your email and setup key.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -170,87 +237,228 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           <div className="neon-auth-bg" />
 
           {/* PANEL 1: Form Login (Left side when login is active) */}
+          {/* PANEL 1: Form Login / Reset Password (Left side when login is active) */}
           <div className="neon-auth-panel form-login">
-            <h2 className="text-3xl font-extrabold font-heading text-white tracking-tight mb-2 drop-shadow-[0_0_12px_#ff2e93]">
-              Login
-            </h2>
-            <p className="text-xs text-stone-300 mb-6">
-              Access your video stays, booking calendar, or host console.
-            </p>
-
-            <form onSubmit={handleLoginSubmit} className="space-y-4">
+            {isResetMode ? (
               <div>
-                <label className="text-[11px] font-bold uppercase tracking-wider text-stone-300 block mb-1">
-                  Email Address
-                </label>
-                <input
-                  type="email"
-                  value={loginEmail}
-                  onChange={e => setLoginEmail(e.target.value)}
-                  placeholder="name@example.com"
-                  className="neon-input"
-                  required
-                />
-              </div>
+                <div className="flex items-center gap-2 mb-2">
+                  <RotateCcw className="w-5 h-5 text-[#ff2e93]" />
+                  <h2 className="text-2xl font-extrabold font-heading text-white tracking-tight drop-shadow-[0_0_12px_#ff2e93]">
+                    Reset Password
+                  </h2>
+                </div>
+                <p className="text-xs text-stone-300 mb-4">
+                  Enter your admin email, master setup key, and choose your new password.
+                </p>
 
+                <form onSubmit={handleResetPasswordSubmit} className="space-y-3">
+                  <div>
+                    <label className="text-[11px] font-bold uppercase tracking-wider text-stone-300 block mb-1">
+                      Admin Email Address
+                    </label>
+                    <input
+                      type="email"
+                      value={resetEmail}
+                      onChange={e => setResetEmail(e.target.value)}
+                      placeholder="kamalahari93@gmail.com"
+                      className="neon-input"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-[11px] font-bold uppercase tracking-wider text-stone-300 block mb-1">
+                      Master Setup / Recovery Key
+                    </label>
+                    <input
+                      type="password"
+                      value={resetSetupKey}
+                      onChange={e => setResetSetupKey(e.target.value)}
+                      placeholder="Enter master setup key"
+                      className="neon-input"
+                      required
+                    />
+                    <span className="text-[10px] text-stone-400 mt-1 block">
+                      Default setup key is <code className="text-[#22d3ee] font-mono">airbus-setup-2026</code>
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[11px] font-bold uppercase tracking-wider text-stone-300 block mb-1">
+                        New Password
+                      </label>
+                      <input
+                        type="password"
+                        value={resetNewPassword}
+                        onChange={e => setResetNewPassword(e.target.value)}
+                        placeholder="••••••••"
+                        className="neon-input"
+                        required
+                        minLength={6}
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-bold uppercase tracking-wider text-stone-300 block mb-1">
+                        Confirm Password
+                      </label>
+                      <input
+                        type="password"
+                        value={resetConfirmPassword}
+                        onChange={e => setResetConfirmPassword(e.target.value)}
+                        placeholder="••••••••"
+                        className="neon-input"
+                        required
+                        minLength={6}
+                      />
+                    </div>
+                  </div>
+
+                  {error && (
+                    <div className="p-2.5 bg-red-950/80 border border-red-500/50 rounded-lg text-xs text-red-200">
+                      {error}
+                    </div>
+                  )}
+
+                  {resetSuccess && (
+                    <div className="p-2.5 bg-emerald-950/80 border border-emerald-500/50 rounded-lg text-xs text-emerald-200">
+                      {resetSuccess}
+                    </div>
+                  )}
+
+                  <button type="submit" disabled={loading} className="neon-btn w-full text-sm">
+                    {loading ? 'Resetting & Authenticating...' : 'Reset Password & Sign In'}
+                  </button>
+
+                  <div className="text-center pt-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setError(null);
+                        setResetSuccess(null);
+                        setIsResetMode(false);
+                      }}
+                      className="text-xs text-stone-400 hover:text-white transition-colors cursor-pointer"
+                    >
+                      ← Back to Admin Login
+                    </button>
+                  </div>
+                </form>
+              </div>
+            ) : (
               <div>
-                <label className="text-[11px] font-bold uppercase tracking-wider text-stone-300 block mb-1">
-                  Password
-                </label>
-                <input
-                  type="password"
-                  value={loginPassword}
-                  onChange={e => setLoginPassword(e.target.value)}
-                  placeholder="••••••••"
-                  className="neon-input"
-                  required
-                />
+                <h2 className="text-3xl font-extrabold font-heading text-white tracking-tight mb-2 drop-shadow-[0_0_12px_#ff2e93]">
+                  Login
+                </h2>
+                <p className="text-xs text-stone-300 mb-6">
+                  {adminPortalMode ? 'Access the AirBus Administrative Control Portal' : 'Access your video stays, booking calendar, or host console.'}
+                </p>
+
+                <form onSubmit={handleLoginSubmit} className="space-y-4">
+                  <div>
+                    <label className="text-[11px] font-bold uppercase tracking-wider text-stone-300 block mb-1">
+                      Email Address
+                    </label>
+                    <input
+                      type="email"
+                      value={loginEmail}
+                      onChange={e => setLoginEmail(e.target.value)}
+                      placeholder="name@example.com"
+                      className="neon-input"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-[11px] font-bold uppercase tracking-wider text-stone-300">
+                        Password
+                      </label>
+                      {adminPortalMode && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setError(null);
+                            setResetSuccess(null);
+                            setIsResetMode(true);
+                          }}
+                          className="text-[11px] text-[#22d3ee] hover:underline font-semibold cursor-pointer"
+                        >
+                          Forgot / Reset Password?
+                        </button>
+                      )}
+                    </div>
+                    <input
+                      type="password"
+                      value={loginPassword}
+                      onChange={e => setLoginPassword(e.target.value)}
+                      placeholder="••••••••"
+                      className="neon-input"
+                      required
+                    />
+                  </div>
+
+                  {error && (
+                    <div className="p-2.5 bg-red-950/80 border border-red-500/50 rounded-lg text-xs text-red-200">
+                      {error}
+                    </div>
+                  )}
+
+                  <button type="submit" disabled={loading} className="neon-btn w-full text-sm">
+                    {loading ? 'Signing in...' : 'Login'}
+                  </button>
+
+                  {adminPortalMode && !canRegisterAdmin ? (
+                    <div className="space-y-2 mt-4 text-center">
+                      <div className="text-xs text-amber-300/80 bg-amber-950/40 border border-amber-800/50 py-1.5 px-3 rounded-xl font-medium">
+                        AirBus Administration · Single-Admin Active
+                      </div>
+                      <div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setError(null);
+                            setResetSuccess(null);
+                            setIsResetMode(true);
+                          }}
+                          className="text-xs text-stone-400 hover:text-white underline cursor-pointer"
+                        >
+                          Need to reset admin password? Click here
+                        </button>
+                      </div>
+                    </div>
+                  ) : adminPortalMode && canRegisterAdmin ? (
+                    <p className="text-center text-xs text-stone-400 mt-4">
+                      First-time platform setup?{' '}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setError(null);
+                          setIsSignUp(true);
+                        }}
+                        className="text-[#22d3ee] font-bold hover:underline cursor-pointer"
+                      >
+                        Setup Sole Admin Account
+                      </button>
+                    </p>
+                  ) : (
+                    <p className="text-center text-xs text-stone-400 mt-4">
+                      Don’t have an account?{' '}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setError(null);
+                          setIsSignUp(true);
+                        }}
+                        className="text-[#22d3ee] font-bold hover:underline cursor-pointer"
+                      >
+                        Sign Up
+                      </button>
+                    </p>
+                  )}
+                </form>
               </div>
-
-              {error && (
-                <div className="p-2.5 bg-red-950/80 border border-red-500/50 rounded-lg text-xs text-red-200">
-                  {error}
-                </div>
-              )}
-
-              <button type="submit" disabled={loading} className="neon-btn w-full text-sm">
-                {loading ? 'Signing in...' : 'Login'}
-              </button>
-
-              {adminPortalMode && !canRegisterAdmin ? (
-                <div className="text-center text-xs text-amber-300/80 mt-4 bg-amber-950/40 border border-amber-800/50 py-1.5 px-3 rounded-xl font-medium">
-                  AirBus Administration · Single-Admin Active
-                </div>
-              ) : adminPortalMode && canRegisterAdmin ? (
-                <p className="text-center text-xs text-stone-400 mt-4">
-                  First-time platform setup?{' '}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setError(null);
-                      setIsSignUp(true);
-                    }}
-                    className="text-[#22d3ee] font-bold hover:underline cursor-pointer"
-                  >
-                    Setup Sole Admin Account
-                  </button>
-                </p>
-              ) : (
-                <p className="text-center text-xs text-stone-400 mt-4">
-                  Don’t have an account?{' '}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setError(null);
-                      setIsSignUp(true);
-                    }}
-                    className="text-[#22d3ee] font-bold hover:underline cursor-pointer"
-                  >
-                    Sign Up
-                  </button>
-                </p>
-              )}
-            </form>
+            )}
           </div>
 
           {/* PANEL 2: Info Welcome Back (Right side when login is active) */}

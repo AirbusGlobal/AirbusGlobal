@@ -21,22 +21,22 @@ export const ChatModal: React.FC<ChatModalProps> = ({
   onSendMessage,
   onReplyOffer,
 }) => {
-  if (!isOpen || !stay) return null;
-
   const [inputText, setInputText] = useState('');
   const [offerInput, setOfferInput] = useState('');
   const [loading, setLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
-
-  const isHost = user?.email.toLowerCase() === (stay.ownerEmail || '').toLowerCase();
-  const myRole = isHost ? 'host' : 'guest';
-  const otherRole = isHost ? 'guest' : 'host';
 
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [thread?.messages]);
+
+  if (!isOpen || !stay) return null;
+
+  const isHost = user?.email.toLowerCase() === (stay.ownerEmail || '').toLowerCase();
+  const myRole = isHost ? 'host' : 'guest';
+  const otherRole = isHost ? 'guest' : 'host';
 
   const messages = thread?.messages || [];
   const lastMsg = messages[messages.length - 1];

@@ -17,7 +17,7 @@ export const AdminPortalLanding: React.FC<AdminPortalLandingProps> = ({
   const [hasAdmin, setHasAdmin] = useState(false);
   const [canRegisterAdmin, setCanRegisterAdmin] = useState(false);
   const [authModalOpen, setAuthModalOpen] = useState(false);
-  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+  const [authMode, setAuthMode] = useState<'login' | 'register' | 'reset-password'>('login');
   const [statusError, setStatusError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -124,6 +124,20 @@ export const AdminPortalLanding: React.FC<AdminPortalLandingProps> = ({
               <span>{canRegisterAdmin ? 'Sign in / Setup Admin' : 'Sign in to Admin Dashboard'}</span>
               <ArrowRight className="w-4 h-4 ml-1 opacity-80" />
             </button>
+
+            {/* Quick Reset Password Trigger */}
+            {!canRegisterAdmin && (
+              <button
+                type="button"
+                onClick={() => {
+                  setAuthMode('reset-password');
+                  setAuthModalOpen(true);
+                }}
+                className="mt-3 text-xs text-stone-400 hover:text-[#22d3ee] transition-colors underline cursor-pointer"
+              >
+                Forgot credentials? Reset admin password
+              </button>
+            )}
           </>
         )}
 

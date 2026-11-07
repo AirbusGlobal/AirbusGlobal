@@ -29,8 +29,6 @@ export const PlanModal: React.FC<PlanModalProps> = ({
   userWalletBalance = 0,
   onPayFromWallet,
 }) => {
-  if (!isOpen) return null;
-
   const [selectedTier, setSelectedTier] = useState<StayCategory>('Diamond');
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'annual'>('monthly');
   const [inPayStep, setInPayStep] = useState(walletMode);
@@ -45,6 +43,7 @@ export const PlanModal: React.FC<PlanModalProps> = ({
   const [pendingSub, setPendingSub] = useState<SubscriptionRecord | null>(null);
 
   useEffect(() => {
+    if (!isOpen) return;
     let isMounted = true;
     api.getCurrentSubscription()
       .then(res => {
@@ -56,7 +55,9 @@ export const PlanModal: React.FC<PlanModalProps> = ({
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [isOpen]);
+
+  if (!isOpen) return null;
 
   const tierDetails = {
     Silver: {

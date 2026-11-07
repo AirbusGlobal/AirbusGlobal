@@ -109,20 +109,18 @@ export const StayDetailModal: React.FC<StayDetailModalProps> = ({
   onOpenAuth,
   showToast,
 }) => {
-  if (!isOpen || !stay) return null;
-
   const todayStr = new Date().toISOString().slice(0, 10);
   const tomorrowStr = new Date(Date.now() + 864e5).toISOString().slice(0, 10);
 
   const [checkIn, setCheckIn] = useState(todayStr);
   const [checkOut, setCheckOut] = useState(new Date(Date.now() + 3 * 864e5).toISOString().slice(0, 10));
-  const [guestCount, setGuestCount] = useState(Math.min(2, stay.guests));
+  const [guestCount, setGuestCount] = useState(stay?.guests ? Math.min(2, stay.guests) : 2);
   const [guestNote, setGuestNote] = useState('');
   const [bookingLoading, setBookingLoading] = useState(false);
   const [confirmedBooking, setConfirmedBooking] = useState<Booking | null>(null);
   const [checkoutStep, setCheckoutStep] = useState<'details' | 'payment' | 'confirmation'>('details');
   const [selectedGifts, setSelectedGifts] = useState<string[]>(
-    stay.welcomeGifts && stay.welcomeGifts.length > 0
+    stay?.welcomeGifts && stay.welcomeGifts.length > 0
       ? stay.welcomeGifts.slice(0, 3)
       : ['Kenyan Safari Kahawa & Fresh Ground AA Coffee Beans']
   );
@@ -146,14 +144,14 @@ export const StayDetailModal: React.FC<StayDetailModalProps> = ({
   const [mediaMode, setMediaMode] = useState<'video' | 'gallery'>('video');
 
   // Social metrics states (Local reactive for instant feedback)
-  const isInitiallyLiked = user ? (stay.likedByUserEmails || []).includes(user.email) : false;
-  const isInitiallyFollowing = user && stay.owner ? (stay.hostFollowedByUserEmails || []).includes(user.email) : false;
+  const isInitiallyLiked = user && stay ? (stay.likedByUserEmails || []).includes(user.email) : false;
+  const isInitiallyFollowing = user && stay?.owner ? (stay.hostFollowedByUserEmails || []).includes(user.email) : false;
 
   const [liked, setLiked] = useState(isInitiallyLiked);
-  const [likesCount, setLikesCount] = useState(stay.likesCount || 0);
+  const [likesCount, setLikesCount] = useState(stay?.likesCount || 0);
   const [isFollowing, setIsFollowing] = useState(isInitiallyFollowing);
-  const [followerCount, setFollowerCount] = useState(stay.hostFollowerCount || 12);
-  const [viewsCount, setViewsCount] = useState(stay.views || 0);
+  const [followerCount, setFollowerCount] = useState(stay?.hostFollowerCount || 12);
+  const [viewsCount, setViewsCount] = useState(stay?.views || 0);
 
   // AirBus.AI Concierge State
   const [aiQuestion, setAiQuestion] = useState('');
@@ -161,7 +159,7 @@ export const StayDetailModal: React.FC<StayDetailModalProps> = ({
   const [aiAnswer, setAiAnswer] = useState<string | null>(null);
 
   // Comments State
-  const [comments, setComments] = useState<VideoComment[]>(stay.comments || []);
+  const [comments, setComments] = useState<VideoComment[]>(stay?.comments || []);
   const [newCommentText, setNewCommentText] = useState('');
   const [activeReplyId, setActiveReplyId] = useState<string | null>(null);
   const [replyText, setReplyText] = useState('');
@@ -184,7 +182,6 @@ export const StayDetailModal: React.FC<StayDetailModalProps> = ({
     loadActiveAds();
   }, [stay?.id]);
 
-
   // Record view on open
   useEffect(() => {
     if (stay?.id) {
@@ -198,6 +195,42 @@ export const StayDetailModal: React.FC<StayDetailModalProps> = ({
         .catch(() => {});
     }
   }, [stay?.id]);
+
+  // Load real-time stats
+  useEffect(() => {
+    if (!stay?.id) return;
+    api.getListingStats(stay.id)
+      .then(res => {
+        if (res) {
+          setFollowerCount(res.followerCount ?? followerCount);
+          setIsFollowing(res.isFollowing ?? isFollowing);
+          setLikesCount(res.likesCount ?? likesCount);
+          setLiked(res.isLiked ?? liked);
+          setViewsCount(res.viewsCount ?? viewsCount);
+        }
+      })
+      .catch(() => {});
+  }, [stay?.id]);
+
+  // Sync state if stay changes
+  useEffect(() => {
+    if (stay) {
+      setGuestCount(Math.min(2, stay.guests));
+      setSelectedGifts(
+        stay.welcomeGifts && stay.welcomeGifts.length > 0
+          ? stay.welcomeGifts.slice(0, 3)
+          : ['Kenyan Safari Kahawa & Fresh Ground AA Coffee Beans']
+      );
+      setComments(stay.comments || []);
+      setLikesCount(stay.likesCount || 0);
+      setFollowerCount(stay.hostFollowerCount || 12);
+      setViewsCount(stay.views || 0);
+      setLiked(user ? (stay.likedByUserEmails || []).includes(user.email) : false);
+      setIsFollowing(user && stay.owner ? (stay.hostFollowedByUserEmails || []).includes(user.email) : false);
+    }
+  }, [stay?.id, user?.email]);
+
+  if (!isOpen || !stay) return null;
 
   const formatMoney = (val: number) => {
     const rate = CURRENCY_RATES[currency] || 1;
@@ -245,21 +278,6 @@ export const StayDetailModal: React.FC<StayDetailModalProps> = ({
       ];
     }
   };
-
-  // Load real-time stats
-  useEffect(() => {
-    api.getListingStats(stay.id)
-      .then(res => {
-        if (res) {
-          setFollowerCount(res.followerCount ?? followerCount);
-          setIsFollowing(res.isFollowing ?? isFollowing);
-          setLikesCount(res.likesCount ?? likesCount);
-          setLiked(res.isLiked ?? liked);
-          setViewsCount(res.viewsCount ?? viewsCount);
-        }
-      })
-      .catch(() => {});
-  }, [stay.id]);
 
   // Handle like toggle with optimistic updates
   const handleToggleLike = async () => {

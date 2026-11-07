@@ -119,6 +119,19 @@ const SEED_USERS: User[] = [
     idVerified: true,
     createdAt: Date.now() - 60 * 864e5,
   },
+  {
+    id: 'u_admin_master',
+    name: 'Kamala Hari',
+    email: 'kamalahari93@gmail.com',
+    role: 'admin',
+    passwordHash: hashPassword('2019xyz//'),
+    phone: '+254 700 000 001',
+    location: 'Headquarters, Nairobi',
+    bio: 'Lead Platform Administrator at AirBus Global.',
+    languages: 'English, Swahili',
+    idVerified: true,
+    createdAt: Date.now() - 120 * 864e5,
+  },
 ];
 
 const SEED_COMMENTS: VideoComment[] = [
@@ -1662,6 +1675,16 @@ class DatabaseStore {
       }
     }
 
+    this.save();
+    return admin;
+  }
+
+  public resetAdminPassword(email: string, newPasswordHash: string): User {
+    const admin = this.findUserByEmail(email);
+    if (!admin || admin.role !== 'admin') {
+      throw new Error('No administrator account found with this email.');
+    }
+    admin.passwordHash = newPasswordHash;
     this.save();
     return admin;
   }

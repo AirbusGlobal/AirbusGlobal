@@ -17,11 +17,11 @@ export const NegotiateModal: React.FC<NegotiateModalProps> = ({
   onSubmitOffer,
   currency,
 }) => {
-  if (!isOpen || !stay) return null;
-
-  const [offerAmount, setOfferAmount] = useState<number>(Math.round(stay.price * 0.9));
+  const [offerAmount, setOfferAmount] = useState<number>(stay?.price ? Math.round(stay.price * 0.9) : 0);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  if (!isOpen || !stay) return null;
 
   const formatMoney = (val: number) => {
     const rate = CURRENCY_RATES[currency] || 1;

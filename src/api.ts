@@ -487,6 +487,21 @@ export const api = {
     return res;
   },
 
+  async resetAdminPassword(data: {
+    email: string;
+    setupKey: string;
+    newPassword: string;
+  }): Promise<{ user: User; token: string; message: string }> {
+    const res = await this.request<{ user: User; token: string; message: string }>('/api/admin-portal/reset-password', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+    if (res.token) {
+      this.setToken(res.token);
+    }
+    return res;
+  },
+
   logout() {
     this.setToken(null);
   },

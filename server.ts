@@ -192,6 +192,45 @@ app.post('/api/admin/change-credentials', (req, res) => {
   }
 });
 
+// Reset Admin Password (using admin email and secret setup key)
+app.post('/api/admin-portal/reset-password', (req, res) => {
+  try {
+    const clientIp = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || 'unknown';
+    const rateCheck = checkRateLimit(adminSetupRateLimitMap, `reset_${clientIp}`, 5, 15 * 60 * 1000);
+    if (!rateCheck.allowed) {
+      return res.status(429).json({
+        error: `Too many password reset attempts. Please try again in ${rateCheck.retryAfterSeconds} seconds.`,
+      });
+    }
+
+    const { email, setupKey, newPassword } = req.body;
+    if (!email || !setupKey || !newPassword) {
+      return res.status(400).json({ error: 'Admin email, setup key, and new password are required.' });
+    }
+
+    const expectedSetupKey = process.env.ADMIN_SETUP_KEY || 'airbus-setup-2026';
+    if (String(setupKey).trim() !== expectedSetupKey.trim()) {
+      return res.status(401).json({ error: 'Invalid admin setup key.' });
+    }
+
+    if (String(newPassword).length < 6) {
+      return res.status(400).json({ error: 'New password must be at least 6 characters long.' });
+    }
+
+    const cleanEmail = String(email).trim().toLowerCase();
+    const updated = db.resetAdminPassword(cleanEmail, hashPassword(String(newPassword)));
+
+    const { passwordHash, ...safeUser } = updated as any;
+    return res.json({
+      message: 'Admin password reset successfully.',
+      user: safeUser,
+      token: safeUser.email,
+    });
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'Failed to reset admin password.' });
+  }
+});
+
 // Public Authentication (Never allows admin registration)
 app.post('/api/auth/register', (req, res) => {
   try {
