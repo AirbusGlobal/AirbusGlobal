@@ -17,6 +17,8 @@ import {
   TripDatingPaymentRequest,
   TripDatingProfile,
   TripDatingStats,
+  ListingReport,
+  Review,
 } from '../types';
 import {
   ShieldCheck,
@@ -54,8 +56,14 @@ import {
   Key,
   Lock,
   Shield,
+  Images,
+  Flag,
+  ShieldAlert,
+  Search,
+  Filter,
 } from 'lucide-react';
 import { api } from '../api';
+import { ListingMediaViewer } from './ListingMediaViewer';
 
 interface AdminDashboardProps {
   adminUser: User;
@@ -107,13 +115,63 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onUpdateAdminUser,
 }) => {
   const [tab, setTab] = useState<
-    'queue' | 'posts' | 'ads' | 'withdrawals' | 'settings' | 'treasury' | 'listings' | 'plans' | 'dormant' | 'users' | 'negotiations' | 'audit' | 'trip-dating'
+    'queue' | 'ads' | 'plans' | 'listings' | 'media' | 'users' | 'reports' | 'reviews' | 'audit' | 'posts' | 'withdrawals' | 'settings' | 'treasury' | 'dormant' | 'negotiations' | 'trip-dating'
   >('queue');
 
   // Plan adjustment form state
   const [targetHost, setTargetHost] = useState(users.find(u => u.role === 'owner')?.email || 'owner@airbus.ke');
   const [targetTier, setTargetTier] = useState('Diamond');
   const [adjustDays, setAdjustDays] = useState(30);
+
+  // Listing Media Moderation Queue State
+  const [listingMediaList, setListingMediaList] = useState<any[]>([]);
+  const [mediaTypeFilter, setMediaTypeFilter] = useState<'all' | 'video' | 'photos' | 'both'>('all');
+  const [mediaFlaggedOnly, setMediaFlaggedOnly] = useState(false);
+  const [mediaSearch, setMediaSearch] = useState('');
+  const [mediaActionLoading, setMediaActionLoading] = useState(false);
+
+  // Subscriptions Moderation Queue State
+  const [adminSubscriptions, setAdminSubscriptions] = useState<any[]>([]);
+  const [subActionLoading, setSubActionLoading] = useState(false);
+  const [extendDaysModalSub, setExtendDaysModalSub] = useState<any | null>(null);
+  const [extendDaysCount, setExtendDaysCount] = useState(30);
+
+  // Reports & Flags Queue State
+  const [adminReports, setAdminReports] = useState<ListingReport[]>([]);
+  const [reportActionLoading, setReportActionLoading] = useState(false);
+
+  // Reviews Moderation Queue State
+  const [adminReviews, setAdminReviews] = useState<any[]>([]);
+  const [reviewActionLoading, setReviewActionLoading] = useState(false);
+
+  // Listings Moderation State
+  const [listingRejectModalStay, setListingRejectModalStay] = useState<Stay | null>(null);
+  const [listingRejectReason, setListingRejectReason] = useState('Listing does not meet content guidelines.');
+  const [listingActionLoading, setListingActionLoading] = useState(false);
+
+  // Adverts Moderation State
+  const [adRejectModalId, setAdRejectModalId] = useState<string | null>(null);
+  const [adRejectReason, setAdRejectReason] = useState('Inappropriate target URL or content.');
+
+  // Queue View Filters
+  const [reportFilter, setReportFilter] = useState<'all' | 'pending' | 'resolved' | 'dismissed'>('all');
+  const [reviewFilter, setReviewFilter] = useState<'all' | 'approved' | 'hidden' | 'flagged'>('all');
+  const [userFilter, setUserFilter] = useState<'all' | 'hosts' | 'suspended'>('all');
+
+  // Live Sync Stats
+  const [liveCounts, setLiveCounts] = useState<{
+    pendingPayments: number;
+    pendingStays: number;
+    flaggedMedia: number;
+    pendingReports: number;
+    unreadNotifs: number;
+  }>({
+    pendingPayments: 0,
+    pendingStays: 0,
+    flaggedMedia: 0,
+    pendingReports: 0,
+    unreadNotifs: 0,
+  });
 
   // New Domain Collections State
   const [posts, setPosts] = useState<Post[]>([]);
@@ -243,6 +301,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       setDatingStats(res.stats);
       setDatingProfiles(res.profiles || []);
     }).catch(() => {});
+    api.getAdminListingMedia({ type: mediaTypeFilter, flaggedOnly: mediaFlaggedOnly, search: mediaSearch }).then(res => {
+      if (res && res.media) setListingMediaList(res.media);
+    }).catch(() => {});
+    api.getAdminSubscriptions().then(res => {
+      if (res && res.subscriptions) setAdminSubscriptions(res.subscriptions);
+    }).catch(() => {});
+    api.getAdminReports().then(res => {
+      if (res && res.reports) setAdminReports(res.reports);
+    }).catch(() => {});
+    api.getAdminReviews().then(res => {
+      if (res && res.reviews) setAdminReviews(res.reviews);
+    }).catch(() => {});
+    api.getLiveUpdates().then(res => {
+      if (res && res.counts) setLiveCounts(res.counts);
+    }).catch(() => {});
   };
 
   const handleDelistOwner = async (email: string) => {
@@ -276,6 +349,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   useEffect(() => {
     loadAdminData();
+    const interval = setInterval(() => {
+      api.getLiveUpdates().then(res => {
+        if (res && res.counts) setLiveCounts(res.counts);
+      }).catch(() => {});
+    }, 8000);
+    return () => clearInterval(interval);
   }, []);
 
   const currentPaymentsList = allPayments.length > 0 ? allPayments : payments;
@@ -355,8 +434,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
       </div>
 
-      {/* Tabs */}
+      {/* Tabs - 9 Primary Moderation Queues First */}
       <div className="flex items-center gap-2 overflow-x-auto pb-3 mb-6 border-b border-stone-200 dark:border-stone-800 text-xs font-bold">
+        {/* 1. Payments */}
         <button
           onClick={() => setTab('queue')}
           className={`px-3.5 py-2 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ${
@@ -366,7 +446,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           }`}
         >
           <CreditCard className="w-4 h-4" />
-          <span>Payments</span>
+          <span>1. Payments</span>
           {pendingPayments.length > 0 && (
             <span className="ml-1 px-1.5 py-0.5 rounded-full bg-rose-600 text-white text-[10px] font-black animate-pulse">
               {pendingPayments.length}
@@ -374,6 +454,121 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           )}
         </button>
 
+        {/* 2. Adverts */}
+        <button
+          onClick={() => setTab('ads')}
+          className={`px-3.5 py-2 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ${
+            tab === 'ads'
+              ? 'bg-amber-500 text-stone-950 font-extrabold shadow-sm'
+              : 'text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800'
+          }`}
+        >
+          <Megaphone className="w-4 h-4 text-purple-500" />
+          <span>2. Adverts ({ads.filter(a => a.status === 'pending').length})</span>
+        </button>
+
+        {/* 3. Subscriptions */}
+        <button
+          onClick={() => setTab('plans')}
+          className={`px-3.5 py-2 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ${
+            tab === 'plans'
+              ? 'bg-amber-500 text-stone-950 font-extrabold shadow-sm'
+              : 'text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800'
+          }`}
+        >
+          <Calendar className="w-4 h-4 text-blue-500" />
+          <span>3. Subscriptions ({adminSubscriptions.length})</span>
+        </button>
+
+        {/* 4. Listings */}
+        <button
+          onClick={() => setTab('listings')}
+          className={`px-3.5 py-2 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ${
+            tab === 'listings'
+              ? 'bg-amber-500 text-stone-950 font-extrabold shadow-sm'
+              : 'text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800'
+          }`}
+        >
+          <Building className="w-4 h-4 text-emerald-500" />
+          <span>4. Listings ({stays.length})</span>
+          {stays.filter(s => s.status === 'review').length > 0 && (
+            <span className="ml-1 px-1.5 py-0.5 rounded-full bg-amber-500 text-stone-950 text-[10px] font-black">
+              {stays.filter(s => s.status === 'review').length}
+            </span>
+          )}
+        </button>
+
+        {/* 5. Listing Media */}
+        <button
+          onClick={() => setTab('media')}
+          className={`px-3.5 py-2 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ${
+            tab === 'media'
+              ? 'bg-amber-500 text-stone-950 font-extrabold shadow-sm'
+              : 'text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800'
+          }`}
+        >
+          <Images className="w-4 h-4 text-[#ff2e93]" />
+          <span>5. Listing Media ({listingMediaList.length})</span>
+          {listingMediaList.filter(m => m.mediaModerationStatus === 'flagged').length > 0 && (
+            <span className="ml-1 px-1.5 py-0.5 rounded-full bg-rose-600 text-white text-[10px] font-black">
+              {listingMediaList.filter(m => m.mediaModerationStatus === 'flagged').length}
+            </span>
+          )}
+        </button>
+
+        {/* 6. Users & Hosts */}
+        <button
+          onClick={() => setTab('users')}
+          className={`px-3.5 py-2 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ${
+            tab === 'users'
+              ? 'bg-amber-500 text-stone-950 font-extrabold shadow-sm'
+              : 'text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800'
+          }`}
+        >
+          <Users className="w-4 h-4 text-indigo-500" />
+          <span>6. Users ({users.length})</span>
+        </button>
+
+        {/* 7. Reports & Flags */}
+        <button
+          onClick={() => setTab('reports')}
+          className={`px-3.5 py-2 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ${
+            tab === 'reports'
+              ? 'bg-amber-500 text-stone-950 font-extrabold shadow-sm'
+              : 'text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800'
+          }`}
+        >
+          <Flag className="w-4 h-4 text-amber-500" />
+          <span>7. Reports ({adminReports.filter(r => r.status === 'pending').length})</span>
+        </button>
+
+        {/* 8. Reviews */}
+        <button
+          onClick={() => setTab('reviews')}
+          className={`px-3.5 py-2 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ${
+            tab === 'reviews'
+              ? 'bg-amber-500 text-stone-950 font-extrabold shadow-sm'
+              : 'text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800'
+          }`}
+        >
+          <Star className="w-4 h-4 text-amber-400" />
+          <span>8. Reviews ({adminReviews.length})</span>
+        </button>
+
+        {/* 9. Audit Log */}
+        <button
+          onClick={() => setTab('audit')}
+          className={`px-3.5 py-2 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ${
+            tab === 'audit'
+              ? 'bg-amber-500 text-stone-950 font-extrabold shadow-sm'
+              : 'text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800'
+          }`}
+        >
+          <History className="w-4 h-4 text-emerald-400" />
+          <span>9. Audit Log</span>
+        </button>
+
+        {/* Additional Utility Tabs */}
         <button
           onClick={() => setTab('trip-dating')}
           className={`px-3.5 py-2 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ${
@@ -383,7 +578,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           }`}
         >
           <Flame className="w-4 h-4 text-rose-500" />
-          <span>Trip Dating KES 50 ({datingRequests.filter(r => r.status === 'pending').length})</span>
+          <span>Trip Dating ({datingRequests.filter(r => r.status === 'pending').length})</span>
         </button>
 
         <button
@@ -396,18 +591,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         >
           <Film className="w-4 h-4 text-[#ff2e93]" />
           <span>Posts Queue ({posts.filter(p => p.status === 'pending').length})</span>
-        </button>
-
-        <button
-          onClick={() => setTab('ads')}
-          className={`px-3.5 py-2 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ${
-            tab === 'ads'
-              ? 'bg-amber-500 text-stone-950 font-extrabold shadow-sm'
-              : 'text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800'
-          }`}
-        >
-          <Megaphone className="w-4 h-4 text-purple-500" />
-          <span>Ad Approvals 70/30 ({ads.filter(a => a.status === 'pending').length})</span>
         </button>
 
         <button
@@ -443,31 +626,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           }`}
         >
           <TrendingUp className="w-4 h-4 text-emerald-400" />
-          <span>Treasury & Ledger</span>
-        </button>
-
-        <button
-          onClick={() => setTab('listings')}
-          className={`px-3.5 py-2 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ${
-            tab === 'listings'
-              ? 'bg-amber-500 text-stone-950 font-extrabold shadow-sm'
-              : 'text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800'
-          }`}
-        >
-          <Building className="w-4 h-4" />
-          <span>Listings ({stays.length})</span>
-        </button>
-
-        <button
-          onClick={() => setTab('plans')}
-          className={`px-3.5 py-2 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ${
-            tab === 'plans'
-              ? 'bg-amber-500 text-stone-950 font-extrabold shadow-sm'
-              : 'text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800'
-          }`}
-        >
-          <Calendar className="w-4 h-4" />
-          <span>Plans</span>
+          <span>Treasury</span>
         </button>
 
         <button
@@ -479,19 +638,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           }`}
         >
           <UserX className="w-4 h-4 text-red-500" />
-          <span>Dormant Owners ({dormantOwners.length})</span>
-        </button>
-
-        <button
-          onClick={() => setTab('users')}
-          className={`px-3.5 py-2 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ${
-            tab === 'users'
-              ? 'bg-amber-500 text-stone-950 font-extrabold shadow-sm'
-              : 'text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800'
-          }`}
-        >
-          <Users className="w-4 h-4" />
-          <span>Users ({users.length})</span>
+          <span>Dormant Hosts ({dormantOwners.length})</span>
         </button>
 
         <button
@@ -502,20 +649,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               : 'text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800'
           }`}
         >
-          <MessageSquare className="w-4 h-4" />
+          <MessageSquare className="w-4 h-4 text-cyan-400" />
           <span>Negotiations ({threads.length})</span>
-        </button>
-
-        <button
-          onClick={() => setTab('audit')}
-          className={`px-3.5 py-2 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ${
-            tab === 'audit'
-              ? 'bg-amber-500 text-stone-950 font-extrabold shadow-sm'
-              : 'text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800'
-          }`}
-        >
-          <History className="w-4 h-4" />
-          <span>Audit</span>
         </button>
       </div>
 
@@ -1804,10 +1939,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2 shrink-0">
+                <div className="flex flex-wrap items-center gap-1.5 shrink-0 justify-end">
                   <button
                     onClick={() => onUpdateStay(s.id, { isFeatured: !s.isFeatured })}
-                    className={`px-3 py-1.5 rounded-full text-xs font-bold border transition-colors cursor-pointer ${
+                    className={`px-2.5 py-1 rounded-full text-[11px] font-bold border transition-colors cursor-pointer ${
                       s.isFeatured
                         ? 'bg-amber-50 border-amber-300 text-amber-800'
                         : 'border-stone-200 dark:border-stone-700 hover:bg-stone-50'
@@ -1816,23 +1951,69 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     {s.isFeatured ? 'Unfeature' : 'Feature'}
                   </button>
 
-                  {s.status === 'review' && (
+                  {s.status === 'review' || s.moderationStatus === 'pending' ? (
                     <button
-                      onClick={() => onUpdateStay(s.id, { status: 'live' })}
-                      className="px-3 py-1.5 bg-emerald-600 text-white rounded-full text-xs font-bold hover:bg-emerald-500 cursor-pointer"
+                      onClick={async () => {
+                        await api.adminModerateStay(s.id, { action: 'approve' });
+                        showToast?.(`Listing "${s.title}" approved and live!`);
+                        loadAdminData();
+                      }}
+                      className="px-3 py-1 bg-emerald-600 text-white rounded-full text-[11px] font-bold hover:bg-emerald-500 cursor-pointer shadow-xs"
                     >
                       Approve Live
                     </button>
-                  )}
+                  ) : null}
 
                   <button
-                    onClick={() => {
-                      if (window.confirm('Delete this listing permanently as admin?')) {
-                        onDeleteStay(s.id);
+                    onClick={() => setListingRejectModalStay(s)}
+                    className="px-2.5 py-1 bg-stone-100 dark:bg-stone-800 hover:bg-amber-100 text-amber-700 dark:text-amber-300 rounded-full text-[11px] font-bold cursor-pointer"
+                  >
+                    Reject
+                  </button>
+
+                  <button
+                    onClick={async () => {
+                      const isSuspended = s.moderationStatus === 'suspended';
+                      await api.adminModerateStay(s.id, {
+                        action: isSuspended ? 'unsuspend' : 'suspend',
+                        reason: isSuspended ? undefined : 'Administrative safety suspension',
+                      });
+                      showToast?.(isSuspended ? 'Stay restored to live.' : 'Stay suspended.');
+                      loadAdminData();
+                    }}
+                    className={`px-2.5 py-1 rounded-full text-[11px] font-bold cursor-pointer ${
+                      s.moderationStatus === 'suspended'
+                        ? 'bg-amber-600 text-white'
+                        : 'bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 hover:bg-amber-50'
+                    }`}
+                  >
+                    {s.moderationStatus === 'suspended' ? 'Unsuspend' : 'Suspend'}
+                  </button>
+
+                  <button
+                    onClick={async () => {
+                      await api.adminModerateStay(s.id, {
+                        action: s.isDelisted ? 'relist' : 'delist',
+                        reason: 'Admin delist action',
+                      });
+                      showToast?.(s.isDelisted ? 'Listing relisted.' : 'Listing delisted.');
+                      loadAdminData();
+                    }}
+                    className="px-2.5 py-1 bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 text-stone-600 dark:text-stone-300 rounded-full text-[11px] font-bold cursor-pointer"
+                  >
+                    {s.isDelisted ? 'Relist' : 'Delist'}
+                  </button>
+
+                  <button
+                    onClick={async () => {
+                      if (window.confirm(`Permanently delete "${s.title}" from platform?`)) {
+                        await api.adminModerateStay(s.id, { action: 'delete' });
+                        showToast?.('Listing permanently deleted.');
+                        loadAdminData();
                       }
                     }}
                     className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-full cursor-pointer"
-                    title="Delete listing"
+                    title="Delete permanently"
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
@@ -1844,65 +2025,451 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
       )}
 
-      {/* TAB 3: SUBSCRIPTION CONTROLS */}
-      {tab === 'plans' && (
-        <div className="max-w-xl mx-auto bg-white dark:bg-[#15171e] p-6 rounded-3xl border border-stone-200 dark:border-stone-800 shadow-sm space-y-4">
-          <h3 className="text-base font-bold text-stone-900 dark:text-white">Host Subscription Plan Controls</h3>
-          <p className="text-xs text-stone-500">
-            Directly modify or extend subscription plans for any registered host account.
-          </p>
-
-          <div>
-            <label className="text-xs font-bold text-stone-700 dark:text-stone-300 block mb-1">Target Host Email</label>
-            <select
-              value={targetHost}
-              onChange={e => setTargetHost(e.target.value)}
-              className="w-full px-3 py-2 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-xs outline-none"
-            >
-              {users.map(u => (
-                <option key={u.email} value={u.email}>
-                  {u.name} ({u.email}) - {u.role}
-                </option>
-              ))}
-            </select>
+      {/* TAB 5: LISTING MEDIA REVIEW QUEUE (VIDEO TOUR / PHOTOS) */}
+      {tab === 'media' && (
+        <div className="space-y-6">
+          <div className="p-5 rounded-3xl bg-gradient-to-r from-rose-950/40 via-stone-900 to-purple-950/30 border border-rose-500/20 text-white space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="p-2 rounded-xl bg-rose-500/20 text-[#e4002b]">
+                <Images className="w-5 h-5" />
+              </span>
+              <div>
+                <h3 className="text-base font-extrabold font-heading text-white">
+                  Listing Media Moderation &amp; Review Studio
+                </h3>
+                <p className="text-xs text-stone-300">
+                  Inspect high-definition video walkthroughs and photo galleries across all stays. Remove violating video or photos, flag listings, and preview the guest experience.
+                </p>
+              </div>
+            </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          {/* Filters & Search */}
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 bg-white dark:bg-[#15171e] rounded-2xl border border-stone-200 dark:border-stone-800 shadow-sm">
+            <div className="flex flex-wrap items-center gap-2">
+              {[
+                { id: 'all', label: `All (${listingMediaList.length})` },
+                { id: 'both', label: 'Both (Video & Photos)' },
+                { id: 'video', label: 'Video Only' },
+                { id: 'photos', label: 'Photos Only' },
+              ].map(f => (
+                <button
+                  key={f.id}
+                  onClick={() => {
+                    setMediaTypeFilter(f.id as any);
+                    api.getAdminListingMedia({ type: f.id, flaggedOnly: mediaFlaggedOnly, search: mediaSearch }).then(res => setListingMediaList(res.media || []));
+                  }}
+                  className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer ${
+                    mediaTypeFilter === f.id
+                      ? 'bg-[#e4002b] text-white shadow-sm'
+                      : 'bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-400 hover:bg-stone-200'
+                  }`}
+                >
+                  {f.label}
+                </button>
+              ))}
+
+              <button
+                onClick={() => {
+                  const next = !mediaFlaggedOnly;
+                  setMediaFlaggedOnly(next);
+                  api.getAdminListingMedia({ type: mediaTypeFilter, flaggedOnly: next, search: mediaSearch }).then(res => setListingMediaList(res.media || []));
+                }}
+                className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                  mediaFlaggedOnly
+                    ? 'bg-rose-600 text-white shadow-sm'
+                    : 'bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-400'
+                }`}
+              >
+                <Flag className="w-3 h-3" />
+                <span>Flagged Only</span>
+              </button>
+            </div>
+
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <div className="relative flex-1 sm:w-60">
+                <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
+                <input
+                  type="text"
+                  value={mediaSearch}
+                  onChange={e => {
+                    setMediaSearch(e.target.value);
+                    api.getAdminListingMedia({ type: mediaTypeFilter, flaggedOnly: mediaFlaggedOnly, search: e.target.value }).then(res => setListingMediaList(res.media || []));
+                  }}
+                  placeholder="Search listings..."
+                  className="w-full pl-8 pr-3 py-1.5 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-xs outline-none"
+                />
+              </div>
+              <button
+                onClick={() => {
+                  api.getAdminListingMedia({ type: mediaTypeFilter, flaggedOnly: mediaFlaggedOnly, search: mediaSearch }).then(res => setListingMediaList(res.media || []));
+                }}
+                className="p-2 rounded-xl border border-stone-200 dark:border-stone-800 hover:bg-stone-50 text-stone-600 cursor-pointer"
+                title="Refresh media queue"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+
+          {/* Media Items Grid */}
+          {listingMediaList.length === 0 ? (
+            <div className="p-12 text-center bg-white dark:bg-[#15171e] rounded-3xl border border-dashed border-stone-200 dark:border-stone-800 text-xs text-stone-400">
+              No listings matching this media filter.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {listingMediaList.map(item => (
+                <div
+                  key={item.stayId}
+                  className={`p-5 bg-white dark:bg-[#15171e] rounded-3xl border shadow-sm space-y-4 ${
+                    item.mediaModerationStatus === 'flagged'
+                      ? 'border-rose-400 dark:border-rose-800 bg-rose-50/10'
+                      : 'border-stone-200 dark:border-stone-800'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="flex items-center gap-1.5 mb-1 flex-wrap">
+                        <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300">
+                          {item.hasVideo && item.hasPhotos ? 'Video + Photos' : item.hasVideo ? 'Video Only' : 'Photos Only'}
+                        </span>
+                        {item.mediaModerationStatus === 'flagged' && (
+                          <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-rose-500 text-white flex items-center gap-0.5">
+                            <Flag className="w-3 h-3 fill-current" /> Flagged
+                          </span>
+                        )}
+                        <span className="text-[10px] uppercase font-bold text-stone-400">
+                          Status: {item.status}
+                        </span>
+                      </div>
+                      <h4 className="text-sm font-extrabold text-stone-900 dark:text-white">
+                        {item.title}
+                      </h4>
+                      <p className="text-xs text-stone-500">
+                        📍 {item.location} · Host: <span className="font-mono">{item.ownerEmail}</span>
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={async () => {
+                          const nextStatus = item.mediaModerationStatus === 'flagged' ? 'clean' : 'flagged';
+                          await api.adminFlagStayMedia(item.stayId, {
+                            status: nextStatus,
+                            reason: nextStatus === 'flagged' ? 'Administrative flag' : 'Cleared flag',
+                          });
+                          showToast?.(`Media status updated to ${nextStatus}.`);
+                          loadAdminData();
+                        }}
+                        className={`px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${
+                          item.mediaModerationStatus === 'flagged'
+                            ? 'bg-emerald-600 text-white hover:bg-emerald-500'
+                            : 'bg-rose-50 dark:bg-rose-950/40 text-rose-600 border border-rose-300 dark:border-rose-800 hover:bg-rose-100'
+                        }`}
+                      >
+                        {item.mediaModerationStatus === 'flagged' ? 'Mark Clean' : 'Flag Media'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Reusable Interactive Viewer */}
+                  <div className="rounded-2xl overflow-hidden border border-stone-200 dark:border-stone-800 bg-black">
+                    <ListingMediaViewer
+                      media={{
+                        video: item.video,
+                        photos: item.photos,
+                      }}
+                      videoUrl={item.videoUrl}
+                      images={item.images}
+                      thumbnailUrl={item.thumbnailUrl}
+                      title={item.title}
+                      aspectRatio="video"
+                    />
+                  </div>
+
+                  {/* Granular Removal Controls */}
+                  <div className="p-3 bg-stone-50 dark:bg-stone-900 rounded-2xl border border-stone-200 dark:border-stone-800 space-y-2">
+                    <span className="text-[10px] font-black uppercase text-stone-400 block tracking-wider">
+                      Administrative Media Moderation
+                    </span>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {item.hasVideo && (
+                        <button
+                          onClick={async () => {
+                            if (window.confirm(`Remove video tour from "${item.title}"?`)) {
+                              await api.adminRemoveStayMedia(item.stayId, {
+                                mediaType: 'video',
+                                reason: 'Violated content guidelines',
+                              });
+                              showToast?.('Video removed from stay.');
+                              loadAdminData();
+                            }
+                          }}
+                          className="px-3 py-1 bg-rose-50 dark:bg-rose-950/40 text-rose-600 rounded-lg text-xs font-bold border border-rose-200 dark:border-rose-800 hover:bg-rose-100 cursor-pointer flex items-center gap-1"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>Remove Video</span>
+                        </button>
+                      )}
+
+                      {item.photos && item.photos.length > 0 && (
+                        <span className="text-xs text-stone-500 font-semibold">
+                          {item.photos.length} photos available
+                        </span>
+                      )}
+
+                      <button
+                        onClick={async () => {
+                          if (window.confirm(`Suspend listing "${item.title}"?`)) {
+                            await api.adminModerateStay(item.stayId, {
+                              action: 'suspend',
+                              reason: 'Flagged inappropriate media content',
+                            });
+                            showToast?.('Listing suspended.');
+                            loadAdminData();
+                          }
+                        }}
+                        className="ml-auto px-3 py-1 bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 rounded-lg text-xs font-bold border border-amber-200 dark:border-amber-800 hover:bg-amber-100 cursor-pointer"
+                      >
+                        Suspend Listing
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* TAB 3: SUBSCRIPTION DIRECTORY & CONTROLS */}
+      {tab === 'plans' && (
+        <div className="space-y-6">
+          {/* Header & Metric Banner */}
+          <div className="p-5 rounded-3xl bg-gradient-to-r from-blue-950/40 via-stone-900 to-indigo-950/30 border border-blue-500/20 text-white space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="p-2 rounded-xl bg-blue-500/20 text-blue-400">
+                  <Calendar className="w-5 h-5" />
+                </span>
+                <div>
+                  <h3 className="text-base font-extrabold font-heading text-white">
+                    Host Subscription Plans &amp; Renewal Engine
+                  </h3>
+                  <p className="text-xs text-stone-300">
+                    Audit active, expired, and pending subscriptions. Approve renewals, stack additional days, or revoke access.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={loadAdminData}
+                className="px-3 py-1.5 rounded-full border border-stone-700 bg-stone-800 hover:bg-stone-700 text-xs font-bold text-stone-200 flex items-center gap-1.5 cursor-pointer"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>Refresh</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Subscriptions Table */}
+          <div className="bg-white dark:bg-[#15171e] rounded-3xl border border-stone-200 dark:border-stone-800 p-5 shadow-sm space-y-4">
+            <div className="flex items-center justify-between">
+              <h4 className="text-sm font-extrabold text-stone-900 dark:text-white">
+                Host Subscriptions Directory ({adminSubscriptions.length})
+              </h4>
+              <span className="text-xs font-mono text-stone-400">
+                {adminSubscriptions.filter(s => s.status === 'active').length} Active
+              </span>
+            </div>
+
+            {adminSubscriptions.length === 0 ? (
+              <div className="p-8 text-center text-xs text-stone-400 border border-dashed border-stone-200 dark:border-stone-800 rounded-2xl">
+                No subscription records found.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="border-b border-stone-200 dark:border-stone-800 text-[10px] text-stone-400 uppercase font-bold">
+                      <th className="py-2.5 px-3">Host / Owner</th>
+                      <th className="py-2.5 px-3">Tier</th>
+                      <th className="py-2.5 px-3">Billing</th>
+                      <th className="py-2.5 px-3">Status</th>
+                      <th className="py-2.5 px-3">Validity / Ends At</th>
+                      <th className="py-2.5 px-3">Days Left</th>
+                      <th className="py-2.5 px-3 text-right">Moderation Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-stone-100 dark:divide-stone-800">
+                    {adminSubscriptions.map(sub => {
+                      const ownerEmail = sub.ownerId || sub.owner_id || sub.id.replace('sub_host_', '');
+                      const now = Date.now();
+                      const daysLeft = sub.endsAt ? Math.ceil((sub.endsAt - now) / 864e5) : 0;
+                      const isExpired = daysLeft <= 0;
+
+                      return (
+                        <tr key={sub.id} className="hover:bg-stone-50 dark:hover:bg-stone-900/40 transition-colors">
+                          <td className="py-3 px-3">
+                            <span className="font-bold text-stone-900 dark:text-white block">
+                              {ownerEmail}
+                            </span>
+                            <span className="text-[10px] font-mono text-stone-400">ID: {sub.id}</span>
+                          </td>
+                          <td className="py-3 px-3">
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                              sub.tier === 'Gold'
+                                ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
+                                : sub.tier === 'Diamond'
+                                ? 'bg-cyan-100 text-cyan-800 dark:bg-cyan-950/60 dark:text-cyan-300'
+                                : 'bg-stone-100 text-stone-800 dark:bg-stone-800 dark:text-stone-300'
+                            }`}>
+                              {sub.tier || 'Diamond'}
+                            </span>
+                          </td>
+                          <td className="py-3 px-3 capitalize text-stone-600 dark:text-stone-300">
+                            {sub.billing || 'Monthly'}
+                          </td>
+                          <td className="py-3 px-3">
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase ${
+                              sub.status === 'active' && !isExpired
+                                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
+                                : sub.status === 'pending'
+                                ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
+                                : 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300'
+                            }`}>
+                              {sub.status === 'active' && isExpired ? 'Expired' : sub.status || 'Active'}
+                            </span>
+                          </td>
+                          <td className="py-3 px-3 text-stone-600 dark:text-stone-400 font-mono text-[11px]">
+                            {sub.endsAt ? new Date(sub.endsAt).toLocaleDateString('en-GB') : 'No expiry'}
+                          </td>
+                          <td className="py-3 px-3">
+                            {isExpired ? (
+                              <span className="text-rose-600 font-bold text-[11px]">
+                                Expired ({Math.abs(daysLeft)}d ago)
+                              </span>
+                            ) : (
+                              <span className="text-emerald-600 dark:text-emerald-400 font-bold text-[11px]">
+                                {daysLeft} days left
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-3 px-3 text-right">
+                            <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                              {sub.status === 'pending' && (
+                                <button
+                                  onClick={async () => {
+                                    await api.adminModerateSubscription(sub.id, { action: 'approve' });
+                                    showToast?.('Subscription approved and activated.');
+                                    loadAdminData();
+                                  }}
+                                  className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-[10px] font-bold cursor-pointer"
+                                >
+                                  Approve
+                                </button>
+                              )}
+
+                              <button
+                                onClick={async () => {
+                                  await api.adminModerateSubscription(sub.id, { action: 'extend', days: 30 });
+                                  showToast?.(`Extended ${ownerEmail} by 30 days!`);
+                                  loadAdminData();
+                                }}
+                                className="px-2.5 py-1 bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-300 border border-blue-200 dark:border-blue-800 rounded-lg text-[10px] font-bold hover:bg-blue-100 cursor-pointer"
+                              >
+                                +30 Days
+                              </button>
+
+                              <button
+                                onClick={() => setExtendDaysModalSub(sub)}
+                                className="px-2.5 py-1 bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 rounded-lg text-[10px] font-bold hover:bg-stone-200 cursor-pointer"
+                              >
+                                Custom
+                              </button>
+
+                              <button
+                                onClick={async () => {
+                                  if (window.confirm(`Revoke subscription for ${ownerEmail}?`)) {
+                                    await api.adminModerateSubscription(sub.id, { action: 'revoke', reason: 'Admin revoked subscription.' });
+                                    showToast?.('Subscription revoked.');
+                                    loadAdminData();
+                                  }
+                                }}
+                                className="px-2 py-1 bg-rose-50 dark:bg-rose-950/40 text-rose-600 rounded-lg text-[10px] font-bold hover:bg-rose-100 cursor-pointer"
+                              >
+                                Revoke
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* Direct Plan Override Card */}
+          <div className="max-w-xl mx-auto bg-white dark:bg-[#15171e] p-6 rounded-3xl border border-stone-200 dark:border-stone-800 shadow-sm space-y-4">
+            <h3 className="text-base font-bold text-stone-900 dark:text-white">Direct Host Plan Assignment</h3>
+            <p className="text-xs text-stone-500">
+              Directly modify or extend subscription plans for any registered host account.
+            </p>
+
             <div>
-              <label className="text-xs font-bold text-stone-700 dark:text-stone-300 block mb-1">Tier</label>
+              <label className="text-xs font-bold text-stone-700 dark:text-stone-300 block mb-1">Target Host Email</label>
               <select
-                value={targetTier}
-                onChange={e => setTargetTier(e.target.value)}
+                value={targetHost}
+                onChange={e => setTargetHost(e.target.value)}
                 className="w-full px-3 py-2 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-xs outline-none"
               >
-                <option value="Silver">Silver (3 listings)</option>
-                <option value="Diamond">Diamond (10 listings)</option>
-                <option value="Gold">Gold (Unlimited)</option>
+                {users.map(u => (
+                  <option key={u.email} value={u.email}>
+                    {u.name} ({u.email}) - {u.role}
+                  </option>
+                ))}
               </select>
             </div>
 
-            <div>
-              <label className="text-xs font-bold text-stone-700 dark:text-stone-300 block mb-1">Duration (Days)</label>
-              <input
-                type="number"
-                min="1"
-                max="365"
-                value={adjustDays}
-                onChange={e => setAdjustDays(parseInt(e.target.value, 10) || 30)}
-                className="w-full px-3 py-2 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-xs outline-none"
-              />
-            </div>
-          </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-xs font-bold text-stone-700 dark:text-stone-300 block mb-1">Tier</label>
+                <select
+                  value={targetTier}
+                  onChange={e => setTargetTier(e.target.value)}
+                  className="w-full px-3 py-2 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-xs outline-none"
+                >
+                  <option value="Silver">Silver (3 listings)</option>
+                  <option value="Diamond">Diamond (10 listings)</option>
+                  <option value="Gold">Gold (Unlimited)</option>
+                </select>
+              </div>
 
-          <button
-            onClick={() => {
-              onAdjustHostPlan(targetHost, targetTier, adjustDays);
-              alert(`Updated plan for ${targetHost} to ${targetTier} for ${adjustDays} days!`);
-            }}
-            className="w-full py-2.5 bg-amber-500 hover:bg-amber-400 text-stone-950 font-extrabold rounded-xl text-xs transition-colors cursor-pointer"
-          >
-            Update Subscription
-          </button>
+              <div>
+                <label className="text-xs font-bold text-stone-700 dark:text-stone-300 block mb-1">Duration (Days)</label>
+                <input
+                  type="number"
+                  min="1"
+                  max="365"
+                  value={adjustDays}
+                  onChange={e => setAdjustDays(parseInt(e.target.value, 10) || 30)}
+                  className="w-full px-3 py-2 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-xs outline-none"
+                />
+              </div>
+            </div>
+
+            <button
+              onClick={() => {
+                onAdjustHostPlan(targetHost, targetTier, adjustDays);
+                showToast?.(`Updated plan for ${targetHost} to ${targetTier} for ${adjustDays} days!`);
+              }}
+              className="w-full py-2.5 bg-amber-500 hover:bg-amber-400 text-stone-950 font-extrabold rounded-xl text-xs transition-colors cursor-pointer"
+            >
+              Update Subscription
+            </button>
+          </div>
         </div>
       )}
 
@@ -2061,46 +2628,432 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
       )}
 
-      {/* TAB 4: USER DIRECTORY & ID VERIFICATION */}
+      {/* TAB 6: USER DIRECTORY & ACCESS CONTROL */}
       {tab === 'users' && (
         <div className="space-y-4">
-          <h3 className="text-base font-bold text-stone-900 dark:text-white">Registered Users</h3>
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 bg-white dark:bg-[#15171e] rounded-3xl border border-stone-200 dark:border-stone-800 shadow-sm">
+            <div>
+              <h3 className="text-base font-bold text-stone-900 dark:text-white">Registered Users &amp; Hosts</h3>
+              <p className="text-xs text-stone-500">Audit user roles, manage suspensions, and verify government ID documents.</p>
+            </div>
+
+            <div className="flex items-center gap-2">
+              {[
+                { id: 'all', label: `All Users (${users.length})` },
+                { id: 'hosts', label: `Hosts (${users.filter(u => u.role === 'owner').length})` },
+                { id: 'suspended', label: `Suspended (${users.filter(u => u.isSuspended).length})` },
+              ].map(f => (
+                <button
+                  key={f.id}
+                  onClick={() => setUserFilter(f.id as any)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer ${
+                    userFilter === f.id
+                      ? 'bg-stone-900 text-white dark:bg-stone-100 dark:text-stone-900 shadow-sm'
+                      : 'bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-400 hover:bg-stone-200'
+                  }`}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
           <div className="space-y-3">
-            {users.map(u => (
+            {users
+              .filter(u => {
+                if (userFilter === 'hosts') return u.role === 'owner';
+                if (userFilter === 'suspended') return u.isSuspended;
+                return true;
+              })
+              .map(u => (
               <div
                 key={u.id}
-                className="p-4 bg-white dark:bg-[#15171e] rounded-2xl border border-stone-200 dark:border-stone-800 flex items-center justify-between text-xs"
+                className={`p-4 bg-white dark:bg-[#15171e] rounded-2xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 text-xs ${
+                  u.isSuspended
+                    ? 'border-rose-300 dark:border-rose-900/60 bg-rose-50/20'
+                    : 'border-stone-200 dark:border-stone-800'
+                }`}
               >
                 <div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-bold text-stone-900 dark:text-white">{u.name}</span>
-                    <span className="bg-stone-100 dark:bg-stone-800 px-2 py-0.5 rounded font-mono uppercase text-[10px]">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-bold text-stone-900 dark:text-white text-sm">{u.name}</span>
+                    <span className="bg-stone-100 dark:bg-stone-800 px-2 py-0.5 rounded font-mono uppercase text-[10px] font-bold">
                       {u.role}
                     </span>
                     {u.idVerified ? (
-                      <span className="text-emerald-600 dark:text-emerald-400 font-bold flex items-center gap-0.5">
-                        <CheckCircle2 className="w-3 h-3" /> ID Verified
+                      <span className="text-emerald-600 dark:text-emerald-400 font-bold flex items-center gap-0.5 text-[11px]">
+                        <CheckCircle2 className="w-3.5 h-3.5" /> ID Verified
                       </span>
                     ) : (
-                      <span className="text-stone-400">ID Pending</span>
+                      <span className="text-stone-400 text-[11px]">ID Pending</span>
+                    )}
+
+                    {u.isSuspended && (
+                      <span className="bg-rose-600 text-white font-black px-2 py-0.5 rounded-full text-[10px] uppercase">
+                        Suspended
+                      </span>
                     )}
                   </div>
-                  <div className="text-stone-500 mt-0.5">{u.email} · {u.phone || 'No phone'} · {u.location || 'Kenya'}</div>
+                  <div className="text-stone-500 mt-0.5">
+                    {u.email} · {u.phone || 'No phone'} · {u.location || 'Kenya'}
+                  </div>
+                  {u.isSuspended && u.suspendedReason && (
+                    <div className="text-rose-600 font-medium text-[11px] mt-1">
+                      Reason: {u.suspendedReason}
+                    </div>
+                  )}
                 </div>
 
-                <button
-                  onClick={() => onVerifyUser(u.email)}
-                  className={`px-3 py-1.5 rounded-full text-xs font-bold transition-colors cursor-pointer ${
-                    u.idVerified
-                      ? 'border border-stone-300 dark:border-stone-700 text-stone-600 hover:bg-stone-100'
-                      : 'bg-emerald-600 text-white hover:bg-emerald-500'
-                  }`}
-                >
-                  {u.idVerified ? 'Unverify' : 'Verify ID'}
-                </button>
+                <div className="flex items-center gap-2 shrink-0">
+                  {u.isSuspended ? (
+                    <button
+                      onClick={async () => {
+                        await api.adminModerateUser(u.email, { action: 'reactivate' });
+                        showToast?.(`Account for ${u.email} reactivated.`);
+                        loadAdminData();
+                      }}
+                      className="px-3 py-1.5 rounded-full text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-500 cursor-pointer"
+                    >
+                      Reactivate
+                    </button>
+                  ) : (
+                    <button
+                      onClick={async () => {
+                        const reason = prompt(`Reason for suspending ${u.name} (${u.email}):`);
+                        if (!reason) return;
+                        await api.adminModerateUser(u.email, { action: 'suspend', reason });
+                        showToast?.(`Account for ${u.email} suspended.`);
+                        loadAdminData();
+                      }}
+                      className="px-3 py-1.5 rounded-full text-xs font-bold bg-stone-100 dark:bg-stone-800 hover:bg-rose-100 text-rose-600 cursor-pointer"
+                    >
+                      Suspend
+                    </button>
+                  )}
+
+                  <button
+                    onClick={() => onVerifyUser(u.email)}
+                    className={`px-3 py-1.5 rounded-full text-xs font-bold transition-colors cursor-pointer ${
+                      u.idVerified
+                        ? 'border border-stone-300 dark:border-stone-700 text-stone-600 hover:bg-stone-100'
+                        : 'bg-emerald-600 text-white hover:bg-emerald-500'
+                    }`}
+                  >
+                    {u.idVerified ? 'Unverify' : 'Verify ID'}
+                  </button>
+                </div>
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* TAB 7: REPORTS & FLAGS QUEUE */}
+      {tab === 'reports' && (
+        <div className="space-y-4">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 bg-white dark:bg-[#15171e] rounded-3xl border border-stone-200 dark:border-stone-800 shadow-sm">
+            <div>
+              <h3 className="text-base font-bold text-stone-900 dark:text-white flex items-center gap-2">
+                <Flag className="w-4 h-4 text-amber-500" />
+                <span>Reports &amp; Community Flags Queue</span>
+              </h3>
+              <p className="text-xs text-stone-500">
+                Audit complaints from guests regarding listings, accuracy, host conduct, and media.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2">
+              {[
+                { id: 'all', label: `All (${adminReports.length})` },
+                { id: 'pending', label: `Pending (${adminReports.filter(r => r.status === 'pending').length})` },
+                { id: 'resolved', label: `Resolved (${adminReports.filter(r => r.status === 'resolved').length})` },
+                { id: 'dismissed', label: `Dismissed (${adminReports.filter(r => r.status === 'dismissed').length})` },
+              ].map(f => (
+                <button
+                  key={f.id}
+                  onClick={() => setReportFilter(f.id as any)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer ${
+                    reportFilter === f.id
+                      ? 'bg-stone-900 text-white dark:bg-stone-100 dark:text-stone-900 shadow-sm'
+                      : 'bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-400 hover:bg-stone-200'
+                  }`}
+                >
+                  {f.label}
+                </button>
+              ))}
+
+              <button
+                onClick={loadAdminData}
+                className="p-1.5 rounded-xl border border-stone-200 dark:border-stone-800 hover:bg-stone-50 text-stone-600 cursor-pointer"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+
+          {adminReports.filter(r => reportFilter === 'all' || r.status === reportFilter).length === 0 ? (
+            <div className="p-8 text-center bg-white dark:bg-[#15171e] rounded-3xl border border-dashed border-stone-200 dark:border-stone-800 text-xs text-stone-400">
+              No reports found in this category.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {adminReports
+                .filter(r => reportFilter === 'all' || r.status === reportFilter)
+                .map(rep => {
+                  const stay = stays.find(s => s.id === rep.stayId);
+                  return (
+                    <div
+                      key={rep.id}
+                      className="p-4 sm:p-5 bg-white dark:bg-[#15171e] rounded-3xl border border-stone-200 dark:border-stone-800 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4 text-xs"
+                    >
+                      <div className="space-y-1.5">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-mono text-[10px] text-stone-400">{rep.id}</span>
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase ${
+                            rep.status === 'pending'
+                              ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
+                              : rep.status === 'resolved'
+                              ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
+                              : 'bg-stone-100 text-stone-600'
+                          }`}>
+                            {rep.status}
+                          </span>
+                          <span className="px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300 font-bold text-[10px] uppercase">
+                            Reason: {rep.reason.replace(/_/g, ' ')}
+                          </span>
+                        </div>
+
+                        <div className="font-bold text-sm text-stone-900 dark:text-white">
+                          Target: {stay?.title || rep.stayId}
+                        </div>
+
+                        <p className="text-stone-700 dark:text-stone-300 bg-stone-50 dark:bg-stone-900/60 p-2.5 rounded-xl border border-stone-100 dark:border-stone-800">
+                          {rep.details}
+                        </p>
+
+                        <div className="text-[11px] text-stone-400">
+                          Reported by: <span className="font-mono text-stone-600 dark:text-stone-300">{rep.reporterEmail || rep.reportedBy || 'Guest'}</span> · {new Date(rep.createdAt).toLocaleString()}
+                        </div>
+
+                        {rep.actionTaken && (
+                          <div className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">
+                            Action Taken: {rep.actionTaken} (by {rep.reviewedBy || 'Admin'})
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0">
+                        {rep.status === 'pending' ? (
+                          <>
+                            <button
+                              disabled={reportActionLoading}
+                              onClick={async () => {
+                                try {
+                                  setReportActionLoading(true);
+                                  await api.adminActionReport(rep.id, {
+                                    action: 'resolve',
+                                    actionTaken: 'Listing audited and verified compliant.',
+                                  });
+                                  showToast?.('Report marked as resolved.');
+                                  loadAdminData();
+                                } finally {
+                                  setReportActionLoading(false);
+                                }
+                              }}
+                              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold text-xs cursor-pointer shadow-xs"
+                            >
+                              Resolve
+                            </button>
+                            <button
+                              disabled={reportActionLoading}
+                              onClick={async () => {
+                                try {
+                                  setReportActionLoading(true);
+                                  await api.adminActionReport(rep.id, {
+                                    action: 'dismiss',
+                                    actionTaken: 'Report dismissed as invalid.',
+                                  });
+                                  showToast?.('Report dismissed.');
+                                  loadAdminData();
+                                } finally {
+                                  setReportActionLoading(false);
+                                }
+                              }}
+                              className="px-3 py-1.5 bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 text-stone-700 dark:text-stone-300 rounded-xl font-bold text-xs cursor-pointer"
+                            >
+                              Dismiss
+                            </button>
+                            <button
+                              disabled={reportActionLoading}
+                              onClick={async () => {
+                                if (window.confirm(`Suspend listing "${stay?.title || rep.stayId}" due to this report?`)) {
+                                  try {
+                                    setReportActionLoading(true);
+                                    await api.adminActionReport(rep.id, {
+                                      action: 'penalize',
+                                      actionTaken: 'Listing suspended due to safety report.',
+                                    });
+                                    showToast?.('Listing suspended and report penalized.');
+                                    loadAdminData();
+                                  } finally {
+                                    setReportActionLoading(false);
+                                  }
+                                }
+                              }}
+                              className="px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl font-bold text-xs cursor-pointer shadow-xs"
+                            >
+                              Penalize Host
+                            </button>
+                          </>
+                        ) : (
+                          <span className="text-xs text-stone-400 font-semibold">Processed</span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* TAB 8: GUEST REVIEWS MODERATION QUEUE */}
+      {tab === 'reviews' && (
+        <div className="space-y-4">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 bg-white dark:bg-[#15171e] rounded-3xl border border-stone-200 dark:border-stone-800 shadow-sm">
+            <div>
+              <h3 className="text-base font-bold text-stone-900 dark:text-white flex items-center gap-2">
+                <Star className="w-4 h-4 text-amber-500 fill-current" />
+                <span>Guest Reviews Moderation Queue</span>
+              </h3>
+              <p className="text-xs text-stone-500">
+                Audit, approve, hide or remove public reviews and ratings left by guests.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2">
+              {[
+                { id: 'all', label: `All (${adminReviews.length})` },
+                { id: 'approved', label: 'Approved' },
+                { id: 'hidden', label: 'Hidden' },
+                { id: 'flagged', label: 'Flagged' },
+              ].map(f => (
+                <button
+                  key={f.id}
+                  onClick={() => setReviewFilter(f.id as any)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer ${
+                    reviewFilter === f.id
+                      ? 'bg-stone-900 text-white dark:bg-stone-100 dark:text-stone-900 shadow-sm'
+                      : 'bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-400 hover:bg-stone-200'
+                  }`}
+                >
+                  {f.label}
+                </button>
+              ))}
+
+              <button
+                onClick={loadAdminData}
+                className="p-1.5 rounded-xl border border-stone-200 dark:border-stone-800 hover:bg-stone-50 text-stone-600 cursor-pointer"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+
+          {adminReviews.filter(r => reviewFilter === 'all' || r.status === reviewFilter).length === 0 ? (
+            <div className="p-8 text-center bg-white dark:bg-[#15171e] rounded-3xl border border-dashed border-stone-200 dark:border-stone-800 text-xs text-stone-400">
+              No reviews found in this category.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {adminReviews
+                .filter(r => reviewFilter === 'all' || r.status === reviewFilter)
+                .map(rev => (
+                  <div
+                    key={rev.id}
+                    className="p-4 sm:p-5 bg-white dark:bg-[#15171e] rounded-3xl border border-stone-200 dark:border-stone-800 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4 text-xs"
+                  >
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-bold text-stone-900 dark:text-white">{rev.stayTitle}</span>
+                        <span className="text-stone-400 font-mono text-[10px]">ID: {rev.stayId}</span>
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase ${
+                          rev.status === 'approved'
+                            ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
+                            : rev.status === 'hidden'
+                            ? 'bg-stone-200 text-stone-700 dark:bg-stone-800 dark:text-stone-400'
+                            : 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300'
+                        }`}>
+                          {rev.status || 'Approved'}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-1.5">
+                        <div className="flex items-center text-amber-500">
+                          {Array.from({ length: 5 }).map((_, i) => (
+                            <Star
+                              key={i}
+                              className={`w-3.5 h-3.5 ${i < (rev.rating || 5) ? 'fill-current' : 'text-stone-300'}`}
+                            />
+                          ))}
+                        </div>
+                        <span className="font-bold text-stone-800 dark:text-stone-200">{rev.rating} / 5</span>
+                        <span className="text-stone-400">by <strong className="text-stone-600 dark:text-stone-300">{rev.userName || rev.userEmail || 'Guest'}</strong></span>
+                      </div>
+
+                      <p className="text-stone-700 dark:text-stone-300 bg-stone-50 dark:bg-stone-900/60 p-2.5 rounded-xl border border-stone-100 dark:border-stone-800">
+                        "{rev.comment}"
+                      </p>
+
+                      <div className="text-[10px] text-stone-400">
+                        {new Date(rev.createdAt).toLocaleString()}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      {rev.status !== 'approved' && (
+                        <button
+                          onClick={async () => {
+                            await api.adminModerateReview(rev.id, { action: 'approve' });
+                            showToast?.('Review approved.');
+                            loadAdminData();
+                          }}
+                          className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold text-xs cursor-pointer"
+                        >
+                          Approve
+                        </button>
+                      )}
+
+                      <button
+                        onClick={async () => {
+                          const nextAction = rev.status === 'hidden' ? 'unhide' : 'hide';
+                          await api.adminModerateReview(rev.id, { action: nextAction });
+                          showToast?.(nextAction === 'hide' ? 'Review hidden.' : 'Review restored.');
+                          loadAdminData();
+                        }}
+                        className="px-3 py-1.5 bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 text-stone-700 dark:text-stone-300 rounded-xl font-bold text-xs cursor-pointer"
+                      >
+                        {rev.status === 'hidden' ? 'Unhide' : 'Hide'}
+                      </button>
+
+                      <button
+                        onClick={async () => {
+                          if (window.confirm('Permanently delete this review?')) {
+                            await api.adminModerateReview(rev.id, { action: 'delete' });
+                            showToast?.('Review deleted.');
+                            loadAdminData();
+                          }
+                        }}
+                        className="p-2 text-rose-500 hover:bg-rose-50 rounded-xl cursor-pointer"
+                        title="Delete permanently"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -2512,6 +3465,188 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   ))}
                 </tbody>
               </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: LISTING REJECTION WITH REASON */}
+      {listingRejectModalStay && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div className="w-full max-w-md bg-white dark:bg-[#15171e] rounded-3xl p-6 border border-stone-200 dark:border-stone-800 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between">
+              <h4 className="text-base font-bold text-stone-900 dark:text-white flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-amber-500" />
+                <span>Reject Listing</span>
+              </h4>
+              <button
+                onClick={() => setListingRejectModalStay(null)}
+                className="p-1 rounded-full hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-400 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-stone-500 leading-relaxed">
+              Rejecting <strong className="text-stone-800 dark:text-stone-200">{listingRejectModalStay.title}</strong> will return it to draft status and notify host <strong className="text-stone-800 dark:text-stone-200">{listingRejectModalStay.ownerEmail}</strong> with the specified reason.
+            </p>
+
+            <div>
+              <label className="text-xs font-bold text-stone-700 dark:text-stone-300 block mb-1">
+                Common Preset Reasons
+              </label>
+              <div className="flex flex-wrap gap-1.5 mb-2.5">
+                {[
+                  'Inaccurate pricing or location',
+                  'Low quality or misleading media',
+                  'Safety or regulatory concerns',
+                  'Missing amenities verification',
+                ].map(r => (
+                  <button
+                    key={r}
+                    type="button"
+                    onClick={() => setListingRejectReason(r)}
+                    className={`px-2.5 py-1 rounded-full text-[10px] font-semibold transition cursor-pointer ${
+                      listingRejectReason === r
+                        ? 'bg-amber-500 text-stone-950 font-bold'
+                        : 'bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 hover:bg-stone-200'
+                    }`}
+                  >
+                    {r}
+                  </button>
+                ))}
+              </div>
+
+              <label className="text-xs font-bold text-stone-700 dark:text-stone-300 block mb-1">
+                Reason for Rejection
+              </label>
+              <textarea
+                rows={3}
+                value={listingRejectReason}
+                onChange={e => setListingRejectReason(e.target.value)}
+                placeholder="Explain what the host needs to fix before resubmitting..."
+                className="w-full px-3 py-2 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-xs outline-none focus:ring-1 focus:ring-amber-500 text-stone-900 dark:text-white"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                onClick={() => setListingRejectModalStay(null)}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                disabled={listingActionLoading || !listingRejectReason.trim()}
+                onClick={async () => {
+                  try {
+                    setListingActionLoading(true);
+                    await api.adminModerateStay(listingRejectModalStay.id, {
+                      action: 'reject',
+                      reason: listingRejectReason.trim(),
+                    });
+                    showToast?.(`Listing "${listingRejectModalStay.title}" rejected.`);
+                    setListingRejectModalStay(null);
+                    loadAdminData();
+                  } catch (err: any) {
+                    showToast?.(err.message || 'Failed to reject listing');
+                  } finally {
+                    setListingActionLoading(false);
+                  }
+                }}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-bold transition shadow-sm disabled:opacity-50 cursor-pointer"
+              >
+                {listingActionLoading ? 'Rejecting...' : 'Confirm Rejection'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: SUBSCRIPTION EXTENSION */}
+      {extendDaysModalSub && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div className="w-full max-w-md bg-white dark:bg-[#15171e] rounded-3xl p-6 border border-stone-200 dark:border-stone-800 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between">
+              <h4 className="text-base font-bold text-stone-900 dark:text-white flex items-center gap-2">
+                <Calendar className="w-4 h-4 text-blue-500" />
+                <span>Extend Subscription Validity</span>
+              </h4>
+              <button
+                onClick={() => setExtendDaysModalSub(null)}
+                className="p-1 rounded-full hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-400 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-stone-500 leading-relaxed">
+              Add paid days to the host plan for <strong className="text-stone-800 dark:text-stone-200">{extendDaysModalSub.ownerId || extendDaysModalSub.owner_id}</strong>. Added days will stack onto current expiry date or start from today if already expired.
+            </p>
+
+            <div>
+              <label className="text-xs font-bold text-stone-700 dark:text-stone-300 block mb-1">
+                Preset Extensions
+              </label>
+              <div className="grid grid-cols-4 gap-2 mb-3">
+                {[7, 14, 30, 90].map(d => (
+                  <button
+                    key={d}
+                    type="button"
+                    onClick={() => setExtendDaysCount(d)}
+                    className={`py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
+                      extendDaysCount === d
+                        ? 'bg-blue-600 text-white shadow-xs'
+                        : 'bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 hover:bg-stone-200'
+                    }`}
+                  >
+                    +{d} Days
+                  </button>
+                ))}
+              </div>
+
+              <label className="text-xs font-bold text-stone-700 dark:text-stone-300 block mb-1">
+                Custom Duration (Days)
+              </label>
+              <input
+                type="number"
+                min="1"
+                max="365"
+                value={extendDaysCount}
+                onChange={e => setExtendDaysCount(parseInt(e.target.value, 10) || 30)}
+                className="w-full px-3 py-2 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-xs outline-none focus:ring-1 focus:ring-blue-500 text-stone-900 dark:text-white font-bold"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                onClick={() => setExtendDaysModalSub(null)}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                disabled={subActionLoading}
+                onClick={async () => {
+                  try {
+                    setSubActionLoading(true);
+                    await api.adminModerateSubscription(extendDaysModalSub.id, {
+                      action: 'extend',
+                      days: extendDaysCount,
+                    });
+                    showToast?.(`Extended subscription by ${extendDaysCount} days!`);
+                    setExtendDaysModalSub(null);
+                    loadAdminData();
+                  } catch (err: any) {
+                    showToast?.(err.message || 'Failed to extend subscription');
+                  } finally {
+                    setSubActionLoading(false);
+                  }
+                }}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition shadow-sm disabled:opacity-50 cursor-pointer"
+              >
+                {subActionLoading ? 'Saving...' : `Add +${extendDaysCount} Days`}
+              </button>
             </div>
           </div>
         </div>

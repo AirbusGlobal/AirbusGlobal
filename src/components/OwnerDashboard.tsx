@@ -39,10 +39,17 @@ import {
   Rocket,
   Megaphone,
   MapPin,
+  Images,
+  Image as ImageIcon,
+  Camera,
+  Layers,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { AMENITY_GROUPS, PLANS } from '../constants';
 import { extractYouTubeId, getYouTubeThumbnailUrl, isYouTubeUrl } from '../utils/youtube';
 import { ComplimentaryGiftsSelector } from './ComplimentaryGiftsSelector';
+import { ListingMediaViewer } from './ListingMediaViewer';
 
 interface OwnerDashboardProps {
   user: User;
@@ -134,6 +141,27 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
   const [price, setPrice] = useState(7500);
   const [desc, setDesc] = useState('');
   const [selectedFeatures, setSelectedFeatures] = useState<string[]>(['WiFi', 'Parking', 'Kitchen']);
+
+  // Media Mode & Photos States (Video only, Photos only, or Both)
+  const [mediaMode, setMediaMode] = useState<'both' | 'video' | 'photos'>('both');
+  const [wizardPhotos, setWizardPhotos] = useState<{ url: string; order: number; isCover: boolean }[]>([
+    {
+      url: 'https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?auto=format&fit=crop&w=1200&q=80',
+      order: 0,
+      isCover: true,
+    },
+  ]);
+  const [photoUrlInput, setPhotoUrlInput] = useState('');
+  const photoFileInputRef = useRef<HTMLInputElement>(null);
+
+  // Manage Media Modal for Existing Listings
+  const [manageMediaStay, setManageMediaStay] = useState<Stay | null>(null);
+  const [manageMediaVideoUrl, setManageMediaVideoUrl] = useState('');
+  const [manageMediaPhotos, setManageMediaPhotos] = useState<{ url: string; order: number; isCover: boolean }[]>([]);
+  const [manageMediaSaving, setManageMediaSaving] = useState(false);
+  const [manageMediaError, setManageMediaError] = useState<string | null>(null);
+  const [manageMediaSuccess, setManageMediaSuccess] = useState<string | null>(null);
+  const [managePhotoUrlInput, setManagePhotoUrlInput] = useState('');
 
   // Video Upload & YouTube States
   const [videoSourceType, setVideoSourceType] = useState<'upload' | 'youtube'>('upload');
@@ -317,16 +345,43 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
       return;
     }
 
-    if (!videoUrl && !youtubeVideoId) {
-      setWizardError('AirBus is video-first! Please upload a tour video (MP4/MOV) or provide a YouTube / Shorts link.');
+    const hasVideoInput = Boolean(videoUrl || youtubeVideoId);
+    const hasPhotosInput = wizardPhotos.length > 0;
+
+    if (!hasVideoInput && !hasPhotosInput) {
+      setWizardError('At least one media type is required (one video tour or at least one photo). Please upload media before submitting.');
+      return;
+    }
+
+    if (wizardPhotos.length > 30) {
+      setWizardError('A maximum of 30 photos is allowed per listing.');
       return;
     }
 
     setCreatingStay(true);
     try {
+      const coverPhoto = wizardPhotos.find(p => p.isCover) || wizardPhotos[0];
       const thumb = youtubeVideoId
         ? getYouTubeThumbnailUrl(youtubeVideoId)
-        : 'https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?auto=format&fit=crop&w=800&q=80';
+        : (coverPhoto?.url || 'https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?auto=format&fit=crop&w=800&q=80');
+
+      const fullVideoUrl = youtubeVideoId
+        ? `https://www.youtube.com/watch?v=${youtubeVideoId}`
+        : (videoUrl || '');
+
+      const mediaPayload = {
+        video: hasVideoInput ? {
+          url: fullVideoUrl,
+          thumbnail: thumb,
+          duration: 60,
+          size: videoFile ? videoFile.size : 15000000,
+        } : null,
+        photos: wizardPhotos.map((p, idx) => ({
+          url: p.url,
+          order: idx,
+          isCover: p.isCover ?? idx === 0,
+        })),
+      };
 
       await onCreateStay({
         title,
@@ -341,10 +396,14 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
         features: selectedFeatures,
         highlights: aiHighlights,
         description: desc,
-        videoUrl: videoUrl || '',
+        videoUrl: fullVideoUrl,
         youtubeUrl: youtubeVideoId ? youtubeInput : undefined,
         youtubeVideoId: youtubeVideoId || undefined,
         thumbnailUrl: thumb,
+        images: wizardPhotos.map(p => p.url),
+        media: mediaPayload,
+        hasVideo: hasVideoInput,
+        hasPhotos: hasPhotosInput,
         whatsapp: whatsapp || '',
         affiliateLink: affiliateLink || '',
         minNights: 1,
@@ -381,6 +440,115 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
       setWizardError(err.message || 'Failed to publish stay.');
     } finally {
       setCreatingStay(false);
+    }
+  };
+
+  const handleAddWizardPhotoUrl = () => {
+    const url = photoUrlInput.trim();
+    if (!url) return;
+    if (wizardPhotos.length >= 30) {
+      setWizardError('Maximum 30 photos allowed.');
+      return;
+    }
+    setWizardPhotos(prev => [
+      ...prev,
+      { url, order: prev.length, isCover: prev.length === 0 }
+    ]);
+    setPhotoUrlInput('');
+  };
+
+  const handleRemoveWizardPhoto = (index: number) => {
+    setWizardPhotos(prev => {
+      const filtered = prev.filter((_, i) => i !== index);
+      return filtered.map((p, i) => ({
+        ...p,
+        order: i,
+        isCover: i === 0 ? true : p.isCover && !filtered[0]?.isCover ? false : p.isCover,
+      }));
+    });
+  };
+
+  const handleSetWizardCover = (index: number) => {
+    setWizardPhotos(prev =>
+      prev.map((p, i) => ({
+        ...p,
+        isCover: i === index,
+      }))
+    );
+  };
+
+  const handleMoveWizardPhoto = (index: number, direction: 'left' | 'right') => {
+    const newIndex = direction === 'left' ? index - 1 : index + 1;
+    if (newIndex < 0 || newIndex >= wizardPhotos.length) return;
+    setWizardPhotos(prev => {
+      const copy = [...prev];
+      const temp = copy[index];
+      copy[index] = copy[newIndex];
+      copy[newIndex] = temp;
+      return copy.map((p, i) => ({ ...p, order: i }));
+    });
+  };
+
+  const openManageMediaModal = (stay: Stay) => {
+    setManageMediaStay(stay);
+    setManageMediaVideoUrl(stay.media?.video?.url || stay.videoUrl || '');
+    const photos: { url: string; order: number; isCover: boolean }[] = [];
+    if (stay.media?.photos && stay.media.photos.length > 0) {
+      photos.push(...stay.media.photos.map((p, idx) => ({ url: p.url, order: idx, isCover: Boolean(p.isCover) })));
+    } else if (stay.images && stay.images.length > 0) {
+      photos.push(...stay.images.map((url, idx) => ({ url, order: idx, isCover: idx === 0 })));
+    } else if (stay.thumbnailUrl) {
+      photos.push({ url: stay.thumbnailUrl, order: 0, isCover: true });
+    }
+    setManageMediaPhotos(photos);
+    setManageMediaError(null);
+    setManageMediaSuccess(null);
+  };
+
+  const handleSaveManageMedia = async () => {
+    if (!manageMediaStay) return;
+    const hasVideo = Boolean(manageMediaVideoUrl.trim());
+    const hasPhotos = manageMediaPhotos.length > 0;
+    if (!hasVideo && !hasPhotos) {
+      setManageMediaError('At least one media item (video or photo) is required for every listing.');
+      return;
+    }
+    if (manageMediaPhotos.length > 30) {
+      setManageMediaError('Maximum 30 photos allowed.');
+      return;
+    }
+    setManageMediaSaving(true);
+    setManageMediaError(null);
+    try {
+      const cover = manageMediaPhotos.find(p => p.isCover) || manageMediaPhotos[0];
+      const thumb = cover?.url || manageMediaStay.thumbnailUrl || '';
+      const mediaPayload = {
+        video: hasVideo ? {
+          url: manageMediaVideoUrl.trim(),
+          thumbnail: thumb,
+          duration: 60,
+          size: 15000000,
+        } : null,
+        photos: manageMediaPhotos.map((p, i) => ({ url: p.url, order: i, isCover: p.isCover ?? i === 0 })),
+      };
+
+      await onUpdateStay(manageMediaStay.id, {
+        media: mediaPayload,
+        images: manageMediaPhotos.map(p => p.url),
+        videoUrl: hasVideo ? manageMediaVideoUrl.trim() : '',
+        thumbnailUrl: thumb,
+        hasVideo,
+        hasPhotos,
+      });
+
+      setManageMediaSuccess('Listing media updated successfully!');
+      setTimeout(() => {
+        setManageMediaStay(null);
+      }, 1200);
+    } catch (err: any) {
+      setManageMediaError(err.message || 'Failed to update media.');
+    } finally {
+      setManageMediaSaving(false);
     }
   };
 
@@ -797,6 +965,15 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                         >
                           <Rocket className="w-3.5 h-3.5" />
                           <span>{s.isPromoted ? 'Boost Active 🚀' : 'Boost (KES 100/d)'}</span>
+                        </button>
+
+                        <button
+                          onClick={() => openManageMediaModal(s)}
+                          className="px-3 py-1.5 rounded-full text-xs font-bold border border-rose-300 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 hover:bg-rose-100 transition-colors flex items-center gap-1 cursor-pointer"
+                          title="Manage listing video tour and photo gallery"
+                        >
+                          <Film className="w-3.5 h-3.5 text-rose-600" />
+                          <span>Media ({s.hasVideo ? 'Video' : ''}{s.hasVideo && s.hasPhotos ? ' + ' : ''}{s.hasPhotos ? `${s.media?.photos?.length || s.images?.length || 1} Photos` : !s.hasVideo ? 'None' : ''})</span>
                         </button>
 
                         <button
@@ -1685,138 +1862,419 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
               </div>
             )}
 
-            {/* STEP 3: VIDEO UPLOAD (DRAG & DROP OR YOUTUBE) & CONTACTS */}
+            {/* STEP 3: LISTING MEDIA (VIDEO TOUR / PHOTOS TOGGLE) & CONTACTS */}
             {step === 3 && (
-              <div className="space-y-5">
+              <div className="space-y-6">
                 <div>
-                  <h3 className="text-lg font-bold text-stone-900 dark:text-white">Video Tour &amp; Contacts</h3>
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="px-2 py-0.5 rounded-full bg-rose-500/10 text-[#e4002b] text-[10px] font-black uppercase tracking-wider">
+                      Global Listing Media
+                    </span>
+                    <span className="text-[11px] text-stone-400 font-medium">
+                      At least one media type is required
+                    </span>
+                  </div>
+                  <h3 className="text-lg font-extrabold text-stone-900 dark:text-white">
+                    Video Tour &amp; Photo Gallery
+                  </h3>
                   <p className="text-xs text-stone-500">
-                    AirBus is video-first! Drag and drop an MP4 or MOV file, or paste a YouTube / YouTube Shorts link.
+                    Choose whether guests see a high-definition video tour only, a photo gallery only, or both with a seamless Video/Photos switch!
                   </p>
                 </div>
 
-                {/* Video Source Switcher */}
-                <div className="flex items-center gap-2 p-1 bg-stone-100 dark:bg-stone-900 rounded-2xl border border-stone-200 dark:border-stone-800">
+                {/* Media Format Selector: Both, Video Only, or Photos Only */}
+                <div className="grid grid-cols-3 gap-2 p-1.5 bg-stone-100 dark:bg-stone-900 rounded-2xl border border-stone-200 dark:border-stone-800">
                   <button
                     type="button"
-                    onClick={() => setVideoSourceType('upload')}
-                    className={`flex-1 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer ${
-                      videoSourceType === 'upload'
-                        ? 'bg-white dark:bg-stone-800 text-stone-900 dark:text-white shadow-sm'
+                    onClick={() => setMediaMode('both')}
+                    className={`py-2 px-3 rounded-xl text-xs font-bold flex flex-col sm:flex-row items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                      mediaMode === 'both'
+                        ? 'bg-white dark:bg-stone-800 text-stone-900 dark:text-white shadow-sm border border-stone-200 dark:border-stone-700'
                         : 'text-stone-500 hover:text-stone-900 dark:hover:text-white'
                     }`}
                   >
-                    <Film className="w-4 h-4 text-[#e4002b]" />
-                    <span>Drag &amp; Drop Video (MP4 / MOV)</span>
+                    <Layers className="w-4 h-4 text-[#e4002b]" />
+                    <span>Both (Video &amp; Photos)</span>
                   </button>
 
                   <button
                     type="button"
-                    onClick={() => setVideoSourceType('youtube')}
-                    className={`flex-1 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer ${
-                      videoSourceType === 'youtube'
-                        ? 'bg-white dark:bg-stone-800 text-[#ff0000] shadow-sm'
+                    onClick={() => setMediaMode('video')}
+                    className={`py-2 px-3 rounded-xl text-xs font-bold flex flex-col sm:flex-row items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                      mediaMode === 'video'
+                        ? 'bg-white dark:bg-stone-800 text-stone-900 dark:text-white shadow-sm border border-stone-200 dark:border-stone-700'
                         : 'text-stone-500 hover:text-stone-900 dark:hover:text-white'
                     }`}
                   >
-                    <Youtube className="w-4 h-4 text-[#ff0000]" />
-                    <span>YouTube &amp; Shorts Embed</span>
+                    <Film className="w-4 h-4 text-[#ff2e93]" />
+                    <span>Video Only</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setMediaMode('photos')}
+                    className={`py-2 px-3 rounded-xl text-xs font-bold flex flex-col sm:flex-row items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                      mediaMode === 'photos'
+                        ? 'bg-white dark:bg-stone-800 text-stone-900 dark:text-white shadow-sm border border-stone-200 dark:border-stone-700'
+                        : 'text-stone-500 hover:text-stone-900 dark:hover:text-white'
+                    }`}
+                  >
+                    <Images className="w-4 h-4 text-purple-500" />
+                    <span>Photos Only</span>
                   </button>
                 </div>
 
-                {/* Option A: Drag and Drop MP4 / MOV Uploader */}
-                {videoSourceType === 'upload' && (
-                  <div
-                    onDragOver={handleDragOver}
-                    onDragLeave={handleDragLeave}
-                    onDrop={handleDrop}
-                    onClick={() => fileInputRef.current?.click()}
-                    className={`p-6 border-2 border-dashed rounded-3xl text-center transition-all cursor-pointer ${
-                      isDraggingVideo
-                        ? 'border-[#e4002b] bg-rose-50/50 dark:bg-rose-950/20 scale-[1.01]'
-                        : 'border-stone-300 dark:border-stone-700 hover:border-stone-400 bg-stone-50/50 dark:bg-stone-900/50'
-                    }`}
-                  >
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm"
-                      onChange={e => {
-                        if (e.target.files && e.target.files[0]) {
-                          handleProcessVideoFile(e.target.files[0]);
-                        }
-                      }}
-                      className="hidden"
-                    />
+                {/* 1. PRIMARY VIDEO SECTION (Active if 'both' or 'video') */}
+                {(mediaMode === 'both' || mediaMode === 'video') && (
+                  <div className="p-5 rounded-3xl bg-stone-50/70 dark:bg-stone-900/60 border border-stone-200 dark:border-stone-800 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="w-7 h-7 rounded-lg bg-rose-500/10 text-[#e4002b] flex items-center justify-center">
+                          <Film className="w-4 h-4" />
+                        </span>
+                        <div>
+                          <h4 className="text-xs font-extrabold text-stone-900 dark:text-white">
+                            Primary Video Tour (MP4 / MOV / YouTube Shorts)
+                          </h4>
+                          <span className="text-[10px] text-stone-400">
+                            Plays first in guest view when both media types are present
+                          </span>
+                        </div>
+                      </div>
 
-                    {videoPreviewUrl ? (
-                      <div className="space-y-3" onClick={e => e.stopPropagation()}>
-                        <div className="relative aspect-video max-w-sm mx-auto rounded-2xl overflow-hidden bg-black shadow-lg">
-                          <video src={videoPreviewUrl} controls className="w-full h-full object-cover" />
-                        </div>
-                        <div className="text-xs text-emerald-600 dark:text-emerald-400 font-bold flex items-center justify-center gap-1">
-                          <CheckCircle2 className="w-4 h-4" />
-                          <span>{videoFile?.name} ({(videoFile!.size / (1024 * 1024)).toFixed(1)} MB)</span>
-                        </div>
+                      {/* Video Source Type Switcher */}
+                      <div className="flex items-center gap-1 bg-white dark:bg-stone-800 p-1 rounded-xl border border-stone-200 dark:border-stone-700 text-[11px] font-bold">
                         <button
                           type="button"
-                          onClick={() => fileInputRef.current?.click()}
-                          className="text-xs text-[#e4002b] hover:underline font-semibold cursor-pointer"
+                          onClick={() => setVideoSourceType('upload')}
+                          className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer ${
+                            videoSourceType === 'upload' ? 'bg-[#e4002b] text-white' : 'text-stone-500'
+                          }`}
                         >
-                          Replace video
+                          Direct File
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setVideoSourceType('youtube')}
+                          className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer ${
+                            videoSourceType === 'youtube' ? 'bg-[#ff0000] text-white' : 'text-stone-500'
+                          }`}
+                        >
+                          YouTube Link
                         </button>
                       </div>
-                    ) : (
-                      <div className="space-y-2 py-4">
-                        <UploadCloud className="w-10 h-10 text-stone-400 mx-auto" />
-                        <h4 className="text-xs font-bold text-stone-800 dark:text-stone-200">
-                          Drag and drop property tour video here
-                        </h4>
-                        <p className="text-[11px] text-stone-400">
-                          Supports MP4, MOV, WebM (max 60 seconds, under 50 MB)
-                        </p>
-                        <span className="inline-block mt-2 px-4 py-1.5 bg-stone-200 dark:bg-stone-800 text-stone-700 dark:text-stone-300 rounded-full text-xs font-bold">
-                          Browse Files
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Option B: YouTube / YouTube Shorts Input */}
-                {videoSourceType === 'youtube' && (
-                  <div className="space-y-3 p-4 bg-stone-50 dark:bg-stone-900 rounded-2xl border border-stone-200 dark:border-stone-800">
-                    <div>
-                      <label className="text-xs font-bold text-stone-700 dark:text-stone-300 block mb-1">
-                        YouTube or YouTube Shorts URL
-                      </label>
-                      <input
-                        type="url"
-                        value={youtubeInput}
-                        onChange={e => handleYoutubeChange(e.target.value)}
-                        placeholder="e.g. https://youtube.com/shorts/xyz or https://youtu.be/xyz"
-                        className="w-full px-3.5 py-2.5 bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 rounded-xl text-xs outline-none focus:border-[#ff0000]"
-                      />
                     </div>
 
-                    {youtubeVideoId && (
-                      <div className="p-3 bg-white dark:bg-stone-800 rounded-xl border border-stone-200 dark:border-stone-700 space-y-2">
-                        <div className="flex items-center gap-2 text-xs font-bold text-emerald-600">
-                          <CheckCircle2 className="w-4 h-4" />
-                          <span>YouTube Video ID extracted: {youtubeVideoId}</span>
-                        </div>
-                        <div className="relative aspect-video max-w-sm mx-auto rounded-xl overflow-hidden bg-black shadow">
-                          <iframe
-                            src={`https://www.youtube.com/embed/${youtubeVideoId}`}
-                            title="YouTube Preview"
-                            className="w-full h-full border-0"
-                            allowFullScreen
+                    {videoSourceType === 'upload' && (
+                      <div
+                        onDragOver={handleDragOver}
+                        onDragLeave={handleDragLeave}
+                        onDrop={handleDrop}
+                        onClick={() => fileInputRef.current?.click()}
+                        className={`p-6 border-2 border-dashed rounded-3xl text-center transition-all cursor-pointer ${
+                          isDraggingVideo
+                            ? 'border-[#e4002b] bg-rose-50/50 dark:bg-rose-950/20 scale-[1.01]'
+                            : 'border-stone-300 dark:border-stone-700 hover:border-stone-400 bg-white dark:bg-stone-800/60'
+                        }`}
+                      >
+                        <input
+                          ref={fileInputRef}
+                          type="file"
+                          accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm"
+                          onChange={e => {
+                            if (e.target.files && e.target.files[0]) {
+                              handleProcessVideoFile(e.target.files[0]);
+                            }
+                          }}
+                          className="hidden"
+                        />
+
+                        {videoPreviewUrl ? (
+                          <div className="space-y-3" onClick={e => e.stopPropagation()}>
+                            <div className="relative aspect-video max-w-sm mx-auto rounded-2xl overflow-hidden bg-black shadow-lg">
+                              <video src={videoPreviewUrl} controls className="w-full h-full object-cover" />
+                            </div>
+                            <div className="text-xs text-emerald-600 dark:text-emerald-400 font-bold flex items-center justify-center gap-1">
+                              <CheckCircle2 className="w-4 h-4" />
+                              <span>{videoFile?.name} ({(videoFile!.size / (1024 * 1024)).toFixed(1)} MB)</span>
+                            </div>
+                            <div className="flex items-center justify-center gap-3">
+                              <button
+                                type="button"
+                                onClick={() => fileInputRef.current?.click()}
+                                className="text-xs text-[#e4002b] hover:underline font-semibold cursor-pointer"
+                              >
+                                Replace video
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setVideoFile(null);
+                                  setVideoPreviewUrl('');
+                                  setVideoUrl('');
+                                }}
+                                className="text-xs text-stone-500 hover:text-stone-700 font-semibold cursor-pointer"
+                              >
+                                Remove video
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="space-y-2 py-3">
+                            <UploadCloud className="w-8 h-8 text-stone-400 mx-auto" />
+                            <h4 className="text-xs font-bold text-stone-800 dark:text-stone-200">
+                              Drag &amp; drop tour video here or browse
+                            </h4>
+                            <p className="text-[11px] text-stone-400">
+                              Supports MP4, MOV, WebM (under 50 MB, 60 seconds recommended)
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {videoSourceType === 'youtube' && (
+                      <div className="space-y-3 p-4 bg-white dark:bg-stone-800 rounded-2xl border border-stone-200 dark:border-stone-700">
+                        <div>
+                          <label className="text-xs font-bold text-stone-700 dark:text-stone-300 block mb-1">
+                            YouTube or YouTube Shorts URL
+                          </label>
+                          <input
+                            type="url"
+                            value={youtubeInput}
+                            onChange={e => handleYoutubeChange(e.target.value)}
+                            placeholder="e.g. https://youtube.com/shorts/xyz or https://youtu.be/xyz"
+                            className="w-full px-3.5 py-2.5 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-xs outline-none focus:border-[#ff0000]"
                           />
                         </div>
+
+                        {youtubeVideoId && (
+                          <div className="p-3 bg-stone-50 dark:bg-stone-900 rounded-xl border border-stone-200 dark:border-stone-700 space-y-2">
+                            <div className="flex items-center justify-between text-xs font-bold text-emerald-600">
+                              <span className="flex items-center gap-1.5">
+                                <CheckCircle2 className="w-4 h-4" /> YouTube ID: {youtubeVideoId}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setYoutubeInput('');
+                                  setYoutubeVideoId(null);
+                                }}
+                                className="text-stone-400 hover:text-rose-500 text-[11px]"
+                              >
+                                Clear
+                              </button>
+                            </div>
+                            <div className="relative aspect-video max-w-sm mx-auto rounded-xl overflow-hidden bg-black shadow">
+                              <iframe
+                                src={`https://www.youtube.com/embed/${youtubeVideoId}`}
+                                title="YouTube Preview"
+                                className="w-full h-full border-0"
+                                allowFullScreen
+                              />
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
                 )}
+
+                {/* 2. PHOTO GALLERY SECTION (Active if 'both' or 'photos') */}
+                {(mediaMode === 'both' || mediaMode === 'photos') && (
+                  <div className="p-5 rounded-3xl bg-stone-50/70 dark:bg-stone-900/60 border border-stone-200 dark:border-stone-800 space-y-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="w-7 h-7 rounded-lg bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center">
+                          <Images className="w-4 h-4" />
+                        </span>
+                        <div>
+                          <h4 className="text-xs font-extrabold text-stone-900 dark:text-white">
+                            Photo Gallery ({wizardPhotos.length} / 30 photos)
+                          </h4>
+                          <span className="text-[10px] text-stone-400">
+                            High-res JPG, PNG, or WebP. Set any photo as the cover.
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <input
+                          ref={photoFileInputRef}
+                          type="file"
+                          multiple
+                          accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
+                          onChange={e => {
+                            if (e.target.files) {
+                              Array.from(e.target.files).forEach((file, idx) => {
+                                if (wizardPhotos.length + idx >= 30) return;
+                                const reader = new FileReader();
+                                reader.onload = ev => {
+                                  if (ev.target?.result) {
+                                    setWizardPhotos(prev => [
+                                      ...prev,
+                                      {
+                                        url: ev.target!.result as string,
+                                        order: prev.length,
+                                        isCover: prev.length === 0,
+                                      },
+                                    ]);
+                                  }
+                                };
+                                reader.readAsDataURL(file);
+                              });
+                            }
+                          }}
+                          className="hidden"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => photoFileInputRef.current?.click()}
+                          className="px-3 py-1.5 rounded-full bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold transition-all flex items-center gap-1 cursor-pointer"
+                        >
+                          <Camera className="w-3.5 h-3.5" />
+                          <span>Upload Photos</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Quick URL Input */}
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="url"
+                        value={photoUrlInput}
+                        onChange={e => setPhotoUrlInput(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleAddWizardPhotoUrl();
+                          }
+                        }}
+                        placeholder="Paste image link (e.g. https://images.unsplash.com/...)"
+                        className="flex-1 px-3.5 py-2 bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 rounded-xl text-xs outline-none focus:border-purple-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleAddWizardPhotoUrl}
+                        className="px-4 py-2 bg-stone-200 dark:bg-stone-800 hover:bg-stone-300 text-stone-800 dark:text-stone-200 text-xs font-bold rounded-xl cursor-pointer"
+                      >
+                        Add Photo
+                      </button>
+                    </div>
+
+                    {/* Photos Grid with Reordering & Cover Selection */}
+                    {wizardPhotos.length > 0 ? (
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                        {wizardPhotos.map((photo, idx) => (
+                          <div
+                            key={idx}
+                            className={`relative group rounded-2xl overflow-hidden aspect-square border-2 transition-all ${
+                              photo.isCover
+                                ? 'border-[#e4002b] shadow-md ring-2 ring-rose-500/30'
+                                : 'border-stone-200 dark:border-stone-700'
+                            }`}
+                          >
+                            <img
+                              src={photo.url}
+                              alt={`Stay photo ${idx + 1}`}
+                              className="w-full h-full object-cover"
+                            />
+
+                            {/* Cover Badge */}
+                            {photo.isCover && (
+                              <span className="absolute top-2 left-2 bg-[#e4002b] text-white text-[9px] font-black uppercase px-2 py-0.5 rounded-full shadow">
+                                Cover Photo
+                              </span>
+                            )}
+
+                            {/* Hover overlay controls */}
+                            <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-between p-2">
+                              <div className="flex justify-end">
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveWizardPhoto(idx)}
+                                  className="w-6 h-6 rounded-full bg-rose-600 text-white flex items-center justify-center hover:bg-rose-700 cursor-pointer shadow"
+                                  title="Remove photo"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+
+                              <div className="flex items-center justify-between gap-1">
+                                {!photo.isCover && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleSetWizardCover(idx)}
+                                    className="px-2 py-1 bg-white/90 text-stone-900 rounded-lg text-[10px] font-bold hover:bg-white cursor-pointer shadow"
+                                  >
+                                    Set Cover
+                                  </button>
+                                )}
+                                <div className="flex items-center gap-1 ml-auto">
+                                  {idx > 0 && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleMoveWizardPhoto(idx, 'left')}
+                                      className="w-6 h-6 rounded-lg bg-black/60 text-white flex items-center justify-center hover:bg-black cursor-pointer"
+                                      title="Move Left"
+                                    >
+                                      <ChevronLeft className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
+                                  {idx < wizardPhotos.length - 1 && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleMoveWizardPhoto(idx, 'right')}
+                                      className="w-6 h-6 rounded-lg bg-black/60 text-white flex items-center justify-center hover:bg-black cursor-pointer"
+                                      title="Move Right"
+                                    >
+                                      <ChevronRight className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="p-6 text-center border-2 border-dashed border-stone-300 dark:border-stone-700 rounded-2xl text-xs text-stone-400">
+                        No photos added yet. Upload files or paste links to populate your gallery.
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* 3. INTERACTIVE LIVE GUEST PREVIEW */}
+                <div className="p-5 rounded-3xl bg-stone-900 text-white border border-stone-800 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                      <h4 className="text-xs font-black uppercase tracking-wider text-stone-300">
+                        Interactive Live Guest Preview
+                      </h4>
+                    </div>
+                    <span className="text-[10px] font-bold text-stone-400">
+                      {mediaMode === 'both' ? 'Video Tour / Photos toggle enabled' : mediaMode === 'video' ? 'Video player only' : 'Photo gallery only'}
+                    </span>
+                  </div>
+
+                  <div className="rounded-2xl overflow-hidden border border-stone-800 bg-black">
+                    <ListingMediaViewer
+                      media={{
+                        video: (mediaMode === 'both' || mediaMode === 'video') && (videoUrl || youtubeVideoId) ? {
+                          url: youtubeVideoId ? `https://www.youtube.com/watch?v=${youtubeVideoId}` : (videoUrl || ''),
+                          thumbnail: wizardPhotos[0]?.url || 'https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?auto=format&fit=crop&w=800&q=80',
+                          duration: 60,
+                          size: 15000000,
+                        } : null,
+                        photos: (mediaMode === 'both' || mediaMode === 'photos') ? wizardPhotos : [],
+                      }}
+                      title={title || 'Stay Preview'}
+                      aspectRatio="video"
+                    />
+                  </div>
+                </div>
 
                 {/* AI Description & Highlights Generator */}
                 <div className="p-4 bg-gradient-to-r from-purple-50 to-pink-50 dark:from-purple-950/30 dark:to-pink-950/30 border border-purple-200 dark:border-purple-800 rounded-2xl">
@@ -2052,6 +2510,209 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                 className="w-full sm:w-auto px-6 py-2.5 rounded-full bg-[#e4002b] hover:bg-[#c90026] text-white text-xs font-extrabold shadow-md transition-all cursor-pointer"
               >
                 {gateModal.actionText}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Manage Listing Media Modal */}
+      {manageMediaStay && (
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto animate-in fade-in duration-200">
+          <div className="relative w-full max-w-2xl bg-white dark:bg-[#15171e] text-stone-900 dark:text-stone-100 rounded-3xl p-6 shadow-2xl border border-stone-200 dark:border-stone-800 space-y-5 my-8">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="px-2 py-0.5 rounded-full bg-rose-500/10 text-[#e4002b] text-[10px] font-black uppercase tracking-wider">
+                    Listing Media Studio
+                  </span>
+                  <span className="text-xs text-stone-400 font-mono">
+                    ID: {manageMediaStay.id}
+                  </span>
+                </div>
+                <h3 className="text-lg font-extrabold text-stone-900 dark:text-white">
+                  Manage Media: {manageMediaStay.title}
+                </h3>
+                <p className="text-xs text-stone-500">
+                  Add, replace, or remove video and photos. At least one media type is required.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setManageMediaStay(null)}
+                className="p-2 rounded-full hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-400 hover:text-stone-900 dark:hover:text-white cursor-pointer"
+              >
+                <XCircle className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Live Media Viewer Preview */}
+            <div className="rounded-2xl overflow-hidden border border-stone-200 dark:border-stone-800 bg-black">
+              <ListingMediaViewer
+                media={{
+                  video: manageMediaVideoUrl ? {
+                    url: manageMediaVideoUrl,
+                    thumbnail: manageMediaPhotos[0]?.url || manageMediaStay.thumbnailUrl || '',
+                    duration: 60,
+                    size: 15000000,
+                  } : null,
+                  photos: manageMediaPhotos,
+                }}
+                title={manageMediaStay.title}
+                aspectRatio="video"
+              />
+            </div>
+
+            {/* Status alerts */}
+            {manageMediaError && (
+              <div className="p-3 bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 text-xs font-semibold rounded-2xl border border-rose-200 dark:border-rose-800 flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+                <span>{manageMediaError}</span>
+              </div>
+            )}
+            {manageMediaSuccess && (
+              <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 text-xs font-semibold rounded-2xl border border-emerald-200 dark:border-emerald-800 flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
+                <span>{manageMediaSuccess}</span>
+              </div>
+            )}
+
+            {/* Video Manager */}
+            <div className="p-4 bg-stone-50 dark:bg-stone-900 rounded-2xl border border-stone-200 dark:border-stone-800 space-y-3">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-bold text-stone-800 dark:text-stone-200 flex items-center gap-1.5">
+                  <Film className="w-4 h-4 text-[#e4002b]" />
+                  <span>Primary Video Tour</span>
+                </h4>
+                {manageMediaVideoUrl && (
+                  <button
+                    type="button"
+                    onClick={() => setManageMediaVideoUrl('')}
+                    className="text-[11px] text-rose-500 font-bold hover:underline cursor-pointer"
+                  >
+                    Remove Video
+                  </button>
+                )}
+              </div>
+              <input
+                type="url"
+                value={manageMediaVideoUrl}
+                onChange={e => setManageMediaVideoUrl(e.target.value)}
+                placeholder="Video URL (MP4 / MOV / WebM or YouTube link)"
+                className="w-full px-3.5 py-2 bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 rounded-xl text-xs outline-none focus:border-[#e4002b]"
+              />
+            </div>
+
+            {/* Photos Manager */}
+            <div className="p-4 bg-stone-50 dark:bg-stone-900 rounded-2xl border border-stone-200 dark:border-stone-800 space-y-3">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-bold text-stone-800 dark:text-stone-200 flex items-center gap-1.5">
+                  <Images className="w-4 h-4 text-purple-500" />
+                  <span>Photo Gallery ({manageMediaPhotos.length} / 30 photos)</span>
+                </h4>
+                <span className="text-[10px] text-stone-400">
+                  {manageMediaPhotos.length === 0 ? 'No photos' : 'Click a photo to make it cover'}
+                </span>
+              </div>
+
+              {/* Add Photo by URL */}
+              <div className="flex items-center gap-2">
+                <input
+                  type="url"
+                  value={managePhotoUrlInput}
+                  onChange={e => setManagePhotoUrlInput(e.target.value)}
+                  placeholder="Paste photo URL and click Add"
+                  className="flex-1 px-3.5 py-2 bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 rounded-xl text-xs outline-none focus:border-purple-500"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    const u = managePhotoUrlInput.trim();
+                    if (!u) return;
+                    if (manageMediaPhotos.length >= 30) {
+                      setManageMediaError('Maximum 30 photos allowed.');
+                      return;
+                    }
+                    setManageMediaPhotos(prev => [
+                      ...prev,
+                      { url: u, order: prev.length, isCover: prev.length === 0 },
+                    ]);
+                    setManagePhotoUrlInput('');
+                  }}
+                  className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold cursor-pointer"
+                >
+                  Add
+                </button>
+              </div>
+
+              {/* Photos Grid */}
+              {manageMediaPhotos.length > 0 && (
+                <div className="grid grid-cols-3 sm:grid-cols-5 gap-2 max-h-52 overflow-y-auto p-1">
+                  {manageMediaPhotos.map((p, idx) => (
+                    <div
+                      key={idx}
+                      className={`relative group rounded-xl overflow-hidden aspect-square border-2 transition-all ${
+                        p.isCover ? 'border-[#e4002b] ring-2 ring-rose-500/30' : 'border-stone-200 dark:border-stone-700'
+                      }`}
+                    >
+                      <img src={p.url} alt={`Photo ${idx + 1}`} className="w-full h-full object-cover" />
+                      {p.isCover && (
+                        <span className="absolute top-1 left-1 bg-[#e4002b] text-white text-[8px] font-black uppercase px-1 rounded shadow">
+                          Cover
+                        </span>
+                      )}
+                      <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-around p-1">
+                        {!p.isCover && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setManageMediaPhotos(prev => prev.map((item, i) => ({ ...item, isCover: i === idx })));
+                            }}
+                            className="text-[9px] bg-white text-stone-900 font-bold px-1.5 py-0.5 rounded shadow"
+                          >
+                            Cover
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setManageMediaPhotos(prev => {
+                              const filtered = prev.filter((_, i) => i !== idx);
+                              return filtered.map((item, i) => ({
+                                ...item,
+                                order: i,
+                                isCover: i === 0 ? true : item.isCover && !filtered[0]?.isCover ? false : item.isCover,
+                              }));
+                            });
+                          }}
+                          className="p-1 text-white bg-rose-600 rounded shadow hover:bg-rose-700"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Modal actions */}
+            <div className="pt-2 flex items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setManageMediaStay(null)}
+                className="px-4 py-2 rounded-full border border-stone-200 dark:border-stone-700 text-xs font-bold text-stone-600 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800 cursor-pointer"
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveManageMedia}
+                disabled={manageMediaSaving}
+                className="px-6 py-2 rounded-full bg-[#e4002b] hover:bg-[#c90026] text-white text-xs font-extrabold shadow-md cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+              >
+                {manageMediaSaving ? 'Saving...' : 'Save Media Changes'}
               </button>
             </div>
           </div>

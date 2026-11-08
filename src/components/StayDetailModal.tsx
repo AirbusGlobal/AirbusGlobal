@@ -9,6 +9,7 @@ import {
   VideoComment,
   AdRequest,
 } from '../types';
+import { ListingMediaViewer } from './ListingMediaViewer';
 import {
   X,
   Star,
@@ -493,86 +494,16 @@ export const StayDetailModal: React.FC<StayDetailModalProps> = ({
 
         {/* Modal Scrollable Body */}
         <div className="p-4 sm:p-6 space-y-6 max-h-[calc(90vh-65px)] overflow-y-auto">
-          {/* Media Player Section: YouTube Embed OR Native Video OR Gallery */}
-          <div className="relative aspect-[16/9] w-full rounded-2xl overflow-hidden bg-black shadow-lg">
-            {mediaMode === 'video' ? (
-              stay.youtubeVideoId ? (
-                /* YouTube Video Player Embed */
-                <iframe
-                  src={`https://www.youtube.com/embed/${stay.youtubeVideoId}?autoplay=1&mute=${
-                    isMuted ? 1 : 0
-                  }&playsinline=1&rel=0`}
-                  title={stay.title}
-                  className="w-full h-full border-0"
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                  allowFullScreen
-                />
-              ) : stay.videoUrl ? (
-                /* HTML5 Video Player */
-                <video
-                  src={stay.videoUrl}
-                  poster={stay.thumbnailUrl}
-                  autoPlay
-                  loop
-                  muted={isMuted}
-                  playsInline
-                  className="w-full h-full object-cover"
-                />
-              ) : (
-                <div className="w-full h-full flex flex-col items-center justify-center text-white">
-                  <Play className="w-12 h-12 text-[#e4002b] mb-2" />
-                  <p className="text-xs text-stone-400">Video tour being processed by host</p>
-                </div>
-              )
-            ) : (
-              /* Photo Gallery fallback */
-              <div className="w-full h-full">
-                <img
-                  src={stay.thumbnailUrl || (stay.images && stay.images[0])}
-                  alt={stay.title}
-                  className="w-full h-full object-cover"
-                />
-              </div>
-            )}
-
-            {/* Media Mode & Audio Controls */}
-            <div className="absolute top-3 left-3 z-20 flex items-center gap-2">
-              <button
-                onClick={() => setMediaMode('video')}
-                className={`px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
-                  mediaMode === 'video'
-                    ? 'bg-[#e4002b] text-white shadow-md'
-                    : 'bg-black/60 backdrop-blur-md text-white/80 hover:text-white'
-                }`}
-              >
-                <Tv className="w-3.5 h-3.5" />
-                <span>Video Tour</span>
-              </button>
-
-              <button
-                onClick={() => setMediaMode('gallery')}
-                className={`px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
-                  mediaMode === 'gallery'
-                    ? 'bg-[#e4002b] text-white shadow-md'
-                    : 'bg-black/60 backdrop-blur-md text-white/80 hover:text-white'
-                }`}
-              >
-                <ImageIcon className="w-3.5 h-3.5" />
-                <span>Photos ({stay.images?.length || 1})</span>
-              </button>
-            </div>
-
-            {/* Audio Toggle (For native video) */}
-            {mediaMode === 'video' && !stay.youtubeVideoId && stay.videoUrl && (
-              <button
-                onClick={() => setIsMuted(!isMuted)}
-                className="absolute bottom-3 right-3 z-20 bg-black/70 backdrop-blur-md text-white p-2 rounded-full hover:bg-black/90 cursor-pointer"
-                title={isMuted ? 'Unmute video' : 'Mute video'}
-              >
-                {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
-              </button>
-            )}
-          </div>
+          {/* Media Player Section using unified ListingMediaViewer */}
+          <ListingMediaViewer
+            media={stay.media}
+            videoUrl={stay.videoUrl}
+            thumbnailUrl={stay.thumbnailUrl}
+            images={stay.images}
+            title={stay.title}
+            aspectRatio="video"
+            autoPlay={true}
+          />
 
           {/* YouTube-Style Channel & Engagement Social Bar */}
           <div className="flex flex-wrap items-center justify-between gap-4 p-4 rounded-2xl bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-800">

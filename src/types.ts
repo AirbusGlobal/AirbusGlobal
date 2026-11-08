@@ -11,6 +11,8 @@ export interface User {
   bio?: string;
   languages?: string;
   idVerified: boolean;
+  isSuspended?: boolean;
+  suspendedReason?: string;
   createdAt: number;
 }
 
@@ -48,6 +50,27 @@ export interface VideoComment {
   createdAt: number;
 }
 
+export interface ListingPhoto {
+  url: string;
+  order: number;
+  isCover: boolean;
+  thumbnail?: string;
+  size?: number;
+  caption?: string;
+}
+
+export interface ListingVideo {
+  url: string;
+  thumbnail?: string;
+  duration?: number;
+  size?: number;
+}
+
+export interface ListingMedia {
+  video: ListingVideo | null;
+  photos: ListingPhoto[];
+}
+
 export interface Stay {
   id: string;
   title: string;
@@ -70,6 +93,12 @@ export interface Stay {
   videoUrl: string;
   thumbnailUrl?: string;
   images?: string[];
+  media?: ListingMedia;
+  hasVideo?: boolean;
+  hasPhotos?: boolean;
+  moderationStatus?: 'approved' | 'pending' | 'rejected' | 'suspended';
+  moderationReason?: string;
+  mediaModerationStatus?: 'approved' | 'flagged' | 'clean';
   source: string;
   instantBook: boolean;
   isFeatured: boolean;
@@ -155,6 +184,9 @@ export interface Review {
   userName?: string;
   rating: number;
   comment: string;
+  status?: 'approved' | 'hidden' | 'flagged';
+  moderatedBy?: string;
+  moderatedAt?: number;
   createdAt: number;
 }
 
@@ -193,8 +225,8 @@ export interface HostPlanStatus {
   scheduledPeriod?: 'monthly' | 'annual';
 }
 
-export type PaymentRecordType = 'boost' | 'advert' | 'subscription' | 'booking_fee' | 'wallet_topup';
-export type PaymentRecordMethod = 'wallet' | 'mpesa';
+export type PaymentRecordType = 'boost' | 'advert' | 'subscription' | 'booking_fee' | 'wallet_topup' | 'deposit' | 'mpesa_deposit';
+export type PaymentRecordMethod = 'wallet' | 'mpesa' | 'mpesa_manual' | 'other';
 export type PaymentRecordStatus = 'pending' | 'approved' | 'rejected' | 'refunded';
 
 export interface BoostRecord {
@@ -255,7 +287,7 @@ export interface PaymentRecord {
   userId: string;
   user_id?: string;
   hostEmail?: string;
-  kind?: 'plan' | 'wallet' | 'advert' | 'boost';
+  kind?: 'plan' | 'wallet' | 'advert' | 'boost' | 'deposit';
   type: PaymentRecordType;
   method: PaymentRecordMethod;
   amountSc: number;
@@ -263,9 +295,16 @@ export interface PaymentRecord {
   amountKes?: number;
   amount_kes?: number;
   amount: number; // Compatibility
+  currency?: string;
   status: PaymentRecordStatus;
   referenceId: string; // advert_id, boost_id or subscription_id
   reference_id?: string;
+  reference?: string; // Unified M-Pesa code or transaction reference
+  proofUrl?: string; // Optional payment screenshot
+  phoneNumber?: string; // M-Pesa phone number
+  phone_number?: string;
+  relatedId?: string; // subscription ID, advert ID, or listing ID
+  related_id?: string;
   mpesaCode?: string;
   mpesa_code?: string;
   planTier?: StayCategory | string;
@@ -276,8 +315,10 @@ export interface PaymentRecord {
   period?: 'monthly' | 'annual';
   approvedBy?: string;
   approved_by?: string;
+  reviewedBy?: string;
   approvedAt?: number;
   approved_at?: number;
+  reviewedAt?: number;
   rejectionReason?: string;
   rejection_reason?: string;
   createdAt: number;
@@ -432,8 +473,13 @@ export interface ListingReport {
   id: string;
   stayId: string;
   reportedBy: string;
+  reporterEmail?: string;
   reason: string;
   details: string;
+  status?: 'pending' | 'resolved' | 'dismissed';
+  actionTaken?: string;
+  reviewedBy?: string;
+  reviewedAt?: number;
   createdAt: number;
 }
 

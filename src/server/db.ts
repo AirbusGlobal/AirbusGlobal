@@ -1129,6 +1129,35 @@ class DatabaseStore {
           if (!parsed.tripDatingContactUnlocks) parsed.tripDatingContactUnlocks = [];
           if (!parsed.paymentRecords) parsed.paymentRecords = [];
           if (!parsed.walletTransactions) parsed.walletTransactions = [];
+          if (!parsed.reports) parsed.reports = [];
+          if (Array.isArray(parsed.stays)) {
+            parsed.stays.forEach((stay: any) => {
+              if (!stay.media) {
+                const photos: any[] = [];
+                if (stay.images && stay.images.length > 0) {
+                  stay.images.forEach((url: string, i: number) => {
+                    photos.push({ url, order: i, isCover: i === 0 });
+                  });
+                } else if (stay.thumbnailUrl) {
+                  photos.push({ url: stay.thumbnailUrl, order: 0, isCover: true });
+                }
+
+                stay.media = {
+                  video: stay.videoUrl ? {
+                    url: stay.videoUrl,
+                    thumbnail: stay.thumbnailUrl || (photos[0]?.url || ''),
+                    duration: 60,
+                    size: 15000000,
+                  } : null,
+                  photos,
+                };
+              }
+              stay.hasVideo = Boolean(stay.media?.video?.url && stay.media.video.url.trim().length > 0);
+              stay.hasPhotos = Boolean(stay.media?.photos && stay.media.photos.length > 0);
+              if (!stay.moderationStatus) stay.moderationStatus = 'approved';
+              if (!stay.mediaModerationStatus) stay.mediaModerationStatus = 'clean';
+            });
+          }
           if (!parsed.adSlots) {
             parsed.adSlots = [
               {
@@ -1980,6 +2009,13 @@ class DatabaseStore {
   }
 
   public createStay(stay: Stay): Stay {
+    this.normalizeStayMedia(stay);
+    if (!stay.hasVideo && !stay.hasPhotos) {
+      throw new Error('At least one media type is required (one video tour or at least one photo).');
+    }
+    if (stay.media?.photos && stay.media.photos.length > 30) {
+      throw new Error('Maximum 30 photos allowed per listing.');
+    }
     this.data.stays.unshift(stay);
     // Auto-generate shorts based on owner subscription tier (Diamond = 1, Gold = 5, Silver = 0)
     if (stay.ownerEmail && stay.videoUrl) {
@@ -1994,6 +2030,13 @@ class DatabaseStore {
     const s = this.getStayById(id);
     if (!s) return null;
     Object.assign(s, updates);
+    this.normalizeStayMedia(s);
+    if (!s.hasVideo && !s.hasPhotos) {
+      throw new Error('Listing must retain at least one media type (video or at least one photo).');
+    }
+    if (s.media?.photos && s.media.photos.length > 30) {
+      throw new Error('Maximum 30 photos allowed per listing.');
+    }
     if (updates.videoUrl && s.ownerEmail) {
       const plan = this.getHostPlan(s.ownerEmail);
       this.generateAutoShortsForListing(s, plan.tier || 'Silver');
@@ -5184,7 +5227,7 @@ class DatabaseStore {
   }
 
   public getAuditLogs(): AuditLog[] {
-    return this.data.auditLogs || [];
+    return (this.data.auditLogs || []).slice().sort((a, b) => b.createdAt - a.createdAt);
   }
 
   // --- TRIP DATING: A Dating Services Near You ---
@@ -5633,6 +5676,623 @@ class DatabaseStore {
       successfulUnlocks: unlocks.length,
       totalRevenueKes: approvedCount * 50,
     };
+  }
+
+  // --- Duplicate M-Pesa Code Checker (Section 2.3) ---
+  public isMpesaCodeUsed(code: string): boolean {
+    if (!code || !code.trim()) return false;
+    const clean = code.trim().toUpperCase();
+    const records = this.data.paymentRecords || [];
+    const payments = this.data.payments || [];
+    const datingReqs = this.data.tripDatingPaymentRequests || [];
+
+    const inRecords = records.some(p => (p.mpesaCode?.toUpperCase() === clean || p.reference?.toUpperCase() === clean));
+    const inPayments = payments.some(p => (p.mpesaCode?.toUpperCase() === clean || p.reference?.toUpperCase() === clean));
+    const inDating = datingReqs.some(r => r.transactionCode?.toUpperCase() === clean);
+
+    return inRecords || inPayments || inDating;
+  }
+
+  // --- Stay Media Normalization & Management (Section 1) ---
+  public normalizeStayMedia(stay: Stay): Stay {
+    if (!stay.media) {
+      const photos: any[] = [];
+      if (stay.images && stay.images.length > 0) {
+        stay.images.forEach((url: string, i: number) => {
+          photos.push({ url, order: i, isCover: i === 0 });
+        });
+      } else if (stay.thumbnailUrl) {
+        photos.push({ url: stay.thumbnailUrl, order: 0, isCover: true });
+      }
+
+      stay.media = {
+        video: stay.videoUrl ? {
+          url: stay.videoUrl,
+          thumbnail: stay.thumbnailUrl || (photos[0]?.url || ''),
+          duration: 60,
+          size: 15000000,
+        } : null,
+        photos,
+      };
+    } else {
+      if (!stay.media.photos) stay.media.photos = [];
+    }
+
+    stay.hasVideo = Boolean(stay.media?.video?.url && stay.media.video.url.trim().length > 0);
+    stay.hasPhotos = Boolean(stay.media?.photos && stay.media.photos.length > 0);
+
+    // Keep legacy fields synchronized
+    if (stay.media.video?.url) {
+      stay.videoUrl = stay.media.video.url;
+    }
+    if (stay.media.photos && stay.media.photos.length > 0) {
+      stay.images = stay.media.photos.slice().sort((a, b) => a.order - b.order).map(p => p.url);
+      const cover = stay.media.photos.find(p => p.isCover) || stay.media.photos[0];
+      if (cover) stay.thumbnailUrl = cover.url;
+    }
+
+    if (!stay.moderationStatus) stay.moderationStatus = 'approved';
+    if (!stay.mediaModerationStatus) stay.mediaModerationStatus = 'clean';
+
+    return stay;
+  }
+
+  public removeStayMedia(
+    stayId: string,
+    mediaType: 'video' | 'photo',
+    photoUrl?: string,
+    adminEmail?: string,
+    reason?: string
+  ): Stay {
+    const stay = this.getStayById(stayId);
+    if (!stay) throw new Error('Listing not found.');
+    this.normalizeStayMedia(stay);
+
+    const now = Date.now();
+    if (mediaType === 'video') {
+      stay.media!.video = null;
+      stay.videoUrl = '';
+      stay.hasVideo = false;
+    } else if (mediaType === 'photo' && photoUrl) {
+      stay.media!.photos = stay.media!.photos.filter(p => p.url !== photoUrl);
+      stay.images = (stay.images || []).filter(u => u !== photoUrl);
+      if (stay.thumbnailUrl === photoUrl) {
+        stay.thumbnailUrl = stay.media!.photos[0]?.url || '';
+      }
+      stay.hasPhotos = stay.media!.photos.length > 0;
+    }
+
+    // If both video and photos were removed, delist the stay until compliant
+    if (!stay.hasVideo && !stay.hasPhotos) {
+      stay.status = 'delisted';
+      stay.isDelisted = true;
+      stay.mediaModerationStatus = 'flagged';
+    }
+
+    if (adminEmail) {
+      this.createAuditLog({
+        id: 'aud_' + now,
+        action: 'media_remove',
+        actorEmail: adminEmail,
+        details: `Removed ${mediaType} from listing "${stay.title}" (${stay.id}). Reason: ${reason || 'Policy violation'}.`,
+        createdAt: now,
+      });
+
+      if (stay.ownerEmail) {
+        this.createNotification({
+          id: 'notif_' + now,
+          userEmail: stay.ownerEmail,
+          title: 'Listing Media Removed by Moderation',
+          message: `A ${mediaType} on your listing "${stay.title}" was removed due to: ${reason || 'Terms of service compliance'}. Please upload replacement media.`,
+          read: false,
+          link: '/#owner',
+          type: 'system',
+          createdAt: now,
+        });
+      }
+    }
+
+    this.save();
+    return stay;
+  }
+
+  public flagStayMedia(stayId: string, status: 'approved' | 'flagged' | 'clean', adminEmail: string, reason?: string): Stay {
+    const stay = this.getStayById(stayId);
+    if (!stay) throw new Error('Listing not found.');
+    this.normalizeStayMedia(stay);
+
+    stay.mediaModerationStatus = status;
+    const now = Date.now();
+
+    this.createAuditLog({
+      id: 'aud_' + now,
+      action: 'media_flag',
+      actorEmail: adminEmail,
+      details: `Set media moderation status to ${status} for listing "${stay.title}" (${stay.id}). Reason: ${reason || 'N/A'}.`,
+      createdAt: now,
+    });
+
+    this.save();
+    return stay;
+  }
+
+  public getListingMedia(filter?: { type?: string; flaggedOnly?: boolean; search?: string }): any[] {
+    let list = this.data.stays || [];
+    list.forEach(s => this.normalizeStayMedia(s));
+
+    if (filter?.flaggedOnly) {
+      list = list.filter(s => s.mediaModerationStatus === 'flagged');
+    }
+    if (filter?.type && filter.type !== 'all') {
+      if (filter.type === 'video') list = list.filter(s => s.hasVideo && !s.hasPhotos);
+      else if (filter.type === 'photos') list = list.filter(s => !s.hasVideo && s.hasPhotos);
+      else if (filter.type === 'both') list = list.filter(s => s.hasVideo && s.hasPhotos);
+    }
+    if (filter?.search && filter.search.trim()) {
+      const q = filter.search.toLowerCase().trim();
+      list = list.filter(s =>
+        s.title.toLowerCase().includes(q) ||
+        (s.ownerEmail || '').toLowerCase().includes(q) ||
+        s.location.toLowerCase().includes(q)
+      );
+    }
+
+    return list.map(s => ({
+      stayId: s.id,
+      title: s.title,
+      location: s.location,
+      ownerEmail: s.ownerEmail || s.owner,
+      status: s.status,
+      hasVideo: s.hasVideo,
+      hasPhotos: s.hasPhotos,
+      video: s.media?.video || null,
+      photos: s.media?.photos || [],
+      mediaModerationStatus: s.mediaModerationStatus || 'clean',
+      thumbnailUrl: s.thumbnailUrl,
+      videoUrl: s.videoUrl,
+      images: s.images,
+    }));
+  }
+
+  // --- Listing Moderation Queue (Section 3) ---
+  public moderateStay(
+    id: string,
+    action: 'approve' | 'reject' | 'suspend' | 'unsuspend' | 'delist' | 'relist' | 'delete',
+    adminEmail: string,
+    reason?: string
+  ): Stay | null {
+    const stay = this.getStayById(id);
+    if (!stay && action !== 'delete') throw new Error('Listing not found.');
+
+    const now = Date.now();
+    const cleanReason = (reason || '').trim() || 'Moderation decision by platform administrator.';
+
+    if (action === 'delete') {
+      this.deleteStay(id);
+      this.createAuditLog({
+        id: 'aud_' + now,
+        action: 'stay_delete',
+        actorEmail: adminEmail,
+        details: `Permanently deleted stay ${id}. Reason: ${cleanReason}`,
+        createdAt: now,
+      });
+      return null;
+    }
+
+    if (!stay) return null;
+
+    if (action === 'approve') {
+      stay.status = 'live';
+      stay.isApprovedByAdmin = true;
+      stay.moderationStatus = 'approved';
+      stay.isDelisted = false;
+    } else if (action === 'reject') {
+      stay.status = 'delisted';
+      stay.isApprovedByAdmin = false;
+      stay.moderationStatus = 'rejected';
+      stay.moderationReason = cleanReason;
+      stay.isDelisted = true;
+    } else if (action === 'suspend') {
+      stay.status = 'delisted';
+      stay.moderationStatus = 'suspended';
+      stay.moderationReason = cleanReason;
+      stay.isDelisted = true;
+    } else if (action === 'unsuspend' || action === 'relist') {
+      stay.status = 'live';
+      stay.moderationStatus = 'approved';
+      stay.isDelisted = false;
+      stay.moderationReason = undefined;
+    } else if (action === 'delist') {
+      stay.status = 'delisted';
+      stay.isDelisted = true;
+      stay.moderationReason = cleanReason;
+    }
+
+    this.createAuditLog({
+      id: 'aud_' + now,
+      action: `stay_${action}`,
+      actorEmail: adminEmail,
+      details: `${action.toUpperCase()} stay "${stay.title}" (${stay.id}). Reason: ${cleanReason}`,
+      createdAt: now,
+    });
+
+    if (stay.ownerEmail) {
+      this.createNotification({
+        id: 'notif_' + now,
+        userEmail: stay.ownerEmail,
+        title: `Listing ${action === 'approve' ? 'Approved & Published' : action === 'unsuspend' ? 'Restored' : 'Moderated'}`,
+        message: `Your listing "${stay.title}" was ${action === 'approve' ? 'approved and is now live!' : `updated: ${action} (${cleanReason})`}`,
+        read: false,
+        link: '/#owner',
+        type: 'system',
+        createdAt: now,
+      });
+    }
+
+    this.save();
+    return stay;
+  }
+
+  // --- Subscriptions Moderation Queue (Section 3) ---
+  public getAllSubscriptions(): any[] {
+    const subs = this.data.subscriptions || [];
+    const hostPlans = this.data.hostPlans || {};
+
+    // Combine explicit subscription records and all hosts' current plan states
+    const items: any[] = subs.map(s => ({
+      ...s,
+      type: 'record',
+    }));
+
+    Object.entries(hostPlans).forEach(([ownerEmail, plan]) => {
+      const existing = items.find(s => s.ownerId?.toLowerCase() === ownerEmail.toLowerCase() || s.owner_id?.toLowerCase() === ownerEmail.toLowerCase());
+      if (!existing) {
+        items.push({
+          id: 'sub_host_' + ownerEmail,
+          ownerId: ownerEmail,
+          owner_id: ownerEmail,
+          tier: plan.tier || 'Diamond',
+          billing: plan.period || 'monthly',
+          status: plan.status || 'active',
+          startsAt: plan.expiresAt ? plan.expiresAt - 30 * 864e5 : Date.now(),
+          endsAt: plan.expiresAt || (Date.now() + 30 * 864e5),
+          createdAt: Date.now() - 30 * 864e5,
+          updatedAt: Date.now(),
+          type: 'host_plan',
+        });
+      }
+    });
+
+    return items.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  }
+
+  public moderateSubscription(
+    id: string,
+    action: 'approve' | 'reject' | 'extend' | 'revoke' | 'expire',
+    adminEmail: string,
+    days = 30,
+    reason?: string
+  ): any {
+    const now = Date.now();
+    const subs = this.data.subscriptions || [];
+    const sub = subs.find(s => s.id === id);
+    const ownerEmail = (sub?.ownerId || sub?.owner_id || id.replace('sub_host_', '')).toLowerCase().trim();
+    const cleanReason = (reason || '').trim() || 'Admin subscription adjustment.';
+
+    if (action === 'extend') {
+      const addedMs = days * 864e5;
+      if (sub) {
+        sub.endsAt = Math.max(now, sub.endsAt || now) + addedMs;
+        sub.status = 'active';
+        sub.updatedAt = now;
+      }
+      const plan = this.getHostPlan(ownerEmail);
+      this.setHostPlan(ownerEmail, {
+        ...plan,
+        status: 'active',
+        expiresAt: Math.max(now, plan.expiresAt || now) + addedMs,
+        graceExpiresAt: Math.max(now, plan.expiresAt || now) + addedMs + 2 * 864e5,
+      });
+
+      // Restore any expired stays
+      this.data.stays.forEach(s => {
+        if (s.ownerEmail?.toLowerCase() === ownerEmail && (s.status === 'expired' || s.isDelisted)) {
+          s.status = 'live';
+          s.isDelisted = false;
+        }
+      });
+    } else if (action === 'revoke' || action === 'expire') {
+      if (sub) {
+        sub.status = 'expired';
+        sub.updatedAt = now;
+      }
+      const plan = this.getHostPlan(ownerEmail);
+      this.setHostPlan(ownerEmail, {
+        ...plan,
+        status: 'expired',
+        expiresAt: now,
+      });
+      // Expire stays
+      this.data.stays.forEach(s => {
+        if (s.ownerEmail?.toLowerCase() === ownerEmail) {
+          s.status = 'expired';
+        }
+      });
+    } else if (action === 'approve') {
+      if (sub) {
+        sub.status = 'active';
+        sub.startsAt = now;
+        sub.endsAt = now + (sub.billing === 'annual' ? 365 * 864e5 : 30 * 864e5);
+        sub.updatedAt = now;
+      }
+      this.setHostPlan(ownerEmail, {
+        tier: sub?.tier || 'Diamond',
+        status: 'active',
+        expiresAt: now + (sub?.billing === 'annual' ? 365 * 864e5 : 30 * 864e5),
+      });
+    } else if (action === 'reject') {
+      if (sub) {
+        sub.status = 'rejected';
+        sub.updatedAt = now;
+      }
+    }
+
+    this.createAuditLog({
+      id: 'aud_' + now,
+      action: `subscription_${action}`,
+      actorEmail: adminEmail,
+      details: `${action.toUpperCase()} subscription for ${ownerEmail}. Added days: ${days}. Reason: ${cleanReason}`,
+      createdAt: now,
+    });
+
+    this.createNotification({
+      id: 'notif_' + now,
+      userEmail: ownerEmail,
+      title: `Hosting Subscription ${action === 'extend' ? 'Extended' : action === 'approve' ? 'Activated' : 'Updated'}`,
+      message: `Your hosting subscription was updated by admin: ${action} (${cleanReason}).`,
+      read: false,
+      link: '/#owner',
+      type: 'subscription',
+      createdAt: now,
+    });
+
+    this.save();
+    return { success: true, ownerEmail, action, sub };
+  }
+
+  // --- Adverts Moderation Queue (Section 3) ---
+  public moderateAd(
+    id: string,
+    action: 'approve' | 'reject' | 'pause' | 'resume' | 'end',
+    adminEmail: string,
+    reason?: string
+  ): any {
+    const now = Date.now();
+    const cleanReason = (reason || '').trim() || 'Administrative advert update.';
+
+    // Check adSlots
+    const adSlot = (this.data.adSlots || []).find(s => s.id === id);
+    // Check sponsorSlots
+    const spSlot = (this.data.sponsorSlots || []).find(s => s.id === id);
+    // Check adRequests
+    const adReq = (this.data.adRequests || []).find(a => a.id === id);
+
+    let advertiserEmail = '';
+    if (adSlot) {
+      advertiserEmail = adSlot.ownerId || adSlot.owner_id || '';
+      if (action === 'approve') {
+        adSlot.status = 'active';
+        adSlot.startsAt = now;
+        adSlot.endsAt = now + (adSlot.durationDays * 864e5);
+      } else if (action === 'reject') {
+        adSlot.status = 'rejected';
+        adSlot.rejectionReason = cleanReason;
+      } else if (action === 'pause') {
+        adSlot.status = 'pending_approval';
+      } else if (action === 'resume') {
+        adSlot.status = 'active';
+      } else if (action === 'end') {
+        adSlot.status = 'expired';
+        adSlot.endsAt = now;
+      }
+      adSlot.updatedAt = now;
+    }
+
+    if (spSlot) {
+      advertiserEmail = spSlot.advertiser_id || spSlot.advertiserId || advertiserEmail;
+      if (action === 'approve') {
+        spSlot.status = 'active';
+        spSlot.starts_at = now;
+        spSlot.ends_at = now + (spSlot.duration_days * 864e5);
+      } else if (action === 'reject') {
+        spSlot.status = 'rejected';
+      } else if (action === 'end') {
+        spSlot.status = 'expired';
+        spSlot.ends_at = now;
+      }
+    }
+
+    if (adReq) {
+      advertiserEmail = adReq.advertiserEmail || advertiserEmail;
+      if (action === 'approve') {
+        adReq.status = 'approved';
+        adReq.startsAt = now;
+        adReq.expiresAt = now + (adReq.days * 864e5);
+      } else if (action === 'reject') {
+        adReq.status = 'rejected';
+      } else if (action === 'end') {
+        adReq.status = 'expired';
+        adReq.expiresAt = now;
+      }
+    }
+
+    this.createAuditLog({
+      id: 'aud_' + now,
+      action: `ad_${action}`,
+      actorEmail: adminEmail,
+      details: `${action.toUpperCase()} advert ${id}. Reason: ${cleanReason}`,
+      createdAt: now,
+    });
+
+    if (advertiserEmail) {
+      this.createNotification({
+        id: 'notif_' + now,
+        userEmail: advertiserEmail,
+        title: `Advert ${action === 'approve' ? 'Approved & Live' : 'Updated'}`,
+        message: `Your advert was updated: ${action} (${cleanReason}).`,
+        read: false,
+        link: '/#ads',
+        type: 'system',
+        createdAt: now,
+      });
+    }
+
+    this.save();
+    return { success: true, id, action };
+  }
+
+  // --- Users & Hosts Moderation (Section 3) ---
+  public moderateUser(
+    email: string,
+    action: 'suspend' | 'reactivate' | 'verify',
+    adminEmail: string,
+    reason?: string
+  ): User {
+    const user = this.findUserByEmail(email);
+    if (!user) throw new Error('User account not found.');
+
+    const now = Date.now();
+    const cleanReason = (reason || '').trim() || 'Admin user moderation.';
+
+    if (action === 'suspend') {
+      user.isSuspended = true;
+      user.suspendedReason = cleanReason;
+    } else if (action === 'reactivate') {
+      user.isSuspended = false;
+      user.suspendedReason = undefined;
+    } else if (action === 'verify') {
+      user.idVerified = true;
+    }
+
+    this.createAuditLog({
+      id: 'aud_' + now,
+      action: `user_${action}`,
+      actorEmail: adminEmail,
+      details: `${action.toUpperCase()} user ${email}. Reason: ${cleanReason}`,
+      createdAt: now,
+    });
+
+    this.createNotification({
+      id: 'notif_' + now,
+      userEmail: email,
+      title: `Account Status: ${action === 'verify' ? 'ID Verified ✓' : action === 'reactivate' ? 'Reactivated' : 'Suspended'}`,
+      message: action === 'suspend'
+        ? `Your AirBus account was suspended: ${cleanReason}. Contact support to appeal.`
+        : action === 'verify'
+        ? 'Congratulations! Your identity verification has been approved.'
+        : 'Your account has been reactivated. Welcome back!',
+      read: false,
+      link: '/#home',
+      type: 'system',
+      createdAt: now,
+    });
+
+    this.save();
+    return user;
+  }
+
+  // --- Reports & Flags Moderation (Section 3) ---
+  public getReports(): ListingReport[] {
+    if (!this.data.reports) this.data.reports = [];
+    return this.data.reports.slice().sort((a, b) => b.createdAt - a.createdAt);
+  }
+
+  public actionReport(
+    id: string,
+    action: 'resolve' | 'dismiss' | 'penalize',
+    adminEmail: string,
+    actionTaken?: string
+  ): ListingReport {
+    if (!this.data.reports) this.data.reports = [];
+    const rep = this.data.reports.find(r => r.id === id);
+    if (!rep) throw new Error('Report ticket not found.');
+
+    const now = Date.now();
+    rep.status = action === 'dismiss' ? 'dismissed' : 'resolved';
+    rep.reviewedBy = adminEmail;
+    rep.reviewedAt = now;
+    rep.actionTaken = actionTaken || `Marked ${action} by administrator.`;
+
+    // If penalize, flag the reported stay
+    if (action === 'penalize' && rep.stayId) {
+      const stay = this.getStayById(rep.stayId);
+      if (stay) {
+        stay.moderationStatus = 'suspended';
+        stay.isDelisted = true;
+        stay.moderationReason = `Suspended following user report: ${rep.reason}`;
+      }
+    }
+
+    this.createAuditLog({
+      id: 'aud_' + now,
+      action: `report_${action}`,
+      actorEmail: adminEmail,
+      details: `Report ${id} marked ${action}. Action taken: ${rep.actionTaken}`,
+      createdAt: now,
+    });
+
+    this.save();
+    return rep;
+  }
+
+  // --- Reviews Moderation (Section 3) ---
+  public getAllReviews(): any[] {
+    const reviews = this.data.reviews || [];
+    return reviews.map(r => {
+      const stay = this.getStayById(r.stayId);
+      return {
+        ...r,
+        stayTitle: stay?.title || 'Airbus Stay',
+        status: r.status || 'approved',
+      };
+    }).sort((a, b) => b.createdAt - a.createdAt);
+  }
+
+  public moderateReview(id: string, action: 'approve' | 'hide' | 'unhide' | 'delete', adminEmail: string): Review | null {
+    if (!this.data.reviews) this.data.reviews = [];
+    const idx = this.data.reviews.findIndex(r => r.id === id);
+    if (idx === -1) throw new Error('Review not found.');
+
+    const now = Date.now();
+    const rev = this.data.reviews[idx];
+
+    if (action === 'delete') {
+      this.data.reviews.splice(idx, 1);
+      this.createAuditLog({
+        id: 'aud_' + now,
+        action: 'review_delete',
+        actorEmail: adminEmail,
+        details: `Deleted review ${id} by ${rev.guestEmail} on stay ${rev.stayId}`,
+        createdAt: now,
+      });
+      this.save();
+      return null;
+    }
+
+    rev.status = action === 'hide' ? 'hidden' : 'approved';
+    rev.moderatedBy = adminEmail;
+    rev.moderatedAt = now;
+
+    this.createAuditLog({
+      id: 'aud_' + now,
+      action: `review_${action}`,
+      actorEmail: adminEmail,
+      details: `${action.toUpperCase()} review ${id} by ${rev.guestEmail} on stay ${rev.stayId}`,
+      createdAt: now,
+    });
+
+    this.save();
+    return rev;
   }
 }
 

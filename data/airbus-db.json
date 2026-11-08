@@ -99,7 +99,29 @@
       "isPromoted": true,
       "promotedUntil": 1794473742707,
       "promotionImpressions": 35,
-      "promotionClicks": 1
+      "promotionClicks": 1,
+      "media": {
+        "video": {
+          "url": "https://assets.mixkit.co/videos/preview/mixkit-modern-apartment-with-living-room-and-terrace-43405-large.mp4",
+          "thumbnail": "https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?auto=format&fit=crop&w=800&q=80",
+          "duration": 60,
+          "size": 15000000
+        },
+        "photos": [
+          {
+            "url": "https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?auto=format&fit=crop&w=800&q=80",
+            "order": 0,
+            "isCover": true
+          }
+        ]
+      },
+      "hasVideo": true,
+      "hasPhotos": true,
+      "moderationStatus": "approved",
+      "mediaModerationStatus": "clean",
+      "images": [
+        "https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?auto=format&fit=crop&w=800&q=80"
+      ]
     },
     {
       "id": "s2",
@@ -153,7 +175,29 @@
         "High-Speed Fiber Voucher",
         "Complimentary Bottled Water"
       ],
-      "hostMessage": "Welcome to Kilimani! Perfect for remote workers. Fiber is blazing fast and Artcaffe is 2 mins away."
+      "hostMessage": "Welcome to Kilimani! Perfect for remote workers. Fiber is blazing fast and Artcaffe is 2 mins away.",
+      "media": {
+        "video": {
+          "url": "https://assets.mixkit.co/videos/preview/mixkit-luxurious-living-room-with-a-modern-interior-design-43409-large.mp4",
+          "thumbnail": "https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?auto=format&fit=crop&w=800&q=80",
+          "duration": 60,
+          "size": 15000000
+        },
+        "photos": [
+          {
+            "url": "https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?auto=format&fit=crop&w=800&q=80",
+            "order": 0,
+            "isCover": true
+          }
+        ]
+      },
+      "hasVideo": true,
+      "hasPhotos": true,
+      "moderationStatus": "approved",
+      "mediaModerationStatus": "clean",
+      "images": [
+        "https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?auto=format&fit=crop&w=800&q=80"
+      ]
     },
     {
       "id": "s3",
@@ -211,7 +255,29 @@
       "isPromoted": true,
       "promotedUntil": 1793782551341,
       "promotionImpressions": 2,
-      "promotionClicks": 0
+      "promotionClicks": 0,
+      "media": {
+        "video": {
+          "url": "https://assets.mixkit.co/videos/preview/mixkit-wooden-house-in-the-middle-of-a-forest-43410-large.mp4",
+          "thumbnail": "https://images.unsplash.com/photo-1580587771525-78b9dba3b914?auto=format&fit=crop&w=800&q=80",
+          "duration": 60,
+          "size": 15000000
+        },
+        "photos": [
+          {
+            "url": "https://images.unsplash.com/photo-1580587771525-78b9dba3b914?auto=format&fit=crop&w=800&q=80",
+            "order": 0,
+            "isCover": true
+          }
+        ]
+      },
+      "hasVideo": true,
+      "hasPhotos": true,
+      "moderationStatus": "approved",
+      "mediaModerationStatus": "clean",
+      "images": [
+        "https://images.unsplash.com/photo-1580587771525-78b9dba3b914?auto=format&fit=crop&w=800&q=80"
+      ]
     },
     {
       "id": "s4",
@@ -269,7 +335,29 @@
       "hostMessage": "Habari za Mombasa! The Indian Ocean is at your doorstep. Let me know if you would like our private chef to prepare Swahili biryani.",
       "isPromoted": true,
       "promotedUntil": 1793868942707,
-      "promotionImpressions": 32
+      "promotionImpressions": 32,
+      "media": {
+        "video": {
+          "url": "https://assets.mixkit.co/videos/preview/mixkit-villa-with-pool-and-terrace-in-front-of-the-sea-43406-large.mp4",
+          "thumbnail": "https://images.unsplash.com/photo-1512917774080-9991f1c4c750?auto=format&fit=crop&w=800&q=80",
+          "duration": 60,
+          "size": 15000000
+        },
+        "photos": [
+          {
+            "url": "https://images.unsplash.com/photo-1512917774080-9991f1c4c750?auto=format&fit=crop&w=800&q=80",
+            "order": 0,
+            "isCover": true
+          }
+        ]
+      },
+      "hasVideo": true,
+      "hasPhotos": true,
+      "moderationStatus": "approved",
+      "mediaModerationStatus": "clean",
+      "images": [
+        "https://images.unsplash.com/photo-1512917774080-9991f1c4c750?auto=format&fit=crop&w=800&q=80"
+      ]
     },
     {
       "id": "s5",
@@ -322,7 +410,29 @@
         "Tropical Mango & Passion Basket",
         "Sunset Dhow Cruise Voucher"
       ],
-      "hostMessage": "Barefoot luxury in Diani! Baobabs and the white beach are just 45 seconds away. Enjoy paradise!"
+      "hostMessage": "Barefoot luxury in Diani! Baobabs and the white beach are just 45 seconds away. Enjoy paradise!",
+      "media": {
+        "video": {
+          "url": "https://assets.mixkit.co/videos/preview/mixkit-swimming-pool-surrounded-by-palm-trees-at-sunset-42028-large.mp4",
+          "thumbnail": "https://images.unsplash.com/photo-1499793983690-e29da59ef1c2?auto=format&fit=crop&w=800&q=80",
+          "duration": 60,
+          "size": 15000000
+        },
+        "photos": [
+          {
+            "url": "https://images.unsplash.com/photo-1499793983690-e29da59ef1c2?auto=format&fit=crop&w=800&q=80",
+            "order": 0,
+            "isCover": true
+          }
+        ]
+      },
+      "hasVideo": true,
+      "hasPhotos": true,
+      "moderationStatus": "approved",
+      "mediaModerationStatus": "clean",
+      "images": [
+        "https://images.unsplash.com/photo-1499793983690-e29da59ef1c2?auto=format&fit=crop&w=800&q=80"
+      ]
     },
     {
       "id": "s6",
@@ -375,7 +485,29 @@
         "Giraffe Sanctuary Map & Guide",
         "Organic Mountain Coffee"
       ],
-      "hostMessage": "Welcome to peaceful Karen. Take your morning tea on the English veranda listening to the sunbirds."
+      "hostMessage": "Welcome to peaceful Karen. Take your morning tea on the English veranda listening to the sunbirds.",
+      "media": {
+        "video": {
+          "url": "https://assets.mixkit.co/videos/preview/mixkit-cozy-living-room-in-a-cabin-43407-large.mp4",
+          "thumbnail": "https://images.unsplash.com/photo-1518780664697-55e3ad937233?auto=format&fit=crop&w=800&q=80",
+          "duration": 60,
+          "size": 15000000
+        },
+        "photos": [
+          {
+            "url": "https://images.unsplash.com/photo-1518780664697-55e3ad937233?auto=format&fit=crop&w=800&q=80",
+            "order": 0,
+            "isCover": true
+          }
+        ]
+      },
+      "hasVideo": true,
+      "hasPhotos": true,
+      "moderationStatus": "approved",
+      "mediaModerationStatus": "clean",
+      "images": [
+        "https://images.unsplash.com/photo-1518780664697-55e3ad937233?auto=format&fit=crop&w=800&q=80"
+      ]
     },
     {
       "id": "s7",
@@ -429,7 +561,29 @@
         "Complimentary Sauna & Gym Pass",
         "Espresso Pods"
       ],
-      "hostMessage": "Welcome to Nairobi! Don’t miss the sunset from the rooftop sky pool overlooking the Ngong Hills."
+      "hostMessage": "Welcome to Nairobi! Don’t miss the sunset from the rooftop sky pool overlooking the Ngong Hills.",
+      "media": {
+        "video": {
+          "url": "https://assets.mixkit.co/videos/preview/mixkit-large-house-with-modern-interior-and-floor-to-ceiling-windows-43411-large.mp4",
+          "thumbnail": "https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?auto=format&fit=crop&w=800&q=80",
+          "duration": 60,
+          "size": 15000000
+        },
+        "photos": [
+          {
+            "url": "https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?auto=format&fit=crop&w=800&q=80",
+            "order": 0,
+            "isCover": true
+          }
+        ]
+      },
+      "hasVideo": true,
+      "hasPhotos": true,
+      "moderationStatus": "approved",
+      "mediaModerationStatus": "clean",
+      "images": [
+        "https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?auto=format&fit=crop&w=800&q=80"
+      ]
     },
     {
       "id": "s8",
@@ -483,7 +637,29 @@
         "Wildlife Safari Binoculars",
         "Campfire Firepit Logs"
       ],
-      "hostMessage": "Karibu Lake Naivasha! Keep your cameras ready—the zebras love grazing right outside the porch in the morning."
+      "hostMessage": "Karibu Lake Naivasha! Keep your cameras ready—the zebras love grazing right outside the porch in the morning.",
+      "media": {
+        "video": {
+          "url": "https://assets.mixkit.co/videos/preview/mixkit-kitchen-island-in-a-luxurious-modern-house-43412-large.mp4",
+          "thumbnail": "https://images.unsplash.com/photo-1542314831-068cd1dbfeeb?auto=format&fit=crop&w=800&q=80",
+          "duration": 60,
+          "size": 15000000
+        },
+        "photos": [
+          {
+            "url": "https://images.unsplash.com/photo-1542314831-068cd1dbfeeb?auto=format&fit=crop&w=800&q=80",
+            "order": 0,
+            "isCover": true
+          }
+        ]
+      },
+      "hasVideo": true,
+      "hasPhotos": true,
+      "moderationStatus": "approved",
+      "mediaModerationStatus": "clean",
+      "images": [
+        "https://images.unsplash.com/photo-1542314831-068cd1dbfeeb?auto=format&fit=crop&w=800&q=80"
+      ]
     }
   ],
   "bookings": [
@@ -618,6 +794,33 @@
   ],
   "payments": [
     {
+      "id": "pay_dep_1794162824455",
+      "userId": "guest@airbus.ke",
+      "user_id": "guest@airbus.ke",
+      "hostEmail": "guest@airbus.ke",
+      "kind": "deposit",
+      "type": "deposit",
+      "method": "mpesa_manual",
+      "amountSc": 50,
+      "amount_sc": 50,
+      "amountKes": 500,
+      "amount_kes": 500,
+      "amount": 500,
+      "status": "approved",
+      "referenceId": "pay_dep_1794162824455",
+      "reference_id": "pay_dep_1794162824455",
+      "mpesaCode": "QA12BC34DE",
+      "mpesa_code": "QA12BC34DE",
+      "createdAt": 1794162824455,
+      "created_at": 1794162824455,
+      "updatedAt": 1794162828354,
+      "updated_at": 1794162828354,
+      "approvedBy": "kamalahari93@gmail.com",
+      "approved_by": "kamalahari93@gmail.com",
+      "approvedAt": 1794162828354,
+      "approved_at": 1794162828354
+    },
+    {
       "id": "pay_demo_1",
       "hostEmail": "owner@airbus.ke",
       "kind": "plan",
@@ -654,6 +857,26 @@
     }
   ],
   "notifications": [
+    {
+      "id": "notif_1794162828355",
+      "userEmail": "guest@airbus.ke",
+      "title": "Payment Approved! ✓",
+      "message": "Your payment of 50 Coins (MPESA_MANUAL) was verified! Your payment is now active.",
+      "read": false,
+      "link": "/#owner",
+      "type": "payment",
+      "createdAt": 1794162828354
+    },
+    {
+      "id": "notif_17941628244550.26082572090067946",
+      "userEmail": "kamalahari93@gmail.com",
+      "title": "New Payment Pending Verification",
+      "message": "guest@airbus.ke submitted KES 50 (MPESA_MANUAL, Ref: QA12BC34DE) for deposit.",
+      "read": false,
+      "link": "/#admin",
+      "type": "payment",
+      "createdAt": 1794162824455
+    },
     {
       "id": "notif_1793264151353",
       "userEmail": "owner@airbus.ke",
@@ -726,6 +949,13 @@
   "reports": [],
   "tickets": [],
   "auditLogs": [
+    {
+      "id": "aud_1794162828354",
+      "action": "payment_approve",
+      "actorEmail": "kamalahari93@gmail.com",
+      "details": "Approved deposit (50 SC, method mpesa_manual) for guest@airbus.ke",
+      "createdAt": 1794162828354
+    },
     {
       "id": "aud_tdp_1793795327682",
       "action": "trip_dating_profile_created",
@@ -1402,7 +1632,35 @@
       "expiresAt": 1794400118243
     }
   ],
-  "paymentRecords": [],
+  "paymentRecords": [
+    {
+      "id": "pay_dep_1794162824455",
+      "userId": "guest@airbus.ke",
+      "user_id": "guest@airbus.ke",
+      "hostEmail": "guest@airbus.ke",
+      "kind": "deposit",
+      "type": "deposit",
+      "method": "mpesa_manual",
+      "amountSc": 50,
+      "amount_sc": 50,
+      "amountKes": 500,
+      "amount_kes": 500,
+      "amount": 500,
+      "status": "approved",
+      "referenceId": "pay_dep_1794162824455",
+      "reference_id": "pay_dep_1794162824455",
+      "mpesaCode": "QA12BC34DE",
+      "mpesa_code": "QA12BC34DE",
+      "createdAt": 1794162824455,
+      "created_at": 1794162824455,
+      "updatedAt": 1794162828354,
+      "updated_at": 1794162828354,
+      "approvedBy": "kamalahari93@gmail.com",
+      "approved_by": "kamalahari93@gmail.com",
+      "approvedAt": 1794162828354,
+      "approved_at": 1794162828354
+    }
+  ],
   "walletTransactions": [],
   "adSlots": [
     {
@@ -1424,7 +1682,7 @@
       "paymentId": "pay_demo_1",
       "payment_id": "pay_demo_1",
       "paymentMethod": "wallet",
-      "impressions": 1421,
+      "impressions": 1422,
       "clicks": 86,
       "startsAt": 1793543326423,
       "endsAt": 1796135326423,

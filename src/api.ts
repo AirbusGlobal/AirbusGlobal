@@ -33,6 +33,8 @@ import {
   PaymentRecordType,
   PaymentRecordMethod,
   PaymentRecordStatus,
+  ListingReport,
+  AuditLog,
   BoostRecord,
   SponsorSlot,
 } from './types';
@@ -1275,6 +1277,125 @@ export const api = {
 
   async getAdminTripDatingStats(): Promise<{ stats: TripDatingStats; profiles: TripDatingProfile[] }> {
     return this.request('/api/admin/trip-dating/stats');
+  },
+
+  // Media Removal (Host or Admin)
+  async removeListingMedia(stayId: string, data: { mediaType: 'video' | 'photo'; photoUrl?: string; reason?: string }): Promise<{ stay: Stay }> {
+    return this.request(`/api/listings/${stayId}/media/remove`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  // Admin Listing Media Moderation
+  async getAdminListingMedia(params: { type?: string; flaggedOnly?: boolean; search?: string } = {}): Promise<{ media: any[]; total: number }> {
+    const qs = new URLSearchParams();
+    if (params.type) qs.set('type', params.type);
+    if (params.flaggedOnly) qs.set('flaggedOnly', 'true');
+    if (params.search) qs.set('search', params.search);
+    const qStr = qs.toString();
+    return this.request(`/api/admin/listing-media${qStr ? `?${qStr}` : ''}`);
+  },
+
+  async adminRemoveStayMedia(stayId: string, data: { mediaType: 'video' | 'photo'; photoUrl?: string; reason?: string }): Promise<{ stay: Stay }> {
+    return this.request(`/api/admin/stays/${stayId}/media/remove`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async adminFlagStayMedia(stayId: string, data: { status: 'clean' | 'flagged' | 'under_review'; reason?: string }): Promise<{ stay: Stay }> {
+    return this.request(`/api/admin/stays/${stayId}/media/flag`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  // Admin Full Listing Moderation
+  async adminModerateStay(stayId: string, data: { action: 'approve' | 'reject' | 'suspend' | 'unsuspend' | 'delist' | 'relist' | 'delete'; reason?: string }): Promise<{ success: boolean; stay?: Stay }> {
+    return this.request(`/api/admin/stays/${stayId}/moderate`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  // Admin Subscriptions Moderation
+  async getAdminSubscriptions(): Promise<{ subscriptions: any[]; total: number }> {
+    return this.request('/api/admin/subscriptions');
+  },
+
+  async adminModerateSubscription(id: string, data: { action: 'approve' | 'reject' | 'extend' | 'revoke' | 'expire'; days?: number; reason?: string }): Promise<any> {
+    return this.request(`/api/admin/subscriptions/${id}/moderate`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  // Admin Adverts Moderation
+  async adminModerateAd(id: string, data: { action: 'approve' | 'reject' | 'pause' | 'resume' | 'end'; reason?: string }): Promise<any> {
+    return this.request(`/api/admin/ads/${id}/moderate`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  // Admin Users & Hosts Moderation
+  async adminModerateUser(email: string, data: { action: 'suspend' | 'reactivate' | 'verify'; reason?: string }): Promise<{ user: User }> {
+    return this.request(`/api/admin/users/${encodeURIComponent(email)}/status`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  // Admin Reports Moderation
+  async getAdminReports(): Promise<{ reports: ListingReport[]; total: number }> {
+    return this.request('/api/admin/reports');
+  },
+
+  async adminActionReport(id: string, data: { action: 'resolve' | 'dismiss' | 'penalize'; actionTaken?: string }): Promise<{ report: ListingReport }> {
+    return this.request(`/api/admin/reports/${id}/action`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  // Admin Reviews Moderation
+  async getAdminReviews(): Promise<{ reviews: any[]; total: number }> {
+    return this.request('/api/admin/reviews');
+  },
+
+  async adminModerateReview(id: string, data: { action: 'approve' | 'hide' | 'unhide' | 'delete' }): Promise<{ review: Review | null }> {
+    return this.request(`/api/admin/reviews/${id}/moderate`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  // Admin Audit Logs
+  async getAdminAuditLogs(): Promise<{ logs: AuditLog[]; total: number }> {
+    return this.request('/api/admin/audit-logs');
+  },
+
+  // Live Sync Polling
+  async getLiveUpdates(): Promise<{
+    timestamp: number;
+    counts: {
+      pendingPayments: number;
+      pendingStays: number;
+      flaggedMedia: number;
+      pendingReports: number;
+      unreadNotifs: number;
+    };
+  }> {
+    return this.request('/api/live/updates');
+  },
+
+  // Manual M-Pesa Topup / Deposit
+  async submitManualDeposit(data: { amountKes: number; mpesaCode: string; phoneNumber?: string }): Promise<any> {
+    return this.request('/api/wallet/deposit', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
   },
 };
 

@@ -600,6 +600,8 @@ app.post('/api/stays', (req, res) => {
     whatsapp,
     affiliateLink,
     minNights,
+    media,
+    images,
   } = req.body;
 
   if (!title || !location || !price) {
@@ -619,6 +621,22 @@ app.post('/api/stays', (req, res) => {
     return res.status(400).json({
       error: 'Accurate geographic latitude and longitude coordinates are strictly required for the listing to appear on the discovery map.',
     });
+  }
+
+  // Validate at least one media type is provided
+  const hasPhotosInput = (Array.isArray(images) && images.length > 0) || (media?.photos && media.photos.length > 0) || Boolean(thumbnailUrl);
+  const hasVideoInput = Boolean(videoUrl && videoUrl.trim()) || Boolean(media?.video?.url && media.video.url.trim());
+  if (!hasPhotosInput && !hasVideoInput) {
+    return res.status(400).json({
+      error: 'At least one media type is required (one video tour or at least one photo). Please upload media before saving.',
+    });
+  }
+
+  if (Array.isArray(images) && images.length > 30) {
+    return res.status(400).json({ error: 'A maximum of 30 photos is allowed per listing.' });
+  }
+  if (media?.photos && media.photos.length > 30) {
+    return res.status(400).json({ error: 'A maximum of 30 photos is allowed per listing.' });
   }
 
   // Property must be approved by admin before going live!
@@ -641,11 +659,15 @@ app.post('/api/stays', (req, res) => {
     area: Number(area) || 60,
     category: plan.tier || 'Silver',
     status: initialStatus,
+    moderationStatus: isApproved ? 'approved' : 'pending',
+    mediaModerationStatus: 'clean',
     features: Array.isArray(features) ? features : ['WiFi', 'Parking'],
     highlights: Array.isArray(highlights) ? highlights : [],
     description: description || '',
-    videoUrl: videoUrl || 'https://assets.mixkit.co/videos/preview/mixkit-modern-apartment-with-living-room-and-terrace-43405-large.mp4',
-    thumbnailUrl: thumbnailUrl || 'https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?auto=format&fit=crop&w=800&q=80',
+    videoUrl: videoUrl || (media?.video?.url || ''),
+    thumbnailUrl: thumbnailUrl || (images && images[0]) || (media?.photos && media.photos[0]?.url) || '',
+    images: Array.isArray(images) ? images : undefined,
+    media: media || undefined,
     youtubeUrl: youtubeUrl || undefined,
     youtubeVideoId: youtubeVideoId || undefined,
     source: affiliateLink ? 'External' : 'Direct',
@@ -676,7 +698,11 @@ app.post('/api/stays', (req, res) => {
     createdAt: Date.now(),
   };
 
-  db.createStay(newStay);
+  try {
+    db.createStay(newStay);
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'Failed to save listing with media.' });
+  }
 
   // Notify admin for approval if submitted by owner
   if (!isApproved) {
@@ -729,6 +755,13 @@ app.patch('/api/stays/:id', (req, res) => {
     'description',
     'videoUrl',
     'thumbnailUrl',
+    'images',
+    'media',
+    'hasVideo',
+    'hasPhotos',
+    'moderationStatus',
+    'moderationReason',
+    'mediaModerationStatus',
     'youtubeUrl',
     'youtubeVideoId',
     'whatsapp',
@@ -757,8 +790,12 @@ app.patch('/api/stays/:id', (req, res) => {
     }
   }
 
-  const updatedStay = db.updateStay(req.params.id, updates);
-  return res.json({ stay: updatedStay });
+  try {
+    const updatedStay = db.updateStay(req.params.id, updates);
+    return res.json({ stay: updatedStay });
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'Update failed.' });
+  }
 });
 
 // Promote Listing (KES 100/day visibility boost - atomic wallet or M-Pesa verification)
@@ -908,6 +945,31 @@ app.delete('/api/stays/:id', (req, res) => {
 
   db.deleteStay(req.params.id);
   return res.json({ success: true });
+});
+
+// Listing Media removal (Host or Admin)
+app.post('/api/listings/:id/media/remove', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ error: 'Authentication required' });
+
+  const stay = db.getStayById(req.params.id);
+  if (!stay) return res.status(404).json({ error: 'Stay not found' });
+
+  if (user.role !== 'admin' && stay.ownerEmail?.toLowerCase() !== user.email.toLowerCase()) {
+    return res.status(403).json({ error: 'Only the listing owner or administrator can remove media.' });
+  }
+
+  const { mediaType, photoUrl, reason } = req.body;
+  if (!mediaType || (mediaType !== 'video' && mediaType !== 'photo')) {
+    return res.status(400).json({ error: 'Valid mediaType (video or photo) required.' });
+  }
+
+  try {
+    const updated = db.removeStayMedia(req.params.id, mediaType, photoUrl, user.email, reason);
+    return res.json({ stay: updated });
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'Failed to remove media.' });
+  }
 });
 
 // Bookings
@@ -1753,6 +1815,262 @@ app.post('/api/admin/plan', (req, res) => {
   return res.json({ plan: newPlan });
 });
 
+// ============================================================================
+// ADMIN COMPREHENSIVE MODERATION SUITE (PART 3)
+// ============================================================================
+
+// 1. Listing Media Moderation Queue
+app.get('/api/admin/listing-media', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required.' });
+  }
+
+  const { type, flaggedOnly, search } = req.query;
+  const items = db.getListingMedia({
+    type: type as string,
+    flaggedOnly: flaggedOnly === 'true',
+    search: search as string,
+  });
+
+  return res.json({ media: items, total: items.length });
+});
+
+app.post('/api/admin/stays/:id/media/remove', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required.' });
+  }
+
+  const { mediaType, photoUrl, reason } = req.body;
+  if (!mediaType || (mediaType !== 'video' && mediaType !== 'photo')) {
+    return res.status(400).json({ error: 'Valid mediaType (video or photo) is required.' });
+  }
+
+  try {
+    const updated = db.removeStayMedia(req.params.id, mediaType, photoUrl, user.email, reason);
+    return res.json({ stay: updated });
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'Media removal failed.' });
+  }
+});
+
+app.post('/api/admin/stays/:id/media/flag', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required.' });
+  }
+
+  const { status, reason } = req.body;
+  if (!status || !['clean', 'flagged', 'under_review'].includes(status)) {
+    return res.status(400).json({ error: 'Valid status (clean | flagged | under_review) required.' });
+  }
+
+  try {
+    const updated = db.flagStayMedia(req.params.id, status, user.email, reason);
+    return res.json({ stay: updated });
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'Flagging media failed.' });
+  }
+});
+
+// 2. Listing Full Moderation (Approve, Reject with Reason, Suspend, Unsuspend, Delist, Delete)
+app.post('/api/admin/stays/:id/moderate', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required.' });
+  }
+
+  const { action, reason } = req.body;
+  const validActions = ['approve', 'reject', 'suspend', 'unsuspend', 'delist', 'relist', 'delete'];
+  if (!action || !validActions.includes(action)) {
+    return res.status(400).json({ error: `Action must be one of: ${validActions.join(', ')}` });
+  }
+
+  if (action === 'reject' && (!reason || !reason.trim())) {
+    return res.status(400).json({ error: 'A specific reason is strictly required when rejecting a listing.' });
+  }
+
+  try {
+    const stay = db.moderateStay(req.params.id, action, user.email, reason);
+    return res.json({ success: true, action, stay });
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'Listing moderation failed.' });
+  }
+});
+
+// 3. Subscriptions Moderation (View All, Approve, Reject, Extend, Revoke, Expire)
+app.get('/api/admin/subscriptions', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required.' });
+  }
+
+  const subscriptions = db.getAllSubscriptions();
+  return res.json({ subscriptions, total: subscriptions.length });
+});
+
+app.post('/api/admin/subscriptions/:id/moderate', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required.' });
+  }
+
+  const { action, days, reason } = req.body;
+  const validActions = ['approve', 'reject', 'extend', 'revoke', 'expire'];
+  if (!action || !validActions.includes(action)) {
+    return res.status(400).json({ error: `Action must be one of: ${validActions.join(', ')}` });
+  }
+
+  try {
+    const result = db.moderateSubscription(req.params.id, action, user.email, Number(days) || 30, reason);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'Subscription moderation failed.' });
+  }
+});
+
+// 4. Adverts Moderation (Approve, Reject, Pause, Resume, End Early)
+app.post('/api/admin/ads/:id/moderate', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required.' });
+  }
+
+  const { action, reason } = req.body;
+  const validActions = ['approve', 'reject', 'pause', 'resume', 'end'];
+  if (!action || !validActions.includes(action)) {
+    return res.status(400).json({ error: `Action must be one of: ${validActions.join(', ')}` });
+  }
+
+  if (action === 'reject' && (!reason || !reason.trim())) {
+    return res.status(400).json({ error: 'A specific reason is required when rejecting an advert.' });
+  }
+
+  try {
+    const result = db.moderateAd(req.params.id, action, user.email, reason);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'Advert moderation failed.' });
+  }
+});
+
+// 5. Users & Hosts Moderation (Suspend, Ban, Reactivate, Verify)
+app.post('/api/admin/users/:email/status', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required.' });
+  }
+
+  const { action, reason } = req.body;
+  const validActions = ['suspend', 'reactivate', 'verify'];
+  if (!action || !validActions.includes(action)) {
+    return res.status(400).json({ error: `Action must be one of: ${validActions.join(', ')}` });
+  }
+
+  try {
+    const updatedUser = db.moderateUser(decodeURIComponent(req.params.email), action, user.email, reason);
+    return res.json({ user: updatedUser });
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'User status update failed.' });
+  }
+});
+
+// 6. Reports & Flags Moderation
+app.get('/api/admin/reports', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required.' });
+  }
+
+  const reports = db.getReports();
+  return res.json({ reports, total: reports.length });
+});
+
+app.post('/api/admin/reports/:id/action', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required.' });
+  }
+
+  const { action, actionTaken } = req.body;
+  const validActions = ['resolve', 'dismiss', 'penalize'];
+  if (!action || !validActions.includes(action)) {
+    return res.status(400).json({ error: `Action must be one of: ${validActions.join(', ')}` });
+  }
+
+  try {
+    const report = db.actionReport(req.params.id, action, user.email, actionTaken);
+    return res.json({ report });
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'Report action failed.' });
+  }
+});
+
+// 7. Reviews Moderation
+app.get('/api/admin/reviews', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required.' });
+  }
+
+  const reviews = db.getAllReviews();
+  return res.json({ reviews, total: reviews.length });
+});
+
+app.post('/api/admin/reviews/:id/moderate', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required.' });
+  }
+
+  const { action } = req.body;
+  const validActions = ['approve', 'hide', 'unhide', 'delete'];
+  if (!action || !validActions.includes(action)) {
+    return res.status(400).json({ error: `Action must be one of: ${validActions.join(', ')}` });
+  }
+
+  try {
+    const review = db.moderateReview(req.params.id, action, user.email);
+    return res.json({ review });
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'Review moderation failed.' });
+  }
+});
+
+// 8. Audit Log Read-Only View
+app.get('/api/admin/audit-logs', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required.' });
+  }
+
+  const logs = db.getAuditLogs();
+  return res.json({ logs, total: logs.length });
+});
+
+// 9. Live Updates Sync Polling (Real-Time sync without page reload)
+app.get('/api/live/updates', (req, res) => {
+  const user = getAuthUser(req);
+  const raw = db.getRaw();
+  const pendingPayments = (raw.paymentRecords || []).filter(p => p.status === 'pending').length;
+  const pendingStays = (raw.stays || []).filter(s => s.status === 'review' || s.moderationStatus === 'pending').length;
+  const flaggedMedia = (raw.stays || []).filter(s => s.mediaModerationStatus === 'flagged').length;
+  const pendingReports = (raw.reports || []).filter(r => r.status === 'pending').length;
+  const unreadNotifs = user ? (raw.notifications || []).filter(n => n.userEmail?.toLowerCase() === user.email.toLowerCase() && !n.read).length : 0;
+
+  return res.json({
+    timestamp: Date.now(),
+    counts: {
+      pendingPayments,
+      pendingStays,
+      flaggedMedia,
+      pendingReports,
+      unreadNotifs,
+    },
+  });
+});
+
 // AI Features: Trip Finder & Describe Stay
 app.post('/api/ai/trip-finder', async (req, res) => {
   try {
@@ -1898,26 +2216,85 @@ app.get('/api/wallet', (req, res) => {
 app.post('/api/wallet/topup', (req, res) => {
   const user = getAuthUser(req);
   if (!user) return res.status(401).json({ error: 'Not authenticated' });
-  const { amount, mpesaCode } = req.body;
+  const { amount, mpesaCode, phoneNumber, proofUrl } = req.body;
   const numAmount = Number(amount);
-  if (!numAmount || numAmount < 100) {
-    return res.status(400).json({ error: 'Minimum top-up amount is KES 100.' });
+  if (!numAmount || numAmount < 10) {
+    return res.status(400).json({ error: 'Minimum deposit amount is KES 10.' });
   }
-  if (!mpesaCode || !/^[A-Z0-9]{10}$/i.test(mpesaCode.trim())) {
-    return res.status(400).json({ error: 'M-Pesa code must be a 10-character alphanumeric transaction reference.' });
+  if (!mpesaCode || !/^[A-Z0-9]{8,15}$/i.test(mpesaCode.trim())) {
+    return res.status(400).json({ error: 'M-Pesa code must be a valid 8-15 character alphanumeric transaction reference (e.g. QWE123RTY4).' });
+  }
+
+  const cleanCode = mpesaCode.trim().toUpperCase();
+  if (db.isMpesaCodeUsed(cleanCode)) {
+    return res.status(400).json({ error: 'Duplicate M-Pesa transaction code. This code has already been submitted and cannot be reused.' });
   }
 
   const payment = db.createPayment({
-    id: 'topup_' + Date.now(),
+    id: 'pay_dep_' + Date.now(),
+    userId: user.email,
+    user_id: user.email,
     hostEmail: user.email,
-    kind: 'wallet',
+    kind: 'deposit',
+    type: 'deposit',
+    method: 'mpesa_manual',
     amount: numAmount,
-    mpesaCode: mpesaCode.trim().toUpperCase(),
+    amountKes: numAmount,
+    amountSc: Math.floor(numAmount / 10),
+    mpesaCode: cleanCode,
+    reference: cleanCode,
+    phoneNumber: phoneNumber || user.phone || '',
+    proofUrl: proofUrl || undefined,
     status: 'pending',
     createdAt: Date.now(),
   });
 
-  return res.status(201).json({ payment });
+  return res.status(201).json({
+    message: 'Deposit request submitted. Awaiting administrative approval.',
+    payment,
+  });
+});
+
+app.post('/api/wallet/deposit', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ error: 'Not authenticated' });
+  const { amount, mpesaCode, phoneNumber, proofUrl } = req.body;
+  const numAmount = Number(amount);
+  if (!numAmount || numAmount < 10) {
+    return res.status(400).json({ error: 'Deposit amount must be greater than 0 (minimum KES 10).' });
+  }
+  if (!mpesaCode || !/^[A-Z0-9]{8,15}$/i.test(mpesaCode.trim())) {
+    return res.status(400).json({ error: 'M-Pesa code must be a valid 8-15 character alphanumeric transaction reference.' });
+  }
+
+  const cleanCode = mpesaCode.trim().toUpperCase();
+  if (db.isMpesaCodeUsed(cleanCode)) {
+    return res.status(400).json({ error: 'Duplicate M-Pesa transaction code. This code has already been submitted and cannot be reused.' });
+  }
+
+  const payment = db.createPayment({
+    id: 'pay_dep_' + Date.now(),
+    userId: user.email,
+    user_id: user.email,
+    hostEmail: user.email,
+    kind: 'deposit',
+    type: 'deposit',
+    method: 'mpesa_manual',
+    amount: numAmount,
+    amountKes: numAmount,
+    amountSc: Math.floor(numAmount / 10),
+    mpesaCode: cleanCode,
+    reference: cleanCode,
+    phoneNumber: phoneNumber || user.phone || '',
+    proofUrl: proofUrl || undefined,
+    status: 'pending',
+    createdAt: Date.now(),
+  });
+
+  return res.status(201).json({
+    message: 'Deposit submitted and awaiting administrator approval. Funds will be credited to your wallet once verified.',
+    payment,
+  });
 });
 
 app.post('/api/wallet/withdraw', (req, res) => {
