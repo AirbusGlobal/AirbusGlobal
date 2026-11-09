@@ -87,12 +87,56 @@ export const ListingMediaViewer: React.FC<ListingMediaViewerProps> = ({
     }
   }, [hasVideo, hasPhotos]);
 
+  // Container ref for fullscreen and intersection observing
+  const containerRef = useRef<HTMLDivElement>(null);
+
   // Video playback states
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [isMuted, setIsMuted] = useState<boolean>(true);
   const [videoLoading, setVideoLoading] = useState<boolean>(true);
   const [videoError, setVideoError] = useState<boolean>(false);
+  const [currentTime, setCurrentTime] = useState<number>(0);
+  const [duration, setDuration] = useState<number>(0);
+  const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
+
+  // Auto-pause video when scrolled out of view or when switching browser tabs (Requirement 1.2)
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || !hasVideo) return;
+
+    const observer = new IntersectionObserver(
+      entries => {
+        entries.forEach(entry => {
+          if (!entry.isIntersecting && videoRef.current && !videoRef.current.paused) {
+            videoRef.current.pause();
+            setIsPlaying(false);
+          }
+        });
+      },
+      { threshold: 0.25 }
+    );
+    observer.observe(el);
+
+    const handleVisibility = () => {
+      if (document.visibilityState === 'hidden' && videoRef.current && !videoRef.current.paused) {
+        videoRef.current.pause();
+        setIsPlaying(false);
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    const handleFullscreenChange = () => {
+      setIsFullscreen(Boolean(document.fullscreenElement));
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+
+    return () => {
+      observer.disconnect();
+      document.removeEventListener('visibilitychange', handleVisibility);
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    };
+  }, [hasVideo]);
 
   // Photo gallery states
   const [photoIndex, setPhotoIndex] = useState<number>(0);
@@ -126,6 +170,32 @@ export const ListingMediaViewer: React.FC<ListingMediaViewerProps> = ({
     if (!videoRef.current) return;
     videoRef.current.muted = !isMuted;
     setIsMuted(!isMuted);
+  };
+
+  const handleSeek = (e: React.MouseEvent<HTMLDivElement>) => {
+    e.stopPropagation();
+    if (!videoRef.current || !duration) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const pos = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    videoRef.current.currentTime = pos * duration;
+    setCurrentTime(pos * duration);
+  };
+
+  const handleToggleFullscreen = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!containerRef.current) return;
+    if (!document.fullscreenElement) {
+      containerRef.current.requestFullscreen?.().catch(() => {});
+    } else {
+      document.exitFullscreen?.().catch(() => {});
+    }
+  };
+
+  const formatTime = (secs: number) => {
+    if (isNaN(secs) || secs < 0) return '0:00';
+    const m = Math.floor(secs / 60);
+    const s = Math.floor(secs % 60);
+    return `${m}:${s < 10 ? '0' : ''}${s}`;
   };
 
   // Gallery navigation
@@ -178,7 +248,10 @@ export const ListingMediaViewer: React.FC<ListingMediaViewerProps> = ({
   }
 
   return (
-    <div className={`relative w-full rounded-3xl overflow-hidden bg-black select-none shadow-2xl ${className}`}>
+    <div
+      ref={containerRef}
+      className={`relative w-full rounded-3xl overflow-hidden bg-black select-none shadow-2xl ${className}`}
+    >
       {/* Top Overlay: Media Mode Toggle (Visible ONLY when BOTH Video and Photos exist) */}
       {hasVideo && hasPhotos && (
         <div className="absolute top-4 left-4 z-30 flex items-center bg-black/60 backdrop-blur-md p-1 rounded-full border border-white/15 shadow-xl">
@@ -303,6 +376,16 @@ export const ListingMediaViewer: React.FC<ListingMediaViewerProps> = ({
                   muted={isMuted}
                   loop
                   playsInline
+                  onLoadedMetadata={() => {
+                    if (videoRef.current) {
+                      setDuration(videoRef.current.duration || 0);
+                    }
+                  }}
+                  onTimeUpdate={() => {
+                    if (videoRef.current) {
+                      setCurrentTime(videoRef.current.currentTime || 0);
+                    }
+                  }}
                   onLoadedData={() => {
                     setVideoLoading(false);
                     setVideoError(false);
@@ -329,24 +412,70 @@ export const ListingMediaViewer: React.FC<ListingMediaViewerProps> = ({
                   </div>
                 </div>
 
-                {/* Bottom Video Progress Bar / Controls info */}
-                <div className="absolute bottom-3 left-4 right-4 z-20 flex items-center justify-between text-xs text-stone-300 pointer-events-none">
-                  <span className="bg-black/60 backdrop-blur-md px-3 py-1 rounded-full font-mono text-[11px] border border-white/10">
-                    {isPlaying ? 'Playing Video Tour' : 'Paused · Click to Play'}
-                  </span>
-                  {hasPhotos && (
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleSwitchMode('photos');
+                {/* Bottom Video Progress Bar & Custom Controls Overlay */}
+                <div className="absolute bottom-0 inset-x-0 z-20 p-3 bg-gradient-to-t from-black/90 via-black/50 to-transparent flex flex-col gap-2 transition-opacity duration-200 opacity-90 group-hover:opacity-100">
+                  {/* Interactive Seek Bar */}
+                  <div
+                    onClick={handleSeek}
+                    className="w-full h-1.5 hover:h-2.5 bg-white/20 rounded-full overflow-hidden cursor-pointer transition-all relative"
+                    title="Seek video"
+                  >
+                    <div
+                      className="h-full bg-gradient-to-r from-[#e4002b] to-[#ff2e93] rounded-full transition-all"
+                      style={{
+                        width: duration > 0 ? `${(currentTime / duration) * 100}%` : '0%',
                       }}
-                      className="pointer-events-auto bg-black/60 hover:bg-black/90 backdrop-blur-md px-3 py-1 rounded-full font-medium text-[11px] border border-white/10 text-white flex items-center gap-1.5 cursor-pointer"
-                    >
-                      <span>See all {photosList.length} photos</span>
-                      <ChevronRight className="w-3.5 h-3.5" />
-                    </button>
-                  )}
+                    />
+                  </div>
+
+                  {/* Controls Row */}
+                  <div className="flex items-center justify-between text-xs text-stone-300">
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleTogglePlay}
+                        className="p-1 rounded-lg hover:bg-white/10 text-white cursor-pointer"
+                        title={isPlaying ? 'Pause' : 'Play'}
+                      >
+                        {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleToggleMute}
+                        className="p-1 rounded-lg hover:bg-white/10 text-white cursor-pointer"
+                        title={isMuted ? 'Unmute' : 'Mute'}
+                      >
+                        {isMuted ? <VolumeX className="w-4 h-4 text-stone-400" /> : <Volume2 className="w-4 h-4 text-[#22d3ee]" />}
+                      </button>
+
+                      <span className="font-mono text-[11px] text-stone-300">
+                        {formatTime(currentTime)} / {formatTime(duration)}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {hasPhotos && (
+                        <button
+                          type="button"
+                          onClick={() => handleSwitchMode('photos')}
+                          className="bg-black/60 hover:bg-black/90 backdrop-blur-md px-3 py-1 rounded-full font-medium text-[11px] border border-white/10 text-white flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <span>Photos ({photosList.length})</span>
+                          <ChevronRight className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={handleToggleFullscreen}
+                        className="p-1 rounded-lg hover:bg-white/10 text-white cursor-pointer"
+                        title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
+                      >
+                        {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </>
             )}

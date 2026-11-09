@@ -922,11 +922,22 @@ export const SEED_TRIP_DATING_PROFILES: TripDatingProfile[] = [
     description: 'Tech product manager & weekend mountain hiker. Love sunset conversations over rooftop cappuccino, discovering boutique art galleries, and exploring Kenya’s hidden stay gems.',
     lookingFor: 'A smart, ambitious, kind gentleman who values deep conversations, spontaneous road trips, and laughter.',
     datingIntention: 'dating_companionship',
+    videos: [
+      'https://assets.mixkit.co/videos/preview/mixkit-young-woman-talking-on-video-call-with-her-phone-41525-large.mp4',
+      'https://assets.mixkit.co/videos/preview/mixkit-woman-enjoying-a-sunny-day-in-a-park-41528-large.mp4',
+    ],
+    videoDurations: [60, 60],
+    videoThumbnails: [
+      'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=800&q=80',
+      'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=800&q=80',
+    ],
+    videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-young-woman-talking-on-video-call-with-her-phone-41525-large.mp4',
+    videoThumbnail: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=800&q=80',
+    videoDuration: 60,
     photos: [
       'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=800&q=80',
       'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=800&q=80',
       'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=800&q=80',
-      'https://images.unsplash.com/photo-1508214751196-bcfd4ca60f91?auto=format&fit=crop&w=800&q=80',
     ],
     primaryPhoto: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=800&q=80',
     full_body_photo: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=800&q=80',
@@ -984,6 +995,16 @@ export const SEED_TRIP_DATING_PROFILES: TripDatingProfile[] = [
     description: 'Marine conservationist & coastal guide. Living by the tides, morning beach jogs, Swahili seafood dining, and sunset dhow cruises. Always carrying sunshine and positive energy.',
     lookingFor: 'Someone genuine, respectful, and adventurous to share coastal escapes, snorkeling trips, and hearty laughter.',
     datingIntention: 'travel_partner',
+    videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-woman-enjoying-a-sunny-day-in-a-park-41528-large.mp4',
+    videoThumbnail: 'https://images.unsplash.com/photo-1531746020798-e6953c6e8e04?auto=format&fit=crop&w=800&q=80',
+    videoDuration: 60,
+    videos: [
+      'https://assets.mixkit.co/videos/preview/mixkit-woman-enjoying-a-sunny-day-in-a-park-41528-large.mp4'
+    ],
+    videoDurations: [60],
+    videoThumbnails: [
+      'https://images.unsplash.com/photo-1531746020798-e6953c6e8e04?auto=format&fit=crop&w=800&q=80'
+    ],
     photos: [
       'https://images.unsplash.com/photo-1531746020798-e6953c6e8e04?auto=format&fit=crop&w=800&q=80',
       'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=800&q=80',
@@ -1124,6 +1145,28 @@ class DatabaseStore {
           if (!parsed.promotions) parsed.promotions = SEED_PROMOTIONS;
           if (!parsed.tripDatingProfiles || parsed.tripDatingProfiles.length === 0) {
             parsed.tripDatingProfiles = SEED_TRIP_DATING_PROFILES;
+          } else {
+            // Ensure at least one profile has 2 videos of 60s each and 3 photos
+            const hasVideosUser = parsed.tripDatingProfiles.some((p: any) => p.videos && p.videos.length >= 2);
+            if (!hasVideosUser) {
+              const target = parsed.tripDatingProfiles.find((p: any) => p.id === 'tdp_1') || parsed.tripDatingProfiles[0];
+              if (target) {
+                target.videos = [
+                  'https://assets.mixkit.co/videos/preview/mixkit-young-woman-talking-on-video-call-with-her-phone-41525-large.mp4',
+                  'https://assets.mixkit.co/videos/preview/mixkit-woman-enjoying-a-sunny-day-in-a-park-41528-large.mp4',
+                ];
+                target.videoDurations = [60, 60];
+                target.videoThumbnails = [
+                  'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=800&q=80',
+                  'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=800&q=80',
+                ];
+                target.photos = [
+                  'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=800&q=80',
+                  'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=800&q=80',
+                  'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=800&q=80',
+                ];
+              }
+            }
           }
           if (!parsed.tripDatingPaymentRequests) parsed.tripDatingPaymentRequests = [];
           if (!parsed.tripDatingContactUnlocks) parsed.tripDatingContactUnlocks = [];
@@ -5349,6 +5392,15 @@ class DatabaseStore {
     datingIntention: any;
     photos: string[];
     primaryPhoto?: string;
+    videos?: string[];
+    videoDurations?: number[];
+    videoThumbnails?: string[];
+    videoUrl?: string;
+    videoDuration?: number;
+    videoThumbnail?: string;
+    videoFilter?: string;
+    videoTrimStart?: number;
+    videoTrimEnd?: number;
     full_body_photo?: string;
     full_body_verified?: boolean;
     fullBodyModerationStatus?: 'pending_review' | 'approved' | 'rejected';
@@ -5391,13 +5443,36 @@ class DatabaseStore {
       }
     }
 
-    // Validate photos (maximum 4)
+    // Validate photos (maximum 4, default 3)
     const sanitizedPhotos = (data.photos || []).filter(p => typeof p === 'string' && p.trim().length > 0).slice(0, 4);
     if (sanitizedPhotos.length === 0) {
       sanitizedPhotos.push('https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=800&q=80');
     }
 
     const fullBodyPhoto = data.full_body_photo || sanitizedPhotos[0];
+
+    // Validate and sanitize 9:16 vertical video (max 60 seconds)
+    const effectiveVideoUrl = (data.videoUrl && typeof data.videoUrl === 'string' && data.videoUrl.trim().length > 0)
+      ? data.videoUrl.trim()
+      : (Array.isArray(data.videos) && data.videos.length > 0 ? data.videos[0] : undefined);
+
+    const effectiveDuration = data.videoDuration !== undefined
+      ? Math.min(60, Math.max(1, Math.round(Number(data.videoDuration)) || 60))
+      : (Array.isArray(data.videoDurations) && data.videoDurations.length > 0 ? Math.min(60, Number(data.videoDurations[0]) || 60) : 60);
+
+    const effectiveThumbnail = (data.videoThumbnail && typeof data.videoThumbnail === 'string' && data.videoThumbnail.trim().length > 0)
+      ? data.videoThumbnail.trim()
+      : (Array.isArray(data.videoThumbnails) && data.videoThumbnails.length > 0 ? data.videoThumbnails[0] : fullBodyPhoto);
+
+    // Multi-video array support (up to 2 videos, max 60 seconds each)
+    let sanitizedVideos = Array.isArray(data.videos)
+      ? data.videos.filter(v => typeof v === 'string' && v.trim().length > 0).slice(0, 2)
+      : undefined;
+    if (effectiveVideoUrl && (!sanitizedVideos || sanitizedVideos.length === 0)) {
+      sanitizedVideos = [effectiveVideoUrl];
+    }
+    const sanitizedDurations = sanitizedVideos ? sanitizedVideos.map(() => effectiveDuration) : undefined;
+    const sanitizedThumbnails = effectiveThumbnail ? [effectiveThumbnail] : undefined;
 
     const newProfile: TripDatingProfile = {
       id: 'tdp_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6),
@@ -5415,6 +5490,15 @@ class DatabaseStore {
       datingIntention: data.datingIntention || 'dating_companionship',
       photos: sanitizedPhotos,
       primaryPhoto: data.primaryPhoto || sanitizedPhotos[0],
+      videoUrl: effectiveVideoUrl,
+      videoDuration: effectiveVideoUrl ? effectiveDuration : undefined,
+      videoThumbnail: effectiveVideoUrl ? effectiveThumbnail : undefined,
+      videoFilter: data.videoFilter || undefined,
+      videoTrimStart: data.videoTrimStart !== undefined ? Number(data.videoTrimStart) : undefined,
+      videoTrimEnd: data.videoTrimEnd !== undefined ? Number(data.videoTrimEnd) : undefined,
+      videos: sanitizedVideos,
+      videoDurations: sanitizedDurations,
+      videoThumbnails: sanitizedThumbnails,
       full_body_photo: fullBodyPhoto,
       full_body_verified: data.full_body_verified !== undefined ? Boolean(data.full_body_verified) : true,
       fullBodyModerationStatus: data.fullBodyModerationStatus || 'approved',

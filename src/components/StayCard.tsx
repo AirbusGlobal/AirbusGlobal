@@ -18,6 +18,8 @@ import {
   ThumbsUp,
   Youtube,
   Gift,
+  Video,
+  Images,
 } from 'lucide-react';
 
 interface StayCardProps {
@@ -62,6 +64,15 @@ export const StayCard: React.FC<StayCardProps> = ({
 
   // Dynamic CSS gradient matching hue
   const cardGradient = `linear-gradient(135deg, hsl(${stay.gradientHue[0]}, 55%, 32%), hsl(${stay.gradientHue[1]}, 60%, 20%))`;
+
+  const effectiveVideoUrl = stay.media?.video?.url || stay.videoUrl;
+  const effectiveThumbnail =
+    stay.thumbnailUrl ||
+    stay.media?.video?.thumbnail ||
+    (stay.media?.photos && stay.media.photos[0]?.url) ||
+    (stay.images && stay.images[0]);
+  const hasVideoTour = Boolean(effectiveVideoUrl);
+  const photosCount = stay.media?.photos?.length || stay.images?.length || 0;
 
   const handleMouseEnter = () => {
     onHover(stay.id);
@@ -111,9 +122,9 @@ export const StayCard: React.FC<StayCardProps> = ({
         onClick={handleCardClick}
       >
         {/* Background Image / YouTube thumbnail fallback */}
-        {stay.thumbnailUrl && (
+        {effectiveThumbnail && (
           <img
-            src={stay.thumbnailUrl}
+            src={effectiveThumbnail}
             alt={stay.title}
             className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-500 ${
               isVideoPlaying ? 'opacity-0' : 'opacity-85 group-hover:scale-105 transition-transform duration-700'
@@ -123,10 +134,10 @@ export const StayCard: React.FC<StayCardProps> = ({
         )}
 
         {/* Video Element for MP4 / MOV */}
-        {stay.videoUrl && !stay.youtubeVideoId && (
+        {effectiveVideoUrl && !stay.youtubeVideoId && (
           <video
             ref={videoRef}
-            src={stay.videoUrl}
+            src={effectiveVideoUrl}
             loop
             muted={isMuted}
             playsInline
@@ -153,6 +164,23 @@ export const StayCard: React.FC<StayCardProps> = ({
           <span className="bg-black/60 backdrop-blur-sm text-white font-bold text-[10px] px-2 py-0.5 rounded-full">
             {stay.type}
           </span>
+
+          {hasVideoTour && photosCount > 0 ? (
+            <span className="bg-black/60 backdrop-blur-sm text-stone-200 font-bold text-[10px] px-2 py-0.5 rounded-full flex items-center gap-1 border border-white/10">
+              <Video className="w-2.5 h-2.5 text-[#ff2e93]" />
+              <span>Tour + {photosCount}P</span>
+            </span>
+          ) : hasVideoTour ? (
+            <span className="bg-black/60 backdrop-blur-sm text-stone-200 font-bold text-[10px] px-2 py-0.5 rounded-full flex items-center gap-1 border border-white/10">
+              <Video className="w-2.5 h-2.5 text-[#ff2e93]" />
+              <span>Video</span>
+            </span>
+          ) : (
+            <span className="bg-black/60 backdrop-blur-sm text-stone-200 font-bold text-[10px] px-2 py-0.5 rounded-full flex items-center gap-1 border border-white/10">
+              <Images className="w-2.5 h-2.5 text-[#22d3ee]" />
+              <span>{photosCount}P</span>
+            </span>
+          )}
 
           {stay.youtubeVideoId && (
             <span className="bg-[#ff0000]/90 text-white font-bold text-[10px] px-2 py-0.5 rounded-full flex items-center gap-1 shadow-sm">

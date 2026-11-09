@@ -1196,6 +1196,15 @@ export const api = {
     datingIntention: string;
     photos: string[];
     primaryPhoto?: string;
+    videos?: string[];
+    videoDurations?: number[];
+    videoThumbnails?: string[];
+    videoUrl?: string;
+    videoDuration?: number;
+    videoThumbnail?: string;
+    videoFilter?: string;
+    videoTrimStart?: number;
+    videoTrimEnd?: number;
     full_body_photo?: string;
     full_body_verified?: boolean;
   }): Promise<{ profile: TripDatingProfile; message: string }> {

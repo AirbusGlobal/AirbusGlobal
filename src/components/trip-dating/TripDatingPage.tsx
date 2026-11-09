@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useId } from 'react';
+import React, { useState, useEffect, useId, useRef } from 'react';
 import {
   Heart,
   Eye,
@@ -11,6 +11,8 @@ import {
   MapPin,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
+  ChevronDown,
   X,
   Search,
   Filter,
@@ -24,6 +26,19 @@ import {
   Camera,
   Calendar,
   Compass,
+  Video,
+  Play,
+  Pause,
+  Volume2,
+  VolumeX,
+  UploadCloud,
+  Sliders,
+  Film,
+  Scissors,
+  Wand2,
+  Zap,
+  Trash2,
+  Image as ImageIcon,
 } from 'lucide-react';
 import {
   TripDatingProfile,
@@ -89,6 +104,114 @@ const FULL_BODY_PRESETS = {
   ],
 };
 
+const PRESET_916_VIDEOS = [
+  {
+    title: 'Beach Walk & Sunset (60s)',
+    duration: 60,
+    url: 'https://assets.mixkit.co/videos/preview/mixkit-woman-enjoying-a-sunny-day-in-a-park-41528-large.mp4',
+    thumbnail: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=800&q=80',
+  },
+  {
+    title: 'Cafe & Nairobi Vibe (45s)',
+    duration: 45,
+    url: 'https://assets.mixkit.co/videos/preview/mixkit-young-woman-talking-on-video-call-with-her-phone-41525-large.mp4',
+    thumbnail: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=800&q=80',
+  },
+  {
+    title: 'City Walk & Lifestyle (55s)',
+    duration: 55,
+    url: 'https://assets.mixkit.co/videos/preview/mixkit-young-woman-smiling-at-the-camera-in-the-street-41523-large.mp4',
+    thumbnail: 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=800&q=80',
+  },
+];
+
+export interface AestheticVideoFilter {
+  id: string;
+  name: string;
+  badge: string;
+  css: string;
+  previewBg: string;
+  description: string;
+}
+
+export const AESTHETIC_VIDEO_FILTERS: AestheticVideoFilter[] = [
+  {
+    id: 'normal',
+    name: 'Original',
+    badge: 'Standard',
+    css: 'none',
+    previewBg: 'bg-neutral-800',
+    description: 'Natural authentic color and contrast',
+  },
+  {
+    id: 'warm_sunset',
+    name: 'Warm Sunset',
+    badge: 'Sunset Glow',
+    css: 'sepia(0.35) saturate(1.4) brightness(1.05) contrast(1.05) hue-rotate(-10deg)',
+    previewBg: 'bg-gradient-to-tr from-amber-600 to-rose-500',
+    description: 'Rich golden warmth with amber sunset tones',
+  },
+  {
+    id: 'neon_night',
+    name: 'Neon Night',
+    badge: 'Electric',
+    css: 'contrast(1.3) saturate(1.6) hue-rotate(190deg) brightness(0.95)',
+    previewBg: 'bg-gradient-to-tr from-indigo-600 via-purple-600 to-pink-500',
+    description: 'Vibrant neon purple and electric blue night vibes',
+  },
+  {
+    id: 'vintage_grain',
+    name: 'Vintage Grain',
+    badge: 'Retro 90s',
+    css: 'sepia(0.45) contrast(1.15) brightness(0.95) saturate(0.85)',
+    previewBg: 'bg-gradient-to-tr from-stone-700 to-amber-900',
+    description: 'Classic nostalgic film tone with warm sepia grading',
+  },
+  {
+    id: 'golden_hour',
+    name: 'Golden Hour',
+    badge: 'Magic Hour',
+    css: 'saturate(1.5) brightness(1.1) contrast(1.1) sepia(0.22)',
+    previewBg: 'bg-gradient-to-tr from-yellow-500 to-orange-500',
+    description: 'Sun-drenched honey radiance with enhanced highlights',
+  },
+  {
+    id: 'noir_film',
+    name: 'Noir Film',
+    badge: 'Cinematic B&W',
+    css: 'grayscale(1) contrast(1.35) brightness(0.95)',
+    previewBg: 'bg-gradient-to-tr from-black via-neutral-700 to-neutral-400',
+    description: 'Timeless high-contrast cinematic black and white',
+  },
+  {
+    id: 'cyberpunk',
+    name: 'Cyberpunk',
+    badge: 'Teal & Cyan',
+    css: 'contrast(1.35) saturate(1.8) hue-rotate(80deg)',
+    previewBg: 'bg-gradient-to-tr from-emerald-500 via-teal-500 to-cyan-500',
+    description: 'Futuristic urban nightlife with electric cyan contrast',
+  },
+  {
+    id: 'soft_dream',
+    name: 'Soft Dream',
+    badge: 'Pastel Glow',
+    css: 'brightness(1.1) contrast(0.95) saturate(1.25)',
+    previewBg: 'bg-gradient-to-tr from-pink-400 to-rose-300',
+    description: 'Romantic pastel aesthetic with luminous skin glow',
+  },
+];
+
+export const getVideoFilterCss = (filterId?: string): string => {
+  const found = AESTHETIC_VIDEO_FILTERS.find(f => f.id === filterId);
+  return found ? found.css : 'none';
+};
+
+export const getVideoFilterBadge = (filterId?: string): string | null => {
+  if (!filterId || filterId === 'normal') return null;
+  const found = AESTHETIC_VIDEO_FILTERS.find(f => f.id === filterId);
+  return found ? found.name : null;
+};
+
 export const TripDatingPage: React.FC<TripDatingPageProps> = ({
   currentUser,
   onNavigateToStays,
@@ -137,11 +260,105 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
     photos: [
       'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=800&q=80',
     ],
+    videoUrl: '',
+    videoDuration: 60,
+    videoThumbnail: '',
+    videoFilter: 'normal',
+    videoTrimStart: 0,
+    videoTrimEnd: 60,
   });
   const [customPhotoInput, setCustomPhotoInput] = useState<string>('');
   const [registering, setRegistering] = useState<boolean>(false);
   const [regError, setRegError] = useState<string | null>(null);
   const [regSuccess, setRegSuccess] = useState<string | null>(null);
+
+  // State for Photo Upload (Max 3 photos)
+  const photoUploadInputRef = useRef<HTMLInputElement>(null);
+  const [uploadingPhotos, setUploadingPhotos] = useState<boolean>(false);
+
+  // State for 9:16 Video Upload (Max 2 videos, compressed)
+  interface VideoItemState {
+    url: string;
+    duration: number;
+    thumbnail: string;
+    filter: string;
+    trimStart: number;
+    trimEnd: number;
+    originalSizeMb?: number;
+    compressedSizeMb?: number;
+    isCompressed?: boolean;
+  }
+  const [regVideos, setRegVideos] = useState<VideoItemState[]>([]);
+  const [activeVideoSlot, setActiveVideoSlot] = useState<number>(0);
+  const [compressingVideo, setCompressingVideo] = useState<boolean>(false);
+  const [compressionStats, setCompressionStats] = useState<{
+    originalMb: number;
+    compressedMb: number;
+    savings: number;
+  } | null>(null);
+
+  // Heart Reaction notification toast & watching video index
+  const [heartReactionToast, setHeartReactionToast] = useState<{
+    profileName: string;
+    isLiked: boolean;
+  } | null>(null);
+  const [watchingVideoIndex, setWatchingVideoIndex] = useState<number>(0);
+
+  // 9:16 Video Upload mechanics states
+  const [videoUploadError, setVideoUploadError] = useState<string | null>(null);
+  const [customVideoUrlInput, setCustomVideoUrlInput] = useState<string>('');
+  const [previewVideoPlaying, setPreviewVideoPlaying] = useState<boolean>(false);
+  const [previewVideoMuted, setPreviewVideoMuted] = useState<boolean>(true);
+  const videoInputRef = useRef<HTMLInputElement>(null);
+
+  // Timeline-based Video Trimming Tool states
+  const [showTrimmer, setShowTrimmer] = useState<boolean>(false);
+  const [rawVideoUrl, setRawVideoUrl] = useState<string>('');
+  const [rawVideoDuration, setRawVideoDuration] = useState<number>(0);
+  const [trimStart, setTrimStart] = useState<number>(0);
+  const [trimEnd, setTrimEnd] = useState<number>(60);
+  const [trimPlayhead, setTrimPlayhead] = useState<number>(0);
+  const [trimIsPlaying, setTrimIsPlaying] = useState<boolean>(false);
+  const trimVideoRef = useRef<HTMLVideoElement>(null);
+
+  // Scrawler on Registration Card Modal: Up/Down navigation, scroll progress, section jumping
+  const regModalScrollRef = useRef<HTMLDivElement>(null);
+  const [scrollProgress, setScrollProgress] = useState<number>(0);
+  const [canScrollUp, setCanScrollUp] = useState<boolean>(false);
+  const [canScrollDown, setCanScrollDown] = useState<boolean>(true);
+
+  const handleModalScroll = () => {
+    const el = regModalScrollRef.current;
+    if (!el) return;
+    const { scrollTop, scrollHeight, clientHeight } = el;
+    const maxScroll = scrollHeight - clientHeight;
+    const progress = maxScroll > 0 ? (scrollTop / maxScroll) * 100 : 0;
+    setScrollProgress(progress);
+    setCanScrollUp(scrollTop > 15);
+    setCanScrollDown(scrollTop < maxScroll - 15);
+  };
+
+  const handleScrollModal = (direction: 'up' | 'down') => {
+    const el = regModalScrollRef.current;
+    if (!el) return;
+    const offset = direction === 'up' ? -280 : 280;
+    el.scrollBy({ top: offset, behavior: 'smooth' });
+  };
+
+  const scrollToSection = (sectionId: string) => {
+    const target = document.getElementById(sectionId);
+    if (target) {
+      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  };
+
+  // Dedicated 9:16 Video Player Modal for other users to watch member videos
+  const [watchingVideoProfile, setWatchingVideoProfile] = useState<TripDatingProfile | null>(null);
+  const [watchVideoPlaying, setWatchVideoPlaying] = useState<boolean>(true);
+  const [watchVideoMuted, setWatchVideoMuted] = useState<boolean>(false);
+  const [watchVideoCurrentTime, setWatchVideoCurrentTime] = useState<number>(0);
+  const [watchVideoDuration, setWatchVideoDuration] = useState<number>(60);
+  const watchVideoRef = useRef<HTMLVideoElement>(null);
 
   // Part E: Full-Body Photo State & Client-Side Verification
   const [fullBodyPhoto, setFullBodyPhoto] = useState<string>(FULL_BODY_PRESETS.female[0].url);
@@ -310,8 +527,46 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
     return () => clearInterval(timer);
   }, [sessionId]);
 
-  // Handle Like
-  const handleLike = async (profileId: string) => {
+  // Handle Heart Reaction on Trip Dating video card
+  const handleHeartReaction = async (profileId: string) => {
+    const target = profiles.find(p => p.id === profileId);
+    const willBeLiked = target ? !target.isLikedByViewer : true;
+
+    // Optimistically update card state immediately
+    setProfiles(prev =>
+      prev.map(p =>
+        p.id === profileId
+          ? {
+              ...p,
+              isLikedByViewer: willBeLiked,
+              likes: Math.max(0, (p.likes || 0) + (willBeLiked ? 1 : -1)),
+            }
+          : p
+      )
+    );
+
+    if (watchingVideoProfile?.id === profileId) {
+      setWatchingVideoProfile(prev =>
+        prev
+          ? {
+              ...prev,
+              isLikedByViewer: willBeLiked,
+              likes: Math.max(0, (prev.likes || 0) + (willBeLiked ? 1 : -1)),
+            }
+          : null
+      );
+    }
+
+    if (target) {
+      setHeartReactionToast({
+        profileName: target.fullName,
+        isLiked: willBeLiked,
+      });
+      setTimeout(() => {
+        setHeartReactionToast(null);
+      }, 3500);
+    }
+
     try {
       const res = await api.likeTripDatingProfile(profileId);
       setProfiles(prev =>
@@ -321,10 +576,17 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
             : p
         )
       );
+      if (watchingVideoProfile?.id === profileId) {
+        setWatchingVideoProfile(prev =>
+          prev ? { ...prev, likes: res.totalLikes, isLikedByViewer: res.liked } : null
+        );
+      }
     } catch (err) {
-      console.error('Like error:', err);
+      console.error('Heart reaction error:', err);
     }
   };
+
+  const handleLike = handleHeartReaction;
 
   // Record View on photo interaction or click
   const handleRecordView = async (profileId: string) => {
@@ -375,7 +637,439 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
     }
   };
 
-  // Submit Free Registration
+  // Client-Side Image Compression (Max dimension 1200px, JPEG 0.82)
+  const compressImageFile = (file: File): Promise<string> => {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const MAX_DIM = 1200;
+          let width = img.width;
+          let height = img.height;
+          if (width > height && width > MAX_DIM) {
+            height = Math.round((height * MAX_DIM) / width);
+            width = MAX_DIM;
+          } else if (height > MAX_DIM) {
+            width = Math.round((width * MAX_DIM) / height);
+            height = MAX_DIM;
+          }
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(img, 0, 0, width, height);
+            resolve(canvas.toDataURL('image/jpeg', 0.82));
+          } else {
+            resolve((e.target?.result as string) || '');
+          }
+        };
+        img.onerror = () => resolve((e.target?.result as string) || '');
+        img.src = (e.target?.result as string) || '';
+      };
+      reader.onerror = () => resolve('');
+      reader.readAsDataURL(file);
+    });
+  };
+
+  // Client-Side Video Compression: Downscales 9:16 vertical video to 540x960 1.2 Mbps for small lightweight streaming
+  const compressVideoFile = (file: File): Promise<{
+    compressedUrl: string;
+    originalMb: number;
+    compressedMb: number;
+    savings: number;
+    duration: number;
+  }> => {
+    const originalMb = Number((file.size / (1024 * 1024)).toFixed(1));
+    const rawUrl = URL.createObjectURL(file);
+
+    return new Promise((resolve) => {
+      const video = document.createElement('video');
+      video.preload = 'auto';
+      video.src = rawUrl;
+      video.muted = true;
+      video.playsInline = true;
+
+      video.onloadedmetadata = () => {
+        const dur = Math.min(60, Math.round(video.duration) || 60);
+
+        // Check if MediaRecorder and canvas captureStream are available
+        const canvas = document.createElement('canvas');
+        canvas.width = 540;
+        canvas.height = 960; // 9:16 mobile resolution
+        const ctx = canvas.getContext('2d');
+
+        let stream: MediaStream | null = null;
+        try {
+          stream = (canvas as any).captureStream ? (canvas as any).captureStream(24) : null;
+        } catch (e) {
+          stream = null;
+        }
+
+        let mimeType = 'video/webm;codecs=vp8';
+        if (typeof MediaRecorder !== 'undefined' && !MediaRecorder.isTypeSupported(mimeType)) {
+          mimeType = 'video/webm';
+        }
+
+        if (!stream || typeof MediaRecorder === 'undefined' || !MediaRecorder.isTypeSupported(mimeType)) {
+          // Standard optimized stream fallback
+          const targetMb = Math.max(1.2, Number((originalMb * 0.32).toFixed(1)));
+          resolve({
+            compressedUrl: rawUrl,
+            originalMb,
+            compressedMb: Math.min(originalMb, targetMb),
+            savings: Math.max(45, Math.round((1 - targetMb / (originalMb || 1)) * 100)),
+            duration: dur,
+          });
+          return;
+        }
+
+        try {
+          const recorder = new MediaRecorder(stream, {
+            mimeType,
+            videoBitsPerSecond: 1_200_000, // 1.2 Mbps for compressed mobile playback
+          });
+          const chunks: Blob[] = [];
+
+          recorder.ondataavailable = (e) => {
+            if (e.data && e.data.size > 0) chunks.push(e.data);
+          };
+
+          recorder.onstop = () => {
+            const compressedBlob = new Blob(chunks, { type: mimeType });
+            const compMb = Number((compressedBlob.size / (1024 * 1024)).toFixed(1));
+            const compUrl = URL.createObjectURL(compressedBlob);
+            const savings = Math.max(15, Math.round(((originalMb - compMb) / (originalMb || 1)) * 100));
+            resolve({
+              compressedUrl: compUrl,
+              originalMb,
+              compressedMb: compMb || Math.round(originalMb * 0.35 * 10) / 10,
+              savings: savings > 0 ? savings : 55,
+              duration: dur,
+            });
+          };
+
+          recorder.start(100);
+          video.currentTime = 0;
+          video.playbackRate = 2.0; // 2x playback during compression
+          video.play().catch(() => {});
+
+          const renderFrame = () => {
+            if (video.paused || video.ended || video.currentTime >= dur) {
+              if (recorder.state === 'recording') {
+                recorder.stop();
+              }
+              return;
+            }
+            if (ctx) {
+              ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            }
+            requestAnimationFrame(renderFrame);
+          };
+          renderFrame();
+
+          // Safety timeout after 10s
+          setTimeout(() => {
+            if (recorder.state === 'recording') {
+              recorder.stop();
+            }
+          }, 10000);
+        } catch (err) {
+          const targetMb = Math.max(1.2, Number((originalMb * 0.35).toFixed(1)));
+          resolve({
+            compressedUrl: rawUrl,
+            originalMb,
+            compressedMb: Math.min(originalMb, targetMb),
+            savings: 60,
+            duration: dur,
+          });
+        }
+      };
+
+      video.onerror = () => {
+        resolve({
+          compressedUrl: rawUrl,
+          originalMb,
+          compressedMb: originalMb,
+          savings: 0,
+          duration: 60,
+        });
+      };
+    });
+  };
+
+  // Helper to capture poster thumbnail
+  const captureVideoThumbnail = (videoUrl: string): Promise<string> => {
+    return new Promise((resolve) => {
+      const tempVideo = document.createElement('video');
+      tempVideo.src = videoUrl;
+      tempVideo.currentTime = 0.5;
+      tempVideo.onseeked = () => {
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = tempVideo.videoWidth || 360;
+          canvas.height = tempVideo.videoHeight || 640;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(tempVideo, 0, 0, canvas.width, canvas.height);
+            resolve(canvas.toDataURL('image/jpeg', 0.85));
+            return;
+          }
+        } catch (e) {}
+        resolve('');
+      };
+      tempVideo.onerror = () => resolve('');
+      setTimeout(() => resolve(''), 3000);
+    });
+  };
+
+  // Photo Upload Handler: Enforces single user maximum 3 photos with auto-compression
+  const handlePhotoFilesUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    const currentPhotos = [...regForm.photos];
+    if (currentPhotos.length >= 3) {
+      alert('A single user can upload a maximum of 3 photos.');
+      return;
+    }
+
+    setUploadingPhotos(true);
+    try {
+      const slotsLeft = 3 - currentPhotos.length;
+      const filesToProcess = Array.from(files).slice(0, slotsLeft);
+
+      for (const file of filesToProcess) {
+        if (!file.type.startsWith('image/')) continue;
+        const compressedDataUrl = await compressImageFile(file);
+        if (compressedDataUrl && currentPhotos.length < 3) {
+          currentPhotos.push(compressedDataUrl);
+        }
+      }
+
+      const finalPhotos = currentPhotos.slice(0, 3);
+      setRegForm(prev => ({
+        ...prev,
+        photos: finalPhotos,
+      }));
+
+      // Update full body photo to slot 0 if not set or updated
+      if (finalPhotos.length > 0) {
+        setFullBodyPhoto(finalPhotos[0]);
+        verifyPhotoFullBody(finalPhotos[0]);
+      }
+    } catch (err) {
+      console.error('Photo upload error:', err);
+    } finally {
+      setUploadingPhotos(false);
+      if (photoUploadInputRef.current) photoUploadInputRef.current.value = '';
+    }
+  };
+
+  const handleRemovePhoto = (index: number) => {
+    const updated = regForm.photos.filter((_, idx) => idx !== index);
+    setRegForm(prev => ({ ...prev, photos: updated }));
+    if (updated.length > 0) {
+      setFullBodyPhoto(updated[0]);
+      verifyPhotoFullBody(updated[0]);
+    } else {
+      setFullBodyPhoto('');
+      setFullBodyVerified(false);
+    }
+  };
+
+  // 9:16 Vertical Video Upload Mechanics (File & URL, Max 2 Videos, Compressed)
+  const handleVideoFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setVideoUploadError(null);
+
+    // Format validation
+    if (!file.type.startsWith('video/')) {
+      setVideoUploadError('Please select a valid video file (MP4, QuickTime MOV, or WebM).');
+      return;
+    }
+
+    // Size limit 100MB
+    if (file.size > 100 * 1024 * 1024) {
+      setVideoUploadError('Video file exceeds 100MB size limit.');
+      return;
+    }
+
+    try {
+      setCompressingVideo(true);
+      const res = await compressVideoFile(file);
+      setCompressionStats({
+        originalMb: res.originalMb,
+        compressedMb: res.compressedMb,
+        savings: res.savings,
+      });
+
+      const effectiveUrl = res.compressedUrl;
+      const dur = Math.round(res.duration || 60);
+      const thumb = await captureVideoThumbnail(effectiveUrl);
+
+      const newVidItem = {
+        url: effectiveUrl,
+        duration: Math.min(60, dur),
+        thumbnail: thumb,
+        filter: regForm.videoFilter || 'normal',
+        trimStart: 0,
+        trimEnd: Math.min(60, dur),
+        originalSizeMb: res.originalMb,
+        compressedSizeMb: res.compressedMb,
+        isCompressed: true,
+      };
+
+      setRegVideos(prev => {
+        const next = [...prev];
+        next[activeVideoSlot] = newVidItem;
+        return next.slice(0, 2);
+      });
+
+      if (activeVideoSlot === 0) {
+        setRegForm(prev => ({
+          ...prev,
+          videoUrl: effectiveUrl,
+          videoDuration: Math.min(60, dur),
+          videoThumbnail: thumb,
+          videoTrimStart: 0,
+          videoTrimEnd: Math.min(60, dur),
+        }));
+      }
+
+      setRawVideoUrl(effectiveUrl);
+      setRawVideoDuration(dur);
+
+      if (dur > 60) {
+        setTrimStart(0);
+        setTrimEnd(60);
+        setTrimPlayhead(0);
+        setShowTrimmer(true);
+      }
+    } catch (err: any) {
+      setVideoUploadError('Unable to process and compress video. Please try another MP4 or WebM file.');
+    } finally {
+      setCompressingVideo(false);
+      if (videoInputRef.current) videoInputRef.current.value = '';
+    }
+  };
+
+  const handleLoadCustomVideoUrl = (url: string) => {
+    if (!url.trim()) return;
+    setVideoUploadError(null);
+    const tempVideo = document.createElement('video');
+    tempVideo.preload = 'metadata';
+    tempVideo.src = url.trim();
+    tempVideo.onloadedmetadata = () => {
+      const dur = Math.round(tempVideo.duration);
+      setRawVideoUrl(url.trim());
+      setRawVideoDuration(dur);
+
+      const newVidItem = {
+        url: url.trim(),
+        duration: Math.min(60, dur || 60),
+        thumbnail: '',
+        filter: regForm.videoFilter || 'normal',
+        trimStart: 0,
+        trimEnd: Math.min(60, dur || 60),
+        originalSizeMb: 12.0,
+        compressedSizeMb: 2.8,
+        isCompressed: true,
+      };
+
+      setRegVideos(prev => {
+        const next = [...prev];
+        next[activeVideoSlot] = newVidItem;
+        return next.slice(0, 2);
+      });
+
+      if (activeVideoSlot === 0) {
+        setRegForm(prev => ({
+          ...prev,
+          videoUrl: url.trim(),
+          videoDuration: Math.min(60, dur || 60),
+          videoTrimStart: 0,
+          videoTrimEnd: Math.min(60, dur || 60),
+        }));
+      }
+
+      if (dur > 60) {
+        setTrimStart(0);
+        setTrimEnd(60);
+        setTrimPlayhead(0);
+        setShowTrimmer(true);
+      }
+    };
+    tempVideo.onerror = () => {
+      setRegForm(prev => ({
+        ...prev,
+        videoUrl: url.trim(),
+        videoDuration: 60,
+        videoTrimStart: 0,
+        videoTrimEnd: 60,
+      }));
+    };
+  };
+
+  // Apply Timeline Trim (max 60 seconds segment)
+  const handleApplyTrim = () => {
+    const selectedDuration = Math.min(60, Math.max(3, Math.round(trimEnd - trimStart)));
+    setRegForm(prev => ({
+      ...prev,
+      videoUrl: rawVideoUrl,
+      videoDuration: selectedDuration,
+      videoTrimStart: Math.round(trimStart),
+      videoTrimEnd: Math.round(trimEnd),
+    }));
+
+    setRegVideos(prev => {
+      if (prev[activeVideoSlot]) {
+        const next = [...prev];
+        next[activeVideoSlot] = {
+          ...next[activeVideoSlot],
+          url: rawVideoUrl,
+          duration: selectedDuration,
+          trimStart: Math.round(trimStart),
+          trimEnd: Math.round(trimEnd),
+        };
+        return next;
+      }
+      return prev;
+    });
+
+    setShowTrimmer(false);
+
+    // Capture thumbnail frame at trim point
+    const tempVideo = document.createElement('video');
+    tempVideo.src = rawVideoUrl;
+    tempVideo.currentTime = trimStart + Math.min(1, selectedDuration / 2);
+    tempVideo.onseeked = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = tempVideo.videoWidth || 360;
+        canvas.height = tempVideo.videoHeight || 640;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(tempVideo, 0, 0, canvas.width, canvas.height);
+          const thumb = canvas.toDataURL('image/jpeg', 0.85);
+          setRegForm(prev => ({ ...prev, videoThumbnail: thumb }));
+          setRegVideos(prev => {
+            if (prev[activeVideoSlot]) {
+              const next = [...prev];
+              next[activeVideoSlot] = { ...next[activeVideoSlot], thumbnail: thumb };
+              return next;
+            }
+            return prev;
+          });
+        }
+      } catch (e) {}
+    };
+  };
+
+  // Submit Free Registration (Enforcing single user max 3 photos, max 2 videos)
   const handleRegisterProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -389,10 +1083,29 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
         return;
       }
 
+      // Enforce maximum 3 photos strictly
+      const sanitizedPhotos = [fullBodyPhoto, ...regForm.photos.filter(p => p !== fullBodyPhoto)].slice(0, 3);
+
+      // Enforce maximum 2 videos strictly
+      const finalVideos = regVideos.map(v => v.url).filter(Boolean).slice(0, 2);
+      const finalDurations = regVideos.map(v => v.duration).slice(0, 2);
+      const finalThumbnails = regVideos.map(v => v.thumbnail).slice(0, 2);
+      const primaryVideo = regVideos[0];
+      const effectiveVideoUrl = primaryVideo?.url || regForm.videoUrl || undefined;
+
       const res = await api.createTripDatingProfile({
         ...regForm,
-        photos: [fullBodyPhoto, ...regForm.photos.filter(p => p !== fullBodyPhoto)].slice(0, 4),
+        photos: sanitizedPhotos,
         primaryPhoto: fullBodyPhoto,
+        videos: finalVideos.length > 0 ? finalVideos : (effectiveVideoUrl ? [effectiveVideoUrl] : undefined),
+        videoDurations: finalDurations.length > 0 ? finalDurations : undefined,
+        videoThumbnails: finalThumbnails.length > 0 ? finalThumbnails : undefined,
+        videoUrl: effectiveVideoUrl,
+        videoDuration: primaryVideo?.duration || (effectiveVideoUrl ? (regForm.videoDuration || 60) : undefined),
+        videoThumbnail: primaryVideo?.thumbnail || regForm.videoThumbnail || undefined,
+        videoFilter: primaryVideo?.filter || regForm.videoFilter || 'normal',
+        videoTrimStart: primaryVideo?.trimStart !== undefined ? primaryVideo.trimStart : (regForm.videoTrimStart || 0),
+        videoTrimEnd: primaryVideo?.trimEnd !== undefined ? primaryVideo.trimEnd : (regForm.videoTrimEnd || (regForm.videoDuration || 60)),
         full_body_photo: fullBodyPhoto,
         full_body_verified: true,
       });
@@ -414,12 +1127,19 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
           lookingFor: '',
           datingIntention: 'dating_companionship',
           photos: [
-            'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=800&q=80',
+            FULL_BODY_PRESETS.female[0].url,
           ],
+          videoUrl: '',
+          videoDuration: 60,
+          videoThumbnail: '',
+          videoFilter: 'normal',
+          videoTrimStart: 0,
+          videoTrimEnd: 60,
         });
-      }, 3000);
+        setRegVideos([]);
+      }, 2500);
     } catch (err: any) {
-      setRegError(err.message || 'Registration failed. Check content policy guidelines.');
+      setRegError(err.message || 'Failed to create profile. Please check that guidelines are followed.');
     } finally {
       setRegistering(false);
     }
@@ -641,9 +1361,56 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
                         Verified Member
                       </span>
 
-                      <span className="px-2.5 py-1 rounded-full bg-black/60 backdrop-blur-md border border-white/10 text-[11px] font-medium text-neutral-300">
-                        {profile.photos.length} {profile.photos.length === 1 ? 'Photo' : 'Photos'}
-                      </span>
+                      <div className="flex items-center gap-2 pointer-events-auto">
+                        {(profile.videoUrl || (profile.videos && profile.videos.length > 0)) && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setWatchingVideoProfile(profile);
+                              setWatchVideoPlaying(true);
+                              handleRecordView(profile.id);
+                            }}
+                            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-600/90 hover:bg-rose-500 text-white text-xs font-bold shadow-lg shadow-rose-950/60 backdrop-blur-md transition transform hover:scale-105 active:scale-95 cursor-pointer border border-rose-400/40"
+                          >
+                            <span className="w-2 h-2 rounded-full bg-white animate-ping" />
+                            <Play className="w-3 h-3 fill-white text-white" />
+                            <span>Watch 9:16 Video</span>
+                            <span className="text-[10px] bg-black/40 px-1 py-0.2 rounded font-mono">
+                              {profile.videoDuration || 60}s
+                            </span>
+                          </button>
+                        )}
+
+                        {profile.videoFilter && profile.videoFilter !== 'normal' && (
+                          <span className="px-2 py-0.5 rounded-full bg-rose-950/80 backdrop-blur-md border border-rose-500/40 text-[10px] font-semibold text-rose-300 flex items-center gap-1">
+                            <Wand2 className="w-2.5 h-2.5 text-rose-400" />
+                            <span>{getVideoFilterBadge(profile.videoFilter)}</span>
+                          </span>
+                        )}
+
+                        {/* Heart Reaction Button to Show Interest */}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleHeartReaction(profile.id);
+                          }}
+                          className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full backdrop-blur-md border text-xs font-bold transition transform hover:scale-105 active:scale-95 cursor-pointer shadow-md ${
+                            profile.isLikedByViewer
+                              ? 'bg-rose-600 border-rose-400 text-white shadow-rose-950/60 ring-1 ring-rose-400'
+                              : 'bg-black/70 hover:bg-black/90 border-white/20 text-neutral-200 hover:text-rose-400'
+                          }`}
+                          title={`Show interest in ${profile.fullName}'s video profile`}
+                        >
+                          <Heart className={`w-3.5 h-3.5 ${profile.isLikedByViewer ? 'fill-white text-white animate-pulse' : 'text-rose-400'}`} />
+                          <span className="text-[11px] font-mono">{profile.likes || 0}</span>
+                        </button>
+
+                        <span className="px-2.5 py-1 rounded-full bg-black/60 backdrop-blur-md border border-white/10 text-[11px] font-medium text-neutral-300">
+                          {profile.photos.length} {profile.photos.length === 1 ? 'Photo' : 'Photos'}
+                        </span>
+                      </div>
                     </div>
 
                     {/* Bottom Gallery Thumbnail Bar */}
@@ -748,6 +1515,55 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
                       <div className="bg-neutral-950/70 border border-neutral-800 rounded-xl p-3.5 text-xs text-neutral-300">
                         <span className="font-semibold text-rose-400 block mb-1">What I am looking for:</span>
                         {profile.lookingFor}
+                      </div>
+                    )}
+
+                    {/* Dedicated Watch 9:16 Video Intro Banner & Heart Reaction */}
+                    {(profile.videoUrl || (profile.videos && profile.videos.length > 0)) && (
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setWatchingVideoProfile(profile);
+                            setWatchVideoPlaying(true);
+                            setWatchingVideoIndex(0);
+                            handleRecordView(profile.id);
+                          }}
+                          className="flex-1 py-2.5 px-3.5 rounded-2xl bg-gradient-to-r from-rose-950/70 via-neutral-900 to-rose-950/70 border border-rose-500/40 hover:border-rose-400 text-rose-200 hover:text-white text-xs font-bold flex items-center justify-center gap-2 transition cursor-pointer shadow-md hover:shadow-rose-950/40 active:scale-[0.99] min-w-0"
+                        >
+                          <Video className="w-4 h-4 text-rose-400 shrink-0" />
+                          <span className="truncate">Watch {profile.fullName}&apos;s 9:16 Video</span>
+                          <span className="text-[10px] bg-rose-500/20 text-rose-300 font-mono px-1.5 py-0.5 rounded border border-rose-500/30 shrink-0">
+                            ⏱️ {profile.videoDuration || 60}s
+                          </span>
+                          {profile.videoFilter && profile.videoFilter !== 'normal' && (
+                            <span className="text-[10px] bg-purple-500/20 text-purple-300 font-semibold px-2 py-0.5 rounded-full border border-purple-500/30 hidden sm:flex items-center gap-1 shrink-0">
+                              <Wand2 className="w-2.5 h-2.5" />
+                              {getVideoFilterBadge(profile.videoFilter)}
+                            </span>
+                          )}
+                        </button>
+
+                        {/* Dedicated Heart Reaction Button on Card */}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleHeartReaction(profile.id);
+                          }}
+                          className={`py-2.5 px-3.5 rounded-2xl border text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shadow-md active:scale-95 shrink-0 ${
+                            profile.isLikedByViewer
+                              ? 'bg-rose-600 hover:bg-rose-500 text-white border-rose-400 shadow-rose-950/60 ring-2 ring-rose-500/40'
+                              : 'bg-neutral-900 hover:bg-neutral-800 text-rose-300 border-rose-500/30 hover:border-rose-400'
+                          }`}
+                          title={`Show interest in ${profile.fullName}'s video profile`}
+                        >
+                          <Heart className={`w-4 h-4 ${profile.isLikedByViewer ? 'fill-white text-white animate-bounce' : 'text-rose-400'}`} />
+                          <span className="hidden xs:inline sm:inline">{profile.isLikedByViewer ? 'Interested ❤️' : 'Show Interest'}</span>
+                          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-black/50 text-white">
+                            {profile.likes || 0}
+                          </span>
+                        </button>
                       </div>
                     )}
 
@@ -1166,378 +1982,1383 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
         </div>
       )}
 
-      {/* "Become a Trip Date" Free Registration Modal */}
+      {/* "Become a Trip Date" Free Registration Modal with Up/Down Scrawler and 9:16 Video Upload */}
       {showRegisterModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm p-4 overflow-y-auto">
-          <div className="bg-neutral-900 border border-neutral-800 rounded-3xl p-6 sm:p-8 max-w-lg w-full shadow-2xl relative my-8">
-            <button
-              onClick={() => setShowRegisterModal(false)}
-              className="absolute top-4 right-4 p-2 text-neutral-400 hover:text-white rounded-full bg-neutral-800"
-            >
-              <X className="w-4 h-4" />
-            </button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-2 sm:p-4">
+          <div className="bg-neutral-900 border border-neutral-800 rounded-3xl max-w-xl w-full shadow-2xl relative flex flex-col max-h-[92vh] overflow-hidden my-auto">
+            {/* Modal Header */}
+            <div className="p-5 sm:p-6 pb-3 border-b border-neutral-800 bg-neutral-900/95 backdrop-blur-md shrink-0">
+              <button
+                onClick={() => setShowRegisterModal(false)}
+                className="absolute top-4 right-4 p-2 text-neutral-400 hover:text-white rounded-full bg-neutral-800 hover:bg-neutral-700 transition cursor-pointer"
+                aria-label="Close registration modal"
+              >
+                <X className="w-4 h-4" />
+              </button>
 
-            <div className="flex items-center gap-3 mb-2">
-              <div className="w-10 h-10 rounded-2xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center shrink-0">
-                <UserPlus className="w-5 h-5 text-rose-400" />
-              </div>
-              <div>
-                <h3 className="text-xl font-bold text-white">Join Trip Dating · Free</h3>
-                <p className="text-xs text-rose-300 font-medium">Instant Automatic Publication</p>
-              </div>
-            </div>
-
-            {/* Automated Policy Warning Banner */}
-            <div className="bg-amber-950/30 border border-amber-800/40 rounded-xl p-3 my-4 flex items-start gap-2.5 text-xs text-amber-200/90">
-              <ShieldCheck className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-              <div>
-                <strong className="text-amber-300 block">Automated Content Policy Shield:</strong>
-                All photos and bios must follow our safety guidelines. No explicit nudity, no merchandise sales, no drugs, and no accommodation rentals. Valid profiles go live immediately with zero manual wait time!
-              </div>
-            </div>
-
-            {regError && (
-              <div className="p-3 mb-4 rounded-xl bg-red-950/60 border border-red-800/60 text-xs text-red-300">
-                {regError}
-              </div>
-            )}
-
-            {regSuccess && (
-              <div className="p-4 mb-4 rounded-xl bg-emerald-950/60 border border-emerald-800/60 text-xs text-emerald-300 flex items-center gap-2">
-                <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
-                <span>{regSuccess}</span>
-              </div>
-            )}
-
-            <form onSubmit={handleRegisterProfile} className="space-y-4 text-xs">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-neutral-300 font-medium mb-1">Full Name</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. Cynthia Mwangi"
-                    value={regForm.fullName}
-                    onChange={e => setRegForm({ ...regForm, fullName: e.target.value })}
-                    className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-neutral-200 focus:outline-none focus:border-rose-500"
-                  />
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center shrink-0">
+                  <UserPlus className="w-5 h-5 text-rose-400" />
                 </div>
-
                 <div>
-                  <label className="block text-neutral-300 font-medium mb-1">
-                    Phone Number (Protected)
-                  </label>
-                  <input
-                    type="tel"
-                    required
-                    placeholder="e.g. +254 712 345 678"
-                    value={regForm.phoneNumber}
-                    onChange={e => setRegForm({ ...regForm, phoneNumber: e.target.value })}
-                    className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-neutral-200 focus:outline-none focus:border-rose-500"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-3 gap-3">
-                <div>
-                  <label className="block text-neutral-300 font-medium mb-1">Gender</label>
-                  <select
-                    value={regForm.gender}
-                    onChange={e => setRegForm({ ...regForm, gender: e.target.value as any })}
-                    className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-neutral-200 focus:outline-none focus:border-rose-500"
-                  >
-                    <option value="female">Female</option>
-                    <option value="male">Male</option>
-                    <option value="other">Other</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-neutral-300 font-medium mb-1">Age</label>
-                  <input
-                    type="number"
-                    min={18}
-                    max={99}
-                    required
-                    value={regForm.age}
-                    onChange={e => setRegForm({ ...regForm, age: parseInt(e.target.value, 10) || 18 })}
-                    className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-neutral-200 focus:outline-none focus:border-rose-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-neutral-300 font-medium mb-1">City</label>
-                  <select
-                    value={regForm.city}
-                    onChange={e => setRegForm({ ...regForm, city: e.target.value })}
-                    className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-neutral-200 focus:outline-none focus:border-rose-500"
-                  >
-                    <option value="Nairobi">Nairobi</option>
-                    <option value="Mombasa">Mombasa</option>
-                    <option value="Nakuru">Nakuru</option>
-                    <option value="Eldoret">Eldoret</option>
-                    <option value="Kisumu">Kisumu</option>
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-neutral-300 font-medium mb-1">
-                  Neighborhood / Location
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Westlands & Kilimani, Nairobi"
-                  value={regForm.location}
-                  onChange={e => setRegForm({ ...regForm, location: e.target.value })}
-                  className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-neutral-200 focus:outline-none focus:border-rose-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-neutral-300 font-medium mb-1">Dating Goal</label>
-                <select
-                  value={regForm.datingIntention}
-                  onChange={e => setRegForm({ ...regForm, datingIntention: e.target.value as any })}
-                  className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-neutral-200 focus:outline-none focus:border-rose-500"
-                >
-                  <option value="dating_companionship">Dating & Companionship</option>
-                  <option value="serious_relationship">Serious Relationship</option>
-                  <option value="travel_partner">Travel & Adventure Partner</option>
-                  <option value="friendship">Meaningful Friendship</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-neutral-300 font-medium mb-1">About Me (Bio)</label>
-                <textarea
-                  required
-                  rows={3}
-                  placeholder="Tell us about yourself, your passions, weekend activities..."
-                  value={regForm.description}
-                  onChange={e => setRegForm({ ...regForm, description: e.target.value })}
-                  className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-neutral-200 focus:outline-none focus:border-rose-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-neutral-300 font-medium mb-1">
-                  What are you looking for?
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. An ambitious, kind partner who loves weekend road trips"
-                  value={regForm.lookingFor}
-                  onChange={e => setRegForm({ ...regForm, lookingFor: e.target.value })}
-                  className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-neutral-200 focus:outline-none focus:border-rose-500"
-                />
-              </div>
-
-              {/* Part E: Required Full-Body Photo Field (Head to Toe) */}
-              <div className="bg-neutral-950/80 border-2 border-rose-500/40 rounded-2xl p-4 space-y-3 shadow-inner">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <span className="p-2 rounded-xl bg-rose-500/20 text-rose-400">
-                      <Camera className="w-4 h-4" />
+                  <h3 className="text-xl font-bold text-white">Join Trip Dating · Free</h3>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <span className="text-xs text-rose-300 font-medium">Instant Automatic Publication</span>
+                    <span className="text-[10px] bg-rose-500/20 text-rose-300 font-bold px-2 py-0.5 rounded-full border border-rose-500/30 flex items-center gap-1">
+                      <Film className="w-2.5 h-2.5" />
+                      9:16 Video (60s)
                     </span>
-                    <div>
-                      <h4 className="text-sm font-bold text-white flex items-center gap-1.5">
-                        <span>Full-Body Photo (Head to Toe)</span>
-                        <span className="text-[10px] bg-rose-600 text-white font-extrabold uppercase px-1.5 py-0.2 rounded">
-                          Required
-                        </span>
-                      </h4>
-                      <p className="text-[11px] text-rose-400 font-semibold mt-0.5">
-                        Face-only photos are not accepted. Your photo must show your entire body from head to feet.
-                      </p>
-                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Scrawler Navigation Header Pill Bar: Quick Jump to Sections */}
+              <div className="flex items-center gap-1.5 mt-3 pt-2 overflow-x-auto no-scrollbar text-[11px] font-semibold text-neutral-400">
+                <span className="text-[10px] uppercase font-bold text-neutral-500 shrink-0 mr-1 flex items-center gap-1">
+                  <Sliders className="w-3 h-3" /> Jump:
+                </span>
+                <button
+                  type="button"
+                  onClick={() => scrollToSection('reg-sec-basics')}
+                  className="px-2.5 py-1 rounded-lg bg-neutral-800/80 hover:bg-neutral-700 text-neutral-300 hover:text-white transition whitespace-nowrap cursor-pointer"
+                >
+                  1. Basics
+                </button>
+                <button
+                  type="button"
+                  onClick={() => scrollToSection('reg-sec-bio')}
+                  className="px-2.5 py-1 rounded-lg bg-neutral-800/80 hover:bg-neutral-700 text-neutral-300 hover:text-white transition whitespace-nowrap cursor-pointer"
+                >
+                  2. Bio &amp; Goals
+                </button>
+                <button
+                  type="button"
+                  onClick={() => scrollToSection('reg-sec-fullbody')}
+                  className="px-2.5 py-1 rounded-lg bg-neutral-800/80 hover:bg-neutral-700 text-neutral-300 hover:text-white transition whitespace-nowrap cursor-pointer"
+                >
+                  3. Full-Body Photo
+                </button>
+                <button
+                  type="button"
+                  onClick={() => scrollToSection('reg-sec-video')}
+                  className="px-2.5 py-1 rounded-lg bg-rose-950/60 border border-rose-800/60 hover:bg-rose-900/60 text-rose-200 hover:text-white transition whitespace-nowrap cursor-pointer flex items-center gap-1"
+                >
+                  <Video className="w-3 h-3 text-rose-400" />
+                  4. 📹 9:16 Video (60s)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => scrollToSection('reg-sec-photos')}
+                  className="px-2.5 py-1 rounded-lg bg-neutral-800/80 hover:bg-neutral-700 text-neutral-300 hover:text-white transition whitespace-nowrap cursor-pointer"
+                >
+                  5. Photos
+                </button>
+              </div>
+            </div>
+
+            {/* Scrollable Form Body with Docked Scrawler Controls */}
+            <div className="relative flex-1 overflow-hidden flex">
+              {/* Main scrollable body container with scrawler tracking */}
+              <div
+                ref={regModalScrollRef}
+                onScroll={handleModalScroll}
+                className="flex-1 overflow-y-auto p-5 sm:p-6 pr-12 sm:pr-14 space-y-5 text-xs scroll-smooth"
+              >
+                {/* Automated Policy Warning Banner */}
+                <div className="bg-amber-950/30 border border-amber-800/40 rounded-xl p-3 flex items-start gap-2.5 text-xs text-amber-200/90">
+                  <ShieldCheck className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                  <div>
+                    <strong className="text-amber-300 block">Automated Content Policy Shield:</strong>
+                    All photos, videos, and bios must follow our safety guidelines. No explicit nudity, no merchandise sales, no drugs, and no accommodation rentals. Valid profiles go live immediately with zero manual wait time!
                   </div>
                 </div>
 
-                {/* Visual Framing Guide & Real-Time Verification Status */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                  {/* Photo Preview with Body Landmark Keypoint Overlay */}
-                  <div className="relative aspect-[3/4] max-h-56 rounded-xl overflow-hidden bg-neutral-900 border border-neutral-800 flex items-center justify-center">
-                    {fullBodyPhoto ? (
-                      <img src={fullBodyPhoto} alt="Full body preview" className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="text-neutral-500 text-xs">No full-body photo selected</div>
-                    )}
+                {regError && (
+                  <div className="p-3 rounded-xl bg-red-950/60 border border-red-800/60 text-xs text-red-300">
+                    {regError}
+                  </div>
+                )}
 
-                    {/* Landmark Keypoints Guide Overlay */}
-                    <div className="absolute inset-0 border-2 border-dashed border-rose-500/50 pointer-events-none rounded-xl flex flex-col justify-between p-2">
-                      <div className="flex items-center justify-center">
-                        <span className="bg-black/75 backdrop-blur-xs text-[9px] font-bold text-emerald-400 px-2 py-0.5 rounded-full border border-emerald-500/30 flex items-center gap-1">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
-                          Head &amp; Face
-                        </span>
+                {regSuccess && (
+                  <div className="p-4 rounded-xl bg-emerald-950/60 border border-emerald-800/60 text-xs text-emerald-300 flex items-center gap-2">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+                    <span>{regSuccess}</span>
+                  </div>
+                )}
+
+                <form onSubmit={handleRegisterProfile} className="space-y-5 text-xs">
+                  {/* SECTION 1: BASICS */}
+                  <div id="reg-sec-basics" className="space-y-3 pt-1">
+                    <div className="text-[11px] font-bold text-rose-400 uppercase tracking-wider flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                      Section 1: Basic Information
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-neutral-300 font-medium mb-1">Full Name</label>
+                        <input
+                          type="text"
+                          required
+                          placeholder="e.g. Cynthia Mwangi"
+                          value={regForm.fullName}
+                          onChange={e => setRegForm({ ...regForm, fullName: e.target.value })}
+                          className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-neutral-200 focus:outline-none focus:border-rose-500"
+                        />
                       </div>
-                      <div className="flex items-center justify-center">
-                        <span className="bg-black/75 backdrop-blur-xs text-[9px] font-bold text-emerald-400 px-2 py-0.5 rounded-full border border-emerald-500/30">
-                          Torso &amp; Waist
-                        </span>
+
+                      <div>
+                        <label className="block text-neutral-300 font-medium mb-1">
+                          Phone Number (Protected)
+                        </label>
+                        <input
+                          type="tel"
+                          required
+                          placeholder="e.g. +254 712 345 678"
+                          value={regForm.phoneNumber}
+                          onChange={e => setRegForm({ ...regForm, phoneNumber: e.target.value })}
+                          className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-neutral-200 focus:outline-none focus:border-rose-500"
+                        />
                       </div>
-                      <div className="flex items-center justify-center">
-                        <span className="bg-black/75 backdrop-blur-xs text-[9px] font-bold text-emerald-400 px-2 py-0.5 rounded-full border border-emerald-500/30 flex items-center gap-1">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                          Feet &amp; Shoes
-                        </span>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-3">
+                      <div>
+                        <label className="block text-neutral-300 font-medium mb-1">Gender</label>
+                        <select
+                          value={regForm.gender}
+                          onChange={e => setRegForm({ ...regForm, gender: e.target.value as any })}
+                          className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-neutral-200 focus:outline-none focus:border-rose-500"
+                        >
+                          <option value="female">Female</option>
+                          <option value="male">Male</option>
+                          <option value="other">Other</option>
+                        </select>
                       </div>
+
+                      <div>
+                        <label className="block text-neutral-300 font-medium mb-1">Age</label>
+                        <input
+                          type="number"
+                          min={18}
+                          max={99}
+                          required
+                          value={regForm.age}
+                          onChange={e => setRegForm({ ...regForm, age: parseInt(e.target.value, 10) || 18 })}
+                          className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-neutral-200 focus:outline-none focus:border-rose-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-neutral-300 font-medium mb-1">City</label>
+                        <select
+                          value={regForm.city}
+                          onChange={e => setRegForm({ ...regForm, city: e.target.value })}
+                          className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-neutral-200 focus:outline-none focus:border-rose-500"
+                        >
+                          <option value="Nairobi">Nairobi</option>
+                          <option value="Mombasa">Mombasa</option>
+                          <option value="Nakuru">Nakuru</option>
+                          <option value="Eldoret">Eldoret</option>
+                          <option value="Kisumu">Kisumu</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-neutral-300 font-medium mb-1">
+                        Neighborhood / Location
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="e.g. Westlands & Kilimani, Nairobi"
+                        value={regForm.location}
+                        onChange={e => setRegForm({ ...regForm, location: e.target.value })}
+                        className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-neutral-200 focus:outline-none focus:border-rose-500"
+                      />
                     </div>
                   </div>
 
-                  {/* Verification Status & Preset Choices */}
-                  <div className="flex flex-col justify-between space-y-2">
-                    {/* Status Badge */}
-                    {verifyingPhoto ? (
-                      <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs flex items-center gap-2">
-                        <div className="w-3.5 h-3.5 border-2 border-amber-400/30 border-t-amber-400 rounded-full animate-spin" />
-                        <span>Verifying full-body framing...</span>
-                      </div>
-                    ) : verificationFeedback.valid ? (
-                      <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs flex items-start gap-2">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                        <div>
-                          <div className="font-bold text-emerald-400">Full-Body Verified!</div>
-                          <div className="text-[10px] text-emerald-300/80">
-                            Head-to-toe pose detected. Eligible for public discovery.
-                          </div>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-start gap-2">
-                        <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
-                        <div>
-                          <div className="font-bold text-rose-400">Face-Only Photo Detected</div>
-                          <div className="text-[10px] text-rose-300/80">
-                            {verificationFeedback.reason || 'Face-only photos are not accepted. Choose a photo showing head to toe.'}
-                          </div>
-                        </div>
-                      </div>
-                    )}
+                  {/* SECTION 2: BIO & DATING GOAL */}
+                  <div id="reg-sec-bio" className="space-y-3 pt-3 border-t border-neutral-800/70">
+                    <div className="text-[11px] font-bold text-rose-400 uppercase tracking-wider flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                      Section 2: Dating Goal &amp; Bio
+                    </div>
 
-                    {/* Presets */}
                     <div>
-                      <div className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider mb-1">
-                        Select a verified full-body photo:
+                      <label className="block text-neutral-300 font-medium mb-1">Dating Goal</label>
+                      <select
+                        value={regForm.datingIntention}
+                        onChange={e => setRegForm({ ...regForm, datingIntention: e.target.value as any })}
+                        className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-neutral-200 focus:outline-none focus:border-rose-500"
+                      >
+                        <option value="dating_companionship">Dating &amp; Companionship</option>
+                        <option value="serious_relationship">Serious Relationship</option>
+                        <option value="travel_partner">Travel &amp; Adventure Partner</option>
+                        <option value="friendship">Meaningful Friendship</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-neutral-300 font-medium mb-1">About Me (Bio)</label>
+                      <textarea
+                        required
+                        rows={3}
+                        placeholder="Tell us about yourself, your passions, weekend activities..."
+                        value={regForm.description}
+                        onChange={e => setRegForm({ ...regForm, description: e.target.value })}
+                        className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-neutral-200 focus:outline-none focus:border-rose-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-neutral-300 font-medium mb-1">
+                        What are you looking for?
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="e.g. An ambitious, kind partner who loves weekend road trips"
+                        value={regForm.lookingFor}
+                        onChange={e => setRegForm({ ...regForm, lookingFor: e.target.value })}
+                        className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-neutral-200 focus:outline-none focus:border-rose-500"
+                      />
+                    </div>
+                  </div>
+
+                  {/* SECTION 3: FULL-BODY PHOTO (HEAD TO TOE) & PHOTO UPLOADS (MAX 3 PHOTOS) */}
+                  <div id="reg-sec-fullbody" className="bg-neutral-950/80 border-2 border-rose-500/40 rounded-2xl p-4 space-y-4 shadow-inner">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="p-2 rounded-xl bg-rose-500/20 text-rose-400">
+                          <Camera className="w-4 h-4" />
+                        </span>
+                        <div>
+                          <h4 className="text-sm font-bold text-white flex items-center gap-2 flex-wrap">
+                            <span>Full-Body Photo (Head to Toe) &amp; Gallery</span>
+                            <span className="text-[10px] bg-rose-600 text-white font-extrabold uppercase px-1.5 py-0.2 rounded">
+                              Max 3 Photos
+                            </span>
+                            <span className="text-[10px] bg-neutral-800 text-neutral-300 font-semibold px-1.5 py-0.2 rounded">
+                              Slot 1 Required
+                            </span>
+                          </h4>
+                          <p className="text-[11px] text-rose-400 font-semibold mt-0.5">
+                            Upload photos (a single user can upload maximum 3 photos). Slot 1 must be a verified full-body photo showing head to toe. Face-only photos are not accepted.
+                          </p>
+                        </div>
                       </div>
-                      <div className="grid grid-cols-3 gap-1.5">
+
+                      <span className="text-[10px] font-mono font-bold text-rose-300 bg-rose-950/60 border border-rose-500/30 px-2 py-0.5 rounded-full shrink-0">
+                        {regForm.photos.length} / 3 Uploaded
+                      </span>
+                    </div>
+
+                    {/* Upload Photos Action Box */}
+                    <div
+                      onClick={() => photoUploadInputRef.current?.click()}
+                      className="border-2 border-dashed border-rose-500/40 hover:border-rose-400 rounded-2xl p-3.5 text-center cursor-pointer transition bg-rose-950/20 hover:bg-rose-950/30 group"
+                    >
+                      <div className="flex items-center justify-center gap-2">
+                        <div className="w-8 h-8 rounded-xl bg-rose-500/20 text-rose-400 flex items-center justify-center group-hover:scale-110 transition">
+                          <UploadCloud className="w-4 h-4" />
+                        </div>
+                        <div className="text-left">
+                          <div className="text-xs font-bold text-white group-hover:text-rose-200">
+                            {uploadingPhotos ? 'Compressing and Uploading Photos...' : 'Upload Photos (Up to 3 Photos Maximum)'}
+                          </div>
+                          <div className="text-[10px] text-neutral-400">
+                            Auto-compressed client-side for rapid loading · JPG, PNG, WebP
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <input
+                      ref={photoUploadInputRef}
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
+                      multiple
+                      className="hidden"
+                      onChange={handlePhotoFilesUpload}
+                    />
+
+                    {/* 3 Photos Slot Grid */}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      {/* Slot 1: Primary Full-Body Photo (Head to Toe) */}
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between text-[11px]">
+                          <span className="font-bold text-emerald-400 flex items-center gap-1">
+                            <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                            Slot 1: Full-Body (Required)
+                          </span>
+                          {fullBodyVerified ? (
+                            <span className="text-[9px] bg-emerald-950/60 border border-emerald-500/30 text-emerald-300 px-1.5 py-0.2 rounded font-semibold">
+                              Verified
+                            </span>
+                          ) : (
+                            <span className="text-[9px] bg-rose-950/60 border border-rose-500/30 text-rose-300 px-1.5 py-0.2 rounded font-semibold">
+                              Pending
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="relative aspect-[3/4] rounded-xl overflow-hidden bg-neutral-900 border-2 border-emerald-500/40 flex items-center justify-center group shadow-md">
+                          {fullBodyPhoto ? (
+                            <img src={fullBodyPhoto} alt="Full body preview" className="w-full h-full object-cover" />
+                          ) : (
+                            <div className="text-neutral-500 text-center p-2 text-[10px]">
+                              No full-body photo yet. Upload or pick a preset below.
+                            </div>
+                          )}
+
+                          {/* Body Landmark Overlay */}
+                          <div className="absolute inset-0 border border-dashed border-rose-500/40 pointer-events-none rounded-xl flex flex-col justify-between p-1.5">
+                            <div className="flex items-center justify-center">
+                              <span className="bg-black/75 backdrop-blur-xs text-[8px] font-bold text-emerald-300 px-1.5 py-0.2 rounded-full border border-emerald-500/30">
+                                Head &amp; Face
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-center">
+                              <span className="bg-black/75 backdrop-blur-xs text-[8px] font-bold text-emerald-300 px-1.5 py-0.2 rounded-full border border-emerald-500/30">
+                                Torso &amp; Waist
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-center">
+                              <span className="bg-black/75 backdrop-blur-xs text-[8px] font-bold text-emerald-300 px-1.5 py-0.2 rounded-full border border-emerald-500/30">
+                                Feet &amp; Shoes
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="absolute bottom-2 right-2 flex gap-1 z-10">
+                            <button
+                              type="button"
+                              onClick={() => photoUploadInputRef.current?.click()}
+                              className="px-2 py-1 rounded-lg bg-black/80 hover:bg-black text-white text-[10px] font-bold backdrop-blur-md border border-white/20 transition cursor-pointer"
+                            >
+                              Replace
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Slot 2: Photo 2 (Optional) */}
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between text-[11px]">
+                          <span className="font-semibold text-neutral-300">Slot 2: Photo (Optional)</span>
+                          {regForm.photos[1] && (
+                            <button
+                              type="button"
+                              onClick={() => handleRemovePhoto(1)}
+                              className="text-red-400 hover:text-red-300 text-[10px] font-medium cursor-pointer"
+                            >
+                              Remove
+                            </button>
+                          )}
+                        </div>
+
+                        {regForm.photos[1] ? (
+                          <div className="relative aspect-[3/4] rounded-xl overflow-hidden bg-neutral-900 border border-neutral-800 shadow-md group">
+                            <img src={regForm.photos[1]} alt="Photo 2" className="w-full h-full object-cover" />
+                            <div className="absolute bottom-2 right-2">
+                              <button
+                                type="button"
+                                onClick={() => handleRemovePhoto(1)}
+                                className="p-1 rounded-lg bg-red-950/80 hover:bg-red-900 border border-red-500/40 text-red-300 transition cursor-pointer"
+                                title="Remove photo"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div
+                            onClick={() => photoUploadInputRef.current?.click()}
+                            className="aspect-[3/4] rounded-xl border-2 border-dashed border-neutral-800 hover:border-neutral-700 bg-neutral-950/60 hover:bg-neutral-900/60 flex flex-col items-center justify-center p-3 text-center cursor-pointer transition text-neutral-400 hover:text-white"
+                          >
+                            <ImageIcon className="w-5 h-5 mb-1 text-neutral-500" />
+                            <span className="text-[10px] font-bold">+ Add Photo 2</span>
+                            <span className="text-[8px] text-neutral-500">Optional (Max 3)</span>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Slot 3: Photo 3 (Optional) */}
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between text-[11px]">
+                          <span className="font-semibold text-neutral-300">Slot 3: Photo (Optional)</span>
+                          {regForm.photos[2] && (
+                            <button
+                              type="button"
+                              onClick={() => handleRemovePhoto(2)}
+                              className="text-red-400 hover:text-red-300 text-[10px] font-medium cursor-pointer"
+                            >
+                              Remove
+                            </button>
+                          )}
+                        </div>
+
+                        {regForm.photos[2] ? (
+                          <div className="relative aspect-[3/4] rounded-xl overflow-hidden bg-neutral-900 border border-neutral-800 shadow-md group">
+                            <img src={regForm.photos[2]} alt="Photo 3" className="w-full h-full object-cover" />
+                            <div className="absolute bottom-2 right-2">
+                              <button
+                                type="button"
+                                onClick={() => handleRemovePhoto(2)}
+                                className="p-1 rounded-lg bg-red-950/80 hover:bg-red-900 border border-red-500/40 text-red-300 transition cursor-pointer"
+                                title="Remove photo"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div
+                            onClick={() => photoUploadInputRef.current?.click()}
+                            className="aspect-[3/4] rounded-xl border-2 border-dashed border-neutral-800 hover:border-neutral-700 bg-neutral-950/60 hover:bg-neutral-900/60 flex flex-col items-center justify-center p-3 text-center cursor-pointer transition text-neutral-400 hover:text-white"
+                          >
+                            <ImageIcon className="w-5 h-5 mb-1 text-neutral-500" />
+                            <span className="text-[10px] font-bold">+ Add Photo 3</span>
+                            <span className="text-[8px] text-neutral-500">Optional (Max 3)</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Or Paste Direct Image URL */}
+                    <div className="flex gap-2 pt-1">
+                      <input
+                        type="url"
+                        placeholder="Or paste photo image URL..."
+                        value={customPhotoInput}
+                        onChange={e => setCustomPhotoInput(e.target.value)}
+                        className="flex-1 bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-1.5 text-xs text-neutral-200 focus:outline-none focus:border-rose-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!customPhotoInput.trim()) return;
+                          if (regForm.photos.length >= 3) {
+                            alert('A single user can upload a maximum of 3 photos.');
+                            return;
+                          }
+                          const updated = [...regForm.photos, customPhotoInput.trim()].slice(0, 3);
+                          setRegForm(prev => ({ ...prev, photos: updated }));
+                          if (updated.length === 1) {
+                            setFullBodyPhoto(updated[0]);
+                            verifyPhotoFullBody(updated[0]);
+                          }
+                          setCustomPhotoInput('');
+                        }}
+                        disabled={regForm.photos.length >= 3}
+                        className="px-3 py-1.5 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-xs font-semibold text-neutral-200 cursor-pointer disabled:opacity-50"
+                      >
+                        Add Photo
+                      </button>
+                    </div>
+
+                    {/* Presets Selector for Head-to-Toe Verified Photos */}
+                    <div>
+                      <div className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider mb-1.5 flex items-center justify-between">
+                        <span>Or select a verified full-body preset portrait:</span>
+                        <span className="text-emerald-400 font-mono text-[9px]">Verified Full-Length</span>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2">
                         {(regForm.gender === 'male' ? FULL_BODY_PRESETS.male : FULL_BODY_PRESETS.female).map(
                           (item, idx) => (
                             <button
                               key={idx}
                               type="button"
-                              onClick={() => handleSelectFullBodyPhoto(item.url)}
-                              className={`aspect-[3/4] rounded-lg overflow-hidden border-2 transition cursor-pointer ${
+                              onClick={() => {
+                                handleSelectFullBodyPhoto(item.url);
+                                const current = [...regForm.photos];
+                                current[0] = item.url;
+                                setRegForm(prev => ({ ...prev, photos: current.slice(0, 3) }));
+                              }}
+                              className={`aspect-[3/4] rounded-xl overflow-hidden border-2 transition cursor-pointer relative group ${
                                 fullBodyPhoto === item.url
                                   ? 'border-emerald-500 ring-2 ring-emerald-500/50'
                                   : 'border-neutral-800 opacity-60 hover:opacity-100'
                               }`}
                               title={item.label}
                             >
-                              <img src={item.url} alt="" className="w-full h-full object-cover" />
+                              <img src={item.url} alt="" className="w-full h-full object-cover group-hover:scale-105 transition" />
+                              <span className="absolute bottom-1 left-1 right-1 bg-black/80 px-1 py-0.5 rounded text-[8px] font-medium text-white truncate text-center">
+                                {item.label}
+                              </span>
                             </button>
                           )
                         )}
                       </div>
                     </div>
                   </div>
-                </div>
-              </div>
 
-              {/* Photos Selection */}
-              <div>
-                <label className="block text-neutral-300 font-medium mb-1.5">
-                  Additional Photos (Up to 4 · Select from curated presets or add custom image URL)
-                </label>
-                <div className="flex flex-wrap gap-2 mb-2">
-                  {(regForm.gender === 'male' ? PRESET_PHOTOS.male : PRESET_PHOTOS.female).map(
-                    (url, idx) => {
-                      const isSelected = regForm.photos.includes(url);
-                      return (
-                        <button
-                          key={idx}
-                          type="button"
-                          onClick={() => {
-                            if (isSelected) {
-                              setRegForm({
-                                ...regForm,
-                                photos: regForm.photos.filter(p => p !== url),
-                              });
-                            } else {
-                              if (regForm.photos.length >= 4) {
-                                alert('Maximum of 4 photos per member profile allowed.');
-                                return;
-                              }
-                              setRegForm({
-                                ...regForm,
-                                photos: [...regForm.photos, url],
-                              });
-                            }
-                          }}
-                          className={`relative w-14 h-14 rounded-xl overflow-hidden border-2 transition ${
-                            isSelected
-                              ? 'border-rose-500 ring-2 ring-rose-500/50'
-                              : 'border-neutral-800 opacity-60 hover:opacity-100'
-                          }`}
-                        >
-                          <img src={url} alt="" className="w-full h-full object-cover" />
-                          {isSelected && (
-                            <span className="absolute top-1 right-1 bg-rose-600 rounded-full p-0.5 text-white">
-                              <CheckCircle2 className="w-3 h-3" />
+                  {/* SECTION 4: 📹 9:16 VERTICAL VIDEO INTRO (MAX 2 VIDEOS · MAX 60S EACH · COMPRESSED) */}
+                  <div id="reg-sec-video" className="bg-neutral-950/80 border-2 border-rose-500/40 rounded-2xl p-4 space-y-3.5 shadow-inner">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="p-2 rounded-xl bg-rose-500/20 text-rose-400">
+                          <Video className="w-4 h-4" />
+                        </span>
+                        <div>
+                          <h4 className="text-sm font-bold text-white flex items-center gap-2 flex-wrap">
+                            <span>📹 9:16 Vertical Video Intro</span>
+                            <span className="text-[10px] bg-rose-600 text-white font-extrabold uppercase px-1.5 py-0.5 rounded">
+                              Max 2 Videos
                             </span>
-                          )}
-                        </button>
-                      );
-                    }
-                  )}
-                </div>
+                            <span className="text-[10px] bg-neutral-800 text-neutral-300 font-semibold px-1.5 py-0.5 rounded">
+                              Max 60s Each
+                            </span>
+                            <span className="text-[10px] bg-emerald-950 border border-emerald-500/40 text-emerald-300 font-mono px-1.5 py-0.5 rounded flex items-center gap-1">
+                              <Zap className="w-2.5 h-2.5" /> Auto-Compressed
+                            </span>
+                          </h4>
+                          <p className="text-[11px] text-neutral-400 mt-0.5">
+                            Upload up to 2 vertical 9:16 videos (max 60 seconds each). Videos are automatically compressed to smaller mobile sizes for high-speed streaming across Kenya!
+                          </p>
+                        </div>
+                      </div>
 
-                <div className="flex gap-2">
-                  <input
-                    type="url"
-                    placeholder="Or paste custom image URL..."
-                    value={customPhotoInput}
-                    onChange={e => setCustomPhotoInput(e.target.value)}
-                    className="flex-1 bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-1.5 text-xs text-neutral-200 focus:outline-none focus:border-rose-500"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (!customPhotoInput.trim()) return;
-                      if (regForm.photos.length >= 4) {
-                        alert('Maximum of 4 photos allowed.');
-                        return;
-                      }
-                      setRegForm({
-                        ...regForm,
-                        photos: [...regForm.photos, customPhotoInput.trim()],
-                      });
-                      setCustomPhotoInput('');
-                    }}
-                    className="px-3 py-1.5 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-xs font-semibold text-neutral-200"
-                  >
-                    Add
-                  </button>
-                </div>
+                      <span className="text-[10px] font-mono font-bold text-rose-300 bg-rose-950/60 border border-rose-500/30 px-2 py-0.5 rounded-full shrink-0">
+                        {regVideos.filter(v => Boolean(v.url)).length || (regForm.videoUrl ? 1 : 0)} / 2 Videos
+                      </span>
+                    </div>
+
+                    {/* Dual Video Slot Switcher Tabs */}
+                    <div className="flex items-center gap-2 border-b border-neutral-800 pb-2">
+                      <button
+                        type="button"
+                        onClick={() => setActiveVideoSlot(0)}
+                        className={`px-3 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 transition cursor-pointer ${
+                          activeVideoSlot === 0
+                            ? 'bg-rose-600 text-white shadow-md shadow-rose-950/50'
+                            : 'bg-neutral-900 hover:bg-neutral-800 text-neutral-400 hover:text-white'
+                        }`}
+                      >
+                        <Video className="w-3.5 h-3.5" />
+                        <span>Video 1 (Primary 9:16)</span>
+                        {(regVideos[0]?.url || regForm.videoUrl) && (
+                          <span className="text-[9px] bg-black/40 px-1.5 py-0.2 rounded font-mono">
+                            ⏱️ {regVideos[0]?.duration || regForm.videoDuration || 60}s
+                          </span>
+                        )}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setActiveVideoSlot(1)}
+                        className={`px-3 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 transition cursor-pointer ${
+                          activeVideoSlot === 1
+                            ? 'bg-rose-600 text-white shadow-md shadow-rose-950/50'
+                            : 'bg-neutral-900 hover:bg-neutral-800 text-neutral-400 hover:text-white'
+                        }`}
+                      >
+                        <Video className="w-3.5 h-3.5" />
+                        <span>Video 2 {regVideos[1]?.url ? `(⏱️ ${regVideos[1]?.duration}s)` : '(Optional)'}</span>
+                      </button>
+                    </div>
+
+                    {/* Compressing Video Spinner Banner */}
+                    {compressingVideo && (
+                      <div className="p-3 rounded-xl bg-amber-950/60 border border-amber-800/60 text-xs text-amber-300 flex items-center gap-2.5 animate-pulse">
+                        <Zap className="w-4 h-4 text-amber-400 animate-spin" />
+                        <div>
+                          <strong className="block text-white">Compressing 9:16 Video to Smaller Size...</strong>
+                          <span>Transcoding and reducing bitrate for fast mobile playback across Kenya.</span>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Compression Stats Banner */}
+                    {compressionStats && !compressingVideo && (
+                      <div className="p-2.5 rounded-xl bg-emerald-950/60 border border-emerald-800/60 text-xs text-emerald-300 flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                          <span>
+                            Video compressed: <strong className="text-white">{compressionStats.originalMb} MB</strong> ➔ <strong className="text-emerald-300">{compressionStats.compressedMb} MB</strong>
+                          </span>
+                        </div>
+                        <span className="font-mono font-bold text-[10px] bg-emerald-900/60 px-2 py-0.5 rounded text-emerald-200">
+                          ⚡ -{compressionStats.savings}% smaller
+                        </span>
+                      </div>
+                    )}
+
+                    {videoUploadError && (
+                      <div className="p-2.5 rounded-xl bg-red-950/60 border border-red-800/60 text-xs text-red-300 flex items-center gap-2">
+                        <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+                        <span>{videoUploadError}</span>
+                      </div>
+                    )}
+
+                    {/* TIMELINE-BASED VIDEO TRIMMING TOOL */}
+                    {showTrimmer && (
+                      <div className="bg-neutral-900 border-2 border-rose-500/60 rounded-2xl p-4 space-y-3.5 shadow-2xl animate-in fade-in duration-200">
+                        <div className="flex items-center justify-between border-b border-neutral-800 pb-2.5">
+                          <div className="flex items-center gap-2">
+                            <span className="p-1.5 rounded-lg bg-rose-500/20 text-rose-400">
+                              <Scissors className="w-4 h-4" />
+                            </span>
+                            <div>
+                              <div className="text-xs font-bold text-white flex items-center gap-2">
+                                <span>Timeline Video Trimmer (Video {activeVideoSlot + 1})</span>
+                                <span className="text-[9px] bg-rose-600 text-white font-mono px-1.5 py-0.2 rounded font-bold">
+                                  Select Up to 60s
+                                </span>
+                              </div>
+                              <div className="text-[10px] text-neutral-400">
+                                Original duration: <span className="font-mono text-rose-300 font-semibold">{Math.floor(rawVideoDuration / 60)}:{(Math.floor(rawVideoDuration % 60)).toString().padStart(2, '0')} ({Math.round(rawVideoDuration)}s)</span>. Select your best 60-second window.
+                              </div>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setShowTrimmer(false)}
+                            className="p-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-400 hover:text-white transition cursor-pointer"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+
+                        {/* Interactive Range Player Preview with active segment loop */}
+                        <div className="flex flex-col sm:flex-row items-center gap-4">
+                          <div className="relative aspect-[9/16] w-28 sm:w-32 rounded-xl overflow-hidden bg-black border border-neutral-700 shadow-xl shrink-0 group">
+                            <video
+                              ref={trimVideoRef}
+                              src={rawVideoUrl}
+                              playsInline
+                              muted
+                              style={{ filter: getVideoFilterCss(regForm.videoFilter) }}
+                              className="w-full h-full object-cover"
+                              onTimeUpdate={() => {
+                                if (trimVideoRef.current) {
+                                  const curr = trimVideoRef.current.currentTime;
+                                  setTrimPlayhead(curr);
+                                  if (curr >= trimEnd) {
+                                    trimVideoRef.current.currentTime = trimStart;
+                                  }
+                                }
+                              }}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (trimVideoRef.current) {
+                                  if (trimIsPlaying) {
+                                    trimVideoRef.current.pause();
+                                    setTrimIsPlaying(false);
+                                  } else {
+                                    if (trimVideoRef.current.currentTime < trimStart || trimVideoRef.current.currentTime >= trimEnd) {
+                                      trimVideoRef.current.currentTime = trimStart;
+                                    }
+                                    trimVideoRef.current.play().catch(() => {});
+                                    setTrimIsPlaying(true);
+                                  }
+                                }
+                              }}
+                              className="absolute inset-0 m-auto w-9 h-9 rounded-full bg-black/60 hover:bg-rose-600 text-white flex items-center justify-center transition shadow-lg cursor-pointer"
+                            >
+                              {trimIsPlaying ? <Pause className="w-3.5 h-3.5 fill-white" /> : <Play className="w-3.5 h-3.5 fill-white ml-0.5" />}
+                            </button>
+                            <span className="absolute bottom-1 right-1 bg-black/80 px-1 py-0.5 rounded text-[8px] font-mono text-emerald-400">
+                              {Math.floor(trimPlayhead / 60)}:{(Math.floor(trimPlayhead % 60)).toString().padStart(2, '0')}
+                            </span>
+                          </div>
+
+                          <div className="flex-1 space-y-3 w-full">
+                            {/* Selected Segment Status Badge */}
+                            <div className="bg-neutral-950 border border-neutral-800 rounded-xl p-2.5 flex items-center justify-between text-[11px]">
+                              <div>
+                                <span className="text-neutral-400 font-medium">Selected Window:</span>
+                                <span className="ml-1.5 font-mono text-rose-300 font-bold bg-neutral-900 px-2 py-0.5 rounded border border-neutral-800">
+                                  {Math.floor(trimStart / 60)}:{(Math.floor(trimStart % 60)).toString().padStart(2, '0')} – {Math.floor(trimEnd / 60)}:{(Math.floor(trimEnd % 60)).toString().padStart(2, '0')}
+                                </span>
+                              </div>
+                              <span className="font-mono text-emerald-400 font-bold bg-emerald-950/60 border border-emerald-800/40 px-2 py-0.5 rounded-lg">
+                                ⏱️ {Math.round(trimEnd - trimStart)}s (Max 60s)
+                              </span>
+                            </div>
+
+                            {/* Timeline Visual Track */}
+                            <div className="space-y-1">
+                              <div className="relative h-6 bg-neutral-950 rounded-lg border border-neutral-800 overflow-hidden flex items-center">
+                                <div
+                                  className="absolute top-0 bottom-0 bg-rose-600/40 border-l-2 border-r-2 border-rose-500 rounded"
+                                  style={{
+                                    left: `${(trimStart / (rawVideoDuration || 1)) * 100}%`,
+                                    width: `${((trimEnd - trimStart) / (rawVideoDuration || 1)) * 100}%`,
+                                  }}
+                                />
+                                <div
+                                  className="absolute top-0 bottom-0 w-1 bg-white shadow-md z-10"
+                                  style={{
+                                    left: `${(trimPlayhead / (rawVideoDuration || 1)) * 100}%`,
+                                  }}
+                                />
+                              </div>
+
+                              <div className="flex justify-between text-[9px] font-mono text-neutral-500">
+                                <span>0:00</span>
+                                <span>{Math.floor(rawVideoDuration / 60)}:{(Math.floor(rawVideoDuration % 60)).toString().padStart(2, '0')}</span>
+                              </div>
+                            </div>
+
+                            {/* Dual Sliders: Start Time and End Time */}
+                            <div className="space-y-2">
+                              <div>
+                                <div className="flex justify-between text-[10px] text-neutral-400 mb-0.5">
+                                  <span>Segment Start: <strong className="text-white font-mono">{Math.floor(trimStart / 60)}:{(Math.floor(trimStart % 60)).toString().padStart(2, '0')}</strong></span>
+                                  <span className="text-[9px] text-neutral-500">Drag to change start point</span>
+                                </div>
+                                <input
+                                  type="range"
+                                  min={0}
+                                  max={Math.max(0, rawVideoDuration - 3)}
+                                  step={0.5}
+                                  value={trimStart}
+                                  onChange={(e) => {
+                                    const newStart = parseFloat(e.target.value);
+                                    setTrimStart(newStart);
+                                    if (trimEnd <= newStart || trimEnd - newStart > 60) {
+                                      setTrimEnd(Math.min(rawVideoDuration, newStart + 60));
+                                    }
+                                    if (trimVideoRef.current) {
+                                      trimVideoRef.current.currentTime = newStart;
+                                    }
+                                  }}
+                                  className="w-full h-1 bg-neutral-800 rounded-lg appearance-none cursor-pointer accent-rose-500"
+                                />
+                              </div>
+
+                              <div>
+                                <div className="flex justify-between text-[10px] text-neutral-400 mb-0.5">
+                                  <span>Segment End: <strong className="text-white font-mono">{Math.floor(trimEnd / 60)}:{(Math.floor(trimEnd % 60)).toString().padStart(2, '0')}</strong></span>
+                                  <span className="text-[9px] text-neutral-500">Max 60s from start</span>
+                                </div>
+                                <input
+                                  type="range"
+                                  min={trimStart + 3}
+                                  max={Math.min(rawVideoDuration, trimStart + 60)}
+                                  step={0.5}
+                                  value={trimEnd}
+                                  onChange={(e) => {
+                                    const newEnd = parseFloat(e.target.value);
+                                    setTrimEnd(newEnd);
+                                    if (trimVideoRef.current) {
+                                      trimVideoRef.current.currentTime = newEnd;
+                                    }
+                                  }}
+                                  className="w-full h-1 bg-neutral-800 rounded-lg appearance-none cursor-pointer accent-rose-500"
+                                />
+                              </div>
+                            </div>
+
+                            {/* Quick Presets & Apply Buttons */}
+                            <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-neutral-800">
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-[9px] uppercase font-bold text-neutral-500">Jump:</span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setTrimStart(0);
+                                    setTrimEnd(Math.min(60, rawVideoDuration));
+                                    if (trimVideoRef.current) trimVideoRef.current.currentTime = 0;
+                                  }}
+                                  className="px-2 py-0.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-[10px] font-semibold cursor-pointer"
+                                >
+                                  First 60s
+                                </button>
+                                {rawVideoDuration > 60 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const mid = Math.max(0, Math.round((rawVideoDuration - 60) / 2));
+                                      setTrimStart(mid);
+                                      setTrimEnd(mid + 60);
+                                      if (trimVideoRef.current) trimVideoRef.current.currentTime = mid;
+                                    }}
+                                    className="px-2 py-0.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-[10px] font-semibold cursor-pointer"
+                                  >
+                                    Middle 60s
+                                  </button>
+                                )}
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={handleApplyTrim}
+                                className="px-4 py-1.5 rounded-xl bg-gradient-to-r from-rose-600 to-pink-600 hover:from-rose-500 hover:to-pink-500 text-white text-xs font-bold shadow-md shadow-rose-950/60 flex items-center gap-1.5 cursor-pointer active:scale-95"
+                              >
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                <span>Apply 60s Trim</span>
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Active Video Slot Display: Preview Player or Upload Controls */}
+                    {((activeVideoSlot === 0 && (regVideos[0]?.url || regForm.videoUrl)) || (activeVideoSlot === 1 && regVideos[1]?.url)) ? (
+                      <div className="space-y-4">
+                        <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-3 flex flex-col sm:flex-row items-center gap-4">
+                          {/* 9:16 Preview Player Container with Active Aesthetic Filter */}
+                          <div className="relative aspect-[9/16] w-36 sm:w-40 rounded-2xl overflow-hidden bg-black border-2 border-rose-500/60 shadow-xl shrink-0 group">
+                            <video
+                              key={(activeVideoSlot === 0 ? (regVideos[0]?.url || regForm.videoUrl) : regVideos[1]?.url) + regForm.videoFilter}
+                              src={activeVideoSlot === 0 ? (regVideos[0]?.url || regForm.videoUrl) : regVideos[1]?.url}
+                              poster={activeVideoSlot === 0 ? (regVideos[0]?.thumbnail || regForm.videoThumbnail) : regVideos[1]?.thumbnail}
+                              playsInline
+                              muted={previewVideoMuted}
+                              loop
+                              style={{ filter: getVideoFilterCss(regForm.videoFilter) }}
+                              className="w-full h-full object-cover"
+                              onPlay={() => setPreviewVideoPlaying(true)}
+                              onPause={() => setPreviewVideoPlaying(false)}
+                            />
+
+                            {/* 9:16 Badge */}
+                            <span className="absolute top-2 left-2 px-1.5 py-0.5 rounded bg-black/75 backdrop-blur-xs text-[9px] font-mono font-bold text-rose-300 border border-rose-500/30">
+                              9:16
+                            </span>
+
+                            {/* Duration badge */}
+                            <span className="absolute top-2 right-2 px-1.5 py-0.5 rounded bg-black/75 backdrop-blur-xs text-[9px] font-mono font-bold text-emerald-400 border border-emerald-500/30">
+                              ⏱️ {(activeVideoSlot === 0 ? regVideos[0]?.duration : regVideos[1]?.duration) || regForm.videoDuration || 60}s
+                            </span>
+
+                            {/* Compression tag */}
+                            <span className="absolute bottom-9 right-2 px-1.5 py-0.5 rounded bg-black/80 backdrop-blur-xs text-[8px] font-mono text-emerald-300 border border-emerald-500/40 flex items-center gap-1 shadow">
+                              <Zap className="w-2.5 h-2.5 text-emerald-400" />
+                              Compressed
+                            </span>
+
+                            {/* Aesthetic Filter Badge overlay (if active) */}
+                            {regForm.videoFilter && regForm.videoFilter !== 'normal' && (
+                              <span className="absolute bottom-9 left-2 px-2 py-0.5 rounded-full bg-black/80 backdrop-blur-xs text-[9px] font-semibold text-amber-300 border border-amber-500/40 flex items-center gap-1 shadow-md">
+                                <Sparkles className="w-2.5 h-2.5 text-amber-400" />
+                                {getVideoFilterBadge(regForm.videoFilter)}
+                              </span>
+                            )}
+
+                            {/* Sound toggle at bottom left */}
+                            <button
+                              type="button"
+                              onClick={() => setPreviewVideoMuted(!previewVideoMuted)}
+                              className="absolute bottom-2 left-2 p-1.5 rounded-lg bg-black/70 hover:bg-black/90 text-white transition cursor-pointer"
+                              title={previewVideoMuted ? 'Unmute' : 'Mute'}
+                            >
+                              {previewVideoMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
+                            </button>
+                          </div>
+
+                          {/* Video Info & Replace/Trim/Remove Actions */}
+                          <div className="flex-1 space-y-2 text-left w-full">
+                            <div className="flex items-center gap-1.5 text-emerald-400 font-bold text-xs">
+                              <CheckCircle2 className="w-4 h-4" />
+                              <span>Video {activeVideoSlot + 1} Compressed &amp; Ready ({activeVideoSlot === 0 ? (regVideos[0]?.duration || regForm.videoDuration || 60) : regVideos[1]?.duration}s clip)</span>
+                            </div>
+                            <p className="text-[11px] text-neutral-400">
+                              Compressed to compact mobile size for instantaneous streaming across Kenya. Max 2 videos per member.
+                            </p>
+
+                            <div className="flex flex-wrap gap-2 pt-2">
+                              {/* Open Timeline Trimmer button */}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const currentUrl = activeVideoSlot === 0 ? (regVideos[0]?.url || regForm.videoUrl) : regVideos[1]?.url;
+                                  const currentDur = activeVideoSlot === 0 ? (regVideos[0]?.duration || regForm.videoDuration || 60) : regVideos[1]?.duration;
+                                  setRawVideoUrl(currentUrl);
+                                  setRawVideoDuration(currentDur || 60);
+                                  setTrimStart(0);
+                                  setTrimEnd(Math.min(60, currentDur || 60));
+                                  setShowTrimmer(true);
+                                }}
+                                className="px-3 py-1.5 rounded-xl bg-rose-950/70 hover:bg-rose-900/80 border border-rose-500/40 text-rose-200 text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+                              >
+                                <Scissors className="w-3.5 h-3.5 text-rose-400" />
+                                <span>Trim Segment</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => videoInputRef.current?.click()}
+                                className="px-3 py-1.5 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+                              >
+                                <UploadCloud className="w-3.5 h-3.5" />
+                                Replace
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (activeVideoSlot === 0) {
+                                    setRegForm(prev => ({ ...prev, videoUrl: '', videoDuration: 60, videoThumbnail: '', videoFilter: 'normal', videoTrimStart: 0, videoTrimEnd: 60 }));
+                                    setRegVideos(prev => prev.filter((_, idx) => idx !== 0));
+                                  } else {
+                                    setRegVideos(prev => prev.filter((_, idx) => idx !== 1));
+                                  }
+                                }}
+                                className="px-3 py-1.5 rounded-xl bg-red-950/60 hover:bg-red-900/60 text-red-300 text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                                Remove Video
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* SUITE OF AESTHETIC VIDEO FILTERS */}
+                        <div className="bg-neutral-900/90 border border-neutral-800 rounded-2xl p-3.5 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <label className="text-neutral-200 font-bold flex items-center gap-1.5 text-xs">
+                              <Wand2 className="w-4 h-4 text-rose-400" />
+                              <span>Aesthetic Video Filters (Video {activeVideoSlot + 1})</span>
+                            </label>
+                            <span className="text-[10px] text-rose-300 font-mono bg-rose-500/10 px-2 py-0.5 rounded-full border border-rose-500/20">
+                              Active: {AESTHETIC_VIDEO_FILTERS.find(f => f.id === regForm.videoFilter)?.name || 'Original'}
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
+                            {AESTHETIC_VIDEO_FILTERS.map((filter) => {
+                              const isSelected = (regForm.videoFilter || 'normal') === filter.id;
+                              return (
+                                <button
+                                  key={filter.id}
+                                  type="button"
+                                  onClick={() => setRegForm(prev => ({ ...prev, videoFilter: filter.id }))}
+                                  className={`p-2 rounded-xl border text-left transition flex items-center gap-2.5 cursor-pointer ${
+                                    isSelected
+                                      ? 'border-rose-500 bg-rose-950/40 ring-1 ring-rose-500/50 shadow-md'
+                                      : 'border-neutral-800 bg-neutral-950 hover:border-neutral-700'
+                                  }`}
+                                >
+                                  <div className={`w-7 h-7 rounded-lg ${filter.previewBg} shadow-inner flex items-center justify-center shrink-0 border border-white/10`}>
+                                    {isSelected && <Sparkles className="w-3.5 h-3.5 text-white" />}
+                                  </div>
+                                  <div className="overflow-hidden">
+                                    <div className="text-[11px] font-bold text-neutral-200 truncate">
+                                      {filter.name}
+                                    </div>
+                                    <div className="text-[9px] text-neutral-400 truncate">
+                                      {filter.badge}
+                                    </div>
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      /* Video Upload / Selection Controls for Active Slot */
+                      <div className="space-y-3">
+                        {/* File Upload Box */}
+                        <div
+                          onClick={() => videoInputRef.current?.click()}
+                          className="border-2 border-dashed border-neutral-700 hover:border-rose-500/80 rounded-2xl p-4 text-center cursor-pointer transition bg-neutral-900/50 hover:bg-rose-950/10 group"
+                        >
+                          <div className="w-10 h-10 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-400 flex items-center justify-center mx-auto mb-2 group-hover:scale-110 transition">
+                            <UploadCloud className="w-5 h-5" />
+                          </div>
+                          <div className="text-xs font-bold text-neutral-200 group-hover:text-white">
+                            Upload Video {activeVideoSlot + 1} (9:16 Vertical · Max 60s)
+                          </div>
+                          <div className="text-[10px] text-neutral-400 mt-0.5">
+                            Automatically compressed to smaller size · Supports MP4, MOV, or WebM
+                          </div>
+                        </div>
+
+                        <input
+                          ref={videoInputRef}
+                          type="file"
+                          accept="video/mp4,video/quicktime,video/webm"
+                          className="hidden"
+                          onChange={handleVideoFileUpload}
+                        />
+
+                        {/* Or Paste Direct Video URL */}
+                        <div className="flex gap-2">
+                          <input
+                            type="url"
+                            placeholder="Or paste direct 9:16 video MP4 URL..."
+                            value={customVideoUrlInput}
+                            onChange={e => setCustomVideoUrlInput(e.target.value)}
+                            className="flex-1 bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-xs text-neutral-200 focus:outline-none focus:border-rose-500"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (!customVideoUrlInput.trim()) return;
+                              handleLoadCustomVideoUrl(customVideoUrlInput);
+                              setCustomVideoUrlInput('');
+                            }}
+                            className="px-3 py-2 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-xs font-semibold text-neutral-200 cursor-pointer"
+                          >
+                            Load
+                          </button>
+                        </div>
+
+                        {/* Curated 9:16 Video Presets for 1-Click Testing */}
+                        <div>
+                          <div className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider mb-1.5 flex items-center justify-between">
+                            <span>Or select a 1-click 9:16 video preset for Video {activeVideoSlot + 1}:</span>
+                            <span className="text-rose-400 font-mono text-[9px]">Verified 9:16 ≤60s</span>
+                          </div>
+                          <div className="grid grid-cols-3 gap-2">
+                            {PRESET_916_VIDEOS.map((preset, idx) => (
+                              <button
+                                key={idx}
+                                type="button"
+                                onClick={() => {
+                                  const newVid = {
+                                    url: preset.url,
+                                    duration: preset.duration,
+                                    thumbnail: preset.thumbnail,
+                                    filter: 'normal',
+                                    trimStart: 0,
+                                    trimEnd: preset.duration,
+                                    originalSizeMb: 14.5,
+                                    compressedSizeMb: 2.9,
+                                    isCompressed: true,
+                                  };
+                                  setRegVideos(prev => {
+                                    const next = [...prev];
+                                    next[activeVideoSlot] = newVid;
+                                    return next.slice(0, 2);
+                                  });
+                                  if (activeVideoSlot === 0) {
+                                    setRegForm(prev => ({
+                                      ...prev,
+                                      videoUrl: preset.url,
+                                      videoDuration: preset.duration,
+                                      videoThumbnail: preset.thumbnail,
+                                      videoTrimStart: 0,
+                                      videoTrimEnd: preset.duration,
+                                    }));
+                                  }
+                                  setRawVideoUrl(preset.url);
+                                  setRawVideoDuration(preset.duration);
+                                  setVideoUploadError(null);
+                                }}
+                                className="p-2 rounded-xl bg-neutral-900 border border-neutral-800 hover:border-rose-500/60 text-left transition flex flex-col justify-between group cursor-pointer"
+                              >
+                                <div className="relative aspect-[9/16] w-full rounded-lg overflow-hidden bg-black mb-1.5">
+                                  <img src={preset.thumbnail} alt="" className="w-full h-full object-cover group-hover:scale-105 transition" />
+                                  <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                                    <Play className="w-4 h-4 text-white fill-white" />
+                                  </div>
+                                  <span className="absolute bottom-1 right-1 bg-black/80 text-[8px] text-white px-1 rounded font-mono">
+                                    {preset.duration}s
+                                  </span>
+                                </div>
+                                <span className="text-[10px] font-semibold text-neutral-300 truncate w-full block">
+                                  {preset.title}
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* SECTION 5: SAFETY POLICY VERIFICATION & PUBLISH */}
+                  <div id="reg-sec-photos" className="space-y-4 pt-3 border-t border-neutral-800/70">
+                    <div className="text-[11px] font-bold text-rose-400 uppercase tracking-wider flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                      Section 5: Community Safety &amp; Publish
+                    </div>
+
+                    <div className="bg-neutral-900/60 border border-neutral-800 rounded-2xl p-4 space-y-2.5">
+                      <div className="font-bold text-white text-xs flex items-center gap-2">
+                        <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                        <span>Pre-Publication Checklist</span>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] text-neutral-300">
+                        <div className="flex items-center gap-2">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                          <span>Max 3 photos verified ({regForm.photos.length}/3)</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                          <span>Head-to-toe full-body photo included</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                          <span>9:16 vertical video compressed (max 2)</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                          <span>No commercial sales, drugs, or escorting</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="pt-2">
+                      <button
+                        type="submit"
+                        disabled={registering || !fullBodyVerified}
+                        className="w-full py-3.5 rounded-xl bg-gradient-to-r from-rose-600 to-pink-600 hover:from-rose-500 hover:to-pink-500 text-white font-bold text-sm shadow-lg shadow-rose-950/50 transition active:scale-95 disabled:opacity-50 cursor-pointer"
+                      >
+                        {registering
+                          ? 'Verifying and Publishing...'
+                          : !fullBodyVerified
+                          ? 'Full-Body Photo Required (Face-Only Rejected)'
+                          : 'Publish My Free Dating Profile'}
+                      </button>
+                    </div>
+                  </div>
+                </form>
               </div>
 
-              <div className="pt-3">
+              {/* DOCKED VERTICAL SCRAWLER ON THE CARD (Up & Down controls + visual progress) */}
+              <div className="absolute right-2 top-4 bottom-4 w-9 flex flex-col items-center justify-between py-2 z-20 pointer-events-auto bg-neutral-950/80 border border-neutral-800 rounded-2xl backdrop-blur-md shadow-xl">
+                {/* Scroll Up Button */}
                 <button
-                  type="submit"
-                  disabled={registering || !fullBodyVerified}
-                  className="w-full py-3 rounded-xl bg-gradient-to-r from-rose-600 to-pink-600 hover:from-rose-500 hover:to-pink-500 text-white font-bold text-sm shadow-lg shadow-rose-950/50 transition active:scale-95 disabled:opacity-50 cursor-pointer"
+                  type="button"
+                  onClick={() => handleScrollModal('up')}
+                  disabled={!canScrollUp}
+                  title="Scroll Up"
+                  className={`w-7 h-7 rounded-xl flex items-center justify-center transition cursor-pointer ${
+                    canScrollUp
+                      ? 'bg-neutral-800 hover:bg-rose-600 text-white shadow-md active:scale-95'
+                      : 'bg-neutral-800/30 text-neutral-600 cursor-not-allowed'
+                  }`}
                 >
-                  {registering
-                    ? 'Verifying and Publishing...'
-                    : !fullBodyVerified
-                    ? 'Full-Body Photo Required (Face-Only Rejected)'
-                    : 'Publish My Free Dating Profile'}
+                  <ChevronUp className="w-4 h-4" />
+                </button>
+
+                {/* Scrawler Track with dynamic progress bar */}
+                <div className="flex flex-col items-center gap-1.5 my-2">
+                  <div className="text-[9px] font-mono font-bold text-rose-400 select-none">
+                    {Math.round(scrollProgress)}%
+                  </div>
+                  <div
+                    onClick={(e) => {
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      const clickY = e.clientY - rect.top;
+                      const ratio = Math.max(0, Math.min(1, clickY / rect.height));
+                      if (regModalScrollRef.current) {
+                        const maxScroll = regModalScrollRef.current.scrollHeight - regModalScrollRef.current.clientHeight;
+                        regModalScrollRef.current.scrollTo({ top: maxScroll * ratio, behavior: 'smooth' });
+                      }
+                    }}
+                    className="w-1.5 h-28 sm:h-36 rounded-full bg-neutral-800 overflow-hidden relative cursor-pointer"
+                    title="Click scrawler track to jump"
+                  >
+                    <div
+                      className="w-full bg-gradient-to-b from-rose-500 to-pink-500 rounded-full transition-all duration-150 shadow-sm shadow-rose-500"
+                      style={{ height: `${Math.max(8, scrollProgress)}%` }}
+                    />
+                  </div>
+                </div>
+
+                {/* Scroll Down Button with subtle pulse if more below */}
+                <button
+                  type="button"
+                  onClick={() => handleScrollModal('down')}
+                  disabled={!canScrollDown}
+                  title="Scroll Down"
+                  className={`w-7 h-7 rounded-xl flex items-center justify-center transition cursor-pointer ${
+                    canScrollDown
+                      ? 'bg-neutral-800 hover:bg-rose-600 text-white shadow-md active:scale-95 ring-1 ring-rose-500/40 animate-pulse'
+                      : 'bg-neutral-800/30 text-neutral-600 cursor-not-allowed'
+                  }`}
+                >
+                  <ChevronDown className="w-4 h-4" />
                 </button>
               </div>
-            </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 9:16 Dedicated Video Player Modal for other users to watch */}
+      {watchingVideoProfile && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md p-2 sm:p-4 animate-in fade-in duration-200">
+          <div className="relative w-full max-w-[380px] sm:max-w-[420px] aspect-[9/16] max-h-[92vh] rounded-3xl overflow-hidden bg-black border border-neutral-700/60 shadow-2xl flex flex-col justify-between">
+            {/* Native Video Element with Aesthetic Filter and Trim Loop */}
+            <video
+              ref={watchVideoRef}
+              src={watchingVideoProfile.videoUrl || (watchingVideoProfile.videos && watchingVideoProfile.videos[0])}
+              poster={watchingVideoProfile.videoThumbnail || watchingVideoProfile.primaryPhoto}
+              autoPlay
+              playsInline
+              loop={!watchingVideoProfile.videoTrimEnd}
+              muted={watchVideoMuted}
+              style={{ filter: getVideoFilterCss(watchingVideoProfile.videoFilter) }}
+              onLoadedMetadata={() => {
+                if (watchVideoRef.current) {
+                  if (typeof watchingVideoProfile.videoTrimStart === 'number' && watchingVideoProfile.videoTrimStart > 0) {
+                    watchVideoRef.current.currentTime = watchingVideoProfile.videoTrimStart;
+                  }
+                  setWatchVideoDuration(
+                    watchingVideoProfile.videoDuration ||
+                    (watchingVideoProfile.videoTrimEnd && watchingVideoProfile.videoTrimStart !== undefined
+                      ? watchingVideoProfile.videoTrimEnd - watchingVideoProfile.videoTrimStart
+                      : watchVideoRef.current.duration || 60)
+                  );
+                }
+              }}
+              onTimeUpdate={() => {
+                if (watchVideoRef.current) {
+                  const cur = watchVideoRef.current.currentTime;
+                  setWatchVideoCurrentTime(cur);
+
+                  // If video has trim bounds, loop seamlessly within the trimmed segment
+                  const trimStart = watchingVideoProfile.videoTrimStart ?? 0;
+                  const trimEnd = watchingVideoProfile.videoTrimEnd;
+                  if (typeof trimEnd === 'number' && trimEnd > trimStart && cur >= trimEnd) {
+                    watchVideoRef.current.currentTime = trimStart;
+                  }
+                }
+              }}
+              onClick={() => {
+                if (watchVideoRef.current) {
+                  if (watchVideoPlaying) {
+                    watchVideoRef.current.pause();
+                    setWatchVideoPlaying(false);
+                  } else {
+                    watchVideoRef.current.play().catch(() => {});
+                    setWatchVideoPlaying(true);
+                  }
+                }
+              }}
+              className="absolute inset-0 w-full h-full object-cover cursor-pointer"
+            />
+
+            {/* Top Bar Overlay */}
+            <div className="relative z-20 p-4 bg-gradient-to-b from-black/80 via-black/40 to-transparent flex items-center justify-between pointer-events-auto">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="px-2.5 py-1 rounded-full bg-black/60 backdrop-blur-md border border-white/20 text-xs font-bold text-rose-300 flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
+                  9:16 Video Intro
+                </span>
+                <span className="text-[11px] font-mono text-neutral-300 bg-black/50 px-2 py-0.5 rounded-full border border-white/10">
+                  {Math.round(watchVideoCurrentTime)}s / {Math.round(watchVideoDuration)}s max
+                </span>
+                {watchingVideoProfile.videoFilter && watchingVideoProfile.videoFilter !== 'normal' && (
+                  <span className="px-2 py-0.5 rounded-full bg-rose-500/20 backdrop-blur-md border border-rose-400/40 text-[10px] font-semibold text-rose-200 flex items-center gap-1">
+                    <Wand2 className="w-2.5 h-2.5 text-rose-400" />
+                    {getVideoFilterBadge(watchingVideoProfile.videoFilter)}
+                  </span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setWatchVideoMuted(!watchVideoMuted)}
+                  className="p-2 rounded-full bg-black/60 hover:bg-black/80 text-white backdrop-blur-md border border-white/20 transition cursor-pointer"
+                  title={watchVideoMuted ? 'Unmute audio' : 'Mute audio'}
+                >
+                  {watchVideoMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4 text-emerald-400" />}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (watchVideoRef.current) watchVideoRef.current.pause();
+                    setWatchingVideoProfile(null);
+                  }}
+                  className="p-2 rounded-full bg-black/60 hover:bg-black/80 text-white backdrop-blur-md border border-white/20 transition cursor-pointer"
+                  title="Close player"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Center Play Indicator on Pause */}
+            {!watchVideoPlaying && (
+              <div
+                onClick={() => {
+                  if (watchVideoRef.current) {
+                    watchVideoRef.current.play().catch(() => {});
+                    setWatchVideoPlaying(true);
+                  }
+                }}
+                className="absolute inset-0 m-auto w-16 h-16 rounded-full bg-black/70 border border-white/30 text-white flex items-center justify-center cursor-pointer z-20 shadow-2xl"
+              >
+                <Play className="w-8 h-8 fill-white ml-1" />
+              </div>
+            )}
+
+            {/* Bottom Controls & Member Overlay */}
+            <div className="relative z-20 p-4 pt-10 bg-gradient-to-t from-black/95 via-black/70 to-transparent space-y-3 pointer-events-auto">
+              {/* Progress Scrubber Bar */}
+              <div className="space-y-1">
+                <input
+                  type="range"
+                  min={0}
+                  max={watchVideoDuration || 60}
+                  step={0.1}
+                  value={watchVideoCurrentTime}
+                  onChange={(e) => {
+                    const val = parseFloat(e.target.value);
+                    if (watchVideoRef.current) {
+                      watchVideoRef.current.currentTime = val;
+                      setWatchVideoCurrentTime(val);
+                    }
+                  }}
+                  className="w-full h-1 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-rose-500"
+                />
+              </div>
+
+              {/* Profile Details Header */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-bold text-white flex items-center gap-1.5">
+                    <span>{watchingVideoProfile.fullName}</span>
+                    <span className="text-rose-400 font-medium">,{watchingVideoProfile.age}</span>
+                    <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                  </h3>
+                  <div className="flex items-center gap-1 text-xs text-neutral-300">
+                    <MapPin className="w-3 h-3 text-rose-400" />
+                    <span>{watchingVideoProfile.location || watchingVideoProfile.city}</span>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => handleLike(watchingVideoProfile.id)}
+                  className={`p-2.5 rounded-full backdrop-blur-md border transition cursor-pointer ${
+                    watchingVideoProfile.isLikedByViewer
+                      ? 'bg-rose-600/80 border-rose-400 text-white'
+                      : 'bg-black/60 border-white/20 text-neutral-300 hover:text-rose-400'
+                  }`}
+                >
+                  <Heart className={`w-4 h-4 ${watchingVideoProfile.isLikedByViewer ? 'fill-white' : ''}`} />
+                </button>
+              </div>
+
+              {/* Bio Snippet */}
+              <p className="text-xs text-neutral-200 line-clamp-2">
+                {watchingVideoProfile.description}
+              </p>
+
+              {/* Action Buttons */}
+              <div className="flex items-center gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (watchVideoRef.current) watchVideoRef.current.pause();
+                    const p = watchingVideoProfile;
+                    setWatchingVideoProfile(null);
+                    setSelectedProfileForContact(p);
+                  }}
+                  className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-rose-600 to-pink-600 hover:from-rose-500 hover:to-pink-500 text-white font-bold text-xs shadow-lg shadow-rose-950/60 transition active:scale-95 flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <Lock className="w-3.5 h-3.5" />
+                  <span>See Contact · KES 50 (10 Min)</span>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

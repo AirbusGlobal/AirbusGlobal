@@ -76,7 +76,16 @@ export const ShortsView: React.FC<ShortsViewProps> = ({
   const [activeAds, setActiveAds] = useState<AdRequest[]>([]);
 
 
-  const currentStay = stays[currentIndex] || stays[0];
+  // Active Stays prioritized by video availability
+  const videoStays = stays.filter(s => s.hasVideo || s.videoUrl || s.youtubeVideoId || s.media?.video?.url);
+  const activeStays = videoStays.length > 0 ? videoStays : stays;
+  const currentStay = activeStays[currentIndex] || activeStays[0];
+  const effectiveVideoUrl = currentStay?.media?.video?.url || currentStay?.videoUrl;
+  const effectiveThumbnail =
+    currentStay?.thumbnailUrl ||
+    currentStay?.media?.video?.thumbnail ||
+    (currentStay?.media?.photos && currentStay.media.photos[0]?.url) ||
+    (currentStay?.images && currentStay.images[0]);
 
   // Local social states for reactive updates
   const [likesCount, setLikesCount] = useState(currentStay?.likesCount || 0);
@@ -124,7 +133,7 @@ export const ShortsView: React.FC<ShortsViewProps> = ({
   }, [currentIndex, currentStay?.id]);
 
   const handleNext = () => {
-    if (currentIndex < stays.length - 1) {
+    if (currentIndex < activeStays.length - 1) {
       setCurrentIndex(prev => prev + 1);
     } else {
       setCurrentIndex(0);
@@ -135,7 +144,7 @@ export const ShortsView: React.FC<ShortsViewProps> = ({
     if (currentIndex > 0) {
       setCurrentIndex(prev => prev - 1);
     } else {
-      setCurrentIndex(stays.length - 1);
+      setCurrentIndex(activeStays.length - 1);
     }
   };
 
@@ -237,7 +246,7 @@ export const ShortsView: React.FC<ShortsViewProps> = ({
 
   return (
     <div className="relative w-full max-w-md mx-auto my-4 h-[calc(100vh-140px)] min-h-[580px] max-h-[820px] bg-black rounded-3xl overflow-hidden shadow-2xl border border-stone-800 flex items-center justify-center select-none">
-      {/* Video Player: YouTube Embed OR Native Video */}
+      {/* Video Player: YouTube Embed OR Native Video OR Photo Fallback */}
       {currentStay.youtubeVideoId ? (
         <iframe
           src={`https://www.youtube.com/embed/${currentStay.youtubeVideoId}?autoplay=1&mute=${
@@ -248,16 +257,22 @@ export const ShortsView: React.FC<ShortsViewProps> = ({
           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
           allowFullScreen
         />
-      ) : (
+      ) : effectiveVideoUrl ? (
         <video
           ref={videoRef}
-          src={currentStay.videoUrl}
-          poster={currentStay.thumbnailUrl}
+          src={effectiveVideoUrl}
+          poster={effectiveThumbnail}
           loop
           playsInline
           muted={isMuted}
           onClick={togglePlay}
           className="w-full h-full object-cover cursor-pointer"
+        />
+      ) : (
+        <img
+          src={effectiveThumbnail}
+          alt={currentStay.title}
+          className="w-full h-full object-cover"
         />
       )}
 

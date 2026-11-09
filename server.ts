@@ -2650,6 +2650,15 @@ app.post('/api/trip-dating/profiles', (req, res) => {
       datingIntention,
       photos,
       primaryPhoto,
+      videos,
+      videoDurations,
+      videoThumbnails,
+      videoUrl,
+      videoDuration,
+      videoThumbnail,
+      videoFilter,
+      videoTrimStart,
+      videoTrimEnd,
       full_body_photo,
       full_body_verified,
     } = req.body;
@@ -2658,16 +2667,31 @@ app.post('/api/trip-dating/profiles', (req, res) => {
       return res.status(400).json({ error: 'Full name, valid phone number, gender, city, and bio description are required.' });
     }
 
-    // Part E: Server-side validation for Full-Body Photo (head to toe required, face-only rejected)
-    const bodyPhoto = full_body_photo || primaryPhoto || (Array.isArray(photos) && photos[0]);
-    if (!bodyPhoto) {
+    // Validate 9:16 vertical video duration (maximum 60 seconds)
+    const effectiveDur = Number(videoDuration) || 60;
+    if (videoUrl && effectiveDur > 60.5) {
       return res.status(400).json({
-        error: 'A full-body photo showing from head to toe is strictly required. Face-only photos are not accepted.',
+        error: 'Video exceeds the maximum duration limit of 60 seconds. Please upload or trim your video to 60 seconds or less.',
       });
     }
 
-    // Validate image format (JPG, PNG, WebP)
-    const validFormatRegex = /\.(jpe?g|png|webp)($|\?)/i;
+    // Validate optional videos (max 2 videos, max 60s each)
+    const validVideos: string[] = [];
+    const validDurations: number[] = [];
+    if (Array.isArray(videos)) {
+      videos.slice(0, 2).forEach((v: any, idx: number) => {
+        if (typeof v === 'string' && v.trim().length > 0) {
+          validVideos.push(v.trim());
+          const dur = Array.isArray(videoDurations) ? Number(videoDurations[idx]) : 60;
+          validDurations.push(Math.min(60, dur || 60));
+        }
+      });
+    }
+
+    // Part E: Validation for Photo (Head to toe recommended, optional fallback)
+    const bodyPhoto = full_body_photo || primaryPhoto || (Array.isArray(photos) && photos[0]) || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=800&q=80';
+
+    // Validate image format if custom URL or Base64 provided
     const isDataUrl = typeof bodyPhoto === 'string' && bodyPhoto.startsWith('data:image/');
     const isHttpUrl = typeof bodyPhoto === 'string' && (bodyPhoto.startsWith('http://') || bodyPhoto.startsWith('https://'));
     
@@ -2696,8 +2720,17 @@ app.post('/api/trip-dating/profiles', (req, res) => {
       description,
       lookingFor: lookingFor || 'Genuine companionship and fun dates',
       datingIntention,
-      photos: Array.isArray(photos) ? photos : [bodyPhoto],
+      photos: Array.isArray(photos) && photos.length > 0 ? photos.slice(0, 3) : [bodyPhoto],
       primaryPhoto: primaryPhoto || bodyPhoto,
+      videos: validVideos.length > 0 ? validVideos : undefined,
+      videoDurations: validDurations.length > 0 ? validDurations : undefined,
+      videoThumbnails: Array.isArray(videoThumbnails) ? videoThumbnails.slice(0, 2) : undefined,
+      videoUrl: typeof videoUrl === 'string' && videoUrl.trim() ? videoUrl.trim() : undefined,
+      videoDuration: videoUrl ? Math.min(60, Math.max(1, Math.round(effectiveDur))) : undefined,
+      videoThumbnail: typeof videoThumbnail === 'string' && videoThumbnail.trim() ? videoThumbnail.trim() : undefined,
+      videoFilter: typeof videoFilter === 'string' && videoFilter.trim() ? videoFilter.trim() : undefined,
+      videoTrimStart: videoTrimStart !== undefined ? Number(videoTrimStart) : undefined,
+      videoTrimEnd: videoTrimEnd !== undefined ? Number(videoTrimEnd) : undefined,
       full_body_photo: bodyPhoto,
       full_body_verified: full_body_verified !== undefined ? Boolean(full_body_verified) : true,
       fullBodyModerationStatus: 'approved',

@@ -723,9 +723,18 @@ export interface TripDatingProfile {
   description: string;
   lookingFor: string;
   datingIntention: TripDatingIntention;
-  photos: string[]; // Max 4 photos
+  photos: string[]; // Up to 3-4 photos
   primaryPhoto: string;
-  full_body_photo?: string; // Required full-body photo from head to toe
+  videos?: string[]; // Optional up to 2 videos (60s max each)
+  videoDurations?: number[]; // Duration in seconds (e.g. [60, 60])
+  videoThumbnails?: string[];
+  videoUrl?: string; // 9:16 vertical video walkthrough / intro (max 60 seconds)
+  videoThumbnail?: string;
+  videoDuration?: number;
+  videoFilter?: string; // Aesthetic filter name e.g. 'Warm Sunset', 'Neon Night', 'Vintage Grain'
+  videoTrimStart?: number; // Trim segment start time in seconds
+  videoTrimEnd?: number; // Trim segment end time in seconds
+  full_body_photo?: string; // Optional/verified full-body photo
   full_body_verified: boolean;
   fullBodyModerationStatus?: 'pending_review' | 'approved' | 'rejected';
   likes: number;

@@ -950,6 +950,20 @@
   "tickets": [],
   "auditLogs": [
     {
+      "id": "aud_tdp_1794233834412",
+      "action": "trip_dating_profile_created",
+      "actorEmail": "guest@airbus.ke",
+      "details": "Created and auto-published Trip Dating profile for Test Video Enthusiast (Nairobi).",
+      "createdAt": 1794233834412
+    },
+    {
+      "id": "aud_tdp_1794233170084",
+      "action": "trip_dating_profile_created",
+      "actorEmail": "guest@airbus.ke",
+      "details": "Created and auto-published Trip Dating profile for Amina Hassan (Mombasa).",
+      "createdAt": 1794233170084
+    },
+    {
       "id": "aud_1794162828354",
       "action": "payment_approve",
       "actorEmail": "kamalahari93@gmail.com",
@@ -1400,6 +1414,87 @@
   ],
   "tripDatingProfiles": [
     {
+      "id": "tdp_mw9chz1o_v3yd",
+      "userId": "u_guest",
+      "fullName": "Test Video Enthusiast",
+      "phoneNumber": "0799887766",
+      "gender": "female",
+      "age": 27,
+      "country": "Kenya",
+      "city": "Nairobi",
+      "location": "Kilimani",
+      "description": "Love travel and photography. Exploring Kenya one trip at a time.",
+      "lookingFor": "A travel buddy with good vibes.",
+      "datingIntention": "travel_partner",
+      "photos": [
+        "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=600"
+      ],
+      "primaryPhoto": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=600",
+      "videoUrl": "https://assets.mixkit.co/videos/preview/mixkit-young-woman-talking-on-video-call-with-her-phone-41525-large.mp4",
+      "videoDuration": 60,
+      "videoThumbnail": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=600",
+      "videoFilter": "warm_sunset",
+      "videoTrimStart": 10,
+      "videoTrimEnd": 70,
+      "videos": [
+        "https://assets.mixkit.co/videos/preview/mixkit-young-woman-talking-on-video-call-with-her-phone-41525-large.mp4"
+      ],
+      "videoDurations": [
+        60
+      ],
+      "videoThumbnails": [
+        "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=600"
+      ],
+      "full_body_photo": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=600",
+      "full_body_verified": true,
+      "fullBodyModerationStatus": "approved",
+      "likes": 0,
+      "likedByUserEmails": [],
+      "views": 0,
+      "status": "active",
+      "createdAt": 1794233834412,
+      "updatedAt": 1794233834412
+    },
+    {
+      "id": "tdp_mw9c3qg4_m1vu",
+      "userId": "u_guest",
+      "fullName": "Amina Hassan",
+      "phoneNumber": "+254 711 998 877",
+      "gender": "female",
+      "age": 24,
+      "country": "Kenya",
+      "city": "Mombasa",
+      "location": "Nyali Beach, Mombasa",
+      "description": "Scuba diver and digital nomad who loves ocean sunsets and Swahili street cuisine.",
+      "lookingFor": "Someone passionate about travel, books, and laughter.",
+      "datingIntention": "travel_partner",
+      "photos": [
+        "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=800&q=80"
+      ],
+      "primaryPhoto": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=800&q=80",
+      "videoUrl": "https://assets.mixkit.co/videos/preview/mixkit-woman-enjoying-a-sunny-day-in-a-park-41528-large.mp4",
+      "videoDuration": 60,
+      "videoThumbnail": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=800&q=80",
+      "videos": [
+        "https://assets.mixkit.co/videos/preview/mixkit-woman-enjoying-a-sunny-day-in-a-park-41528-large.mp4"
+      ],
+      "videoDurations": [
+        60
+      ],
+      "videoThumbnails": [
+        "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=800&q=80"
+      ],
+      "full_body_photo": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=800&q=80",
+      "full_body_verified": true,
+      "fullBodyModerationStatus": "approved",
+      "likes": 0,
+      "likedByUserEmails": [],
+      "views": 0,
+      "status": "active",
+      "createdAt": 1794233170084,
+      "updatedAt": 1794233170084
+    },
+    {
       "id": "tdp_mw23f936_umtm",
       "userId": "u_guest",
       "fullName": "Faith Wanjiru",
@@ -1443,8 +1538,7 @@
       "photos": [
         "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=800&q=80",
         "https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=800&q=80",
-        "https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=800&q=80",
-        "https://images.unsplash.com/photo-1508214751196-bcfd4ca60f91?auto=format&fit=crop&w=800&q=80"
+        "https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=800&q=80"
       ],
       "primaryPhoto": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=800&q=80",
       "full_body_photo": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=800&q=80",
@@ -1457,7 +1551,19 @@
       "views": 310,
       "status": "active",
       "createdAt": 1792585706976,
-      "updatedAt": 1793622506976
+      "updatedAt": 1793622506976,
+      "videos": [
+        "https://assets.mixkit.co/videos/preview/mixkit-young-woman-talking-on-video-call-with-her-phone-41525-large.mp4",
+        "https://assets.mixkit.co/videos/preview/mixkit-woman-enjoying-a-sunny-day-in-a-park-41528-large.mp4"
+      ],
+      "videoDurations": [
+        60,
+        60
+      ],
+      "videoThumbnails": [
+        "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=800&q=80",
+        "https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=800&q=80"
+      ]
     },
     {
       "id": "tdp_2",
