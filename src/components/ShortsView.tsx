@@ -76,9 +76,10 @@ export const ShortsView: React.FC<ShortsViewProps> = ({
   const [activeAds, setActiveAds] = useState<AdRequest[]>([]);
 
 
-  // Active Stays prioritized by video availability
-  const videoStays = stays.filter(s => s.hasVideo || s.videoUrl || s.youtubeVideoId || s.media?.video?.url);
-  const activeStays = videoStays.length > 0 ? videoStays : stays;
+  // Active Stays prioritized by video availability (live stays only)
+  const liveStays = stays.filter(s => s.status === 'live' || !s.status);
+  const videoStays = liveStays.filter(s => s.hasVideo || s.videoUrl || s.youtubeVideoId || s.media?.video?.url);
+  const activeStays = videoStays.length > 0 ? videoStays : liveStays;
   const currentStay = activeStays[currentIndex] || activeStays[0];
   const effectiveVideoUrl = currentStay?.media?.video?.url || currentStay?.videoUrl;
   const effectiveThumbnail =
@@ -511,7 +512,10 @@ export const ShortsView: React.FC<ShortsViewProps> = ({
           </span>
         </div>
 
-        <h3 className="text-base font-extrabold font-heading leading-tight line-clamp-1 drop-shadow-md">
+        <h3
+          onClick={() => onBookNow(currentStay.id)}
+          className="text-base font-extrabold font-heading leading-tight line-clamp-1 drop-shadow-md cursor-pointer hover:text-pink-300 transition-colors pointer-events-auto"
+        >
           {currentStay.title}
         </h3>
 
@@ -529,7 +533,9 @@ export const ShortsView: React.FC<ShortsViewProps> = ({
           <div>
             <div className="text-lg font-black tracking-tight text-white drop-shadow">
               {formatMoney(currentStay.price)}
-              <span className="text-xs font-normal text-stone-300 ml-1">/night</span>
+              <span className="text-xs font-normal text-stone-300 ml-1">
+                for {currentStay.nights || 1} {(currentStay.nights || 1) === 1 ? 'night' : 'nights'}
+              </span>
             </div>
             <div className="text-[10px] text-stone-400">
               Host: {currentStay.hostName || 'AirBus Host'} ({followerCount} followers)

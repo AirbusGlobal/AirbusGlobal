@@ -794,6 +794,105 @@
   ],
   "payments": [
     {
+      "id": "pay_1794405064134_sb0e",
+      "userId": "guest@airbus.ke",
+      "user_id": "guest@airbus.ke",
+      "hostEmail": "guest@airbus.ke",
+      "type": "wallet",
+      "kind": "advert",
+      "method": "mpesa",
+      "amountSc": 1000,
+      "amount_sc": 1000,
+      "amountKes": 1000,
+      "amount_kes": 1000,
+      "amount": 1000,
+      "status": "approved",
+      "referenceId": "ref_1794405064133",
+      "reference_id": "ref_1794405064133",
+      "mpesaCode": "QGH7X2K999",
+      "mpesa_code": "QGH7X2K999",
+      "planTier": "Silver",
+      "plan_tier": "Silver",
+      "durationDays": 30,
+      "duration_days": 30,
+      "period": "monthly",
+      "createdAt": 1794405064134,
+      "created_at": 1794405064134,
+      "updatedAt": 1794405064147,
+      "updated_at": 1794405064147,
+      "approvedAmount": 1000,
+      "approvedBy": "kamalahari93@gmail.com",
+      "approved_by": "kamalahari93@gmail.com",
+      "approvedAt": 1794405064147,
+      "approved_at": 1794405064147
+    },
+    {
+      "id": "pay_1794405001169_9jmz",
+      "userId": "guest@airbus.ke",
+      "user_id": "guest@airbus.ke",
+      "hostEmail": "guest@airbus.ke",
+      "type": "subscription",
+      "kind": "plan",
+      "method": "mpesa",
+      "amountSc": 1000,
+      "amount_sc": 1000,
+      "amountKes": 1000,
+      "amount_kes": 1000,
+      "amount": 1000,
+      "status": "approved",
+      "referenceId": "ref_1794405001169",
+      "reference_id": "ref_1794405001169",
+      "mpesaCode": "QGH7X2K9ZZ",
+      "mpesa_code": "QGH7X2K9ZZ",
+      "planTier": "Silver",
+      "plan_tier": "Silver",
+      "durationDays": 30,
+      "duration_days": 30,
+      "period": "monthly",
+      "createdAt": 1794405001169,
+      "created_at": 1794405001169,
+      "updatedAt": 1794405001182,
+      "updated_at": 1794405001182,
+      "approvedAmount": 1000,
+      "approvedBy": "kamalahari93@gmail.com",
+      "approved_by": "kamalahari93@gmail.com",
+      "approvedAt": 1794405001182,
+      "approved_at": 1794405001182
+    },
+    {
+      "id": "pay_1794404936877_rc6r",
+      "userId": "guest@airbus.ke",
+      "user_id": "guest@airbus.ke",
+      "hostEmail": "guest@airbus.ke",
+      "type": "subscription",
+      "kind": "plan",
+      "method": "mpesa",
+      "amountSc": 1000,
+      "amount_sc": 1000,
+      "amountKes": 1000,
+      "amount_kes": 1000,
+      "amount": 1000,
+      "status": "approved",
+      "referenceId": "ref_1794404936877",
+      "reference_id": "ref_1794404936877",
+      "mpesaCode": "ABC7X2K9LM",
+      "mpesa_code": "ABC7X2K9LM",
+      "planTier": "Silver",
+      "plan_tier": "Silver",
+      "durationDays": 30,
+      "duration_days": 30,
+      "period": "monthly",
+      "createdAt": 1794404936877,
+      "created_at": 1794404936878,
+      "updatedAt": 1794404936887,
+      "updated_at": 1794404936887,
+      "approvedAmount": 1000,
+      "approvedBy": "kamalahari93@gmail.com",
+      "approved_by": "kamalahari93@gmail.com",
+      "approvedAt": 1794404936887,
+      "approved_at": 1794404936887
+    },
+    {
       "id": "pay_dep_1794162824455",
       "userId": "guest@airbus.ke",
       "user_id": "guest@airbus.ke",
@@ -838,13 +937,22 @@
       "expiresAt": 1797414650939,
       "graceExpiresAt": 1797587450939,
       "hasPaidSubscription": true
+    },
+    "guest@airbus.ke": {
+      "tier": "Silver",
+      "status": "active",
+      "expiresAt": 1796997001182,
+      "graceExpiresAt": 1797169801182,
+      "hasPaidSubscription": true,
+      "period": "monthly"
     }
   },
   "wallets": {
-    "owner@airbus.ke": 13340,
-    "guest@airbus.ke": 4400,
-    "treasury": 63840,
-    "kamalahari93@gmail.com": 50000
+    "owner@airbus.ke": 0,
+    "guest@airbus.ke": 1000,
+    "treasury": 0,
+    "kamalahari93@gmail.com": 0,
+    "admin@airbus.ke": 3000
   },
   "wishlists": [
     {
@@ -857,6 +965,76 @@
     }
   ],
   "notifications": [
+    {
+      "id": "notif_1794405064151",
+      "userEmail": "guest@airbus.ke",
+      "title": "Payment Approved! ✓",
+      "message": "Your payment of KES 1,000 (MPESA) was verified! Your payment is now active.",
+      "read": false,
+      "link": "/#owner",
+      "type": "payment",
+      "createdAt": 1794405064147
+    },
+    {
+      "id": "notif_17944050641350.3062905161302647",
+      "userEmail": "kamalahari93@gmail.com",
+      "title": "New M-Pesa Payment Verification",
+      "message": "guest@airbus.ke submitted M-Pesa code QGH7X2K999 (KES 1000) for wallet.",
+      "read": false,
+      "link": "/#admin",
+      "type": "payment",
+      "createdAt": 1794405064135
+    },
+    {
+      "id": "notif_1794405001188",
+      "userEmail": "guest@airbus.ke",
+      "title": "Hosting Subscription Approved! ✓",
+      "message": "Your payment of KES 1,000 (MPESA) was verified! Your hosting subscription is now active.",
+      "read": false,
+      "link": "/#owner",
+      "type": "subscription",
+      "createdAt": 1794405001182
+    },
+    {
+      "id": "notif_17944050011710.7244779024522068",
+      "userEmail": "kamalahari93@gmail.com",
+      "title": "New M-Pesa Payment Verification",
+      "message": "guest@airbus.ke submitted M-Pesa code QGH7X2K9ZZ (KES 1000) for subscription.",
+      "read": false,
+      "link": "/#admin",
+      "type": "payment",
+      "createdAt": 1794405001171
+    },
+    {
+      "id": "notif_1794404936892",
+      "userEmail": "guest@airbus.ke",
+      "title": "Hosting Subscription Approved! ✓",
+      "message": "Your payment of KES 1,000 (MPESA) was verified! Your hosting subscription is now active.",
+      "read": false,
+      "link": "/#owner",
+      "type": "subscription",
+      "createdAt": 1794404936887
+    },
+    {
+      "id": "notif_17944049368790.6814788255434414",
+      "userEmail": "kamalahari93@gmail.com",
+      "title": "New M-Pesa Payment Verification",
+      "message": "guest@airbus.ke submitted M-Pesa code ABC7X2K9LM (KES 1000) for subscription.",
+      "read": false,
+      "link": "/#admin",
+      "type": "payment",
+      "createdAt": 1794404936879
+    },
+    {
+      "id": "notif_17944049280130.8371152140921732",
+      "userEmail": "kamalahari93@gmail.com",
+      "title": "New Ad Placement Pending Approval",
+      "message": "owner@airbus.ke booked a 3-day sponsor ad (300 KES) on stay #s1. Host Net: KES 210, Platform Fee: KES 90.",
+      "read": false,
+      "link": "/#admin",
+      "type": "payment",
+      "createdAt": 1794404928013
+    },
     {
       "id": "notif_1794162828355",
       "userEmail": "guest@airbus.ke",
@@ -946,9 +1124,69 @@
       "createdAt": 1793051450939
     }
   ],
-  "reports": [],
+  "reports": [
+    {
+      "id": "rep_tdp_1794318338010_m8j26",
+      "stayId": "dating_tdp_1",
+      "reportedBy": "guest@airbus.ke",
+      "reporterEmail": "guest@airbus.ke",
+      "reason": "fake_profile",
+      "details": "[Trip Dating Report on Amina Wangari (tdp_1)]: Verification test",
+      "status": "pending",
+      "createdAt": 1794318338010
+    }
+  ],
   "tickets": [],
   "auditLogs": [
+    {
+      "id": "aud_1794405064149",
+      "action": "payment_approve",
+      "actorEmail": "kamalahari93@gmail.com",
+      "details": "Approved wallet (KES 1000, method mpesa) for guest@airbus.ke",
+      "createdAt": 1794405064147
+    },
+    {
+      "id": "aud_1794405064134",
+      "action": "mpesa_payment_wallet",
+      "actorEmail": "guest@airbus.ke",
+      "details": "Submitted M-Pesa receipt QGH7X2K999 for KES 1000 (wallet, ref: ref_1794405064133)",
+      "createdAt": 1794405064134
+    },
+    {
+      "id": "aud_1794405001187",
+      "action": "payment_approve",
+      "actorEmail": "kamalahari93@gmail.com",
+      "details": "Approved subscription (KES 1000, method mpesa) for guest@airbus.ke",
+      "createdAt": 1794405001182
+    },
+    {
+      "id": "aud_1794405001169",
+      "action": "mpesa_payment_subscription",
+      "actorEmail": "guest@airbus.ke",
+      "details": "Submitted M-Pesa receipt QGH7X2K9ZZ for KES 1000 (subscription, ref: ref_1794405001169)",
+      "createdAt": 1794405001169
+    },
+    {
+      "id": "aud_1794404936891",
+      "action": "payment_approve",
+      "actorEmail": "kamalahari93@gmail.com",
+      "details": "Approved subscription (KES 1000, method mpesa) for guest@airbus.ke",
+      "createdAt": 1794404936887
+    },
+    {
+      "id": "aud_1794404936878",
+      "action": "mpesa_payment_subscription",
+      "actorEmail": "guest@airbus.ke",
+      "details": "Submitted M-Pesa receipt ABC7X2K9LM for KES 1000 (subscription, ref: ref_1794404936877)",
+      "createdAt": 1794404936878
+    },
+    {
+      "id": "aud_rep_tdp_1794318338010",
+      "action": "trip_dating_profile_reported",
+      "actorEmail": "guest@airbus.ke",
+      "details": "Profile Amina Wangari reported for: fake_profile. Details: Verification test",
+      "createdAt": 1794318338010
+    },
     {
       "id": "aud_tdp_1794233834412",
       "action": "trip_dating_profile_created",
@@ -1119,6 +1357,23 @@
   ],
   "adRequests": [
     {
+      "id": "ad_1794404928013",
+      "advertiserEmail": "owner@airbus.ke",
+      "stayId": "s1",
+      "title": "Safari Coffee Roasters",
+      "description": "Best Kenyan AA Coffee",
+      "imageUrl": "https://images.unsplash.com/photo-1509042239860-f550ce710b93",
+      "targetUrl": "https://example.com/coffee",
+      "contactPhone": "+254712345678",
+      "tag": "Featured Sponsor",
+      "days": 3,
+      "totalAmount": 300,
+      "platformFee": 90,
+      "hostNet": 210,
+      "status": "pending",
+      "createdAt": 1794404928013
+    },
+    {
       "id": "ad_snappadd_1793795318243",
       "advertiserEmail": "owner@airbus.ke",
       "stayId": "1",
@@ -1131,7 +1386,7 @@
       "totalAmount": 70,
       "platformFee": 70,
       "hostNet": 0,
-      "status": "approved",
+      "status": "expired",
       "startsAt": 1793795318243,
       "expiresAt": 1794400118243,
       "views": 0,
@@ -1152,7 +1407,7 @@
       "totalAmount": 500,
       "platformFee": 150,
       "hostNet": 350,
-      "status": "approved",
+      "status": "expired",
       "startsAt": 1793093032749,
       "expiresAt": 1793525032749,
       "createdAt": 1793093032749,
@@ -1173,7 +1428,7 @@
       "totalAmount": 700,
       "platformFee": 210,
       "hostNet": 490,
-      "status": "approved",
+      "status": "expired",
       "startsAt": 1793006632749,
       "expiresAt": 1793611432749,
       "createdAt": 1793006632749,
@@ -1285,31 +1540,31 @@
   "walletRecords": {
     "owner@airbus.ke": {
       "email": "owner@airbus.ke",
-      "balance": 13340,
-      "holdBalance": 0,
+      "balance": 0,
+      "holdBalance": 300,
       "lifetimeEarnings": 21210,
       "lifetimeSpent": 7870,
-      "updatedAt": 1793795318242
+      "updatedAt": 1794404928012
     },
     "guest@airbus.ke": {
       "email": "guest@airbus.ke",
-      "balance": 4400,
+      "balance": 1000,
       "holdBalance": 0,
-      "lifetimeEarnings": 1500,
+      "lifetimeEarnings": 2500,
       "lifetimeSpent": 1500,
-      "updatedAt": 1793179505290
+      "updatedAt": 1794405064148
     },
     "admin@airbus.ke": {
       "email": "admin@airbus.ke",
-      "balance": 35000,
+      "balance": 3000,
       "holdBalance": 0,
-      "lifetimeEarnings": 35000,
+      "lifetimeEarnings": 38000,
       "lifetimeSpent": 0,
-      "updatedAt": 1793179432749
+      "updatedAt": 1794405064147
     },
     "treasury": {
       "email": "treasury",
-      "balance": 63910,
+      "balance": 0,
       "holdBalance": 0,
       "lifetimeEarnings": 66460,
       "lifetimeSpent": 2550,
@@ -1317,7 +1572,7 @@
     },
     "kamalahari93@gmail.com": {
       "email": "kamalahari93@gmail.com",
-      "balance": 50000,
+      "balance": 0,
       "holdBalance": 0,
       "lifetimeEarnings": 65000,
       "lifetimeSpent": 2500,
@@ -1740,6 +1995,105 @@
   ],
   "paymentRecords": [
     {
+      "id": "pay_1794405064134_sb0e",
+      "userId": "guest@airbus.ke",
+      "user_id": "guest@airbus.ke",
+      "hostEmail": "guest@airbus.ke",
+      "type": "wallet",
+      "kind": "advert",
+      "method": "mpesa",
+      "amountSc": 1000,
+      "amount_sc": 1000,
+      "amountKes": 1000,
+      "amount_kes": 1000,
+      "amount": 1000,
+      "status": "approved",
+      "referenceId": "ref_1794405064133",
+      "reference_id": "ref_1794405064133",
+      "mpesaCode": "QGH7X2K999",
+      "mpesa_code": "QGH7X2K999",
+      "planTier": "Silver",
+      "plan_tier": "Silver",
+      "durationDays": 30,
+      "duration_days": 30,
+      "period": "monthly",
+      "createdAt": 1794405064134,
+      "created_at": 1794405064134,
+      "updatedAt": 1794405064147,
+      "updated_at": 1794405064147,
+      "approvedAmount": 1000,
+      "approvedBy": "kamalahari93@gmail.com",
+      "approved_by": "kamalahari93@gmail.com",
+      "approvedAt": 1794405064147,
+      "approved_at": 1794405064147
+    },
+    {
+      "id": "pay_1794405001169_9jmz",
+      "userId": "guest@airbus.ke",
+      "user_id": "guest@airbus.ke",
+      "hostEmail": "guest@airbus.ke",
+      "type": "subscription",
+      "kind": "plan",
+      "method": "mpesa",
+      "amountSc": 1000,
+      "amount_sc": 1000,
+      "amountKes": 1000,
+      "amount_kes": 1000,
+      "amount": 1000,
+      "status": "approved",
+      "referenceId": "ref_1794405001169",
+      "reference_id": "ref_1794405001169",
+      "mpesaCode": "QGH7X2K9ZZ",
+      "mpesa_code": "QGH7X2K9ZZ",
+      "planTier": "Silver",
+      "plan_tier": "Silver",
+      "durationDays": 30,
+      "duration_days": 30,
+      "period": "monthly",
+      "createdAt": 1794405001169,
+      "created_at": 1794405001169,
+      "updatedAt": 1794405001182,
+      "updated_at": 1794405001182,
+      "approvedAmount": 1000,
+      "approvedBy": "kamalahari93@gmail.com",
+      "approved_by": "kamalahari93@gmail.com",
+      "approvedAt": 1794405001182,
+      "approved_at": 1794405001182
+    },
+    {
+      "id": "pay_1794404936877_rc6r",
+      "userId": "guest@airbus.ke",
+      "user_id": "guest@airbus.ke",
+      "hostEmail": "guest@airbus.ke",
+      "type": "subscription",
+      "kind": "plan",
+      "method": "mpesa",
+      "amountSc": 1000,
+      "amount_sc": 1000,
+      "amountKes": 1000,
+      "amount_kes": 1000,
+      "amount": 1000,
+      "status": "approved",
+      "referenceId": "ref_1794404936877",
+      "reference_id": "ref_1794404936877",
+      "mpesaCode": "ABC7X2K9LM",
+      "mpesa_code": "ABC7X2K9LM",
+      "planTier": "Silver",
+      "plan_tier": "Silver",
+      "durationDays": 30,
+      "duration_days": 30,
+      "period": "monthly",
+      "createdAt": 1794404936877,
+      "created_at": 1794404936878,
+      "updatedAt": 1794404936887,
+      "updated_at": 1794404936887,
+      "approvedAmount": 1000,
+      "approvedBy": "kamalahari93@gmail.com",
+      "approved_by": "kamalahari93@gmail.com",
+      "approvedAt": 1794404936887,
+      "approved_at": 1794404936887
+    },
+    {
       "id": "pay_dep_1794162824455",
       "userId": "guest@airbus.ke",
       "user_id": "guest@airbus.ke",
@@ -1767,7 +2121,60 @@
       "approved_at": 1794162828354
     }
   ],
-  "walletTransactions": [],
+  "walletTransactions": [
+    {
+      "id": "wtx_1794405064148_0pbce",
+      "walletId": "guest@airbus.ke",
+      "wallet_id": "guest@airbus.ke",
+      "direction": "credit",
+      "amount": 1000,
+      "amountSc": 100,
+      "type": "wallet_topup",
+      "reference": "QGH7X2K999",
+      "note": "Manual M-Pesa deposit Till 943210 (Code: QGH7X2K999)",
+      "relatedPaymentId": "pay_1794405064134_sb0e",
+      "createdAt": 1794405064148
+    },
+    {
+      "id": "wtx_1794405064147_92dsu",
+      "walletId": "admin@airbus.ke",
+      "wallet_id": "admin@airbus.ke",
+      "direction": "credit",
+      "amount": 1000,
+      "amountSc": 100,
+      "type": "ad_income_gross",
+      "reference": "pay_1794405064134_sb0e",
+      "note": "100% ad payment received for stay \"ref_1794405064133\"",
+      "relatedPaymentId": "pay_1794405064134_sb0e",
+      "createdAt": 1794405064147
+    },
+    {
+      "id": "wtx_1794405001182_1an9r",
+      "walletId": "admin@airbus.ke",
+      "wallet_id": "admin@airbus.ke",
+      "direction": "credit",
+      "amount": 1000,
+      "amountSc": 100,
+      "type": "subscription_income",
+      "reference": "pay_1794405001169_9jmz",
+      "note": "Subscription payment for Silver (Monthly) by guest@airbus.ke",
+      "relatedPaymentId": "pay_1794405001169_9jmz",
+      "createdAt": 1794405001182
+    },
+    {
+      "id": "wtx_1794404936887_mxx4t",
+      "walletId": "admin@airbus.ke",
+      "wallet_id": "admin@airbus.ke",
+      "direction": "credit",
+      "amount": 1000,
+      "amountSc": 100,
+      "type": "subscription_income",
+      "reference": "pay_1794404936877_rc6r",
+      "note": "Subscription payment for Silver (Monthly) by guest@airbus.ke",
+      "relatedPaymentId": "pay_1794404936877_rc6r",
+      "createdAt": 1794404936887
+    }
+  ],
   "adSlots": [
     {
       "id": "adslot_kenya_safari",
@@ -1788,7 +2195,7 @@
       "paymentId": "pay_demo_1",
       "payment_id": "pay_demo_1",
       "paymentMethod": "wallet",
-      "impressions": 1422,
+      "impressions": 1423,
       "clicks": 86,
       "startsAt": 1793543326423,
       "endsAt": 1796135326423,
@@ -1797,6 +2204,32 @@
     }
   ],
   "subscriptions": [
+    {
+      "id": "sub_1794405001186",
+      "ownerId": "guest@airbus.ke",
+      "owner_id": "guest@airbus.ke",
+      "tier": "Silver",
+      "billing": "monthly",
+      "status": "active",
+      "startsAt": 1794405001182,
+      "endsAt": 1796997001182,
+      "paymentId": "pay_1794405001169_9jmz",
+      "createdAt": 1794405001182,
+      "updatedAt": 1794405001182
+    },
+    {
+      "id": "sub_1794404936889",
+      "ownerId": "guest@airbus.ke",
+      "owner_id": "guest@airbus.ke",
+      "tier": "Silver",
+      "billing": "monthly",
+      "status": "active",
+      "startsAt": 1794404936887,
+      "endsAt": 1796996936887,
+      "paymentId": "pay_1794404936877_rc6r",
+      "createdAt": 1794404936887,
+      "updatedAt": 1794404936887
+    },
     {
       "id": "sub_owner_demo",
       "ownerId": "owner@airbus.ke",
@@ -1817,5 +2250,97 @@
   "autoShorts": [],
   "boosts": [],
   "sponsorSlots": [],
-  "isSingleAdminRegistered": true
+  "isSingleAdminRegistered": true,
+  "musicTracks": [
+    {
+      "id": "mus_1",
+      "title": "Amazing Grace (Acoustic Sunrise)",
+      "artist": "Nairobi Gospel Choir",
+      "genre": "Gospel",
+      "duration": 45,
+      "licence": "Royalty-Free Commercial",
+      "audioUrl": "https://cdn.freesound.org/previews/415/415804_5121236-lq.mp3"
+    },
+    {
+      "id": "mus_2",
+      "title": "Hallelujah Praise",
+      "artist": "Grace Collective",
+      "genre": "Gospel",
+      "duration": 52,
+      "licence": "Royalty-Free Commercial",
+      "audioUrl": "https://cdn.freesound.org/previews/387/387232_1474204-lq.mp3"
+    },
+    {
+      "id": "mus_3",
+      "title": "Safari Sunrise Vibes",
+      "artist": "Mara Beats",
+      "genre": "Afrobeat",
+      "duration": 38,
+      "licence": "Royalty-Free Commercial",
+      "audioUrl": "https://cdn.freesound.org/previews/398/398808_5121236-lq.mp3"
+    },
+    {
+      "id": "mus_4",
+      "title": "Nyali Coastal Breeze",
+      "artist": "Diani Chillwave",
+      "genre": "Ambient",
+      "duration": 42,
+      "licence": "Royalty-Free Commercial",
+      "audioUrl": "https://cdn.freesound.org/previews/456/456561_5121236-lq.mp3"
+    },
+    {
+      "id": "mus_5",
+      "title": "Westlands Skyline Groove",
+      "artist": "Urban Rift",
+      "genre": "Upbeat",
+      "duration": 40,
+      "licence": "Royalty-Free Commercial",
+      "audioUrl": "https://cdn.freesound.org/previews/517/517684_10672018-lq.mp3"
+    },
+    {
+      "id": "mus_6",
+      "title": "Great Rift Acoustic Serenade",
+      "artist": "Naivasha Strings",
+      "genre": "Acoustic",
+      "duration": 48,
+      "licence": "Royalty-Free Commercial",
+      "audioUrl": "https://cdn.freesound.org/previews/320/320655_5260872-lq.mp3"
+    },
+    {
+      "id": "mus_7",
+      "title": "Savannah Wonder & Majesty",
+      "artist": "African Philharmonic",
+      "genre": "Cinematic",
+      "duration": 58,
+      "licence": "Royalty-Free Commercial",
+      "audioUrl": "https://cdn.freesound.org/previews/564/564627_5121236-lq.mp3"
+    },
+    {
+      "id": "mus_8",
+      "title": "Deep Praise & Worship Instrumental",
+      "artist": "Faith Harmonies",
+      "genre": "Gospel",
+      "duration": 60,
+      "licence": "Royalty-Free Commercial",
+      "audioUrl": "https://cdn.freesound.org/previews/415/415804_5121236-lq.mp3"
+    },
+    {
+      "id": "mus_9",
+      "title": "Lamu Swahili Chill",
+      "artist": "Shela Sunset",
+      "genre": "Chill",
+      "duration": 35,
+      "licence": "Royalty-Free Commercial",
+      "audioUrl": "https://cdn.freesound.org/previews/456/456561_5121236-lq.mp3"
+    },
+    {
+      "id": "mus_10",
+      "title": "Upbeat Kenya Explorer",
+      "artist": "Kilimanjaro Pulse",
+      "genre": "Upbeat",
+      "duration": 44,
+      "licence": "Royalty-Free Commercial",
+      "audioUrl": "https://cdn.freesound.org/previews/398/398808_5121236-lq.mp3"
+    }
+  ]
 }

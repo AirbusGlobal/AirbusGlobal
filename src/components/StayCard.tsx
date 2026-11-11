@@ -260,7 +260,9 @@ export const StayCard: React.FC<StayCardProps> = ({
         <div className="absolute right-2.5 bottom-2.5 text-right font-extrabold text-sm drop-shadow-[0_1px_4px_rgba(0,0,0,0.8)] z-10">
           <span className="text-[11px] font-normal opacity-85 mr-1">from</span>
           <span className="text-white text-base tracking-tight">{formatMoney(stay.price)}</span>
-          <span className="text-[11px] font-normal opacity-85">/night</span>
+          <span className="text-[11px] font-normal opacity-85 ml-1">
+            for {stay.nights || 1} {(stay.nights || 1) === 1 ? 'night' : 'nights'}
+          </span>
         </div>
       </div>
 

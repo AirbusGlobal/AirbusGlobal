@@ -48,5 +48,6 @@ export interface DatabaseSchema {
   tripDatingPaymentRequests: import('../types').TripDatingPaymentRequest[];
   tripDatingContactUnlocks: import('../types').TripDatingContactUnlock[];
   snappAddCampaigns?: import('../types').SnappAddCampaign[];
+  musicTracks?: import('../types').MusicTrack[];
   isSingleAdminRegistered?: boolean;
 }

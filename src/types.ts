@@ -10,6 +10,8 @@ export interface User {
   location?: string;
   bio?: string;
   languages?: string;
+  photos?: string[];
+  videos?: string[];
   idVerified: boolean;
   isSuspended?: boolean;
   suspendedReason?: string;
@@ -110,6 +112,7 @@ export interface Stay {
   whatsapp?: string;
   affiliateLink?: string;
   minNights: number;
+  nights?: number;
   views: number;
   likesCount?: number;
   likedByUserEmails?: string[];
@@ -225,7 +228,7 @@ export interface HostPlanStatus {
   scheduledPeriod?: 'monthly' | 'annual';
 }
 
-export type PaymentRecordType = 'boost' | 'advert' | 'subscription' | 'booking_fee' | 'wallet_topup' | 'deposit' | 'mpesa_deposit';
+export type PaymentRecordType = 'boost' | 'advert' | 'subscription' | 'booking_fee' | 'wallet_topup' | 'wallet' | 'deposit' | 'mpesa_deposit' | 'trip_dating';
 export type PaymentRecordMethod = 'wallet' | 'mpesa' | 'mpesa_manual' | 'other';
 export type PaymentRecordStatus = 'pending' | 'approved' | 'rejected' | 'refunded';
 
@@ -287,7 +290,7 @@ export interface PaymentRecord {
   userId: string;
   user_id?: string;
   hostEmail?: string;
-  kind?: 'plan' | 'wallet' | 'advert' | 'boost' | 'deposit';
+  kind?: 'plan' | 'wallet' | 'advert' | 'boost' | 'deposit' | 'trip_dating';
   type: PaymentRecordType;
   method: PaymentRecordMethod;
   amountSc: number;
@@ -295,6 +298,9 @@ export interface PaymentRecord {
   amountKes?: number;
   amount_kes?: number;
   amount: number; // Compatibility
+  claimedAmount?: number;
+  approvedAmount?: number;
+  purpose?: 'subscription' | 'wallet_topup' | 'advert' | 'trip_dating';
   currency?: string;
   status: PaymentRecordStatus;
   referenceId: string; // advert_id, boost_id or subscription_id
@@ -333,13 +339,27 @@ export interface WalletTransaction {
   wallet_id?: string;
   user_id?: string;
   direction: 'debit' | 'credit';
-  amountSc: number;
+  amount?: number; // in KES
+  amountSc?: number;
   amount_sc?: number;
+  type?: string;
+  reference?: string;
+  status?: string;
   relatedPaymentId?: string;
   related_payment_id?: string;
   note: string;
   createdAt: number;
   created_at?: number;
+}
+
+export interface MusicTrack {
+  id: string;
+  title: string;
+  artist: string;
+  genre: string;
+  duration: number;
+  licence: string;
+  audioUrl: string;
 }
 
 export interface AdSlot {

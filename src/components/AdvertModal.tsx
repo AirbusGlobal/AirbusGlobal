@@ -291,22 +291,35 @@ export const AdvertModal: React.FC<AdvertModalProps> = ({
             </div>
 
             {/* Wallet Balance Status */}
-            <div className="flex items-center justify-between p-3 rounded-2xl bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-800">
-              <div className="flex items-center gap-2">
-                <Wallet className="w-4 h-4 text-stone-400" />
-                <div>
-                  <span className="font-semibold text-stone-700 dark:text-stone-300">Your AirBus Wallet:</span>
-                  <p className="text-[11px] font-bold text-stone-900 dark:text-white">KES {userWalletBalance.toLocaleString()}</p>
+            <div className="p-3 rounded-2xl bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-800 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Wallet className="w-4 h-4 text-stone-400" />
+                  <div>
+                    <span className="font-semibold text-stone-700 dark:text-stone-300">Your AirBus Wallet:</span>
+                    <p className="text-[11px] font-bold text-stone-900 dark:text-white">KES {userWalletBalance.toLocaleString()}</p>
+                  </div>
                 </div>
+                {!hasSufficientFunds && (
+                  <button
+                    type="button"
+                    onClick={onOpenTopup}
+                    className="px-3.5 py-1.5 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] cursor-pointer shadow-xs"
+                  >
+                    Top Up Wallet
+                  </button>
+                )}
               </div>
+
               {!hasSufficientFunds && (
-                <button
-                  type="button"
-                  onClick={onOpenTopup}
-                  className="px-3 py-1.5 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] cursor-pointer"
-                >
-                  Top Up Wallet
-                </button>
+                <div className="p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800/60 text-amber-900 dark:text-amber-200 text-xs space-y-1.5 leading-relaxed">
+                  <p>
+                    Your wallet balance is not enough for this payment. Please top up your wallet, or enter the amount you have paid (or want to pay) to the Till 943210 in the custom amount field.
+                  </p>
+                  <p className="text-[11px] text-amber-800 dark:text-amber-300 font-semibold">
+                    Shortfall: KES {(totalAmount - userWalletBalance).toLocaleString()}
+                  </p>
+                </div>
               )}
             </div>
 

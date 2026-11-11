@@ -322,13 +322,15 @@ app.patch('/api/auth/profile', (req, res) => {
   if (!user) {
     return res.status(401).json({ error: 'Not authenticated' });
   }
-  const { name, phone, location, bio, languages } = req.body;
+  const { name, phone, location, bio, languages, photos, videos } = req.body;
   const updated = db.updateUser(user.email, {
     name: name !== undefined ? name : user.name,
     phone: phone !== undefined ? phone : user.phone,
     location: location !== undefined ? location : user.location,
     bio: bio !== undefined ? bio : user.bio,
     languages: languages !== undefined ? languages : user.languages,
+    photos: photos !== undefined ? (Array.isArray(photos) ? photos.slice(0, 3) : []) : (user as any).photos,
+    videos: videos !== undefined ? (Array.isArray(videos) ? videos.slice(0, 2) : []) : (user as any).videos,
   }) as any;
   if (!updated) return res.status(404).json({ error: 'User not found' });
   const { passwordHash, ...safeUser } = updated;
@@ -680,6 +682,7 @@ app.post('/api/stays', (req, res) => {
     whatsapp: whatsapp || '',
     affiliateLink: affiliateLink || '',
     minNights: Number(minNights) || 1,
+    nights: Number(req.body.nights) || Number(minNights) || 1,
     welcomeGifts: Array.isArray(req.body.welcomeGifts) && req.body.welcomeGifts.length > 0
       ? req.body.welcomeGifts
       : ['Kenyan Safari Kahawa & Fresh Ground Beans', 'Coconut Water & Tropical Basket'],
@@ -1360,7 +1363,15 @@ app.post('/api/payments', (req, res) => {
   }
 
   const cleanCode = String(mpesaCode).trim().toUpperCase();
-  const paymentType: PaymentRecordType = kind === 'advert' ? 'advert' : 'subscription';
+  const rawType = kind || req.body.type || req.body.purpose;
+  const paymentType: PaymentRecordType =
+    rawType === 'advert'
+      ? 'advert'
+      : rawType === 'wallet' || rawType === 'wallet_topup' || rawType === 'deposit'
+      ? 'wallet'
+      : rawType === 'trip_dating'
+      ? 'trip_dating'
+      : 'subscription';
 
   try {
     const payment = db.createMpesaPayment({
@@ -1725,7 +1736,8 @@ app.post('/api/admin/payments/:id/approve', (req, res) => {
   if (!user || user.role !== 'admin') {
     return res.status(403).json({ error: 'Admin access required.' });
   }
-  const result = db.approvePayment(req.params.id, user.email);
+  const confirmedAmount = req.body && req.body.confirmedAmount ? Number(req.body.confirmedAmount) : undefined;
+  const result = db.approvePayment(req.params.id, user.email, confirmedAmount);
   if (!result) return res.status(404).json({ error: 'Payment not found or already processed.' });
   return res.json({ payment: result });
 });
@@ -1739,6 +1751,73 @@ app.post('/api/admin/payments/:id/reject', (req, res) => {
   const result = db.rejectPayment(req.params.id, user.email, reason);
   if (!result) return res.status(404).json({ error: 'Payment not found.' });
   return res.json({ payment: result });
+});
+
+app.get('/api/admin/wallet/reconciliation', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required.' });
+  }
+  const result = db.getWalletReconciliation();
+  return res.json(result);
+});
+
+app.get('/api/admin/wallet/income-report', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required.' });
+  }
+  const result = db.getAdminIncomeReport();
+  return res.json(result);
+});
+
+app.get('/api/geocode', (req, res) => {
+  const query = typeof req.query.q === 'string' ? req.query.q : '';
+  const result = db.geocodeKenyanLocation(query);
+  return res.json(result);
+});
+
+app.get('/api/music/tracks', (req, res) => {
+  const q = typeof req.query.q === 'string' ? req.query.q : undefined;
+  const genre = typeof req.query.genre === 'string' ? req.query.genre : undefined;
+  const page = Number(req.query.page) || 1;
+  const limit = Number(req.query.limit) || 10;
+  const result = db.getMusicTracks(q, genre, page, limit);
+  return res.json(result);
+});
+
+app.post('/api/music/upload', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ error: 'Not authenticated' });
+  try {
+    const { title, artist, genre, audioUrl, duration, licenceDeclaration } = req.body;
+    if (!audioUrl) return res.status(400).json({ error: 'Audio file or URL is required.' });
+    const track = db.uploadMusicTrack({
+      title: title || 'Custom Track',
+      artist: artist || user.name,
+      genre: genre || 'Custom',
+      audioUrl,
+      duration: Number(duration) || 30,
+      userEmail: user.email,
+      licenceDeclaration: Boolean(licenceDeclaration),
+    });
+    return res.status(201).json({ track });
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'Audio upload failed' });
+  }
+});
+
+app.post('/api/stays/:id/ai-short', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user || (user.role !== 'owner' && user.role !== 'admin')) {
+    return res.status(403).json({ error: 'Only owners or admins can generate shorts.' });
+  }
+  try {
+    const result = db.generateStayAiShort(req.params.id);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'AI Short generation failed.' });
+  }
 });
 
 app.post('/api/admin/users/:email/verify', (req, res) => {
@@ -2826,6 +2905,31 @@ app.get('/api/trip-dating/contact-status/:profileId', (req, res) => {
   }
 });
 
+// Report Suspicious / Inappropriate Profile
+app.post('/api/trip-dating/reports', (req, res) => {
+  try {
+    const user = getAuthUser(req);
+    const { profileId, profileName, reason, details } = req.body;
+    if (!profileId || !reason) {
+      return res.status(400).json({ error: 'Profile ID and reason are required.' });
+    }
+    const reporterEmail = user?.email || (req.headers['x-client-session'] as string) || 'guest@airbus.ke';
+    db.reportTripDatingProfile({
+      profileId,
+      profileName: profileName || profileId,
+      reportedByEmail: reporterEmail,
+      reason,
+      details,
+    });
+    return res.status(201).json({
+      success: true,
+      message: 'Your concern has been logged for review.',
+    });
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'Failed to submit report' });
+  }
+});
+
 // --- ADMIN TRIP DATING MANAGEMENT ROUTES ---
 
 app.get('/api/admin/trip-dating/requests', (req, res) => {
@@ -2898,18 +3002,15 @@ async function startServer() {
       server: { middlewareMode: true },
       appType: 'spa',
     });
-    // Seamlessly redirect root and direct root admin portal in dev
-    app.get('/', (req, res) => {
-      res.redirect('/AirbusGlobal/');
-    });
-    app.get('/admin-portal-k7x2q9', (req, res) => {
-      res.redirect('/AirbusGlobal/admin-portal-k7x2q9');
+    // Redirect legacy /AirbusGlobal paths to root
+    app.get('/AirbusGlobal*', (req, res) => {
+      res.redirect(req.url.replace(/^\/AirbusGlobal\/?/, '/') || '/');
     });
     app.use(vite.middlewares);
   } else {
     const distPath = path.resolve(__dirname, 'dist');
-    app.use('/AirbusGlobal', express.static(distPath));
     app.use(express.static(distPath));
+    app.use('/AirbusGlobal', express.static(distPath));
     app.get('*', (req, res) => {
       res.sendFile(path.resolve(distPath, 'index.html'));
     });

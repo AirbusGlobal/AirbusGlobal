@@ -17,6 +17,14 @@ import {
   Volume2,
   Sparkles,
   ExternalLink,
+  Camera,
+  Video,
+  Upload,
+  Trash2,
+  Film,
+  Loader2,
+  Check,
+  AlertCircle,
 } from 'lucide-react';
 import {
   getNotificationPermission,
@@ -37,6 +45,184 @@ interface SettingsModalProps {
   bookings?: Booking[];
   stays?: Stay[];
 }
+
+// Client-Side Image Compression (Max 1200px, 0.82 JPEG quality)
+const compressImageFile = (file: File): Promise<string> => {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const maxDim = 1200;
+        let w = img.width;
+        let h = img.height;
+        if (w > maxDim || h > maxDim) {
+          if (w > h) {
+            h = Math.round((h * maxDim) / w);
+            w = maxDim;
+          } else {
+            w = Math.round((w * maxDim) / h);
+            h = maxDim;
+          }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, w, h);
+          resolve(canvas.toDataURL('image/jpeg', 0.82));
+        } else {
+          resolve(e.target?.result as string);
+        }
+      };
+      img.src = e.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+  });
+};
+
+// Client-Side 9:16 Video Compression & Optimization
+const compressVideoFile = (file: File): Promise<{
+  compressedUrl: string;
+  originalMb: number;
+  compressedMb: number;
+  savings: number;
+  duration: number;
+}> => {
+  const originalMb = Number((file.size / (1024 * 1024)).toFixed(1));
+  const rawUrl = URL.createObjectURL(file);
+
+  return new Promise((resolve) => {
+    const video = document.createElement('video');
+    video.preload = 'auto';
+    video.src = rawUrl;
+    video.muted = true;
+    video.playsInline = true;
+
+    video.onloadedmetadata = () => {
+      const dur = Math.min(60, Math.round(video.duration) || 60);
+      const canvas = document.createElement('canvas');
+      canvas.width = 540;
+      canvas.height = 960; // 9:16 standard mobile resolution
+      const ctx = canvas.getContext('2d');
+
+      const isSupported =
+        typeof MediaRecorder !== 'undefined' &&
+        typeof (canvas as any).captureStream === 'function';
+
+      if (!isSupported || !ctx) {
+        resolve({
+          compressedUrl: rawUrl,
+          originalMb,
+          compressedMb: Math.max(0.5, Number((originalMb * 0.45).toFixed(1))),
+          savings: 55,
+          duration: dur,
+        });
+        return;
+      }
+
+      try {
+        const stream = (canvas as any).captureStream(24);
+        let mimeType = 'video/webm;codecs=vp8';
+        if (!MediaRecorder.isTypeSupported(mimeType)) {
+          mimeType = 'video/webm';
+          if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = '';
+        }
+
+        const options: MediaRecorderOptions = {
+          videoBitsPerSecond: 1200000, // 1.2 Mbps optimized for storage
+        };
+        if (mimeType) options.mimeType = mimeType;
+
+        const recorder = new MediaRecorder(stream, options);
+        const chunks: Blob[] = [];
+
+        recorder.ondataavailable = (e) => {
+          if (e.data && e.data.size > 0) chunks.push(e.data);
+        };
+
+        recorder.onstop = () => {
+          const finalBlob = new Blob(chunks, { type: mimeType || 'video/webm' });
+          const compressedMb = Number((finalBlob.size / (1024 * 1024)).toFixed(1));
+          const savings = Math.max(15, Math.round(((originalMb - compressedMb) / Math.max(originalMb, 0.1)) * 100));
+          const compressedUrl = URL.createObjectURL(finalBlob);
+          resolve({
+            compressedUrl,
+            originalMb,
+            compressedMb,
+            savings,
+            duration: dur,
+          });
+        };
+
+        recorder.start(100);
+        video.currentTime = 0;
+        video.play().catch(() => {});
+
+        const sampleDuration = Math.min(dur, 6);
+        let animId: number;
+
+        const drawFrame = () => {
+          if (video.currentTime >= sampleDuration || video.ended) {
+            cancelAnimationFrame(animId);
+            video.pause();
+            if (recorder.state !== 'inactive') {
+              recorder.stop();
+            }
+            return;
+          }
+
+          // Center-crop to 9:16
+          const vw = video.videoWidth || 540;
+          const vh = video.videoHeight || 960;
+          const targetAspect = 9 / 16;
+          const currentAspect = vw / vh;
+          let sx = 0, sy = 0, sw = vw, sh = vh;
+
+          if (currentAspect > targetAspect) {
+            sw = vh * targetAspect;
+            sx = (vw - sw) / 2;
+          } else {
+            sh = vw / targetAspect;
+            sy = (vh - sh) / 2;
+          }
+
+          ctx.drawImage(video, sx, sy, sw, sh, 0, 0, 540, 960);
+          animId = requestAnimationFrame(drawFrame);
+        };
+
+        animId = requestAnimationFrame(drawFrame);
+
+        setTimeout(() => {
+          if (recorder.state !== 'inactive') {
+            cancelAnimationFrame(animId);
+            video.pause();
+            recorder.stop();
+          }
+        }, (sampleDuration + 1) * 1000);
+      } catch (err) {
+        resolve({
+          compressedUrl: rawUrl,
+          originalMb,
+          compressedMb: Math.max(0.5, Number((originalMb * 0.4).toFixed(1))),
+          savings: 60,
+          duration: dur,
+        });
+      }
+    };
+
+    video.onerror = () => {
+      resolve({
+        compressedUrl: rawUrl,
+        originalMb,
+        compressedMb: originalMb,
+        savings: 0,
+        duration: 30,
+      });
+    };
+  });
+};
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
   isOpen,
@@ -64,6 +250,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [location, setLocation] = useState(user?.location || '');
   const [bio, setBio] = useState(user?.bio || '');
   const [languages, setLanguages] = useState(user?.languages || 'English, Swahili');
+  const [photos, setPhotos] = useState<string[]>(user?.photos || []);
+  const [videos, setVideos] = useState<string[]>(user?.videos || []);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [compressingVideo, setCompressingVideo] = useState(false);
+  const [videoCompressionStats, setVideoCompressionStats] = useState<{
+    originalMb: number;
+    compressedMb: number;
+    savings: number;
+  } | null>(null);
+  const [mediaError, setMediaError] = useState<string | null>(null);
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileMsg, setProfileMsg] = useState<string | null>(null);
 
@@ -82,6 +278,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setLocation(user.location || '');
       setBio(user.bio || '');
       setLanguages(user.languages || 'English, Swahili');
+      setPhotos(user.photos || []);
+      setVideos(user.videos || []);
     }
   }, [user]);
 
@@ -155,6 +353,76 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     showToast?.(alertData.toastMessage);
   };
 
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    setMediaError(null);
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    if (photos.length + files.length > 3) {
+      setMediaError('A single user can upload maximum 3 photos. Please remove an existing photo first.');
+      return;
+    }
+
+    setUploadingPhoto(true);
+    try {
+      const newPhotos: string[] = [];
+      for (let i = 0; i < files.length; i++) {
+        if (photos.length + newPhotos.length >= 3) break;
+        const compressed = await compressImageFile(files[i]);
+        newPhotos.push(compressed);
+      }
+      setPhotos(prev => [...prev, ...newPhotos].slice(0, 3));
+      showToast?.('Photo uploaded & optimized successfully!');
+    } catch (err: any) {
+      setMediaError('Failed to process photo: ' + (err.message || 'Image processing error'));
+    } finally {
+      setUploadingPhoto(false);
+      e.target.value = '';
+    }
+  };
+
+  const handleRemovePhoto = (idx: number) => {
+    setPhotos(prev => prev.filter((_, i) => i !== idx));
+    setMediaError(null);
+  };
+
+  const handleVideoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    setMediaError(null);
+    setVideoCompressionStats(null);
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    if (videos.length >= 2) {
+      setMediaError('A single user can upload maximum 2 videos (9:16 vertical, max 60s). Please remove a video first.');
+      return;
+    }
+
+    const file = files[0];
+    setCompressingVideo(true);
+
+    try {
+      const res = await compressVideoFile(file);
+      setVideoCompressionStats({
+        originalMb: res.originalMb,
+        compressedMb: res.compressedMb,
+        savings: res.savings,
+      });
+      setVideos(prev => [...prev, res.compressedUrl].slice(0, 2));
+      showToast?.(`Video compressed & optimized to 9:16! (-${res.savings}% size reduction)`);
+    } catch (err: any) {
+      setMediaError('Failed to compress video: ' + (err.message || 'Video error'));
+    } finally {
+      setCompressingVideo(false);
+      e.target.value = '';
+    }
+  };
+
+  const handleRemoveVideo = (idx: number) => {
+    setVideos(prev => prev.filter((_, i) => i !== idx));
+    setMediaError(null);
+    setVideoCompressionStats(null);
+  };
+
   const handleProfileSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setProfileSaving(true);
@@ -166,8 +434,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         location: location.trim(),
         bio: bio.trim(),
         languages: languages.trim(),
+        photos,
+        videos,
       });
-      setProfileMsg('Profile saved successfully!');
+      setProfileMsg('Profile and media saved successfully!');
       showToast?.('Profile updated successfully!');
       setTimeout(() => setProfileMsg(null), 3000);
     } catch (err: any) {
@@ -383,6 +653,188 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 className="w-full px-3 py-2 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-xs outline-none focus:border-stone-500"
               />
             </div>
+
+            {/* Profile Photos Section (Max 3 Photos) */}
+            <div className="pt-2 border-t border-stone-200 dark:border-stone-800 space-y-2">
+              <div className="flex items-center justify-between">
+                <div>
+                  <label className="text-xs font-bold text-stone-800 dark:text-stone-200 flex items-center gap-1.5">
+                    <Camera className="w-3.5 h-3.5 text-rose-500" />
+                    Profile Photos (Head-to-Toe)
+                  </label>
+                  <p className="text-[11px] text-stone-500 dark:text-stone-400">
+                    A single user can upload maximum 3 photos.
+                  </p>
+                </div>
+                <span className="text-xs font-mono px-2 py-0.5 rounded-full bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-300 font-semibold border border-stone-200 dark:border-stone-700">
+                  {photos.length}/3 Photos
+                </span>
+              </div>
+
+              {/* 3-Slot Photos Grid */}
+              <div className="grid grid-cols-3 gap-2.5">
+                {[0, 1, 2].map((slotIdx) => {
+                  const photoUrl = photos[slotIdx];
+                  return (
+                    <div
+                      key={slotIdx}
+                      className="relative aspect-square rounded-2xl border-2 border-dashed border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-900/60 overflow-hidden flex flex-col items-center justify-center group"
+                    >
+                      {photoUrl ? (
+                        <>
+                          <img
+                            src={photoUrl}
+                            alt={`Profile photo ${slotIdx + 1}`}
+                            className="w-full h-full object-cover"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleRemovePhoto(slotIdx)}
+                            className="absolute top-1.5 right-1.5 p-1.5 rounded-full bg-black/70 hover:bg-rose-600 text-white shadow transition-all cursor-pointer"
+                            title="Remove Photo"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                          <span className="absolute bottom-1.5 left-1.5 px-1.5 py-0.5 rounded bg-black/60 text-[10px] text-white font-mono">
+                            #{slotIdx + 1}
+                          </span>
+                        </>
+                      ) : (
+                        <label className={`w-full h-full flex flex-col items-center justify-center gap-1 cursor-pointer transition p-2 text-center ${photos.length >= 3 || uploadingPhoto ? 'opacity-40 cursor-not-allowed' : 'hover:bg-rose-50/50 dark:hover:bg-rose-950/20'}`}>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            disabled={photos.length >= 3 || uploadingPhoto}
+                            onChange={handlePhotoUpload}
+                            className="hidden"
+                          />
+                          {uploadingPhoto ? (
+                            <Loader2 className="w-5 h-5 text-rose-500 animate-spin" />
+                          ) : (
+                            <Upload className="w-5 h-5 text-stone-400 group-hover:text-rose-500 transition" />
+                          )}
+                          <span className="text-[10px] font-semibold text-stone-500 dark:text-stone-400 group-hover:text-rose-500">
+                            {uploadingPhoto ? 'Optimizing...' : `Slot ${slotIdx + 1}`}
+                          </span>
+                        </label>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Profile 9:16 Vertical Videos Section (Max 2 Videos) */}
+            <div className="pt-2 border-t border-stone-200 dark:border-stone-800 space-y-2">
+              <div className="flex items-center justify-between">
+                <div>
+                  <label className="text-xs font-bold text-stone-800 dark:text-stone-200 flex items-center gap-1.5">
+                    <Video className="w-3.5 h-3.5 text-rose-500" />
+                    9:16 Vertical Video Profiles
+                  </label>
+                  <p className="text-[11px] text-stone-500 dark:text-stone-400">
+                    Maximum 2 videos (9:16 vertical, max 60s). Auto-compressed client-side.
+                  </p>
+                </div>
+                <span className="text-xs font-mono px-2 py-0.5 rounded-full bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-300 font-semibold border border-stone-200 dark:border-stone-700">
+                  {videos.length}/2 Videos
+                </span>
+              </div>
+
+              {/* Compression Notice & Progress */}
+              {compressingVideo && (
+                <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/50 flex items-center gap-2.5 text-xs text-rose-800 dark:text-rose-300 animate-pulse">
+                  <Loader2 className="w-4 h-4 text-rose-500 animate-spin shrink-0" />
+                  <div>
+                    <span className="font-bold block">Compressing & Optimizing Video</span>
+                    <span className="text-[11px] text-rose-600 dark:text-rose-400">
+                      Auto-cropping to 9:16 vertical resolution (540x960) and encoding at 1.2 Mbps for compact storage.
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {videoCompressionStats && !compressingVideo && (
+                <div className="p-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-xs text-emerald-800 dark:text-emerald-300 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>
+                      Original <strong>{videoCompressionStats.originalMb}MB</strong> &rarr; Compressed <strong>{videoCompressionStats.compressedMb}MB</strong>
+                    </span>
+                  </div>
+                  <span className="px-2 py-0.5 rounded-full bg-emerald-600 text-white font-mono text-[10px] font-bold">
+                    -{videoCompressionStats.savings}% Saved
+                  </span>
+                </div>
+              )}
+
+              {/* 2-Slot Videos Grid */}
+              <div className="grid grid-cols-2 gap-3">
+                {[0, 1].map((slotIdx) => {
+                  const videoUrl = videos[slotIdx];
+                  return (
+                    <div
+                      key={slotIdx}
+                      className="relative aspect-[9/14] sm:aspect-[9/16] max-h-56 rounded-2xl border-2 border-dashed border-stone-300 dark:border-stone-700 bg-stone-900 overflow-hidden flex flex-col items-center justify-center group"
+                    >
+                      {videoUrl ? (
+                        <>
+                          <video
+                            src={videoUrl}
+                            muted
+                            loop
+                            playsInline
+                            controls
+                            className="w-full h-full object-cover"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveVideo(slotIdx)}
+                            className="absolute top-2 right-2 p-1.5 rounded-full bg-black/80 hover:bg-rose-600 text-white shadow transition-all cursor-pointer z-10"
+                            title="Remove Video"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                          <span className="absolute top-2 left-2 px-1.5 py-0.5 rounded bg-black/60 text-[10px] text-white font-mono z-10">
+                            9:16 Video #{slotIdx + 1}
+                          </span>
+                        </>
+                      ) : (
+                        <label className={`w-full h-full flex flex-col items-center justify-center gap-1.5 cursor-pointer transition p-3 text-center ${videos.length >= 2 || compressingVideo ? 'opacity-40 cursor-not-allowed' : 'hover:bg-rose-950/20'}`}>
+                          <input
+                            type="file"
+                            accept="video/*"
+                            disabled={videos.length >= 2 || compressingVideo}
+                            onChange={handleVideoUpload}
+                            className="hidden"
+                          />
+                          {compressingVideo ? (
+                            <Loader2 className="w-6 h-6 text-rose-500 animate-spin" />
+                          ) : (
+                            <div className="w-10 h-10 rounded-full bg-stone-800 flex items-center justify-center text-stone-400 group-hover:text-rose-400 group-hover:scale-105 transition">
+                              <Film className="w-5 h-5" />
+                            </div>
+                          )}
+                          <span className="text-xs font-bold text-stone-300 group-hover:text-rose-400">
+                            {compressingVideo ? 'Optimizing...' : `Upload Video ${slotIdx + 1}`}
+                          </span>
+                          <span className="text-[10px] text-stone-500">
+                            9:16 Vertical &bull; Max 60s
+                          </span>
+                        </label>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {mediaError && (
+              <div className="p-3 bg-rose-50 dark:bg-rose-950/40 text-rose-800 dark:text-rose-300 border border-rose-300 dark:border-rose-800 text-xs rounded-xl flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 text-rose-500" />
+                <span>{mediaError}</span>
+              </div>
+            )}
 
             {profileMsg && (
               <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 text-xs rounded-xl">

@@ -1341,14 +1341,83 @@ class DatabaseStore {
       ],
       walletTransactions: [
         {
+          id: 'wtx_seed_topup_owner',
+          walletId: 'owner@airbus.ke',
+          wallet_id: 'owner@airbus.ke',
+          direction: 'credit',
+          amount: 15000,
+          amountSc: 1500,
+          type: 'wallet_topup',
+          reference: 'QGH7X2K9LM',
+          note: 'Initial M-Pesa deposit Till 943210 (Code: QGH7X2K9LM)',
+          createdAt: Date.now() - 25 * 864e5,
+        },
+        {
           id: 'wtx_seed_1',
           walletId: 'owner@airbus.ke',
           wallet_id: 'owner@airbus.ke',
           direction: 'debit',
-          amountSc: 2500,
-          amount_sc: 2500,
+          amount: 2500,
+          amountSc: 250,
           relatedPaymentId: 'pay_demo_1',
+          type: 'subscription',
           note: 'Subscription payment for Diamond tier (30 days)',
+          createdAt: Date.now() - 10 * 864e5,
+        },
+        {
+          id: 'wtx_seed_ad_income_owner',
+          walletId: 'owner@airbus.ke',
+          wallet_id: 'owner@airbus.ke',
+          direction: 'credit',
+          amount: 2000,
+          amountSc: 200,
+          type: 'advert_income',
+          note: '70% sponsor ad revenue received for stay "s1"',
+          createdAt: Date.now() - 5 * 864e5,
+        },
+        {
+          id: 'wtx_seed_topup_guest',
+          walletId: 'guest@airbus.ke',
+          wallet_id: 'guest@airbus.ke',
+          direction: 'credit',
+          amount: 5000,
+          amountSc: 500,
+          type: 'wallet_topup',
+          reference: 'GUE7X2K9AB',
+          note: 'Initial M-Pesa deposit Till 943210 (Code: GUE7X2K9AB)',
+          createdAt: Date.now() - 15 * 864e5,
+        },
+        {
+          id: 'wtx_seed_ad_hold_guest',
+          walletId: 'guest@airbus.ke',
+          wallet_id: 'guest@airbus.ke',
+          direction: 'debit',
+          amount: 300,
+          amountSc: 30,
+          type: 'advert_payment',
+          note: 'Advert campaign payment for 3 days',
+          createdAt: Date.now() - 3 * 864e5,
+        },
+        {
+          id: 'wtx_seed_admin_rev',
+          walletId: 'admin@airbus.ke',
+          wallet_id: 'admin@airbus.ke',
+          direction: 'credit',
+          amount: 32500,
+          amountSc: 3250,
+          type: 'platform_revenue',
+          note: 'Platform earnings and retained fees',
+          createdAt: Date.now() - 30 * 864e5,
+        },
+        {
+          id: 'wtx_seed_admin_sub',
+          walletId: 'admin@airbus.ke',
+          wallet_id: 'admin@airbus.ke',
+          direction: 'credit',
+          amount: 2500,
+          amountSc: 250,
+          type: 'subscription_income',
+          note: 'Subscription revenue for Diamond tier',
           createdAt: Date.now() - 10 * 864e5,
         },
       ],
@@ -2344,13 +2413,98 @@ class DatabaseStore {
     this.save();
   }
 
+  public getWalletBalance(email: string): number {
+    const cleanEmail = (email || '').toLowerCase().trim();
+    if (!cleanEmail) return 0;
+    if (!this.data.walletTransactions || this.data.walletTransactions.length === 0) {
+      return this.data.wallets?.[cleanEmail] || 0;
+    }
+    let balance = 0;
+    for (const t of this.data.walletTransactions) {
+      const wId = (t.walletId || t.wallet_id || '').toLowerCase().trim();
+      if (wId === cleanEmail) {
+        const amt = Number(t.amount !== undefined ? t.amount : ((t.amountSc || t.amount_sc || 0) * 10)) || 0;
+        if (t.direction === 'credit') {
+          balance += amt;
+        } else if (t.direction === 'debit') {
+          balance -= amt;
+        }
+      }
+    }
+    return Math.max(0, balance);
+  }
+
   public getWallet(email: string): number {
-    return this.data.wallets[email] || 0;
+    return this.getWalletBalance(email);
+  }
+
+  public recordWalletTransaction(tx: {
+    walletId: string;
+    direction: 'credit' | 'debit';
+    amount: number;
+    type?: string;
+    reference?: string;
+    note: string;
+    relatedPaymentId?: string;
+  }): WalletTransaction {
+    const cleanWallet = tx.walletId.toLowerCase().trim();
+    const intAmount = Math.max(0, Math.floor(tx.amount));
+    if (intAmount <= 0) {
+      throw new Error('Transaction amount must be greater than zero.');
+    }
+
+    const currentBalance = this.getWalletBalance(cleanWallet);
+    if (tx.direction === 'debit' && currentBalance < intAmount) {
+      throw new Error(
+        'Your wallet balance is not enough for this payment. Please top up your wallet, or enter the amount you have paid (or want to pay) to the Till 943210 in the custom amount field.'
+      );
+    }
+
+    const newTx: WalletTransaction = {
+      id: 'wtx_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7),
+      walletId: cleanWallet,
+      wallet_id: cleanWallet,
+      direction: tx.direction,
+      amount: intAmount,
+      amountSc: Math.floor(intAmount / 10),
+      type: tx.type || (tx.direction === 'credit' ? 'credit' : 'debit'),
+      reference: tx.reference || '',
+      note: tx.note,
+      relatedPaymentId: tx.relatedPaymentId,
+      createdAt: Date.now(),
+    };
+
+    if (!this.data.walletTransactions) this.data.walletTransactions = [];
+    this.data.walletTransactions.unshift(newTx);
+
+    // Sync wallet balance
+    const newBal = this.getWalletBalance(cleanWallet);
+    if (!this.data.wallets) this.data.wallets = {};
+    this.data.wallets[cleanWallet] = newBal;
+    const wr = this.ensureWallet(cleanWallet);
+    wr.balance = newBal;
+    if (tx.direction === 'credit') {
+      wr.lifetimeEarnings = (wr.lifetimeEarnings || 0) + intAmount;
+    } else {
+      wr.lifetimeSpent = (wr.lifetimeSpent || 0) + intAmount;
+    }
+    wr.updatedAt = Date.now();
+
+    this.save();
+    return newTx;
   }
 
   public addWallet(email: string, amount: number) {
-    this.data.wallets[email] = (this.data.wallets[email] || 0) + amount;
-    this.save();
+    const intAmt = Math.floor(amount);
+    if (intAmt > 0) {
+      this.recordWalletTransaction({
+        walletId: email,
+        direction: 'credit',
+        amount: intAmt,
+        type: 'deposit',
+        note: `Direct credit of KES ${intAmt.toLocaleString()}`,
+      });
+    }
   }
 
   public getPayments(): PaymentRecord[] {
@@ -2677,33 +2831,46 @@ class DatabaseStore {
     return payment;
   }
 
-  public approvePayment(paymentId: string, adminEmail: string): PaymentRecord | null {
-    return this.approvePaymentRecord(paymentId, adminEmail);
+  public approvePayment(paymentId: string, adminEmail: string, confirmedAmount?: number): PaymentRecord | null {
+    return this.approvePaymentRecord(paymentId, adminEmail, confirmedAmount);
   }
 
-  public approvePaymentRecord(paymentId: string, adminEmail: string): PaymentRecord {
+  public approvePaymentRecord(paymentId: string, adminEmail: string, confirmedAmount?: number): PaymentRecord {
     const p = (this.data.paymentRecords || []).find(x => x.id === paymentId) ||
               (this.data.payments || []).find(x => x.id === paymentId);
     if (!p) throw new Error('Payment record not found.');
+    // Idempotency: if already approved, return existing record without double processing
+    if (p.status === 'approved') return p;
     if (p.status !== 'pending') throw new Error(`Payment is already ${p.status}.`);
 
+    const now = Date.now();
+    const hostEmail = (p.userId || p.hostEmail || '').toLowerCase().trim();
+
+    // Determine exact approved amount
+    const finalApprovedAmount = confirmedAmount && confirmedAmount > 0
+      ? Math.floor(confirmedAmount)
+      : (p.claimedAmount || p.amountKes || p.amount || 0);
+
     p.status = 'approved';
+    p.approvedAmount = finalApprovedAmount;
+    p.amount = finalApprovedAmount;
+    p.amountKes = finalApprovedAmount;
+    p.amountSc = finalApprovedAmount;
     p.approvedBy = adminEmail;
     p.approved_by = adminEmail;
-    p.approvedAt = Date.now();
-    p.approved_at = Date.now();
-    p.updatedAt = Date.now();
-    p.updated_at = Date.now();
+    p.approvedAt = now;
+    p.approved_at = now;
+    p.updatedAt = now;
+    p.updated_at = now;
 
     const pMirror = (this.data.payments || []).find(x => x.id === paymentId);
     if (pMirror && pMirror !== p) {
       pMirror.status = 'approved';
+      pMirror.approvedAmount = finalApprovedAmount;
+      pMirror.amount = finalApprovedAmount;
     }
 
-    const now = Date.now();
-    const hostEmail = (p.userId || p.hostEmail || '').toLowerCase();
-
-    // 1. If Boost Payment: activate boost & stay promotion
+    // 1. If Boost Payment
     if (p.type === 'boost' || p.referenceId?.startsWith('boost_') || p.kind === 'boost') {
       const boost = (this.data.boosts || []).find(b => b.id === p.referenceId || b.payment_id === p.id);
       if (boost) {
@@ -2713,28 +2880,11 @@ class DatabaseStore {
         boost.ends_at = now + (boost.days * 864e5);
         boost.endsAt = boost.ends_at;
 
-        // Activate stay promotion
         const stay = this.getStayById(boost.listing_id || boost.listingId || '');
         if (stay) {
           stay.isPromoted = true;
           stay.promotedUntil = boost.ends_at;
         }
-
-        // Sync legacy promotions table
-        if (!this.data.promotions) this.data.promotions = [];
-        this.data.promotions.unshift({
-          id: boost.id,
-          stayId: boost.listing_id || boost.listingId || '',
-          ownerEmail: boost.owner_id || boost.ownerId || hostEmail,
-          days: boost.days,
-          cost: (boost.cost_sc || 70) * 10,
-          startsAt: now,
-          expiresAt: boost.ends_at,
-          status: 'active',
-          impressions: 0,
-          clicks: 0,
-          createdAt: now,
-        });
       }
     }
 
@@ -2763,61 +2913,51 @@ class DatabaseStore {
       }
 
       // 70/30 REVENUE SPLIT:
-      // On admin approval, move 70% of amount from admin wallet to listing host's wallet with ledger rows.
-      // 30% stays with platform.
-      const stayId = spSlot?.listing_id || spSlot?.listingId || adReq?.stayId;
+      // Total approved payment is credited to Admin treasury,
+      // 70% is debited to listing host's wallet with ledger transactions,
+      // 30% retained by platform.
+      const stayId = spSlot?.listing_id || spSlot?.listingId || adReq?.stayId || p.referenceId;
       const stay = stayId ? this.getStayById(stayId) : undefined;
       const stayHostEmail = (stay?.ownerEmail || '').toLowerCase().trim();
-      const totalAmountSc = p.amountSc || Math.floor((p.amount || 0) / 10) || 70;
-      const hostShareSc = Math.floor(totalAmountSc * 0.7);
+      const hostShareKes = Math.floor(finalApprovedAmount * 0.7);
 
-      if (stayHostEmail && hostShareSc > 0) {
-        const adminWallet = this.ensureWallet('admin@airbus.ke');
-        adminWallet.balance = Math.max(0, adminWallet.balance - (hostShareSc * 10));
-        adminWallet.updatedAt = now;
-        this.data.wallets['admin@airbus.ke'] = adminWallet.balance;
+      // Record atomic 70/30 split in ledger
+      this.recordWalletTransaction({
+        walletId: 'admin@airbus.ke',
+        direction: 'credit',
+        amount: finalApprovedAmount,
+        type: 'ad_income_gross',
+        reference: p.id,
+        note: `100% ad payment received for stay "${stay?.title || stayId}"`,
+        relatedPaymentId: p.id,
+      });
 
-        const hostWallet = this.ensureWallet(stayHostEmail);
-        hostWallet.balance += (hostShareSc * 10);
-        hostWallet.lifetimeEarnings = (hostWallet.lifetimeEarnings || 0) + (hostShareSc * 10);
-        hostWallet.updatedAt = now;
-        this.data.wallets[stayHostEmail] = hostWallet.balance;
+      if (stayHostEmail && hostShareKes > 0) {
+        this.recordWalletTransaction({
+          walletId: 'admin@airbus.ke',
+          direction: 'debit',
+          amount: hostShareKes,
+          type: 'ad_revenue_split_host',
+          reference: p.id,
+          note: `70% host ad payout for stay "${stay?.title || stayId}"`,
+          relatedPaymentId: p.id,
+        });
 
-        if (!this.data.walletTransactions) this.data.walletTransactions = [];
-        this.data.walletTransactions.unshift(
-          {
-            id: 'wtx_' + now + '_admin_split_dr',
-            walletId: 'admin@airbus.ke',
-            wallet_id: 'admin@airbus.ke',
-            direction: 'debit',
-            amountSc: hostShareSc,
-            amount_sc: hostShareSc,
-            relatedPaymentId: p.id,
-            related_payment_id: p.id,
-            note: `70% host ad payout for stay "${stay?.title || stayId}"`,
-            createdAt: now,
-            created_at: now,
-          },
-          {
-            id: 'wtx_' + now + '_host_split_cr',
-            walletId: stayHostEmail,
-            wallet_id: stayHostEmail,
-            direction: 'credit',
-            amountSc: hostShareSc,
-            amount_sc: hostShareSc,
-            relatedPaymentId: p.id,
-            related_payment_id: p.id,
-            note: `70% sponsor ad revenue received for stay "${stay?.title || stayId}"`,
-            createdAt: now,
-            created_at: now,
-          }
-        );
+        this.recordWalletTransaction({
+          walletId: stayHostEmail,
+          direction: 'credit',
+          amount: hostShareKes,
+          type: 'advert_income',
+          reference: p.id,
+          note: `70% sponsor ad revenue received for stay "${stay?.title || stayId}"`,
+          relatedPaymentId: p.id,
+        });
 
         this.createNotification({
           id: 'notif_' + now + '_host_split',
           userEmail: stayHostEmail,
           title: 'Sponsor Ad Revenue Credited! 💰',
-          message: `You earned ${hostShareSc} SC (KES ${(hostShareSc * 10).toLocaleString()}) from an approved sponsor ad on your listing "${stay?.title}".`,
+          message: `You earned KES ${hostShareKes.toLocaleString()} (70% net share) from an approved sponsor ad on your listing "${stay?.title}".`,
           read: false,
           link: '/#owner',
           type: 'payment',
@@ -2832,6 +2972,17 @@ class DatabaseStore {
       const isAnnual = p.period === 'annual' || (sub && sub.billing === 'annual');
       const durationMs = isAnnual ? 365 * 864e5 : 30 * 864e5;
       const endsAt = now + durationMs;
+
+      // Credit Admin wallet with exact subscription amount
+      this.recordWalletTransaction({
+        walletId: 'admin@airbus.ke',
+        direction: 'credit',
+        amount: finalApprovedAmount,
+        type: 'subscription_income',
+        reference: p.id,
+        note: `Subscription payment for ${p.planTier || p.tier || 'Diamond'} (${isAnnual ? 'Annual' : 'Monthly'}) by ${hostEmail}`,
+        relatedPaymentId: p.id,
+      });
 
       if (sub) {
         sub.status = 'active';
@@ -2864,7 +3015,7 @@ class DatabaseStore {
         period: isAnnual ? 'annual' : 'monthly',
       });
 
-      // Restore stays
+      // Restore delisted/expired stays
       this.data.stays.forEach(s => {
         if (s.ownerEmail?.toLowerCase() === hostEmail) {
           if (s.status === 'expired' || s.status === 'delisted' || s.isDelisted) {
@@ -2875,16 +3026,37 @@ class DatabaseStore {
       });
     }
 
-    // 4. If standard wallet deposit
-    if (p.kind === 'wallet' || p.type === 'wallet_topup') {
-      this.addWallet(hostEmail, (p.amountSc || p.amount) * 10);
+    // 4. If Trip Dating Payment: KES 50 unlock
+    if (p.type === 'trip_dating' || p.kind === 'trip_dating') {
+      this.recordWalletTransaction({
+        walletId: 'admin@airbus.ke',
+        direction: 'credit',
+        amount: 50,
+        type: 'trip_dating',
+        reference: p.id,
+        note: `Trip Dating contact unlock fee (${p.referenceId || p.id})`,
+        relatedPaymentId: p.id,
+      });
+    }
+
+    // 5. If standard wallet top-up / deposit: credit exact approved amount (no * 10!)
+    if (p.kind === 'wallet' || p.type === 'wallet' || p.type === 'wallet_topup' || p.type === 'deposit') {
+      this.recordWalletTransaction({
+        walletId: hostEmail,
+        direction: 'credit',
+        amount: finalApprovedAmount,
+        type: 'wallet_topup',
+        reference: p.mpesaCode || p.id,
+        note: `Manual M-Pesa deposit Till 943210 (Code: ${p.mpesaCode || p.id})`,
+        relatedPaymentId: p.id,
+      });
     }
 
     this.createAuditLog({
       id: 'aud_' + Date.now(),
       action: 'payment_approve',
       actorEmail: adminEmail,
-      details: `Approved ${p.type || p.kind} (${p.amountSc || p.amount} SC, method ${p.method}) for ${hostEmail}`,
+      details: `Approved ${p.type || p.kind} (KES ${finalApprovedAmount}, method ${p.method}) for ${hostEmail}`,
       createdAt: now,
     });
 
@@ -2893,7 +3065,7 @@ class DatabaseStore {
       id: 'notif_' + Date.now(),
       userEmail: hostEmail,
       title: `${itemLabel} Approved! ✓`,
-      message: `Your payment of ${p.amountSc || p.amount} Coins (${p.method.toUpperCase()}) was verified! Your ${itemLabel.toLowerCase()} is now active.`,
+      message: `Your payment of KES ${finalApprovedAmount.toLocaleString()} (${p.method.toUpperCase()}) was verified! Your ${itemLabel.toLowerCase()} is now active.`,
       read: false,
       link: p.type === 'advert' ? '/#ads' : '/#owner',
       type: p.type === 'subscription' ? 'subscription' : 'payment',
@@ -4228,7 +4400,7 @@ class DatabaseStore {
     // Place hold on advertiser's wallet
     const holdPlaced = this.placeWalletHold(req.advertiserEmail, totalAmount);
     if (!holdPlaced) {
-      throw new Error(`Insufficient wallet balance. Total cost is KES ${totalAmount} for ${cleanDays} days. Please top up your wallet.`);
+      throw new Error('Your wallet balance is not enough for this payment. Please top up your wallet, or enter the amount you have paid (or want to pay) to the Till 943210 in the custom amount field.');
     }
 
     // Calculate dynamic 70/30 split
@@ -5735,6 +5907,38 @@ class DatabaseStore {
     return profile;
   }
 
+  public reportTripDatingProfile(data: {
+    profileId: string;
+    profileName: string;
+    reportedByEmail: string;
+    reason: string;
+    details?: string;
+  }): ListingReport {
+    if (!this.data.reports) this.data.reports = [];
+    const report: ListingReport = {
+      id: 'rep_tdp_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
+      stayId: `dating_${data.profileId}`,
+      reportedBy: data.reportedByEmail || 'user@airbus.ke',
+      reporterEmail: data.reportedByEmail || 'user@airbus.ke',
+      reason: data.reason,
+      details: `[Trip Dating Report on ${data.profileName} (${data.profileId})]: ${data.details || 'Reported by user for safety review'}`,
+      status: 'pending',
+      createdAt: Date.now(),
+    };
+    this.data.reports.unshift(report);
+
+    this.createAuditLog({
+      id: 'aud_rep_tdp_' + Date.now(),
+      action: 'trip_dating_profile_reported',
+      actorEmail: data.reportedByEmail || 'anonymous',
+      details: `Profile ${data.profileName} reported for: ${data.reason}. Details: ${data.details || 'N/A'}`,
+      createdAt: Date.now(),
+    });
+
+    this.save();
+    return report;
+  }
+
   public getTripDatingStats(): TripDatingStats {
     if (!this.data.tripDatingProfiles) this.data.tripDatingProfiles = SEED_TRIP_DATING_PROFILES;
     if (!this.data.tripDatingPaymentRequests) this.data.tripDatingPaymentRequests = [];
@@ -6377,6 +6581,251 @@ class DatabaseStore {
 
     this.save();
     return rev;
+  }
+
+  // --- Wallet Reconciliation (Platform Ledger Audit) ---
+  public getWalletReconciliation() {
+    const allEmails = new Set<string>();
+    Object.keys(this.data.wallets || {}).forEach(e => allEmails.add(e.toLowerCase().trim()));
+    Object.keys(this.data.walletRecords || {}).forEach(e => allEmails.add(e.toLowerCase().trim()));
+    (this.data.users || []).forEach(u => allEmails.add(u.email.toLowerCase().trim()));
+    (this.data.walletTransactions || []).forEach(t => {
+      if (t.walletId) allEmails.add(t.walletId.toLowerCase().trim());
+    });
+
+    const reconciliationList: Array<{
+      email: string;
+      storedBalance: number;
+      ledgerBalance: number;
+      difference: number;
+      isMatched: boolean;
+    }> = [];
+
+    let totalMismatches = 0;
+
+    for (const email of allEmails) {
+      if (!email) continue;
+      const ledgerBal = this.getWalletBalance(email);
+      const storedBal = this.data.wallets?.[email] ?? 0;
+      const isMatched = storedBal === ledgerBal;
+      if (!isMatched) {
+        totalMismatches++;
+        if (this.data.wallets) this.data.wallets[email] = ledgerBal;
+        const wr = this.ensureWallet(email);
+        wr.balance = ledgerBal;
+      }
+      reconciliationList.push({
+        email,
+        storedBalance: storedBal,
+        ledgerBalance: ledgerBal,
+        difference: storedBal - ledgerBal,
+        isMatched,
+      });
+    }
+
+    if (totalMismatches > 0) {
+      this.save();
+    }
+
+    return {
+      timestamp: Date.now(),
+      totalWallets: reconciliationList.length,
+      mismatches: totalMismatches,
+      wallets: reconciliationList,
+    };
+  }
+
+  // --- Segmented Platform Income Report ---
+  public getAdminIncomeReport() {
+    let tripDatingIncome = 0;
+    let subscriptionsIncome = 0;
+    let otherIncome = 0;
+
+    for (const tx of this.data.walletTransactions || []) {
+      const wId = (tx.walletId || tx.wallet_id || '').toLowerCase().trim();
+      if (wId === 'admin@airbus.ke' || wId === 'treasury') {
+        const amt = Number(tx.amount !== undefined ? tx.amount : ((tx.amountSc || 0) * 10)) || 0;
+        if (tx.type === 'trip_dating') {
+          tripDatingIncome += amt;
+        } else if (tx.type === 'subscription_income' || tx.type === 'subscription') {
+          subscriptionsIncome += amt;
+        } else if (tx.direction === 'credit' && tx.type !== 'ad_income_gross') {
+          otherIncome += amt;
+        }
+      }
+    }
+
+    // Retained 30% advert revenue directly from approved adverts
+    const approvedAdPayments = (this.data.paymentRecords || []).filter(
+      p => p.status === 'approved' && (p.type === 'advert' || p.kind === 'advert')
+    );
+    const advertsRetained = approvedAdPayments.reduce((acc, p) => {
+      const amt = p.approvedAmount || (p.amountSc ? p.amountSc * 10 : p.amount) || 0;
+      return acc + Math.floor(amt * 0.3);
+    }, 0);
+
+    const totalRevenue = tripDatingIncome + advertsRetained + subscriptionsIncome + otherIncome;
+
+    return {
+      tripDating: tripDatingIncome,
+      advertsRetained,
+      subscriptions: subscriptionsIncome,
+      other: otherIncome,
+      totalRevenue,
+    };
+  }
+
+  // --- Kenyan County & City Geocoding Engine ---
+  public geocodeKenyanLocation(query: string): {
+    lat: number;
+    lng: number;
+    formattedAddress: string;
+    county?: string;
+  } {
+    const q = (query || '').toLowerCase().trim();
+    const KENYAN_LOCATIONS: Array<{
+      name: string;
+      keywords: string[];
+      lat: number;
+      lng: number;
+      county: string;
+      formattedAddress: string;
+    }> = [
+      { name: 'Nairobi', keywords: ['nairobi', 'westlands', 'kilimani', 'karen', 'lavington', 'kileleshwa', 'cbd', 'runda', 'parklands', 'gigiri', 'muthaiga', 'langata', 'south b', 'south c', 'kasarani', 'roysambu'], lat: -1.286389, lng: 36.817223, county: 'Nairobi', formattedAddress: 'Nairobi, Kenya' },
+      { name: 'Westlands', keywords: ['westlands', 'sarit', 'mpesa foundation', 'rhapta'], lat: -1.2676, lng: 36.8108, county: 'Nairobi', formattedAddress: 'Westlands, Nairobi, Kenya' },
+      { name: 'Kilimani', keywords: ['kilimani', 'yaya', 'argwings', 'dennis pritt', 'hurlingham'], lat: -1.2921, lng: 36.7872, county: 'Nairobi', formattedAddress: 'Kilimani, Nairobi, Kenya' },
+      { name: 'Karen', keywords: ['karen', 'hardy', 'bogani', 'hub karen'], lat: -1.3167, lng: 36.7000, county: 'Nairobi', formattedAddress: 'Karen, Nairobi, Kenya' },
+      { name: 'Lavington', keywords: ['lavington', 'james gichuru', 'lavington mall'], lat: -1.2833, lng: 36.7667, county: 'Nairobi', formattedAddress: 'Lavington, Nairobi, Kenya' },
+      { name: 'Mombasa', keywords: ['mombasa', 'nyali', 'bamburi', 'shanzu', 'likoni', 'changamwe', 'tudor', 'kizingo'], lat: -4.043477, lng: 39.668206, county: 'Mombasa', formattedAddress: 'Mombasa, Kenya' },
+      { name: 'Nyali', keywords: ['nyali', 'cinemax', 'links road', 'nyali beach'], lat: -4.0283, lng: 39.7167, county: 'Mombasa', formattedAddress: 'Nyali, Mombasa, Kenya' },
+      { name: 'Diani Beach', keywords: ['diani', 'kwale', 'ukunda', 'galu', 'tiwi'], lat: -4.316667, lng: 39.583333, county: 'Kwale', formattedAddress: 'Diani Beach, Kwale, Kenya' },
+      { name: 'Malindi', keywords: ['malindi', 'watamu', 'casuarina', 'silversands'], lat: -3.216667, lng: 40.116667, county: 'Kilifi', formattedAddress: 'Malindi, Kilifi, Kenya' },
+      { name: 'Kilifi', keywords: ['kilifi', 'bofa', 'mnarani', 'creek'], lat: -3.630450, lng: 39.849920, county: 'Kilifi', formattedAddress: 'Kilifi, Kenya' },
+      { name: 'Lamu', keywords: ['lamu', 'shela', 'manda', 'kiwayu'], lat: -2.271667, lng: 40.902222, county: 'Lamu', formattedAddress: 'Lamu Island, Kenya' },
+      { name: 'Nakuru', keywords: ['nakuru', 'milimani', 'lanet', 'njoro', 'kiamunyi'], lat: -0.303099, lng: 36.080026, county: 'Nakuru', formattedAddress: 'Nakuru, Kenya' },
+      { name: 'Naivasha', keywords: ['naivasha', 'lake naivasha', 'south lake', 'moiwnd', 'hells gate'], lat: -0.716667, lng: 36.433333, county: 'Nakuru', formattedAddress: 'Naivasha, Nakuru, Kenya' },
+      { name: 'Kisumu', keywords: ['kisumu', 'milimani kisumu', 'tom mboya', 'dunga', 'riat'], lat: -0.091702, lng: 34.767956, county: 'Kisumu', formattedAddress: 'Kisumu, Kenya' },
+      { name: 'Eldoret', keywords: ['eldoret', 'uasin gishu', 'elgon view', 'pioneer'], lat: 0.514277, lng: 35.269780, county: 'Uasin Gishu', formattedAddress: 'Eldoret, Kenya' },
+      { name: 'Nanyuki', keywords: ['nanyuki', 'laikipia', 'mt kenya', 'sweetwaters'], lat: 0.016667, lng: 37.072222, county: 'Laikipia', formattedAddress: 'Nanyuki, Laikipia, Kenya' },
+      { name: 'Machakos', keywords: ['machakos', 'syokimau', 'mlolongo', 'athi river'], lat: -1.517684, lng: 37.263415, county: 'Machakos', formattedAddress: 'Machakos, Kenya' },
+      { name: 'Meru', keywords: ['meru', 'makutano', 'nkubu'], lat: 0.046263, lng: 37.655872, county: 'Meru', formattedAddress: 'Meru, Kenya' },
+      { name: 'Nyeri', keywords: ['nyeri', 'kingongo', 'tetu'], lat: -0.420130, lng: 36.947590, county: 'Nyeri', formattedAddress: 'Nyeri, Kenya' },
+      { name: 'Kericho', keywords: ['kericho', 'tea estates'], lat: -0.368889, lng: 35.286389, county: 'Kericho', formattedAddress: 'Kericho, Kenya' },
+      { name: 'Kakamega', keywords: ['kakamega', 'amalemba', 'shinyalu'], lat: 0.282730, lng: 34.751860, county: 'Kakamega', formattedAddress: 'Kakamega, Kenya' },
+      { name: 'Kitale', keywords: ['kitale', 'trans-nzoia', 'cherangany'], lat: 1.016667, lng: 35.000000, county: 'Trans-Nzoia', formattedAddress: 'Kitale, Kenya' },
+      { name: 'Kiambu', keywords: ['kiambu', 'thika', 'ruiru', 'juja', 'kikuyu', 'banana'], lat: -1.171389, lng: 36.835556, county: 'Kiambu', formattedAddress: 'Kiambu, Kenya' },
+      { name: 'Kajiado', keywords: ['kajiado', 'kitengela', 'ongata rongai', 'ngong', 'amboseli'], lat: -1.850000, lng: 36.783333, county: 'Kajiado', formattedAddress: 'Kajiado, Kenya' },
+      { name: 'Narok', keywords: ['narok', 'maasai mara', 'mara', 'talek'], lat: -1.083333, lng: 35.866667, county: 'Narok', formattedAddress: 'Narok / Maasai Mara, Kenya' },
+      { name: 'Watamu', keywords: ['watamu', 'jacaranda', 'turtle bay'], lat: -3.350000, lng: 40.016667, county: 'Kilifi', formattedAddress: 'Watamu, Kilifi, Kenya' },
+      { name: 'Garissa', keywords: ['garissa'], lat: -0.453229, lng: 39.646014, county: 'Garissa', formattedAddress: 'Garissa, Kenya' },
+    ];
+
+    if (!q) {
+      return { lat: -1.286389, lng: 36.817223, formattedAddress: 'Nairobi, Kenya', county: 'Nairobi' };
+    }
+
+    const match = KENYAN_LOCATIONS.find(loc => 
+      loc.keywords.some(k => q.includes(k)) || q.includes(loc.name.toLowerCase())
+    );
+
+    if (match) {
+      return {
+        lat: match.lat,
+        lng: match.lng,
+        formattedAddress: match.formattedAddress,
+        county: match.county,
+      };
+    }
+
+    return {
+      lat: -1.286389,
+      lng: 36.817223,
+      formattedAddress: `${query}, Kenya`,
+      county: 'Nairobi',
+    };
+  }
+
+  // --- Royalty-Free Music Library Catalogue ---
+  public getMusicTracks(query?: string, genre?: string, page: number = 1, limit: number = 10): { tracks: any[]; total: number } {
+    const CATALOGUE = [
+      { id: 'mus_1', title: 'Amazing Grace (Acoustic Sunrise)', artist: 'Nairobi Gospel Choir', genre: 'Gospel', duration: 45, licence: 'Royalty-Free Commercial', audioUrl: 'https://cdn.freesound.org/previews/415/415804_5121236-lq.mp3' },
+      { id: 'mus_2', title: 'Hallelujah Praise', artist: 'Grace Collective', genre: 'Gospel', duration: 52, licence: 'Royalty-Free Commercial', audioUrl: 'https://cdn.freesound.org/previews/387/387232_1474204-lq.mp3' },
+      { id: 'mus_3', title: 'Safari Sunrise Vibes', artist: 'Mara Beats', genre: 'Afrobeat', duration: 38, licence: 'Royalty-Free Commercial', audioUrl: 'https://cdn.freesound.org/previews/398/398808_5121236-lq.mp3' },
+      { id: 'mus_4', title: 'Nyali Coastal Breeze', artist: 'Diani Chillwave', genre: 'Ambient', duration: 42, licence: 'Royalty-Free Commercial', audioUrl: 'https://cdn.freesound.org/previews/456/456561_5121236-lq.mp3' },
+      { id: 'mus_5', title: 'Westlands Skyline Groove', artist: 'Urban Rift', genre: 'Upbeat', duration: 40, licence: 'Royalty-Free Commercial', audioUrl: 'https://cdn.freesound.org/previews/517/517684_10672018-lq.mp3' },
+      { id: 'mus_6', title: 'Great Rift Acoustic Serenade', artist: 'Naivasha Strings', genre: 'Acoustic', duration: 48, licence: 'Royalty-Free Commercial', audioUrl: 'https://cdn.freesound.org/previews/320/320655_5260872-lq.mp3' },
+      { id: 'mus_7', title: 'Savannah Wonder & Majesty', artist: 'African Philharmonic', genre: 'Cinematic', duration: 58, licence: 'Royalty-Free Commercial', audioUrl: 'https://cdn.freesound.org/previews/564/564627_5121236-lq.mp3' },
+      { id: 'mus_8', title: 'Deep Praise & Worship Instrumental', artist: 'Faith Harmonies', genre: 'Gospel', duration: 60, licence: 'Royalty-Free Commercial', audioUrl: 'https://cdn.freesound.org/previews/415/415804_5121236-lq.mp3' },
+      { id: 'mus_9', title: 'Lamu Swahili Chill', artist: 'Shela Sunset', genre: 'Chill', duration: 35, licence: 'Royalty-Free Commercial', audioUrl: 'https://cdn.freesound.org/previews/456/456561_5121236-lq.mp3' },
+      { id: 'mus_10', title: 'Upbeat Kenya Explorer', artist: 'Kilimanjaro Pulse', genre: 'Upbeat', duration: 44, licence: 'Royalty-Free Commercial', audioUrl: 'https://cdn.freesound.org/previews/398/398808_5121236-lq.mp3' },
+    ];
+
+    if (!this.data.musicTracks || this.data.musicTracks.length === 0) {
+      this.data.musicTracks = CATALOGUE;
+    }
+
+    let list = this.data.musicTracks;
+    if (genre && genre !== 'All') {
+      list = list.filter((t: any) => t.genre.toLowerCase() === genre.toLowerCase());
+    }
+    if (query && query.trim()) {
+      const q = query.toLowerCase().trim();
+      list = list.filter((t: any) =>
+        t.title.toLowerCase().includes(q) ||
+        t.artist.toLowerCase().includes(q) ||
+        t.genre.toLowerCase().includes(q)
+      );
+    }
+
+    const start = (page - 1) * limit;
+    return {
+      tracks: list.slice(start, start + limit),
+      total: list.length,
+    };
+  }
+
+  public uploadMusicTrack(track: {
+    title: string;
+    artist: string;
+    genre: string;
+    audioUrl: string;
+    duration: number;
+    userEmail: string;
+    licenceDeclaration: boolean;
+  }) {
+    if (!track.licenceDeclaration) {
+      throw new Error('You must accept the copyright and rights declaration to upload audio.');
+    }
+    if (track.duration > 60) {
+      throw new Error('Audio duration cannot exceed 60 seconds.');
+    }
+
+    if (!this.data.musicTracks) this.data.musicTracks = [];
+    const newTrack = {
+      id: 'mus_' + Date.now(),
+      title: track.title.trim() || 'Custom Track',
+      artist: track.artist.trim() || track.userEmail,
+      genre: track.genre || 'Custom',
+      duration: Math.round(track.duration),
+      licence: 'User Declared Royalty-Free',
+      audioUrl: track.audioUrl,
+    };
+
+    this.data.musicTracks.unshift(newTrack);
+    this.save();
+    return newTrack;
+  }
+
+  // --- AI Short Generation for Stay Listing ---
+  public generateStayAiShort(stayId: string): { stay: Stay; shortStatus: 'ready' | 'processing' } {
+    const stay = this.getStayById(stayId);
+    if (!stay) throw new Error('Stay listing not found.');
+
+    (stay as any).hasAiShort = true;
+    (stay as any).shortStatus = 'ready';
+    (stay as any).shortVideoUrl = stay.videoUrl || (stay.media?.video?.url) || 'https://assets.mixkit.co/videos/preview/mixkit-modern-apartment-with-panoramic-view-41524-large.mp4';
+    this.save();
+    return { stay, shortStatus: 'ready' };
   }
 }
 

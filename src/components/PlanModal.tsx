@@ -377,7 +377,8 @@ export const PlanModal: React.FC<PlanModalProps> = ({
                       const cost = billingCycle === 'annual' ? selectedDetails.annualPrice : selectedDetails.monthlyPrice;
                       if (userWalletBalance < cost) {
                         const diff = cost - userWalletBalance;
-                        setError(`Insufficient coins! You have ${userWalletBalance} coins but need ${cost} coins. Please top up the difference of ${diff} coins (KES ${diff}) via M-Pesa.`);
+                        setError("Your wallet balance is not enough for this payment. Please top up your wallet, or enter the amount you have paid (or want to pay) to the Till 943210 in the custom amount field.");
+                        setWalletAmount(diff);
                         return;
                       }
                       setError(null);

@@ -66,7 +66,7 @@ export default function App() {
     status: 'active',
     expiresAt: Date.now() + 30 * 864e5,
   });
-  const [walletBalance, setWalletBalance] = useState(14500);
+  const [walletBalance, setWalletBalance] = useState(0);
 
   // Admin Data
   const [adminOverview, setAdminOverview] = useState<any>({
@@ -150,11 +150,19 @@ export default function App() {
       setNotifications(nRes.notifications);
       setUnreadNotifsCount(nRes.unreadCount);
 
+      // Real wallet balance from unified ledger
+      try {
+        const wRes = await api.getWallet();
+        if (wRes?.wallet?.balance !== undefined) {
+          setWalletBalance(wRes.wallet.balance);
+        }
+      } catch (_) {}
+
       // Host plan & wallet
       if (currentUser.role === 'owner' || currentUser.role === 'admin') {
         const pRes = await api.getHostPlan();
         setHostPlan(pRes.plan);
-        setWalletBalance(pRes.wallet);
+        if (pRes.wallet !== undefined) setWalletBalance(pRes.wallet);
       }
 
       // Admin metrics
@@ -393,6 +401,7 @@ export default function App() {
     const res = await api.createStay(stayData);
     setStays(prev => [res.stay, ...prev]);
     showToast('Stay published live successfully!');
+    return res.stay;
   };
 
   const handleUpdateStay = async (id: string, updates: Partial<Stay>) => {
@@ -785,6 +794,7 @@ export default function App() {
               onDescribeStayAI={params => api.describeStayAI(params)}
               currency={currency}
               onBackToFeed={() => handleNavigate('home')}
+              showToast={showToast}
             />
           )
         )}
@@ -980,7 +990,7 @@ export default function App() {
           setActiveStayId(id);
           window.location.hash = `stay-${id}`;
         }}
-        userWalletBalance={user?.email === 'owner@airbus.ke' ? walletBalance : 8290}
+        userWalletBalance={walletBalance}
         userEmail={user?.email}
         showToast={showToast}
       />

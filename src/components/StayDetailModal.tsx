@@ -806,7 +806,9 @@ export const StayDetailModal: React.FC<StayDetailModalProps> = ({
                     <span className="text-2xl font-black text-stone-900 dark:text-white">
                       {formatMoney(stay.price)}
                     </span>
-                    <span className="text-xs text-stone-500 ml-1">/ night</span>
+                    <span className="text-xs text-stone-500 ml-1">
+                      for {stay.nights || 1} {(stay.nights || 1) === 1 ? 'night' : 'nights'}
+                    </span>
                   </div>
                   <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400">
                     {stay.instantBook ? '⚡ Instant Confirmation' : 'Host approval'}

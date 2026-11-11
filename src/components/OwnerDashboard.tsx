@@ -59,13 +59,14 @@ interface OwnerDashboardProps {
   walletBalance: number;
   onOpenPlanModal: () => void;
   onOpenTopupModal: () => void;
-  onCreateStay: (stayData: any) => Promise<void>;
+  onCreateStay: (stayData: any) => Promise<any>;
   onUpdateStay: (id: string, updates: Partial<Stay>) => Promise<void>;
   onDeleteStay: (id: string) => Promise<void>;
   onUpdateBookingStatus: (id: string, status: Booking['status']) => Promise<void>;
   onDescribeStayAI: (params: any) => Promise<{ description: string; highlights: string[] }>;
   currency: Currency;
   onBackToFeed?: () => void;
+  showToast?: (msg: string) => void;
 }
 
 export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
@@ -83,6 +84,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
   onDescribeStayAI,
   currency,
   onBackToFeed,
+  showToast,
 }) => {
   const [activeTab, setActiveTab] = useState<'listings' | 'reservations' | 'promotions' | 'new-stay' | 'insights'>('listings');
 
@@ -138,9 +140,32 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
   const [lat, setLat] = useState<number>(-1.2683);
   const [lng, setLng] = useState<number>(36.8044);
   const [rooms, setRooms] = useState(2);
+  const [nights, setNights] = useState<number>(1);
   const [price, setPrice] = useState(7500);
   const [desc, setDesc] = useState('');
   const [selectedFeatures, setSelectedFeatures] = useState<string[]>(['WiFi', 'Parking', 'Kitchen']);
+
+  // Geocoding & AI Short Prompt State
+  const [geocoding, setGeocoding] = useState<boolean>(false);
+  const [aiShortPromptStay, setAiShortPromptStay] = useState<Stay | null>(null);
+  const [generatingAiShort, setGeneratingAiShort] = useState<boolean>(false);
+
+  const handleAutoDetectCoordinates = async () => {
+    const query = area || landmark || 'Nairobi';
+    setGeocoding(true);
+    try {
+      const res = await api.geocode(query);
+      if (res && res.lat !== undefined && res.lng !== undefined) {
+        setLat(res.lat);
+        setLng(res.lng);
+        showToast?.(`📍 Coordinates detected for ${query}: ${res.lat.toFixed(4)}, ${res.lng.toFixed(4)}`);
+      }
+    } catch (err: any) {
+      setWizardError(err.message || 'Auto-detect coordinates failed.');
+    } finally {
+      setGeocoding(false);
+    }
+  };
 
   // Media Mode & Photos States (Video only, Photos only, or Both)
   const [mediaMode, setMediaMode] = useState<'both' | 'video' | 'photos'>('both');
@@ -383,12 +408,13 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
         })),
       };
 
-      await onCreateStay({
+      const createdStay = await onCreateStay({
         title,
         location: `${area} · near ${landmark || 'Central'}`,
         lat: Number(lat),
         lng: Number(lng),
         price: Number(price),
+        nights: Number(nights) || 1,
         type: rooms === 1 ? 'Studio' : rooms > 3 ? 'Villa' : 'Apartment',
         guests: rooms * 2,
         beds: rooms,
@@ -416,12 +442,18 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
         depositRefundTerms: depositRequired ? depositRefundTerms : undefined,
       });
 
+      if (createdStay && createdStay.id) {
+        setAiShortPromptStay(createdStay);
+      }
+
       // Reset wizard
       setTitle('');
       setArea('');
       setLandmark('');
       setLat(-1.2683);
       setLng(36.8044);
+      setRooms(2);
+      setNights(1);
       setVideoFile(null);
       setVideoPreviewUrl('');
       setVideoUrl('');
@@ -1599,7 +1631,26 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
       )}
 
       {/* TAB 3: UPLOAD VIDEO STAY WIZARD */}
-      {activeTab === 'new-stay' && (
+      {activeTab === 'new-stay' && !isPlanActive && (
+        <div className="max-w-xl mx-auto bg-white dark:bg-[#15171e] p-8 rounded-3xl border border-stone-200 dark:border-stone-800 shadow-xl text-center space-y-4">
+          <div className="w-16 h-16 rounded-full bg-amber-500/10 text-amber-500 mx-auto flex items-center justify-center">
+            <ShieldAlert className="w-8 h-8" />
+          </div>
+          <h2 className="text-xl font-black text-stone-900 dark:text-white">Active Subscription Required</h2>
+          <p className="text-xs text-stone-600 dark:text-stone-300 leading-relaxed">
+            Hosts must have an active 30-day host subscription (Silver, Diamond, or Gold) before listing a property on AirBus.
+          </p>
+          <button
+            type="button"
+            onClick={onOpenPlanModal}
+            className="px-6 py-2.5 rounded-full bg-[#e4002b] text-white text-xs font-bold shadow-md hover:bg-[#c90026] transition-all cursor-pointer"
+          >
+            Choose a Plan
+          </button>
+        </div>
+      )}
+
+      {activeTab === 'new-stay' && isPlanActive && (
         <div className="max-w-2xl mx-auto bg-white dark:bg-[#15171e] p-6 sm:p-8 rounded-3xl border border-stone-200 dark:border-stone-800 shadow-xl space-y-6">
           {/* Steps Indicator */}
           <div className="grid grid-cols-3 gap-2 pb-4 border-b border-stone-100 dark:border-stone-800 text-center">
@@ -1681,9 +1732,20 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                       <MapPin className="w-3.5 h-3.5 text-[#e4002b]" />
                       <span>GPS Coordinates (Mandatory for Discovery Map) *</span>
                     </label>
-                    <span className="text-[10px] font-mono text-stone-500 bg-stone-200 dark:bg-stone-800 px-2 py-0.5 rounded-full">
-                      {lat.toFixed(4)}, {lng.toFixed(4)}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleAutoDetectCoordinates}
+                        disabled={geocoding}
+                        className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-[#e4002b]/10 text-[#e4002b] hover:bg-[#e4002b]/20 border border-[#e4002b]/30 cursor-pointer disabled:opacity-50 flex items-center gap-1"
+                        title="Auto-detect GPS latitude and longitude based on area or landmark"
+                      >
+                        <span>{geocoding ? 'Detecting...' : '📍 Auto-Detect Coordinates'}</span>
+                      </button>
+                      <span className="text-[10px] font-mono text-stone-500 bg-stone-200 dark:bg-stone-800 px-2 py-0.5 rounded-full">
+                        {lat.toFixed(4)}, {lng.toFixed(4)}
+                      </span>
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-2 gap-3">
@@ -1746,7 +1808,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
                     <label className="text-xs font-bold text-stone-700 dark:text-stone-300 block mb-1">
                       Bedrooms Count (1-50) *
@@ -1764,7 +1826,22 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
 
                   <div>
                     <label className="text-xs font-bold text-stone-700 dark:text-stone-300 block mb-1">
-                      Nightly Rate (KES) *
+                      Duration (Nights) *
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="365"
+                      value={nights}
+                      onChange={e => setNights(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                      className="w-full px-3.5 py-2.5 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-xs outline-none focus:border-[#e4002b]"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-bold text-stone-700 dark:text-stone-300 block mb-1">
+                      Rate for {nights} Night{nights > 1 ? 's' : ''} (KES) *
                     </label>
                     <input
                       type="number"
@@ -2713,6 +2790,56 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                 className="px-6 py-2 rounded-full bg-[#e4002b] hover:bg-[#c90026] text-white text-xs font-extrabold shadow-md cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
               >
                 {manageMediaSaving ? 'Saving...' : 'Save Media Changes'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Prompt at end of stay creation: Gemini AI Short */}
+      {aiShortPromptStay && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-[#15171e] text-stone-900 dark:text-stone-100 rounded-3xl p-6 max-w-md w-full shadow-2xl border border-stone-200 dark:border-stone-800 space-y-4 text-center">
+            <div className="w-14 h-14 rounded-full bg-gradient-to-tr from-[#ff2e93] to-[#8b5cf6] text-white flex items-center justify-center mx-auto shadow-lg">
+              <Sparkles className="w-7 h-7" />
+            </div>
+            <h3 className="text-lg font-black font-heading text-stone-900 dark:text-white">
+              Stay Created Successfully! 🌟
+            </h3>
+            <p className="text-xs text-stone-600 dark:text-stone-300 leading-relaxed">
+              Do you want Gemini AI to generate a short video for your listing?
+            </p>
+            <div className="p-3 bg-purple-50 dark:bg-purple-950/30 rounded-2xl border border-purple-200 dark:border-purple-800/50 text-xs text-left">
+              <span className="font-bold block text-purple-900 dark:text-purple-200">{aiShortPromptStay.title}</span>
+              <span className="text-[11px] text-purple-700 dark:text-purple-300">9:16 vertical short showcase ready for AirBus feed and discovery stream.</span>
+            </div>
+            <div className="flex items-center justify-center gap-2 pt-2">
+              <button
+                type="button"
+                disabled={generatingAiShort}
+                onClick={() => setAiShortPromptStay(null)}
+                className="px-4 py-2.5 rounded-full border border-stone-200 dark:border-stone-700 text-xs font-bold text-stone-600 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800 cursor-pointer"
+              >
+                Skip for Now
+              </button>
+              <button
+                type="button"
+                disabled={generatingAiShort}
+                onClick={async () => {
+                  setGeneratingAiShort(true);
+                  try {
+                    await api.generateStayAiShort(aiShortPromptStay.id);
+                    showToast?.('Gemini AI Short generated successfully for your stay!');
+                    setAiShortPromptStay(null);
+                  } catch (err: any) {
+                    showToast?.(err.message || 'Failed to generate AI Short.');
+                  } finally {
+                    setGeneratingAiShort(false);
+                  }
+                }}
+                className="px-5 py-2.5 rounded-full bg-gradient-to-r from-[#ff2e93] to-[#8b5cf6] text-white text-xs font-bold shadow-md hover:opacity-95 cursor-pointer disabled:opacity-50"
+              >
+                {generatingAiShort ? 'Generating AI Short...' : '✨ Yes, Generate AI Short'}
               </button>
             </div>
           </div>

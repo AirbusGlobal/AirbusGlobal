@@ -749,8 +749,75 @@ export const api = {
     });
   },
 
-  async approvePayment(paymentId: string): Promise<{ payment: PaymentRecord }> {
+  async approvePayment(paymentId: string, confirmedAmount?: number): Promise<{ payment: PaymentRecord }> {
     return this.request(`/api/admin/payments/${paymentId}/approve`, {
+      method: 'POST',
+      body: JSON.stringify({ confirmedAmount }),
+    });
+  },
+
+  async getWalletReconciliation(): Promise<{
+    timestamp: number;
+    totalWallets: number;
+    mismatches: number;
+    wallets: Array<{
+      email: string;
+      storedBalance: number;
+      ledgerBalance: number;
+      difference: number;
+      isMatched: boolean;
+    }>;
+  }> {
+    return this.request('/api/admin/wallet/reconciliation');
+  },
+
+  async getAdminIncomeReport(): Promise<{
+    tripDating: number;
+    advertsRetained: number;
+    subscriptions: number;
+    other: number;
+    totalRevenue: number;
+  }> {
+    return this.request('/api/admin/wallet/income-report');
+  },
+
+  async geocode(query: string): Promise<{
+    lat: number;
+    lng: number;
+    formattedAddress: string;
+    county?: string;
+  }> {
+    return this.request(`/api/geocode?q=${encodeURIComponent(query)}`);
+  },
+
+  async getMusicTracks(params?: { query?: string; genre?: string; page?: number; limit?: number }): Promise<{
+    tracks: any[];
+    total: number;
+  }> {
+    const sp = new URLSearchParams();
+    if (params?.query) sp.set('q', params.query);
+    if (params?.genre) sp.set('genre', params.genre);
+    if (params?.page) sp.set('page', String(params.page));
+    if (params?.limit) sp.set('limit', String(params.limit));
+    return this.request(`/api/music/tracks?${sp.toString()}`);
+  },
+
+  async uploadMusicTrack(data: {
+    title: string;
+    artist?: string;
+    genre?: string;
+    audioUrl: string;
+    duration?: number;
+    licenceDeclaration: boolean;
+  }): Promise<{ track: any }> {
+    return this.request('/api/music/upload', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async generateStayAiShort(stayId: string): Promise<{ stay: any; shortStatus: 'ready' | 'processing' }> {
+    return this.request(`/api/stays/${stayId}/ai-short`, {
       method: 'POST',
     });
   },
@@ -1253,6 +1320,18 @@ export const api = {
   }> {
     const qs = sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : '';
     return this.request(`/api/trip-dating/contact-status/${profileId}${qs}`);
+  },
+
+  async reportTripDatingProfile(data: {
+    profileId: string;
+    profileName: string;
+    reason: string;
+    details?: string;
+  }): Promise<{ success: boolean; message: string }> {
+    return this.request<{ success: boolean; message: string }>('/api/trip-dating/reports', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
   },
 
   // Admin Trip Dating Methods
