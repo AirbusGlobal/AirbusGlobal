@@ -17,6 +17,7 @@ import {
   Heart,
   ChevronDown,
   Search,
+  Wallet,
 } from 'lucide-react';
 import { User, Currency } from '../types';
 
@@ -39,6 +40,8 @@ interface HeaderProps {
   onOpenTripFinder: () => void;
   onOpenPlans: () => void;
   onOpenSettings?: () => void;
+  walletBalance?: number;
+  onOpenWallet?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -60,6 +63,8 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenTripFinder,
   onOpenPlans,
   onOpenSettings,
+  walletBalance,
+  onOpenWallet,
 }) => {
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -162,6 +167,24 @@ export const Header: React.FC<HeaderProps> = ({
             <PlaySquare className="w-3.5 h-3.5 text-[#ff2e93]" />
             <span className="hidden xs:inline sm:inline">Shorts</span>
           </button>
+
+          {/* Trip Dating Pill */}
+          <button
+            type="button"
+            onClick={() => onNavigate('trip-dating')}
+            className={`h-8 sm:h-9 px-3 sm:px-3.5 rounded-full text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ${
+              currentTab === 'trip-dating'
+                ? 'bg-rose-600 text-white shadow-sm'
+                : 'bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 hover:bg-rose-50 dark:hover:bg-rose-950/40 hover:text-rose-600'
+            }`}
+            title="Trip Dating - Connect with verified travelers across Kenya"
+          >
+            <Heart className={`w-3.5 h-3.5 ${currentTab === 'trip-dating' ? 'text-white fill-white' : 'text-rose-500 fill-rose-500'}`} />
+            <span className="hidden xs:inline sm:inline">Trip Dating</span>
+            <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-rose-500 text-white font-black uppercase tracking-wider hidden md:inline">
+              HOT
+            </span>
+          </button>
         </div>
 
         {/* ============================================================ */}
@@ -209,6 +232,19 @@ export const Header: React.FC<HeaderProps> = ({
         {/* ZONE 3 (RIGHT): Inbox, Notifications, Admin, Profile Menu    */}
         {/* ============================================================ */}
         <div className="flex items-center gap-1.5 sm:gap-2.5 text-xs font-medium shrink-0">
+          {/* Wallet Balance Pill (Till 943210 Top-Up) */}
+          {user && (
+            <button
+              type="button"
+              onClick={onOpenWallet}
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-full bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 font-mono text-[11px] sm:text-xs font-bold hover:bg-emerald-100 dark:hover:bg-emerald-900/50 transition-colors cursor-pointer shadow-xs"
+              title="AirBus Wallet - Top up via Till 943210"
+            >
+              <Wallet className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+              <span>KES {(walletBalance || 0).toLocaleString()}</span>
+            </button>
+          )}
+
           {/* Mobile Search Toggle Button (< md) */}
           <button
             type="button"
@@ -296,9 +332,25 @@ export const Header: React.FC<HeaderProps> = ({
                     <button
                       type="button"
                       onClick={handleDashboardClick}
-                      className="mt-2 w-full text-center py-1.5 bg-stone-900 dark:bg-white text-white dark:text-stone-900 rounded-lg font-bold hover:opacity-90 transition-opacity cursor-pointer"
+                      className="mt-2 w-full text-center py-1.5 bg-stone-900 dark:bg-white text-white dark:text-stone-900 rounded-lg font-bold hover:opacity-90 transition-opacity cursor-pointer text-xs"
                     >
                       Open {user.role === 'owner' ? 'Owner Hub' : 'Guest Dashboard'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onOpenWallet?.();
+                        setProfileDropdownOpen(false);
+                      }}
+                      className="mt-1.5 w-full flex items-center justify-between px-2.5 py-1.5 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-500/30 text-emerald-800 dark:text-emerald-300 rounded-lg font-bold hover:bg-emerald-100 transition-colors cursor-pointer text-xs"
+                    >
+                      <span className="flex items-center gap-1.5">
+                        <Wallet className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                        Wallet (Till 943210)
+                      </span>
+                      <span className="font-mono text-emerald-700 dark:text-emerald-300">
+                        KES {(walletBalance || 0).toLocaleString()}
+                      </span>
                     </button>
                   </div>
                 ) : (

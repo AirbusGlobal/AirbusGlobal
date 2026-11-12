@@ -20,7 +20,10 @@ import {
   Gift,
   Video,
   Images,
+  Tag,
+  Percent,
 } from 'lucide-react';
+import { VerifiedBadge } from './VerifiedBadge';
 
 interface StayCardProps {
   stay: Stay;
@@ -201,13 +204,16 @@ export const StayCard: React.FC<StayCardProps> = ({
           )}
         </div>
 
-        {/* Heart Wishlist Button */}
+        {/* AirBus Verified Animated Neon Badge (Upper-Right Corner, 8-12px Inset) */}
+        <VerifiedBadge isAbsolute size="md" />
+
+        {/* Heart Wishlist Button (Adjacent to Verified Badge, fully accessible) */}
         <button
           onClick={e => {
             e.stopPropagation();
             onToggleSave(stay.id);
           }}
-          className={`absolute top-2.5 right-2.5 z-10 w-8 h-8 rounded-full flex items-center justify-center transition-all ${
+          className={`absolute top-2.5 right-14 z-10 w-8 h-8 rounded-full flex items-center justify-center transition-all ${
             isSaved
               ? 'bg-[#e4002b] text-white shadow-md scale-105'
               : 'bg-black/50 backdrop-blur-sm text-white hover:bg-black/70'
@@ -256,13 +262,41 @@ export const StayCard: React.FC<StayCardProps> = ({
           )}
         </div>
 
-        {/* Bottom Right Price Pill */}
-        <div className="absolute right-2.5 bottom-2.5 text-right font-extrabold text-sm drop-shadow-[0_1px_4px_rgba(0,0,0,0.8)] z-10">
-          <span className="text-[11px] font-normal opacity-85 mr-1">from</span>
-          <span className="text-white text-base tracking-tight">{formatMoney(stay.price)}</span>
-          <span className="text-[11px] font-normal opacity-85 ml-1">
-            for {stay.nights || 1} {(stay.nights || 1) === 1 ? 'night' : 'nights'}
-          </span>
+        {/* Bottom Right Price Pill (With Black Friday & Escapes support) */}
+        <div className="absolute right-2.5 bottom-2.5 text-right font-extrabold text-sm drop-shadow-[0_1px_4px_rgba(0,0,0,0.8)] z-10 flex flex-col items-end">
+          {stay.blackFridayOptIn && (
+            <div className="flex items-center gap-1.5 mb-0.5">
+              <span className="line-through text-stone-300/80 text-xs font-normal">
+                {formatMoney(stay.price)}
+              </span>
+              <span className="bg-rose-600 text-white font-black text-[10px] px-1.5 py-0.2 rounded shadow">
+                -{stay.blackFridayDiscountPercent || 50}% OFF
+              </span>
+            </div>
+          )}
+          {stay.isEscapeOffer && (
+            <div className="flex items-center gap-1.5 mb-0.5">
+              <span className="line-through text-stone-300/80 text-xs font-normal">
+                {formatMoney(stay.escapeOriginalPrice || stay.price)}
+              </span>
+              <span className="bg-amber-500 text-black font-black text-[10px] px-1.5 py-0.2 rounded shadow">
+                -{stay.escapeDiscountPercent || 25}% ESCAPE
+              </span>
+            </div>
+          )}
+          <div>
+            <span className="text-[11px] font-normal opacity-85 mr-1">from</span>
+            <span className="text-white text-base tracking-tight font-black">
+              {stay.blackFridayOptIn
+                ? formatMoney(Math.round(stay.price * (1 - (stay.blackFridayDiscountPercent || 50) / 100)))
+                : stay.isEscapeOffer && stay.escapeOfferPrice
+                ? formatMoney(stay.escapeOfferPrice)
+                : formatMoney(stay.price)}
+            </span>
+            <span className="text-[11px] font-normal opacity-85 ml-1">
+              {stay.isAirbusWork ? '/ mo' : `for ${stay.nights || 1} ${(stay.nights || 1) === 1 ? 'night' : 'nights'}`}
+            </span>
+          </div>
         </div>
       </div>
 

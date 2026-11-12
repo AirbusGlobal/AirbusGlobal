@@ -629,6 +629,11 @@ export default function App() {
           setPlanModalOpen(true);
         }}
         onOpenSettings={() => setSettingsModalOpen(true)}
+        walletBalance={walletBalance}
+        onOpenWallet={() => {
+          setPlanWalletMode(true);
+          setPlanModalOpen(true);
+        }}
       />
 
       {/* Main Content Router */}

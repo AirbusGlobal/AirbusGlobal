@@ -1468,18 +1468,8 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
           </div>
 
           <h1 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight text-white mb-3">
-            Trip Dating <span className="text-transparent bg-clip-text bg-gradient-to-r from-rose-400 to-pink-500">– A Dating Services Near You</span>
+            Trip Dating <span className="text-transparent bg-clip-text bg-gradient-to-r from-rose-400 to-pink-500">– A Safer Way to Meet Like-Minded Singles</span>
           </h1>
-
-          <p className="text-base sm:text-lg font-medium text-rose-200/90 max-w-2xl mx-auto tracking-wide">
-            <span className="text-emerald-400 font-bold">FREE TO JOIN.</span>{' '}
-            <span className="text-rose-300 font-bold">ENDLESS TO DISCOVER.</span>{' '}
-            <span className="text-amber-300 font-bold">KES 50 TO CONNECT.</span>
-          </p>
-
-          <p className="text-xs sm:text-sm text-neutral-400 mt-2 max-w-xl mx-auto">
-            Connect directly with verified Kenyan travelers, urban professionals, and stay lovers. All contact numbers are protected and verified via M-Pesa Till 943210.
-          </p>
 
           {/* Action CTAs */}
           <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
@@ -2067,6 +2057,20 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
                           <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-black/50 text-white">
                             {profile.likes || 0}
                           </span>
+                        </button>
+
+                        {/* Report Profile Button */}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setReportModalProfile(profile);
+                          }}
+                          className="py-2.5 px-3 rounded-2xl border border-neutral-800 bg-neutral-900/80 hover:bg-rose-950/40 hover:border-rose-500/40 text-neutral-400 hover:text-rose-300 text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer shadow-sm active:scale-95 shrink-0"
+                          title="Report suspicious or inappropriate profile"
+                        >
+                          <Flag className="w-3.5 h-3.5 text-neutral-400 hover:text-rose-400" />
+                          <span className="hidden sm:inline">Report</span>
                         </button>
                       </div>
                     )}
@@ -2741,7 +2745,7 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
                         </span>
                         <div>
                           <h4 className="text-sm font-bold text-white flex items-center gap-2 flex-wrap">
-                            <span>Full-Body Photo (Head to Toe) &amp; Gallery</span>
+                            <span>Full-Body Photo (Head to Toe)</span>
                             <span className="text-[10px] bg-rose-600 text-white font-extrabold uppercase px-1.5 py-0.2 rounded">
                               Max 3 Photos
                             </span>
@@ -2749,8 +2753,8 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
                               Slot 1 Required
                             </span>
                           </h4>
-                          <p className="text-[11px] text-rose-400 font-semibold mt-0.5">
-                            Upload photos (a single user can upload maximum 3 photos). Slot 1 must be a verified full-body photo showing head to toe. Face-only photos are not accepted.
+                          <p className="text-[11px] text-rose-300 font-medium mt-0.5">
+                            Upload photos (a single user can upload about 3 photos.) A single user can have a maximum of 3 photos and maximum 2 videos (9:16 vertical, compressed to be smaller). Slot 1 must be a verified head-to-toe photo.
                           </p>
                         </div>
                       </div>

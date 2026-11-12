@@ -660,10 +660,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <div>
                   <label className="text-xs font-bold text-stone-800 dark:text-stone-200 flex items-center gap-1.5">
                     <Camera className="w-3.5 h-3.5 text-rose-500" />
-                    Profile Photos (Head-to-Toe)
+                    Full-Body Photo (Head to Toe)
                   </label>
                   <p className="text-[11px] text-stone-500 dark:text-stone-400">
-                    A single user can upload maximum 3 photos.
+                    Upload photos (a single user can upload about 3 photos.) A single user can have a maximum of 3 photos and maximum 2 videos (9:16 vertical, compressed to be smaller).
                   </p>
                 </div>
                 <span className="text-xs font-mono px-2 py-0.5 rounded-full bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-300 font-semibold border border-stone-200 dark:border-stone-700">

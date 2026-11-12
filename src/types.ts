@@ -13,6 +13,7 @@ export interface User {
   photos?: string[];
   videos?: string[];
   idVerified: boolean;
+  isVVVIP?: boolean;
   isSuspended?: boolean;
   suspendedReason?: string;
   createdAt: number;
@@ -141,6 +142,82 @@ export interface Stay {
   isDelisted?: boolean;
   delistedAt?: number;
   ownerSubscriptionExpired?: boolean;
+
+  // AirBus Verified Flag
+  isVerified?: boolean;
+
+  // AirBus Collections Fields
+  // 1. Black Friday (Quarterly up to 50% off)
+  blackFridayOptIn?: boolean;
+  blackFridayDiscountPercent?: number;
+
+  // 2. AirBus Work (Monthly stays, corporate housing)
+  isAirbusWork?: boolean;
+  monthlyPrice?: number;
+  wifiSpeedMbps?: number;
+  hasDedicatedWorkspace?: boolean;
+  corporateInvoicingAvailable?: boolean;
+
+  // 3. AirBus Escapes (Weekend & vacation rental special offers)
+  isEscapeOffer?: boolean;
+  escapeOfferTitle?: string;
+  escapeOriginalPrice?: number;
+  escapeOfferPrice?: number;
+  escapeDiscountPercent?: number;
+  escapeValidFrom?: string;
+  escapeValidTo?: string;
+
+  // 4. AirBus Plus (VVVIP-only verified homes with hotel-style services)
+  isPlusVVVIP?: boolean;
+  plusServices?: string[]; // Concierge, daily cleaning, private chef, airport transfer, etc.
+
+  // 5. AirBus Local (Local market stays & guide experiences)
+  isLocalGuideExperience?: boolean;
+  localMarketNear?: string;
+
+  // 6. AirBus World Wide (International vacation homes)
+  isWorldWide?: boolean;
+  country?: string;
+  countryCode?: string;
+  region?: string;
+  localCurrency?: string;
+  localCurrencyPrice?: number;
+}
+
+export interface LocalGuideProfile {
+  id: string;
+  name: string;
+  avatar: string;
+  areaCovered: string;
+  languages: string[];
+  rating: number;
+  reviewsCount: number;
+  hourlyRateKes: number;
+  specialty: string;
+  bio: string;
+  phone: string;
+  whatsapp?: string;
+}
+
+export interface NeighborhoodArticle {
+  id: string;
+  title: string;
+  area: string;
+  readTime: string;
+  heroImage: string;
+  excerpt: string;
+  content: string;
+  hostRecommendations: {
+    spot: string;
+    category: string;
+    tip: string;
+  }[];
+}
+
+export interface BlackFridaySubscriber {
+  id: string;
+  email: string;
+  createdAt: number;
 }
 
 export interface BookingInstalment {
