@@ -35,6 +35,7 @@ import { PersistentAdCard } from './components/PersistentAdCard';
 import { SettingsModal } from './components/SettingsModal';
 import { TripDatingPage } from './components/trip-dating/TripDatingPage';
 import { Footer } from './components/Footer';
+import { CollectionsPage, CollectionSlug } from './components/CollectionsPage';
 import { Lock } from 'lucide-react';
 import {
   trigger24HourCheckinAlert,
@@ -225,6 +226,13 @@ export default function App() {
           setCurrentTab('guest');
         } else {
           setCurrentTab('owner');
+        }
+      } else if (hash.startsWith('collection-')) {
+        const slug = hash.replace('collection-', '');
+        if (['black-friday', 'work', 'escapes', 'plus', 'local', 'worldwide'].includes(slug)) {
+          setCurrentTab(`collection-${slug}`);
+        } else {
+          setCurrentTab('home');
         }
       } else if (hash.startsWith('stay-')) {
         const sId = hash.slice(5);
@@ -816,7 +824,7 @@ export default function App() {
           />
         )}
 
-        {/* TRIP DATING: A Dating Services Near You */}
+        {/* TRIP DATING */}
         {currentTab === 'trip-dating' && (
           <TripDatingPage
             currentUser={user}
@@ -825,6 +833,37 @@ export default function App() {
               setAuthInitialMode('login');
               setAuthModalOpen(true);
             }}
+          />
+        )}
+
+        {/* AIRBUS COLLECTIONS (Black Friday, Work, Escapes, Plus VVVIP, Local, World Wide) */}
+        {currentTab.startsWith('collection-') && (
+          <CollectionsPage
+            slug={currentTab.replace('collection-', '') as CollectionSlug}
+            user={user}
+            currency={currency}
+            onCurrencyChange={setCurrency}
+            savedStayIds={wishlistIds}
+            onToggleSave={handleToggleWishlist}
+            onSelectStay={id => {
+              setActiveStayId(id);
+              window.location.hash = `stay-${id}`;
+            }}
+            onCheckAvailability={id => setActiveStayId(id)}
+            onBookNow={id => setActiveStayId(id)}
+            onChatHost={id => setChatStayId(id)}
+            onNegotiate={id => setNegotiateStayId(id)}
+            onBackToFeed={() => handleNavigate('home')}
+            onNavigateCollection={slug => handleNavigate(`collection-${slug}`)}
+            onOpenAuth={() => {
+              setAuthInitialMode('login');
+              setAuthModalOpen(true);
+            }}
+            onUserUpgraded={updatedUser => {
+              setUser(updatedUser);
+              api.getStays().then(r => setStays(r.stays)).catch(() => {});
+            }}
+            showToast={showToast}
           />
         )}
       </main>

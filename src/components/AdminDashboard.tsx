@@ -3274,10 +3274,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </span>
               </div>
               <h3 className="text-xl font-bold">
-                Trip Dating – A Dating Services Near You
+                Trip Dating – A Safer Way to Meet Like-Minded Singles
               </h3>
               <p className="text-xs text-rose-200/80 mt-0.5">
-                FREE TO JOIN. ENDLESS TO DISCOVER. KES 50 TO CONNECT (Till 943210).
+                All contact numbers verified and unlocked via M-Pesa Till 943210.
               </p>
             </div>
             <button

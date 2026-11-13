@@ -37,6 +37,8 @@ import {
   AuditLog,
   BoostRecord,
   SponsorSlot,
+  LocalGuideProfile,
+  NeighborhoodArticle,
 } from './types';
 
 
@@ -1481,6 +1483,47 @@ export const api = {
   // Manual M-Pesa Topup / Deposit
   async submitManualDeposit(data: { amountKes: number; mpesaCode: string; phoneNumber?: string }): Promise<any> {
     return this.request('/api/wallet/deposit', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  // --- AIRBUS COLLECTIONS ---
+  async getCollection(slug: string): Promise<{
+    collection: string;
+    locked: boolean;
+    requiresVVVIP?: boolean;
+    message?: string;
+    stays: Stay[];
+    guides?: LocalGuideProfile[];
+    articles?: NeighborhoodArticle[];
+  }> {
+    return this.request(`/api/collections/${encodeURIComponent(slug)}`);
+  },
+
+  async subscribeBlackFriday(email: string): Promise<{ subscribed: boolean; alreadySubscribed: boolean; message: string }> {
+    return this.request('/api/collections/black-friday/notify', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    });
+  },
+
+  async upgradeToVVVIP(data: { method?: 'wallet' | 'mpesa'; mpesaCode?: string }): Promise<{ user: User; message: string }> {
+    return this.request('/api/collections/vvvip/upgrade', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async requestLocalGuide(data: {
+    guideId: string;
+    area?: string;
+    dates?: string;
+    notes?: string;
+    guestEmail?: string;
+    guestName?: string;
+  }): Promise<{ request: any; guide: LocalGuideProfile; message: string }> {
+    return this.request('/api/collections/local/request-guide', {
       method: 'POST',
       body: JSON.stringify(data),
     });

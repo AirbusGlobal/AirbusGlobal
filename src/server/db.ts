@@ -53,6 +53,8 @@ import {
   ListingLikeRecord,
   ListingViewRecord,
   AutoShortRecord,
+  LocalGuideProfile,
+  NeighborhoodArticle,
 } from './types';
 import { PLANS, AMENITY_GROUPS } from '../constants';
 
@@ -104,6 +106,7 @@ const SEED_USERS: User[] = [
     bio: 'Passionate traveller, remote software engineer & video stay enthusiast.',
     languages: 'English, Swahili',
     idVerified: true,
+    isVVVIP: false,
     createdAt: Date.now() - 30 * 864e5,
   },
   {
@@ -117,6 +120,7 @@ const SEED_USERS: User[] = [
     bio: 'Superhost managing luxury villas in Westlands and beachfront retreats in Diani & Nyali.',
     languages: 'English, Swahili, French',
     idVerified: true,
+    isVVVIP: true,
     createdAt: Date.now() - 60 * 864e5,
   },
   {
@@ -130,6 +134,7 @@ const SEED_USERS: User[] = [
     bio: 'Lead Platform Administrator at AirBus Global.',
     languages: 'English, Swahili',
     idVerified: true,
+    isVVVIP: true,
     createdAt: Date.now() - 120 * 864e5,
   },
 ];
@@ -232,6 +237,14 @@ const SEED_STAYS: Stay[] = [
     hostFollowerCount: 382,
     gradientHue: [262, 330],
     createdAt: Date.now() - 40 * 864e5,
+    isVerified: true,
+    isAirbusWork: true,
+    monthlyPrice: 175000,
+    wifiSpeedMbps: 150,
+    hasDedicatedWorkspace: true,
+    corporateInvoicingAvailable: true,
+    blackFridayOptIn: true,
+    blackFridayDiscountPercent: 45,
   },
   {
     id: 's2',
@@ -271,6 +284,19 @@ const SEED_STAYS: Stay[] = [
     hostFollowerCount: 382,
     gradientHue: [200, 260],
     createdAt: Date.now() - 35 * 864e5,
+    isVerified: true,
+    isAirbusWork: true,
+    monthlyPrice: 88000,
+    wifiSpeedMbps: 100,
+    hasDedicatedWorkspace: true,
+    corporateInvoicingAvailable: true,
+    isEscapeOffer: true,
+    escapeOfferTitle: 'Workation Weekend Flash Offer',
+    escapeOriginalPrice: 4500,
+    escapeOfferPrice: 3375,
+    escapeDiscountPercent: 25,
+    escapeValidFrom: new Date().toISOString().slice(0, 10),
+    escapeValidTo: new Date(Date.now() + 21 * 864e5).toISOString().slice(0, 10),
   },
   {
     id: 's3',
@@ -393,6 +419,16 @@ const SEED_STAYS: Stay[] = [
     hostFollowerCount: 382,
     gradientHue: [40, 10],
     createdAt: Date.now() - 30 * 864e5,
+    isVerified: true,
+    blackFridayOptIn: true,
+    blackFridayDiscountPercent: 50,
+    isEscapeOffer: true,
+    escapeOfferTitle: 'Diani Sunny Season 3-Night Escape',
+    escapeOriginalPrice: 13500,
+    escapeOfferPrice: 9450,
+    escapeDiscountPercent: 30,
+    escapeValidFrom: new Date().toISOString().slice(0, 10),
+    escapeValidTo: new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10),
   },
   {
     id: 's6',
@@ -510,6 +546,462 @@ const SEED_STAYS: Stay[] = [
     hostFollowerCount: 382,
     gradientHue: [10, 40],
     createdAt: Date.now() - 70 * 864e5,
+    isVerified: true,
+    isEscapeOffer: true,
+    escapeOfferTitle: 'Great Rift Lakeside Retreat Promo',
+    escapeOriginalPrice: 16000,
+    escapeOfferPrice: 12000,
+    escapeDiscountPercent: 25,
+    escapeValidFrom: new Date().toISOString().slice(0, 10),
+    escapeValidTo: new Date(Date.now() + 18 * 864e5).toISOString().slice(0, 10),
+  },
+  // AirBus Plus (VVVIP-only verified homes with hotel-style services)
+  {
+    id: 's_plus_1',
+    title: 'Runda Diplomatic Estate Residence with Private Chef & Chauffeur',
+    location: 'Runda, Nairobi',
+    lat: -1.2191,
+    lng: 36.8205,
+    price: 65000,
+    currency: 'KES',
+    rating: 5.0,
+    reviewsCount: 34,
+    type: 'Villa',
+    guests: 10,
+    beds: 5,
+    area: 540,
+    category: 'Gold',
+    status: 'live',
+    features: ['WiFi', 'Swimming Pool', 'Chef on Call', 'Airport Chauffeur', 'Daily Housekeeping', '24/7 Concierge', 'Helipad Access', 'Spa'],
+    highlights: ['24/7 Butler & Private Chef', 'Daily Hotel-Grade Linen & Turn-Down Service', 'Armored JKIA Chauffeur Transfer Included'],
+    description: 'Ultra-exclusive diplomatic sanctuary reserved exclusively for AirBus Plus VVVIP guests. Includes full private culinary staff, daily turn-down service, heated infinity lap pool, and chauffeur transfers.',
+    videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-villa-with-pool-and-terrace-in-front-of-the-sea-43406-large.mp4',
+    thumbnailUrl: 'https://images.unsplash.com/photo-1613490493576-7fde63acd811?auto=format&fit=crop&w=800&q=80',
+    source: 'AirBus Plus',
+    instantBook: true,
+    isFeatured: true,
+    isApprovedByAdmin: true,
+    isVerified: true,
+    isPlusVVVIP: true,
+    plusServices: ['24/7 Dedicated Concierge', 'Private Executive Chef', 'Daily Hotel Cleaning', 'Chauffeur Airport Transfer', 'In-Villa Spa & Massage'],
+    welcomeGifts: ['Vintage Champagne Reserve', 'Private Chef Welcome Tasting Menu', 'VIP JKIA Meet & Greet'],
+    hostMessage: 'Welcome to AirBus Plus. Our concierge team coordinates every detail from private aviation transfers to personalized menus.',
+    ownerEmail: 'owner@airbus.ke',
+    hostName: 'David Mutua',
+    hostPhone: '+254 722 987 654',
+    whatsapp: '254722987654',
+    minNights: 2,
+    views: 920,
+    likesCount: 215,
+    commentsCount: 0,
+    hostFollowerCount: 382,
+    gradientHue: [42, 32],
+    createdAt: Date.now() - 8 * 864e5,
+  },
+  {
+    id: 's_plus_2',
+    title: 'Watamu Clifftop Cliffside Palazzo with Private Boat & Butler',
+    location: 'Watamu Marine, Kilifi',
+    lat: -3.3562,
+    lng: 40.0124,
+    price: 88000,
+    currency: 'KES',
+    rating: 4.99,
+    reviewsCount: 22,
+    type: 'Villa',
+    guests: 8,
+    beds: 4,
+    area: 480,
+    category: 'Gold',
+    status: 'live',
+    features: ['WiFi', 'Swimming Pool', 'Private Boat', 'Personal Butler', 'Private Chef', 'Daily Housekeeping', 'Airport Transfer'],
+    highlights: ['Private Lagoon Pier & Sunset Dhow', 'Resident Seafood Chef', '24/7 Security & Concierge'],
+    description: 'Architectural clifftop residence overlooking Watamu Marine Reserve, curated strictly for VVVIP members with full hotel concierge, morning housekeeping, seafood chef, and private speedboat.',
+    videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-luxury-home-with-pool-and-sea-view-43410-large.mp4',
+    thumbnailUrl: 'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?auto=format&fit=crop&w=800&q=80',
+    source: 'AirBus Plus',
+    instantBook: true,
+    isFeatured: true,
+    isApprovedByAdmin: true,
+    isVerified: true,
+    isPlusVVVIP: true,
+    plusServices: ['Private Speedboat & Captain', 'Swahili & Continental Chef', 'Daily Housekeeping', 'Malindi Airport Limo', 'Personal Butler'],
+    welcomeGifts: ['Lobster Welcome Platter', 'Private Sunset Dhow Cruise', 'Chilled Rosé'],
+    hostMessage: 'Karibu Watamu Palazzo. Your private butler and chef await your arrival.',
+    ownerEmail: 'owner@airbus.ke',
+    hostName: 'David Mutua',
+    hostPhone: '+254 722 987 654',
+    whatsapp: '254722987654',
+    minNights: 3,
+    views: 740,
+    likesCount: 180,
+    commentsCount: 0,
+    hostFollowerCount: 382,
+    gradientHue: [38, 25],
+    createdAt: Date.now() - 5 * 864e5,
+  },
+  // AirBus Local (Affordable market-adjacent stays & Local Guide picks)
+  {
+    id: 's_local_1',
+    title: 'Roysambu Sunlit Cozy Flat (2 Mins to TRM & Local Market)',
+    location: 'Roysambu, Nairobi',
+    lat: -1.2185,
+    lng: 36.8869,
+    price: 2200,
+    currency: 'KES',
+    rating: 4.78,
+    reviewsCount: 94,
+    type: 'Apartment',
+    guests: 2,
+    beds: 1,
+    area: 38,
+    category: 'Silver',
+    status: 'live',
+    features: ['WiFi', 'Kitchen', 'Hot Shower', 'Near Fresh Market', '24/7 Matatu Stage'],
+    highlights: ['Walk to Roysambu Fresh Produce Market', 'Budget-friendly weekly discounts', 'Local guide walking tour optional'],
+    description: 'Clean, bright, ultra-affordable stay tucked steps away from Roysambu vibrant open-air market and Thika Road Mall. Ideal for budget travelers wanting authentic Kenyan neighborhood hospitality.',
+    videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-modern-apartment-with-living-room-and-terrace-43405-large.mp4',
+    thumbnailUrl: 'https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?auto=format&fit=crop&w=800&q=80',
+    source: 'AirBus Local',
+    instantBook: true,
+    isFeatured: false,
+    isApprovedByAdmin: true,
+    isVerified: true,
+    isLocalGuideExperience: true,
+    localMarketNear: 'Roysambu & Kasarani Fresh Market',
+    welcomeGifts: ['Fresh Roasted Kenyan Peanuts', 'Local Market Shopping Map'],
+    hostMessage: 'Ask me for our local market guide—you can get fresh mangoes and avocados for KES 50 right downstairs!',
+    ownerEmail: 'owner@airbus.ke',
+    hostName: 'David Mutua',
+    hostPhone: '+254 722 987 654',
+    whatsapp: '254722987654',
+    minNights: 1,
+    views: 680,
+    likesCount: 74,
+    commentsCount: 0,
+    hostFollowerCount: 382,
+    gradientHue: [145, 190],
+    createdAt: Date.now() - 12 * 864e5,
+  },
+  {
+    id: 's_local_2',
+    title: 'Bamburi Swahili Courtyard Studio (Near Kongowea Market)',
+    location: 'Bamburi, Mombasa',
+    lat: -3.9922,
+    lng: 39.7186,
+    price: 2500,
+    currency: 'KES',
+    rating: 4.82,
+    reviewsCount: 51,
+    type: 'Studio',
+    guests: 2,
+    beds: 1,
+    area: 40,
+    category: 'Silver',
+    status: 'live',
+    features: ['WiFi', 'Air Conditioning', 'Kitchen', 'Courtyard', 'Near Kongowea Market'],
+    highlights: ['5-min tuk-tuk to Kongowea Market & Public Beach', 'Authentic Swahili breakfast spots nearby', 'Great long-stay value'],
+    description: 'Breezy coastal studio minutes from Kongowea spice & fruit market and Bamburi beach. Discover Mombasa at local prices with insider guide recommendations.',
+    videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-swimming-pool-surrounded-by-palm-trees-at-sunset-42028-large.mp4',
+    thumbnailUrl: 'https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?auto=format&fit=crop&w=800&q=80',
+    source: 'AirBus Local',
+    instantBook: true,
+    isFeatured: false,
+    isApprovedByAdmin: true,
+    isVerified: true,
+    isLocalGuideExperience: true,
+    localMarketNear: 'Kongowea Spice & Fresh Market',
+    welcomeGifts: ['Mombasa Tamarind Candy', 'Tuk-tuk Fare Cheat Sheet'],
+    hostMessage: 'Karibu Bamburi! Pair your stay with our certified local market guide to shop spices & fresh seafood at true local rates.',
+    ownerEmail: 'owner@airbus.ke',
+    hostName: 'David Mutua',
+    hostPhone: '+254 722 987 654',
+    whatsapp: '254722987654',
+    minNights: 1,
+    views: 540,
+    likesCount: 63,
+    commentsCount: 0,
+    hostFollowerCount: 382,
+    gradientHue: [175, 220],
+    createdAt: Date.now() - 14 * 864e5,
+  },
+  // AirBus World Wide (International vacation homes)
+  {
+    id: 's_ww_1',
+    title: 'Camps Bay Oceanfront Terrace Villa overlooking Twelve Apostles',
+    location: 'Cape Town, South Africa',
+    lat: -33.9508,
+    lng: 18.3775,
+    price: 28000,
+    currency: 'KES',
+    rating: 4.94,
+    reviewsCount: 83,
+    type: 'Villa',
+    guests: 6,
+    beds: 3,
+    area: 220,
+    category: 'Gold',
+    status: 'live',
+    features: ['WiFi', 'Swimming Pool', 'Sea View', 'BBQ Braai', 'Fiber Internet', 'Parking'],
+    highlights: ['Atlantic Sunset Deck', 'Walking distance to Camps Bay Promenade', 'High-speed backup solar power'],
+    description: 'Stunning sunlit South African villa perched above Camps Bay beach with panoramic ocean views, infinity plunge pool, and indoor-outdoor braai lounge.',
+    videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-villa-with-pool-and-terrace-in-front-of-the-sea-43406-large.mp4',
+    thumbnailUrl: 'https://images.unsplash.com/photo-1512917774080-9991f1c4c750?auto=format&fit=crop&w=800&q=80',
+    source: 'AirBus World Wide',
+    instantBook: true,
+    isFeatured: true,
+    isApprovedByAdmin: true,
+    isVerified: true,
+    isWorldWide: true,
+    country: 'South Africa',
+    countryCode: 'ZA',
+    region: 'Africa',
+    localCurrency: 'ZAR',
+    localCurrencyPrice: 3900,
+    isAirbusWork: true,
+    monthlyPrice: 690000,
+    wifiSpeedMbps: 200,
+    hasDedicatedWorkspace: true,
+    corporateInvoicingAvailable: true,
+    welcomeGifts: ['Stellenbosch Reserve Wine', 'South African Rooibos Gift Box'],
+    hostMessage: 'Welcome to Cape Town! Enjoy unobstructed sunsets over the Atlantic Ocean.',
+    ownerEmail: 'owner@airbus.ke',
+    hostName: 'David Mutua',
+    hostPhone: '+254 722 987 654',
+    whatsapp: '254722987654',
+    minNights: 2,
+    views: 1410,
+    likesCount: 210,
+    commentsCount: 0,
+    hostFollowerCount: 382,
+    gradientHue: [210, 260],
+    createdAt: Date.now() - 9 * 864e5,
+  },
+  {
+    id: 's_ww_2',
+    title: 'Stone Town & Nungwi Coral Reef Hideaway with Lagoon Pool',
+    location: 'Zanzibar, Tanzania',
+    lat: -5.7262,
+    lng: 39.2981,
+    price: 19500,
+    currency: 'KES',
+    rating: 4.91,
+    reviewsCount: 127,
+    type: 'Bungalow',
+    guests: 4,
+    beds: 2,
+    area: 130,
+    category: 'Diamond',
+    status: 'live',
+    features: ['WiFi', 'Beachfront', 'Air Conditioning', 'Swimming Pool', 'Breakfast Included'],
+    highlights: ['Direct Nungwi white sand access', 'Carved Zanzibari four-poster beds', 'Swahili breakfast served daily'],
+    description: 'Hand-carved coral-stone beach sanctuary on the northern tip of Zanzibar, blending timeless Swahili craftsmanship with modern resort comfort.',
+    videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-swimming-pool-surrounded-by-palm-trees-at-sunset-42028-large.mp4',
+    thumbnailUrl: 'https://images.unsplash.com/photo-1540541338287-41700207dee6?auto=format&fit=crop&w=800&q=80',
+    source: 'AirBus World Wide',
+    instantBook: true,
+    isFeatured: true,
+    isApprovedByAdmin: true,
+    isVerified: true,
+    isWorldWide: true,
+    country: 'Tanzania',
+    countryCode: 'TZ',
+    region: 'Africa',
+    localCurrency: 'TZS',
+    localCurrencyPrice: 395000,
+    blackFridayOptIn: true,
+    blackFridayDiscountPercent: 40,
+    welcomeGifts: ['Zanzibar Clove & Cinnamon Spice Basket', 'Dhow Sunset Sail Discount'],
+    hostMessage: 'Karibu Zanzibar! Wake up to turquoise tides and warm spiced tea.',
+    ownerEmail: 'owner@airbus.ke',
+    hostName: 'David Mutua',
+    hostPhone: '+254 722 987 654',
+    whatsapp: '254722987654',
+    minNights: 2,
+    views: 1730,
+    likesCount: 284,
+    commentsCount: 0,
+    hostFollowerCount: 382,
+    gradientHue: [185, 210],
+    createdAt: Date.now() - 6 * 864e5,
+  },
+  {
+    id: 's_ww_3',
+    title: 'Dubai Marina High-Floor Skyline Suite with Burj Al Arab Horizon',
+    location: 'Dubai Marina, UAE',
+    lat: 25.0805,
+    lng: 55.1403,
+    price: 34000,
+    currency: 'KES',
+    rating: 4.89,
+    reviewsCount: 68,
+    type: 'Apartment',
+    guests: 4,
+    beds: 2,
+    area: 118,
+    category: 'Gold',
+    status: 'live',
+    features: ['WiFi', 'Swimming Pool', 'Air Conditioning', 'Gym', 'Workspace', 'Elevator', '24/7 Concierge'],
+    highlights: ['Panoramic yacht marina balcony', '500Mbps business fiber', '2 mins to Marina Walk & Tram'],
+    description: 'Sleek 36th-floor designer residence in Dubai Marina featuring executive ergonomic workstation, floor-to-ceiling skyline vistas, and podium infinity pool.',
+    videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-modern-apartment-with-living-room-and-terrace-43405-large.mp4',
+    thumbnailUrl: 'https://images.unsplash.com/photo-1512453979798-5ea266f8880c?auto=format&fit=crop&w=800&q=80',
+    source: 'AirBus World Wide',
+    instantBook: true,
+    isFeatured: true,
+    isApprovedByAdmin: true,
+    isVerified: true,
+    isWorldWide: true,
+    country: 'United Arab Emirates',
+    countryCode: 'AE',
+    region: 'Middle East',
+    localCurrency: 'AED',
+    localCurrencyPrice: 960,
+    isAirbusWork: true,
+    monthlyPrice: 820000,
+    wifiSpeedMbps: 500,
+    hasDedicatedWorkspace: true,
+    corporateInvoicingAvailable: true,
+    welcomeGifts: ['Medjool Dates & Arabic Coffee', 'Dubai Metro Gold Nol Card'],
+    hostMessage: 'Marhaba! Enjoy uninterrupted yacht marina views and superfast 500Mbps fiber.',
+    ownerEmail: 'owner@airbus.ke',
+    hostName: 'David Mutua',
+    hostPhone: '+254 722 987 654',
+    whatsapp: '254722987654',
+    minNights: 2,
+    views: 1590,
+    likesCount: 245,
+    commentsCount: 0,
+    hostFollowerCount: 382,
+    gradientHue: [220, 280],
+    createdAt: Date.now() - 4 * 864e5,
+  },
+  {
+    id: 's_ww_4',
+    title: 'Ubud Rice Terrace Bamboo Canopy Villa with Infinity Plunge Pool',
+    location: 'Ubud, Bali, Indonesia',
+    lat: -8.5069,
+    lng: 115.2625,
+    price: 21000,
+    currency: 'KES',
+    rating: 4.96,
+    reviewsCount: 154,
+    type: 'Villa',
+    guests: 4,
+    beds: 2,
+    area: 170,
+    category: 'Diamond',
+    status: 'live',
+    features: ['WiFi', 'Swimming Pool', 'Garden', 'Workspace', 'Yoga Deck'],
+    highlights: ['Overlooks emerald rice paddies', 'Floating breakfast included', 'Quiet jungle work sanctuary'],
+    description: 'Handcrafted architectural bamboo sanctuary surrounded by tropical Ubud rainforest. Ideal for creative sabbaticals and exotic tropical escapes.',
+    videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-wooden-house-in-the-middle-of-a-forest-43410-large.mp4',
+    thumbnailUrl: 'https://images.unsplash.com/photo-1537996194471-e657df975ab4?auto=format&fit=crop&w=800&q=80',
+    source: 'AirBus World Wide',
+    instantBook: true,
+    isFeatured: true,
+    isApprovedByAdmin: true,
+    isVerified: true,
+    isWorldWide: true,
+    country: 'Indonesia',
+    countryCode: 'ID',
+    region: 'Asia',
+    localCurrency: 'IDR',
+    localCurrencyPrice: 2550000,
+    isEscapeOffer: true,
+    escapeOfferTitle: 'Bali Jungle Retreat 30% Off',
+    escapeOriginalPrice: 21000,
+    escapeOfferPrice: 14700,
+    escapeDiscountPercent: 30,
+    escapeValidFrom: new Date().toISOString().slice(0, 10),
+    escapeValidTo: new Date(Date.now() + 28 * 864e5).toISOString().slice(0, 10),
+    welcomeGifts: ['Floating Flower Pool Breakfast', 'Balinese Luwak Coffee'],
+    hostMessage: 'Om Swastiastu! Wake up above the rice terraces with herbal tea and serene rainforest sounds.',
+    ownerEmail: 'owner@airbus.ke',
+    hostName: 'David Mutua',
+    hostPhone: '+254 722 987 654',
+    whatsapp: '254722987654',
+    minNights: 2,
+    views: 2150,
+    likesCount: 360,
+    commentsCount: 0,
+    hostFollowerCount: 382,
+    gradientHue: [110, 160],
+    createdAt: Date.now() - 3 * 864e5,
+  },
+];
+
+const SEED_LOCAL_GUIDES: LocalGuideProfile[] = [
+  {
+    id: 'lg_1',
+    name: 'Brian Ochieng',
+    avatar: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=400&q=80',
+    areaCovered: 'Kilimani, Yaya, Westlands & Nairobi CBD',
+    languages: ['English', 'Swahili', 'Sheng'],
+    rating: 4.95,
+    reviewsCount: 84,
+    hourlyRateKes: 800,
+    specialty: 'Budget Apartments & Local Fresh Food Markets',
+    bio: 'Born and raised in Nairobi. I help travelers find safe, hidden studio stays under KES 2,800/night and negotiate fair local market rates at Wakulima & Toi Market.',
+    phone: '+254 711 456 789',
+    whatsapp: '254711456789',
+  },
+  {
+    id: 'lg_2',
+    name: 'Amina Hassan',
+    avatar: 'https://images.unsplash.com/photo-1531123897727-8f129e1688ce?auto=format&fit=crop&w=400&q=80',
+    areaCovered: 'Nyali, Bamburi, Old Town & Kongowea (Mombasa)',
+    languages: ['Swahili', 'English', 'Arabic'],
+    rating: 4.98,
+    reviewsCount: 112,
+    hourlyRateKes: 700,
+    specialty: 'Affordable Coastal Cottages & Spice/Seafood Markets',
+    bio: 'Certified Mombasa heritage guide. Let me show you where locals eat authentic Swahili pilau for KES 250 and find spotless coastal rooms near Kongowea & Bamburi Beach.',
+    phone: '+254 723 891 234',
+    whatsapp: '254723891234',
+  },
+  {
+    id: 'lg_3',
+    name: 'Grace Wambui',
+    avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=400&q=80',
+    areaCovered: 'Roysambu, Kasarani, Ruaka & Thika Road',
+    languages: ['English', 'Swahili', 'Kikuyu'],
+    rating: 4.9,
+    reviewsCount: 67,
+    hourlyRateKes: 600,
+    specialty: 'Ultra-Budget Short Stays & Commuter Navigation',
+    bio: 'Expert in northern Nairobi value stays (KES 1,800–3,000/night). I personally vet landlord security, water pressure, and guide guests through TRM & Githurai produce hubs.',
+    phone: '+254 790 223 445',
+    whatsapp: '254790223445',
+  },
+];
+
+const SEED_NEIGHBORHOOD_ARTICLES: NeighborhoodArticle[] = [
+  {
+    id: 'art_1',
+    title: 'How to Score Spotless Nairobi Stays Under KES 2,500 Using Local Markets',
+    area: 'Roysambu & Kasarani, Nairobi',
+    readTime: '4 min read',
+    heroImage: 'https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?auto=format&fit=crop&w=900&q=80',
+    excerpt: 'Skip inflated tourist corridors and tap into Roysambu, Ruaka, and South B with trusted host picks and fresh market walks.',
+    content: 'Travelers looking for budget-friendly Nairobi accommodations often overlook vibrant commuter hubs along Thika Road and Mombasa Road. By staying 5 minutes from fresh open-air markets, guests cut dining expenses by 60% while accessing fast 4G/fiber apartments.',
+    hostRecommendations: [
+      { spot: 'Kasarani Farmers Open Market', category: 'Fresh Produce', tip: 'Visit before 9 AM for organic Rift Valley vegetables at wholesale prices.' },
+      { spot: 'Roysambu Roast Corner', category: 'Local Dining', tip: 'Try authentic Kenyan nyama choma & ugali under KES 450.' },
+    ],
+  },
+  {
+    id: 'art_2',
+    title: 'Mombasa On A Budget: Navigating Kongowea Market & Bamburi Hidden Studios',
+    area: 'Bamburi & Nyali Border, Mombasa',
+    readTime: '5 min read',
+    heroImage: 'https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?auto=format&fit=crop&w=900&q=80',
+    excerpt: 'Discover verified coastal courtyard flats and how local AirBus guides help you haggle tuk-tuks, spices, and seafood like a resident.',
+    content: 'Mombasa coastal stays do not require five-star resort budgets. Studios tucked two streets behind Bamburi Beach offer AC, Wi-Fi, and full kitchens for KES 2,500/night—putting you a 4-minute tuk-tuk ride from Kongowea spice market.',
+    hostRecommendations: [
+      { spot: 'Kongowea Spice & Coconut Alley', category: 'Market Experience', tip: 'Bring a local guide for fresh Swahili cardamom tea blends & cashews.' },
+      { spot: 'Jomo Kenyatta Public Beach Sunset Pier', category: 'Free Experience', tip: 'Best experienced around 5:30 PM with roasted mahindi.' },
+    ],
   },
 ];
 
@@ -1255,7 +1747,7 @@ class DatabaseStore {
           if (!parsed.boosts) parsed.boosts = [];
           if (!parsed.sponsorSlots) parsed.sponsorSlots = [];
 
-          // Ensure welcome gifts and host greetings are populated on loaded stays
+          // Ensure welcome gifts, host greetings, verified flag, and collection metadata are populated on loaded stays
           parsed.stays.forEach((s: Stay) => {
             const seed = SEED_STAYS.find(seedStay => seedStay.id === s.id);
             if ((!s.welcomeGifts || s.welcomeGifts.length === 0) && seed?.welcomeGifts) {
@@ -1275,7 +1767,58 @@ class DatabaseStore {
               s.isPromoted = seed.isPromoted;
               s.promotedUntil = seed.promotedUntil;
             }
+            if (s.isVerified === undefined) {
+              s.isVerified = true;
+            }
+            // Merge new collection metadata from matching seeds if not yet set on disk
+            if (seed) {
+              if (s.isAirbusWork === undefined && seed.isAirbusWork !== undefined) {
+                s.isAirbusWork = seed.isAirbusWork;
+                s.monthlyPrice = seed.monthlyPrice;
+                s.wifiSpeedMbps = seed.wifiSpeedMbps;
+                s.hasDedicatedWorkspace = seed.hasDedicatedWorkspace;
+                s.corporateInvoicingAvailable = seed.corporateInvoicingAvailable;
+              }
+              if (s.blackFridayOptIn === undefined && seed.blackFridayOptIn !== undefined) {
+                s.blackFridayOptIn = seed.blackFridayOptIn;
+                s.blackFridayDiscountPercent = seed.blackFridayDiscountPercent;
+              }
+              if (s.isEscapeOffer === undefined && seed.isEscapeOffer !== undefined) {
+                s.isEscapeOffer = seed.isEscapeOffer;
+                s.escapeOfferTitle = seed.escapeOfferTitle;
+                s.escapeOriginalPrice = seed.escapeOriginalPrice;
+                s.escapeOfferPrice = seed.escapeOfferPrice;
+                s.escapeDiscountPercent = seed.escapeDiscountPercent;
+                s.escapeValidFrom = seed.escapeValidFrom;
+                s.escapeValidTo = seed.escapeValidTo;
+              }
+            }
           });
+
+          // Merge any newly introduced seed stays (Plus VVVIP, Local, World Wide)
+          SEED_STAYS.forEach((seedStay) => {
+            if (!parsed.stays.some((s: Stay) => s.id === seedStay.id)) {
+              parsed.stays.push(seedStay);
+            }
+          });
+
+          // Ensure VVVIP flag exists cleanly on users (admin defaults true)
+          if (Array.isArray(parsed.users)) {
+            parsed.users.forEach((u: User) => {
+              if (u.isVVVIP === undefined) {
+                u.isVVVIP = u.role === 'admin' || u.email === 'owner@airbus.ke';
+              }
+            });
+          }
+
+          if (!parsed.localGuides || parsed.localGuides.length === 0) {
+            parsed.localGuides = SEED_LOCAL_GUIDES;
+          }
+          if (!parsed.neighborhoodArticles || parsed.neighborhoodArticles.length === 0) {
+            parsed.neighborhoodArticles = SEED_NEIGHBORHOOD_ARTICLES;
+          }
+          if (!parsed.blackFridaySubscribers) parsed.blackFridaySubscribers = [];
+          if (!parsed.guideRequests) parsed.guideRequests = [];
 
           return parsed;
         }
@@ -1545,6 +2088,10 @@ class DatabaseStore {
       tripDatingProfiles: SEED_TRIP_DATING_PROFILES,
       tripDatingPaymentRequests: [],
       tripDatingContactUnlocks: [],
+      localGuides: SEED_LOCAL_GUIDES,
+      neighborhoodArticles: SEED_NEIGHBORHOOD_ARTICLES,
+      blackFridaySubscribers: [],
+      guideRequests: [],
     };
 
     this.saveDirect(initialData);
@@ -1846,10 +2393,22 @@ class DatabaseStore {
     checkOut?: string;
     beds?: number;
     includePendingForAdmin?: boolean;
+    viewerUser?: User | null;
+    includeVVVIP?: boolean;
   }): Stay[] {
     this.checkAllExpirations();
 
     let list = this.data.stays;
+
+    // Server-side VVVIP gating: AirBus Plus (isPlusVVVIP) listings are NEVER exposed to non-VVVIP guests
+    const canSeeVVVIP = Boolean(
+      filter?.includeVVVIP ||
+      filter?.viewerUser?.isVVVIP ||
+      filter?.viewerUser?.role === 'admin'
+    );
+    if (!canSeeVVVIP) {
+      list = list.filter(s => !s.isPlusVVVIP);
+    }
 
     // By default, public feed only shows live, admin-approved stays whose owner subscription is active
     if (!filter?.status) {
@@ -1933,27 +2492,33 @@ class DatabaseStore {
 
     // Active boosts rank listings at top of feed with Promoted Boost badge, followed by newest
     const now = Date.now();
-    return list.slice().sort((a, b) => {
-      const aBoosted = Boolean(a.isPromoted && a.promotedUntil && a.promotedUntil > now);
-      const bBoosted = Boolean(b.isPromoted && b.promotedUntil && b.promotedUntil > now);
-      if (aBoosted && !bBoosted) return -1;
-      if (!aBoosted && bBoosted) return 1;
-      return (b.createdAt || 0) - (a.createdAt || 0);
-    });
+    return list
+      .map(s => ({ ...s, isVerified: s.isVerified !== false }))
+      .sort((a, b) => {
+        const aBoosted = Boolean(a.isPromoted && a.promotedUntil && a.promotedUntil > now);
+        const bBoosted = Boolean(b.isPromoted && b.promotedUntil && b.promotedUntil > now);
+        if (aBoosted && !bBoosted) return -1;
+        if (!aBoosted && bBoosted) return 1;
+        return (b.createdAt || 0) - (a.createdAt || 0);
+      });
   }
 
-  public getStayById(id: string): Stay | undefined {
+  public getStayById(id: string, viewerUser?: User | null, bypassVVVIP?: boolean): Stay | undefined {
     const s = this.data.stays.find(stay => stay.id === id);
     if (!s) return undefined;
+    if (s.isPlusVVVIP && !bypassVVVIP && !viewerUser?.isVVVIP && viewerUser?.role !== 'admin') {
+      return undefined;
+    }
     if (s.ownerEmail) {
       const plan = this.getHostPlan(s.ownerEmail);
       const isExpired = plan.status !== 'active' || (plan.expiresAt > 0 && plan.expiresAt < Date.now());
       return {
         ...s,
+        isVerified: s.isVerified !== false,
         ownerSubscriptionExpired: isExpired,
       };
     }
-    return s;
+    return { ...s, isVerified: s.isVerified !== false };
   }
 
   public incrementStayViews(id: string) {
@@ -6818,7 +7383,7 @@ class DatabaseStore {
 
   // --- AI Short Generation for Stay Listing ---
   public generateStayAiShort(stayId: string): { stay: Stay; shortStatus: 'ready' | 'processing' } {
-    const stay = this.getStayById(stayId);
+    const stay = this.getStayById(stayId, undefined, true);
     if (!stay) throw new Error('Stay listing not found.');
 
     (stay as any).hasAiShort = true;
@@ -6826,6 +7391,162 @@ class DatabaseStore {
     (stay as any).shortVideoUrl = stay.videoUrl || (stay.media?.video?.url) || 'https://assets.mixkit.co/videos/preview/mixkit-modern-apartment-with-panoramic-view-41524-large.mp4';
     this.save();
     return { stay, shortStatus: 'ready' };
+  }
+
+  // --- AIRBUS COLLECTIONS (Server-Side Logic & VVVIP Gating) ---
+  public getCollectionData(slug: string, viewerUser?: User | null) {
+    const isVVVIPUser = Boolean(viewerUser?.isVVVIP || viewerUser?.role === 'admin');
+    const allLive = this.getStays({ viewerUser, includeVVVIP: isVVVIPUser });
+
+    if (slug === 'plus') {
+      // Strictly enforce VVVIP on the server/data-access layer!
+      if (!isVVVIPUser) {
+        return {
+          collection: 'plus',
+          locked: true,
+          requiresVVVIP: true,
+          stays: [],
+          message: 'AirBus Plus is an exclusive sanctuary reserved for VVVIP members only.',
+        };
+      }
+      return {
+        collection: 'plus',
+        locked: false,
+        requiresVVVIP: true,
+        stays: allLive.filter(s => Boolean(s.isPlusVVVIP)),
+      };
+    }
+
+    if (slug === 'black-friday') {
+      return {
+        collection: 'black-friday',
+        locked: false,
+        stays: allLive.filter(s => Boolean(s.blackFridayOptIn)),
+      };
+    }
+
+    if (slug === 'work') {
+      return {
+        collection: 'work',
+        locked: false,
+        stays: allLive.filter(s =>
+          Boolean(s.isAirbusWork || s.monthlyPrice || s.wifiSpeedMbps || s.features.some(f => f.toLowerCase().includes('workspace') || f.toLowerCase().includes('fiber')))
+        ),
+      };
+    }
+
+    if (slug === 'escapes') {
+      return {
+        collection: 'escapes',
+        locked: false,
+        stays: allLive.filter(s => Boolean(s.isEscapeOffer)),
+      };
+    }
+
+    if (slug === 'local') {
+      return {
+        collection: 'local',
+        locked: false,
+        stays: allLive.filter(s => Boolean(s.isLocalGuideExperience || s.price <= 5000)),
+        guides: this.data.localGuides || SEED_LOCAL_GUIDES,
+        articles: this.data.neighborhoodArticles || SEED_NEIGHBORHOOD_ARTICLES,
+      };
+    }
+
+    if (slug === 'worldwide') {
+      return {
+        collection: 'worldwide',
+        locked: false,
+        stays: allLive.filter(s => Boolean(s.isWorldWide)),
+      };
+    }
+
+    return {
+      collection: slug,
+      locked: false,
+      stays: allLive,
+    };
+  }
+
+  public subscribeBlackFriday(email: string): { subscribed: boolean; alreadySubscribed: boolean } {
+    if (!this.data.blackFridaySubscribers) this.data.blackFridaySubscribers = [];
+    const clean = email.trim().toLowerCase();
+    const existing = this.data.blackFridaySubscribers.find(s => s.email.toLowerCase() === clean);
+    if (existing) {
+      return { subscribed: true, alreadySubscribed: true };
+    }
+    this.data.blackFridaySubscribers.push({
+      id: 'bf_' + Date.now(),
+      email: clean,
+      createdAt: Date.now(),
+    });
+    this.save();
+    return { subscribed: true, alreadySubscribed: false };
+  }
+
+  public upgradeUserToVVVIP(email: string, mpesaCode?: string): User {
+    const user = this.findUserByEmail(email);
+    if (!user) throw new Error('User account not found.');
+
+    user.isVVVIP = true;
+    this.createNotification({
+      id: 'notif_vvvip_' + Date.now(),
+      userEmail: user.email,
+      title: 'Welcome to AirBus Plus (VVVIP)',
+      message: 'Your VVVIP concierge membership is now active! You now have full access to verified diplomatic & luxury estates with hotel-style services.',
+      read: false,
+      link: '/#collection-plus',
+      type: 'system',
+      createdAt: Date.now(),
+    });
+    this.createAuditLog({
+      id: 'aud_vvvip_' + Date.now(),
+      action: 'vvvip_upgraded',
+      actorEmail: user.email,
+      details: `User ${user.email} unlocked AirBus Plus VVVIP status${mpesaCode ? ` (Ref: ${mpesaCode})` : ''}.`,
+      createdAt: Date.now(),
+    });
+    this.save();
+    return user;
+  }
+
+  public requestLocalGuide(req: {
+    guideId: string;
+    userEmail: string;
+    userName: string;
+    area: string;
+    dates: string;
+    notes: string;
+  }) {
+    const guides = this.data.localGuides || SEED_LOCAL_GUIDES;
+    const guide = guides.find(g => g.id === req.guideId);
+    if (!guide) throw new Error('Selected local guide not found.');
+
+    if (!this.data.guideRequests) this.data.guideRequests = [];
+    const entry = {
+      id: 'greq_' + Date.now(),
+      guideId: guide.id,
+      guideName: guide.name,
+      userEmail: req.userEmail,
+      userName: req.userName,
+      area: req.area,
+      dates: req.dates,
+      notes: req.notes,
+      createdAt: Date.now(),
+    };
+    this.data.guideRequests.unshift(entry);
+    this.createNotification({
+      id: 'notif_guide_' + Date.now(),
+      userEmail: req.userEmail,
+      title: `Guide Request Sent to ${guide.name}`,
+      message: `${guide.name} (${guide.areaCovered}) received your request for ${req.dates || 'upcoming dates'} and will contact you shortly.`,
+      read: false,
+      link: '/#collection-local',
+      type: 'system',
+      createdAt: Date.now(),
+    });
+    this.save();
+    return { request: entry, guide };
   }
 }
 

@@ -36,6 +36,17 @@ interface StayCardProps {
   onNegotiate: (stayId: string) => void;
   onHover: (stayId: string | null) => void;
   currency: Currency;
+  workView?: boolean;
+  blackFridayActive?: boolean;
+}
+
+function countryCodeToFlag(code?: string): string {
+  if (!code || code.length !== 2) return '🌍';
+  return code
+    .toUpperCase()
+    .split('')
+    .map(c => String.fromCodePoint(127397 + c.charCodeAt(0)))
+    .join('');
 }
 
 export const StayCard: React.FC<StayCardProps> = ({
@@ -49,6 +60,8 @@ export const StayCard: React.FC<StayCardProps> = ({
   onNegotiate,
   onHover,
   currency,
+  workView = false,
+  blackFridayActive = false,
 }) => {
   const [isVideoPlaying, setIsVideoPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(true);
@@ -213,7 +226,7 @@ export const StayCard: React.FC<StayCardProps> = ({
             e.stopPropagation();
             onToggleSave(stay.id);
           }}
-          className={`absolute top-2.5 right-14 z-10 w-8 h-8 rounded-full flex items-center justify-center transition-all ${
+          className={`absolute top-2.5 right-[3.5rem] md:right-[4.25rem] z-10 w-8 h-8 rounded-full flex items-center justify-center transition-all ${
             isSaved
               ? 'bg-[#e4002b] text-white shadow-md scale-105'
               : 'bg-black/50 backdrop-blur-sm text-white hover:bg-black/70'
@@ -287,16 +300,23 @@ export const StayCard: React.FC<StayCardProps> = ({
           <div>
             <span className="text-[11px] font-normal opacity-85 mr-1">from</span>
             <span className="text-white text-base tracking-tight font-black">
-              {stay.blackFridayOptIn
+              {workView && stay.monthlyPrice
+                ? formatMoney(stay.monthlyPrice)
+                : stay.blackFridayOptIn
                 ? formatMoney(Math.round(stay.price * (1 - (stay.blackFridayDiscountPercent || 50) / 100)))
                 : stay.isEscapeOffer && stay.escapeOfferPrice
                 ? formatMoney(stay.escapeOfferPrice)
                 : formatMoney(stay.price)}
             </span>
             <span className="text-[11px] font-normal opacity-85 ml-1">
-              {stay.isAirbusWork ? '/ mo' : `for ${stay.nights || 1} ${(stay.nights || 1) === 1 ? 'night' : 'nights'}`}
+              {workView && stay.monthlyPrice ? '/ month' : `for ${stay.nights || 1} ${(stay.nights || 1) === 1 ? 'night' : 'nights'}`}
             </span>
           </div>
+          {stay.isWorldWide && stay.localCurrency && stay.localCurrencyPrice && (
+            <div className="text-[10px] text-stone-200/90 font-semibold">
+              Local: {stay.localCurrency} {stay.localCurrencyPrice.toLocaleString()}/night
+            </div>
+          )}
         </div>
       </div>
 
@@ -323,13 +343,30 @@ export const StayCard: React.FC<StayCardProps> = ({
             )}
           </div>
 
-          <div className="text-xs text-stone-500 dark:text-stone-400 flex items-center gap-1 line-clamp-1">
-            <span>📍 {stay.location}</span>
+          <div className="text-xs text-stone-500 dark:text-stone-400 flex items-center gap-1.5 line-clamp-1">
+            <span>{stay.isWorldWide ? countryCodeToFlag(stay.countryCode) : '📍'}</span>
+            <span>{stay.location}</span>
+            {stay.country && (
+              <span className="text-[10px] font-semibold text-stone-400">· {stay.country}</span>
+            )}
           </div>
 
           <div className="text-xs text-stone-500 dark:text-stone-400 mt-1">
             {stay.guests} guests · {stay.beds} {stay.beds === 1 ? 'bed' : 'beds'} · {stay.area} m²
+            {stay.wifiSpeedMbps ? ` · ${stay.wifiSpeedMbps} Mbps Fiber` : ''}
           </div>
+
+          {stay.isEscapeOffer && stay.escapeValidFrom && stay.escapeValidTo && (
+            <div className="text-[11px] text-amber-600 dark:text-amber-400 font-semibold mt-1">
+              {stay.escapeOfferTitle || 'Special Escape Offer'} · Valid {stay.escapeValidFrom} → {stay.escapeValidTo}
+            </div>
+          )}
+
+          {stay.isPlusVVVIP && stay.plusServices && stay.plusServices.length > 0 && (
+            <div className="text-[11px] text-amber-500 font-semibold mt-1 line-clamp-1">
+              VVVIP Services: {stay.plusServices.slice(0, 3).join(' · ')}
+            </div>
+          )}
 
           <div className="text-[11px] text-stone-400 dark:text-stone-500 mt-0.5 flex items-center justify-between">
             <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">

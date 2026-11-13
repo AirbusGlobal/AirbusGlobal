@@ -17,6 +17,7 @@ import {
   Film,
 } from 'lucide-react';
 import { ListingMedia } from '../types';
+import { VerifiedBadge } from './VerifiedBadge';
 
 export interface ListingMediaViewerProps {
   media?: ListingMedia;
@@ -284,8 +285,11 @@ export const ListingMediaViewer: React.FC<ListingMediaViewerProps> = ({
         </div>
       )}
 
-      {/* Top Right Badges & Controls */}
-      <div className="absolute top-4 right-4 z-30 flex items-center gap-2">
+      {/* AirBus Verified Animated Neon Badge (Upper-Right Corner, 8-12px Inset) */}
+      <VerifiedBadge isAbsolute size="md" />
+
+      {/* Top Right Badges & Controls (offset left of VerifiedBadge) */}
+      <div className="absolute top-3.5 right-16 md:right-20 z-30 flex items-center gap-2">
         {showBadge && (
           <span className="hidden sm:inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-black/60 backdrop-blur-md text-[11px] font-bold text-white border border-white/10 shadow-sm">
             <Sparkles className="w-3 h-3 text-[#ff2e93]" />

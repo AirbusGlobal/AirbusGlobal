@@ -25,6 +25,7 @@ import { api } from '../api';
 import { AdvertModal } from './AdvertModal';
 import { ViralityModal } from './ViralityModal';
 import { AdRequest } from '../types';
+import { VerifiedBadge } from './VerifiedBadge';
 
 interface ShortsViewProps {
   stays: Stay[];
@@ -277,8 +278,11 @@ export const ShortsView: React.FC<ShortsViewProps> = ({
         />
       )}
 
-      {/* Top Header Overlay with Ubiquitous Go Back */}
-      <div className="absolute top-4 inset-x-4 z-20 flex items-center justify-between pointer-events-none">
+      {/* AirBus Verified Animated Neon Badge (Upper-Right Corner, 8-12px Inset) */}
+      <VerifiedBadge isAbsolute size="md" />
+
+      {/* Top Header Overlay with Ubiquitous Go Back (cleared left of VerifiedBadge) */}
+      <div className="absolute top-3.5 inset-x-4 pr-14 md:pr-16 z-20 flex items-center justify-between pointer-events-none">
         <button
           onClick={onBackToFeed}
           className="pointer-events-auto bg-black/60 backdrop-blur-md text-white px-3 py-1.5 rounded-full text-xs font-bold flex items-center gap-1.5 hover:bg-black/80 transition-all cursor-pointer"

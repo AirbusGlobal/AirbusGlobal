@@ -45,6 +45,9 @@ import {
   Layers,
   ChevronLeft,
   ChevronRight,
+  Flame,
+  Compass,
+  Percent,
 } from 'lucide-react';
 import { AMENITY_GROUPS, PLANS } from '../constants';
 import { extractYouTubeId, getYouTubeThumbnailUrl, isYouTubeUrl } from '../utils/youtube';
@@ -131,6 +134,20 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
   const [editCustomGift, setEditCustomGift] = useState('');
   const [editHostMsg, setEditHostMsg] = useState('');
   const [editSaving, setEditSaving] = useState(false);
+
+  // Black Friday & AirBus Escapes Host Controls State
+  const [bfStayModal, setBfStayModal] = useState<Stay | null>(null);
+  const [bfOptIn, setBfOptIn] = useState<boolean>(true);
+  const [bfDiscountPercent, setBfDiscountPercent] = useState<number>(50);
+  const [bfSaving, setBfSaving] = useState<boolean>(false);
+
+  const [escapeStayModal, setEscapeStayModal] = useState<Stay | null>(null);
+  const [escapeActive, setEscapeActive] = useState<boolean>(true);
+  const [escapeTitle, setEscapeTitle] = useState<string>('');
+  const [escapeDiscountPct, setEscapeDiscountPct] = useState<number>(25);
+  const [escapeValidFrom, setEscapeValidFrom] = useState<string>('');
+  const [escapeValidTo, setEscapeValidTo] = useState<string>('');
+  const [escapeSaving, setEscapeSaving] = useState<boolean>(false);
 
   // New Stay Wizard State
   const [step, setStep] = useState(1);
@@ -1029,6 +1046,53 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                         >
                           <Gift className="w-3.5 h-3.5 text-amber-600" />
                           <span>Gifts &amp; Note ({s.welcomeGifts?.length || 0})</span>
+                        </button>
+
+                        <button
+                          onClick={() => {
+                            setBfStayModal(s);
+                            setBfOptIn(!!s.blackFridayOptIn);
+                            setBfDiscountPercent(s.blackFridayDiscountPercent || 45);
+                          }}
+                          className={`px-3 py-1.5 rounded-full text-xs font-bold border transition-colors flex items-center gap-1 cursor-pointer ${
+                            s.blackFridayOptIn
+                              ? 'bg-[#e4002b]/10 border-[#e4002b]/40 text-[#e4002b]'
+                              : 'border-stone-200 dark:border-stone-700 hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-700 dark:text-stone-300'
+                          }`}
+                          title="Opt listing into quarterly AirBus Black Friday drops (up to 50% off)"
+                        >
+                          <Flame className="w-3.5 h-3.5 text-[#e4002b]" />
+                          <span>
+                            {s.blackFridayOptIn
+                              ? `Black Friday (${s.blackFridayDiscountPercent || 50}% off)`
+                              : 'Black Friday Opt-In'}
+                          </span>
+                        </button>
+
+                        <button
+                          onClick={() => {
+                            const today = new Date().toISOString().slice(0, 10);
+                            const twoWeeks = new Date(Date.now() + 14 * 864e5).toISOString().slice(0, 10);
+                            setEscapeStayModal(s);
+                            setEscapeActive(!!s.isEscapeOffer);
+                            setEscapeTitle(s.escapeOfferTitle || 'Weekend Flash Escape');
+                            setEscapeDiscountPct(s.escapeDiscountPercent || 25);
+                            setEscapeValidFrom(s.escapeValidFrom || today);
+                            setEscapeValidTo(s.escapeValidTo || twoWeeks);
+                          }}
+                          className={`px-3 py-1.5 rounded-full text-xs font-bold border transition-colors flex items-center gap-1 cursor-pointer ${
+                            s.isEscapeOffer
+                              ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-700 dark:text-emerald-300'
+                              : 'border-stone-200 dark:border-stone-700 hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-700 dark:text-stone-300'
+                          }`}
+                          title="Create or edit an AirBus Escapes promotional deal"
+                        >
+                          <Compass className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                          <span>
+                            {s.isEscapeOffer
+                              ? `Escapes Offer (-${s.escapeDiscountPercent || 20}%)`
+                              : 'Escapes Offer'}
+                          </span>
                         </button>
 
                         <button
@@ -2840,6 +2904,257 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                 className="px-5 py-2.5 rounded-full bg-gradient-to-r from-[#ff2e93] to-[#8b5cf6] text-white text-xs font-bold shadow-md hover:opacity-95 cursor-pointer disabled:opacity-50"
               >
                 {generatingAiShort ? 'Generating AI Short...' : '✨ Yes, Generate AI Short'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: AirBus Black Friday Opt-In */}
+      {bfStayModal && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-[#15171e] text-stone-900 dark:text-stone-100 rounded-3xl p-6 max-w-md w-full shadow-2xl border border-stone-200 dark:border-stone-800 space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-9 h-9 rounded-xl bg-[#e4002b]/10 text-[#e4002b] flex items-center justify-center">
+                  <Flame className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-stone-900 dark:text-white">
+                    AirBus Black Friday Opt-In
+                  </h3>
+                  <p className="text-[11px] text-stone-500 line-clamp-1">{bfStayModal.title}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setBfStayModal(null)}
+                className="p-1.5 rounded-full hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-500 cursor-pointer"
+              >
+                <XCircle className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-xs text-stone-600 dark:text-stone-300 leading-relaxed">
+              AirBus Black Friday runs quarterly on the last Friday of March, June, September, and December. Opt this listing in ahead of time with up to 50% off your normal nightly price.
+            </p>
+
+            <label className="flex items-center justify-between p-3 rounded-2xl bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-800 cursor-pointer">
+              <span className="text-xs font-bold">Enroll listing in Black Friday drops</span>
+              <input
+                type="checkbox"
+                checked={bfOptIn}
+                onChange={e => setBfOptIn(e.target.checked)}
+                className="w-4 h-4 accent-[#e4002b]"
+              />
+            </label>
+
+            {bfOptIn && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-xs font-bold">
+                  <span>Black Friday Discount (up to 50%)</span>
+                  <span className="text-[#e4002b] font-black">{bfDiscountPercent}% OFF</span>
+                </div>
+                <input
+                  type="range"
+                  min={15}
+                  max={50}
+                  step={5}
+                  value={bfDiscountPercent}
+                  onChange={e => setBfDiscountPercent(Number(e.target.value))}
+                  className="w-full accent-[#e4002b]"
+                />
+                <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/50 text-xs flex items-center justify-between">
+                  <span className="text-stone-500 line-through">
+                    KES {bfStayModal.price.toLocaleString()}
+                  </span>
+                  <span className="font-black text-[#e4002b]">
+                    New: KES {Math.round(bfStayModal.price * (1 - bfDiscountPercent / 100)).toLocaleString()} / night
+                  </span>
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setBfStayModal(null)}
+                className="px-4 py-2 rounded-full border border-stone-200 dark:border-stone-700 text-xs font-bold text-stone-600 dark:text-stone-300 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={bfSaving}
+                onClick={async () => {
+                  setBfSaving(true);
+                  try {
+                    await onUpdateStay(bfStayModal.id, {
+                      blackFridayOptIn: bfOptIn,
+                      blackFridayDiscountPercent: bfOptIn ? bfDiscountPercent : 0,
+                    });
+                    showToast?.(
+                      bfOptIn
+                        ? `Opted "${bfStayModal.title}" into AirBus Black Friday (${bfDiscountPercent}% off)!`
+                        : 'Removed listing from AirBus Black Friday.'
+                    );
+                    setBfStayModal(null);
+                  } catch (err: any) {
+                    showToast?.(err.message || 'Could not update Black Friday setting.');
+                  } finally {
+                    setBfSaving(false);
+                  }
+                }}
+                className="px-5 py-2 rounded-full bg-[#e4002b] hover:bg-[#c90026] text-white text-xs font-extrabold shadow cursor-pointer disabled:opacity-50"
+              >
+                {bfSaving ? 'Saving...' : 'Save Black Friday Settings'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Create / Edit AirBus Escapes Offer */}
+      {escapeStayModal && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-[#15171e] text-stone-900 dark:text-stone-100 rounded-3xl p-6 max-w-md w-full shadow-2xl border border-stone-200 dark:border-stone-800 space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-9 h-9 rounded-xl bg-emerald-500/15 text-emerald-600 flex items-center justify-center">
+                  <Compass className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-stone-900 dark:text-white">
+                    AirBus Escapes Offer
+                  </h3>
+                  <p className="text-[11px] text-stone-500 line-clamp-1">{escapeStayModal.title}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEscapeStayModal(null)}
+                className="p-1.5 rounded-full hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-500 cursor-pointer"
+              >
+                <XCircle className="w-5 h-5" />
+              </button>
+            </div>
+
+            <label className="flex items-center justify-between p-3 rounded-2xl bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-800 cursor-pointer">
+              <span className="text-xs font-bold">Publish active Escapes special offer</span>
+              <input
+                type="checkbox"
+                checked={escapeActive}
+                onChange={e => setEscapeActive(e.target.checked)}
+                className="w-4 h-4 accent-emerald-600"
+              />
+            </label>
+
+            {escapeActive && (
+              <div className="space-y-3">
+                <div>
+                  <label className="text-[11px] font-bold text-stone-600 dark:text-stone-400 block mb-1">
+                    Offer Title
+                  </label>
+                  <input
+                    type="text"
+                    value={escapeTitle}
+                    onChange={e => setEscapeTitle(e.target.value)}
+                    placeholder="e.g. Weekend Coastal Flash Escape"
+                    className="w-full px-3 py-2 rounded-xl bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 text-xs outline-none"
+                  />
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between text-[11px] font-bold mb-1">
+                    <span className="text-stone-600 dark:text-stone-400">Discount Percentage</span>
+                    <span className="text-emerald-600 font-black">{escapeDiscountPct}% OFF</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={10}
+                    max={50}
+                    step={5}
+                    value={escapeDiscountPct}
+                    onChange={e => setEscapeDiscountPct(Number(e.target.value))}
+                    className="w-full accent-emerald-600"
+                  />
+                  <div className="mt-1.5 p-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/40 text-xs flex items-center justify-between">
+                    <span className="text-stone-500 line-through">
+                      Orig: KES {(escapeStayModal.escapeOriginalPrice || escapeStayModal.price).toLocaleString()}
+                    </span>
+                    <span className="font-black text-emerald-700 dark:text-emerald-300">
+                      Offer: KES {Math.round((escapeStayModal.escapeOriginalPrice || escapeStayModal.price) * (1 - escapeDiscountPct / 100)).toLocaleString()}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[11px] font-bold text-stone-600 dark:text-stone-400 block mb-1">
+                      Valid From
+                    </label>
+                    <input
+                      type="date"
+                      value={escapeValidFrom}
+                      onChange={e => setEscapeValidFrom(e.target.value)}
+                      className="w-full px-3 py-1.5 rounded-xl bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 text-xs outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold text-stone-600 dark:text-stone-400 block mb-1">
+                      Valid To
+                    </label>
+                    <input
+                      type="date"
+                      value={escapeValidTo}
+                      onChange={e => setEscapeValidTo(e.target.value)}
+                      className="w-full px-3 py-1.5 rounded-xl bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 text-xs outline-none"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setEscapeStayModal(null)}
+                className="px-4 py-2 rounded-full border border-stone-200 dark:border-stone-700 text-xs font-bold text-stone-600 dark:text-stone-300 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={escapeSaving}
+                onClick={async () => {
+                  setEscapeSaving(true);
+                  const origPrice = escapeStayModal.escapeOriginalPrice || escapeStayModal.price;
+                  const offerPrice = Math.round(origPrice * (1 - escapeDiscountPct / 100));
+                  try {
+                    await onUpdateStay(escapeStayModal.id, {
+                      isEscapeOffer: escapeActive,
+                      escapeOfferTitle: escapeActive ? (escapeTitle.trim() || 'Special Escapes Deal') : undefined,
+                      escapeOriginalPrice: origPrice,
+                      escapeOfferPrice: escapeActive ? offerPrice : origPrice,
+                      escapeDiscountPercent: escapeActive ? escapeDiscountPct : 0,
+                      escapeValidFrom: escapeActive ? escapeValidFrom : undefined,
+                      escapeValidTo: escapeActive ? escapeValidTo : undefined,
+                    });
+                    showToast?.(
+                      escapeActive
+                        ? `AirBus Escapes offer published for "${escapeStayModal.title}"!`
+                        : 'AirBus Escapes offer removed.'
+                    );
+                    setEscapeStayModal(null);
+                  } catch (err: any) {
+                    showToast?.(err.message || 'Failed to save Escapes offer.');
+                  } finally {
+                    setEscapeSaving(false);
+                  }
+                }}
+                className="px-5 py-2 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold shadow cursor-pointer disabled:opacity-50"
+              >
+                {escapeSaving ? 'Saving...' : 'Save Escapes Offer'}
               </button>
             </div>
           </div>

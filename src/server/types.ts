@@ -49,5 +49,19 @@ export interface DatabaseSchema {
   tripDatingContactUnlocks: import('../types').TripDatingContactUnlock[];
   snappAddCampaigns?: import('../types').SnappAddCampaign[];
   musicTracks?: import('../types').MusicTrack[];
+  localGuides?: import('../types').LocalGuideProfile[];
+  neighborhoodArticles?: import('../types').NeighborhoodArticle[];
+  blackFridaySubscribers?: import('../types').BlackFridaySubscriber[];
+  guideRequests?: Array<{
+    id: string;
+    guideId: string;
+    guideName: string;
+    userEmail: string;
+    userName: string;
+    area: string;
+    dates: string;
+    notes: string;
+    createdAt: number;
+  }>;
   isSingleAdminRegistered?: boolean;
 }

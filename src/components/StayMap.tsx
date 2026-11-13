@@ -16,6 +16,7 @@ import {
   ChevronDown,
   ChevronUp,
 } from 'lucide-react';
+import { VerifiedBadge } from './VerifiedBadge';
 
 interface StayMapProps {
   stays: Stay[];
@@ -539,6 +540,7 @@ export const StayMap: React.FC<StayMapProps> = ({
             ) : (
               <span className="text-[10px] text-white font-bold">AIRBUS</span>
             )}
+            <VerifiedBadge isAbsolute size="sm" className="!top-1 !right-1 scale-75 origin-top-right" />
             <span className="absolute bottom-1 right-1 bg-black/70 text-white text-[9px] font-bold px-1 rounded">
               ▶ Tour
             </span>

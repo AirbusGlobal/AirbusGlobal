@@ -8,6 +8,11 @@ import {
   MapPin,
   Sparkles,
   ExternalLink,
+  Flame,
+  Briefcase,
+  Compass,
+  Crown,
+  Map,
 } from 'lucide-react';
 import { Currency } from '../types';
 
@@ -27,6 +32,51 @@ export const Footer: React.FC<FooterProps> = ({
   onOpenPlans,
 }) => {
   const [activeTab, setActiveTab] = useState<'destinations' | 'experiences' | 'services'>('destinations');
+
+  const collections = [
+    {
+      tab: 'collection-black-friday',
+      title: 'AirBus Black Friday',
+      subtitle: 'Quarterly flash drops up to 50% off',
+      icon: Flame,
+      accent: 'text-[#e4002b]',
+    },
+    {
+      tab: 'collection-work',
+      title: 'AirBus Work',
+      subtitle: 'Monthly remote & corporate stays',
+      icon: Briefcase,
+      accent: 'text-sky-600 dark:text-sky-400',
+    },
+    {
+      tab: 'collection-escapes',
+      title: 'AirBus Escapes',
+      subtitle: 'Limited-time weekend & getaway offers',
+      icon: Compass,
+      accent: 'text-emerald-600 dark:text-emerald-400',
+    },
+    {
+      tab: 'collection-plus',
+      title: 'AirBus Plus',
+      subtitle: 'VVVIP luxury homes & hotel concierge',
+      icon: Crown,
+      accent: 'text-amber-500',
+    },
+    {
+      tab: 'collection-local',
+      title: 'AirBus Local',
+      subtitle: 'Neighborhood guides & host picks',
+      icon: Map,
+      accent: 'text-purple-600 dark:text-purple-400',
+    },
+    {
+      tab: 'collection-worldwide',
+      title: 'AirBus World Wide',
+      subtitle: 'International stays & global currencies',
+      icon: Globe,
+      accent: 'text-indigo-600 dark:text-indigo-400',
+    },
+  ];
 
   const destinations = [
     { city: 'Nairobi Kilimani', desc: 'Executive Penthouses & Lofts' },
@@ -152,6 +202,42 @@ export const Footer: React.FC<FooterProps> = ({
           )}
         </div>
 
+        {/* AirBus Collections 6-Link Showcase Section */}
+        <div className="pb-8 border-b border-stone-200 dark:border-stone-800 space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
+            <h3 className="font-extrabold text-stone-900 dark:text-white text-xs uppercase tracking-wider">
+              AirBus Collections
+            </h3>
+            <span className="text-[11px] text-stone-500">
+              Curated stays, quarterly Black Friday deals, VVVIP homes &amp; local guides
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            {collections.map(col => {
+              const IconComp = col.icon;
+              return (
+                <button
+                  key={col.tab}
+                  type="button"
+                  onClick={() => onNavigate(col.tab)}
+                  className="text-left p-3 rounded-2xl bg-white/80 dark:bg-stone-900/60 border border-stone-200/80 dark:border-stone-800 hover:border-stone-400 dark:hover:border-stone-600 hover:shadow-sm transition-all cursor-pointer group"
+                >
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <IconComp className={`w-3.5 h-3.5 shrink-0 ${col.accent}`} />
+                    <span className="font-extrabold text-stone-900 dark:text-white group-hover:underline text-xs truncate">
+                      {col.title}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-stone-500 dark:text-stone-400 line-clamp-2 leading-snug">
+                    {col.subtitle}
+                  </p>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
         {/* 4-Column Airbnb-Style Mega Footer Grid */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-8 pb-8 border-b border-stone-200 dark:border-stone-800">
           {/* Column 1: Support (Mimic Airbnb footer) */}
@@ -243,7 +329,7 @@ export const Footer: React.FC<FooterProps> = ({
                   className="hover:underline text-left font-bold text-rose-500 cursor-pointer flex items-center gap-1"
                 >
                   <Heart className="w-3 h-3 fill-rose-500" />
-                  <span>Trip Dating – Services Near You</span>
+                  <span>Trip Dating – Meet Like-Minded Singles</span>
                 </button>
               </li>
               <li>

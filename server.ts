@@ -387,6 +387,8 @@ app.get('/api/stays', (req, res) => {
       ownerEmail,
     } = req.query;
 
+    const viewerUser = getAuthUser(req);
+
     let stays = db.getStays({
       query: q as string,
       guests: guests ? parseInt(guests as string, 10) : undefined,
@@ -401,6 +403,7 @@ app.get('/api/stays', (req, res) => {
       checkOut: checkOut as string,
       beds: beds ? parseInt(beds as string, 10) : undefined,
       status: (status as any) || undefined,
+      viewerUser,
     });
 
     if (ownerEmail) {
@@ -415,7 +418,18 @@ app.get('/api/stays', (req, res) => {
 });
 
 app.get('/api/stays/:id', (req, res) => {
-  const stay = db.getStayById(req.params.id);
+  const viewerUser = getAuthUser(req);
+  const rawStay = db.getRaw().stays.find(s => s.id === req.params.id);
+  if (!rawStay) {
+    return res.status(404).json({ error: 'Stay not found' });
+  }
+  if (rawStay.isPlusVVVIP && !viewerUser?.isVVVIP && viewerUser?.role !== 'admin') {
+    return res.status(403).json({
+      error: 'VVVIP membership required to access AirBus Plus properties.',
+      requiresVVVIP: true,
+    });
+  }
+  const stay = db.getStayById(req.params.id, viewerUser);
   if (!stay) {
     return res.status(404).json({ error: 'Stay not found' });
   }
@@ -777,6 +791,31 @@ app.patch('/api/stays/:id', (req, res) => {
     'depositAmount',
     'depositReason',
     'depositRefundTerms',
+    'isVerified',
+    'blackFridayOptIn',
+    'blackFridayDiscountPercent',
+    'isAirbusWork',
+    'monthlyPrice',
+    'wifiSpeedMbps',
+    'hasDedicatedWorkspace',
+    'corporateInvoicingAvailable',
+    'isEscapeOffer',
+    'escapeOfferTitle',
+    'escapeOriginalPrice',
+    'escapeOfferPrice',
+    'escapeDiscountPercent',
+    'escapeValidFrom',
+    'escapeValidTo',
+    'isPlusVVVIP',
+    'plusServices',
+    'isLocalGuideExperience',
+    'localMarketNear',
+    'isWorldWide',
+    'country',
+    'countryCode',
+    'region',
+    'localCurrency',
+    'localCurrencyPrice',
   ];
 
   if (req.body.lat !== undefined && (typeof req.body.lat !== 'number' || isNaN(req.body.lat))) {
@@ -2990,6 +3029,82 @@ app.get('/api/admin/trip-dating/stats', (req, res) => {
   const stats = db.getTripDatingStats();
   const allProfiles = db.getTripDatingProfiles(user.email, undefined, { showAllStatuses: true });
   return res.json({ stats, profiles: allProfiles });
+});
+
+// -----------------------------------------------------------------------------
+// AIRBUS COLLECTIONS ENDPOINTS (With Server-Side VVVIP Gating)
+// -----------------------------------------------------------------------------
+app.get('/api/collections/:slug', (req, res) => {
+  const viewerUser = getAuthUser(req);
+  const slug = String(req.params.slug || '').toLowerCase();
+  const data = db.getCollectionData(slug, viewerUser);
+  return res.json(data);
+});
+
+app.post('/api/collections/black-friday/notify', (req, res) => {
+  const user = getAuthUser(req);
+  const email = (req.body?.email || user?.email || '').trim();
+  if (!email || !email.includes('@')) {
+    return res.status(400).json({ error: 'Please provide a valid email address for Black Friday reminders.' });
+  }
+  const result = db.subscribeBlackFriday(email);
+  return res.status(201).json({
+    ...result,
+    message: result.alreadySubscribed
+      ? 'You are already subscribed to quarterly AirBus Black Friday alerts!'
+      : 'You are on the VIP list! We will notify you before the next AirBus Black Friday event.',
+  });
+});
+
+app.post('/api/collections/vvvip/upgrade', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user) {
+    return res.status(401).json({ error: 'Please sign in first to become a VVVIP member.' });
+  }
+  const { mpesaCode, method } = req.body || {};
+  try {
+    // Allow wallet or Till 943210 activation (for manual payment, record transaction & grant/verify)
+    if (method === 'mpesa' && (!mpesaCode || String(mpesaCode).trim().length < 6)) {
+      return res.status(400).json({ error: 'Please provide a valid M-Pesa transaction code for Till 943210.' });
+    }
+    const updatedUser = db.upgradeUserToVVVIP(user.email, mpesaCode ? String(mpesaCode).trim().toUpperCase() : undefined);
+    const { passwordHash, ...safeUser } = updatedUser as any;
+    return res.json({
+      user: safeUser,
+      message: 'Congratulations! Your AirBus Plus VVVIP membership is now active.',
+    });
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'VVVIP upgrade failed.' });
+  }
+});
+
+app.post('/api/collections/local/request-guide', (req, res) => {
+  const user = getAuthUser(req);
+  const { guideId, area, dates, notes, guestEmail, guestName } = req.body || {};
+  if (!guideId) {
+    return res.status(400).json({ error: 'Guide ID is required.' });
+  }
+  const email = user?.email || guestEmail;
+  const name = user?.name || guestName || 'AirBus Guest';
+  if (!email) {
+    return res.status(400).json({ error: 'Please provide your email or sign in so the guide can reach you.' });
+  }
+  try {
+    const result = db.requestLocalGuide({
+      guideId,
+      userEmail: email,
+      userName: name,
+      area: area || 'Local Market Tour',
+      dates: dates || 'Flexible dates',
+      notes: notes || '',
+    });
+    return res.status(201).json({
+      ...result,
+      message: `Request sent to ${result.guide.name}! Expect a message or call within 30 minutes.`,
+    });
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'Could not submit guide request.' });
+  }
 });
 
 // -----------------------------------------------------------------------------
