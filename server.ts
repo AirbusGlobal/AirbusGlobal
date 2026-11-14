@@ -17,8 +17,22 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 const isProduction = process.env.NODE_ENV === 'production';
+const portArgIdx = process.argv.indexOf('--port');
+const cliPort =
+  portArgIdx !== -1 && process.argv[portArgIdx + 1]
+    ? parseInt(process.argv[portArgIdx + 1], 10)
+    : NaN;
+const envPort = process.env.PORT ? parseInt(process.env.PORT, 10) : NaN;
+const nginxPort = process.env.NGINX_PORT ? parseInt(process.env.NGINX_PORT, 10) : 8080;
+const defaultAppPort = process.env.DEFAULT_APP_PORT
+  ? parseInt(process.env.DEFAULT_APP_PORT, 10)
+  : 3000;
+const PORT = !Number.isNaN(cliPort)
+  ? cliPort
+  : !Number.isNaN(envPort) && (isProduction || envPort !== nginxPort)
+    ? envPort
+    : defaultAppPort;
 
 app.use(express.json({ limit: '65mb' }));
 
@@ -828,6 +842,7 @@ app.patch('/api/stays/:id', (req, res) => {
     'region',
     'localCurrency',
     'localCurrencyPrice',
+    'blockedDates',
   ];
 
   if (req.body.lat !== undefined && (typeof req.body.lat !== 'number' || isNaN(req.body.lat))) {
@@ -3502,7 +3517,7 @@ async function startServer() {
   if (!isProduction) {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: { middlewareMode: true, hmr: false, ws: false },
       appType: 'spa',
     });
     // Redirect legacy /AirbusGlobal paths to root
@@ -3519,9 +3534,16 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
+  const httpServer = app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 AirBus full-stack server running on http://0.0.0.0:${PORT}`);
+  });
+  httpServer.on('error', (err: NodeJS.ErrnoException) => {
+    console.error(`Failed to bind server on port ${PORT}:`, err.message);
+    process.exit(1);
   });
 }
 
-startServer();
+startServer().catch((err) => {
+  console.error('Fatal server startup error:', err);
+  process.exit(1);
+});

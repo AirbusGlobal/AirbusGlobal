@@ -45,6 +45,8 @@ import {
   Check,
   SlidersHorizontal,
   Navigation,
+  Palette,
+  ThumbsUp,
 } from 'lucide-react';
 import {
   TripDatingProfile,
@@ -312,6 +314,25 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
   const [selectedCity, setSelectedCity] = useState<string>('all');
   const [selectedIntention, setSelectedIntention] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [bgTheme, setBgTheme] = useState<'default' | 'facebook' | 'facebook_like'>(() => {
+    try {
+      const saved = localStorage.getItem('airbus_trip_dating_bg_theme');
+      if (saved === 'facebook' || saved === 'facebook_like') return saved;
+      return 'default';
+    } catch {
+      return 'default';
+    }
+  });
+  const isFacebookBg = bgTheme === 'facebook' || bgTheme === 'facebook_like';
+
+  const selectBgTheme = (next: 'default' | 'facebook' | 'facebook_like') => {
+    setBgTheme(next);
+    try {
+      localStorage.setItem('airbus_trip_dating_bg_theme', next);
+    } catch {
+      // Ignore storage errors
+    }
+  };
 
   // 3-Step Guided Entry Modal (shown once or on click "Find My Match")
   const [showGuidedEntry, setShowGuidedEntry] = useState<boolean>(false);
@@ -1455,27 +1476,68 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
     });
 
   return (
-    <div className="min-h-screen bg-neutral-950 text-neutral-100 pb-24 selection:bg-rose-500 selection:text-white">
+    <div
+      className={`min-h-screen pb-24 transition-colors duration-200 ${
+        bgTheme === 'facebook_like'
+          ? 'bg-[#1877F2] text-[#1C1E21] selection:bg-white selection:text-[#1877F2]'
+          : bgTheme === 'facebook'
+            ? 'bg-[#F0F2F5] text-[#1C1E21] selection:bg-[#1877F2] selection:text-white'
+            : 'bg-neutral-950 text-neutral-100 selection:bg-rose-500 selection:text-white'
+      }`}
+    >
       {/* Top Banner / Slogan Header */}
-      <div className="relative overflow-hidden bg-gradient-to-b from-rose-950/40 via-neutral-900 to-neutral-950 border-b border-rose-900/20 pt-8 pb-10 px-4 sm:px-6 lg:px-8">
-        <div className="absolute top-0 right-1/4 w-96 h-96 bg-rose-600/10 rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute bottom-0 left-1/4 w-96 h-96 bg-pink-600/10 rounded-full blur-3xl pointer-events-none" />
+      <div
+        className={`relative overflow-hidden border-b pt-8 pb-10 px-4 sm:px-6 lg:px-8 transition-colors duration-200 ${
+          isFacebookBg
+            ? 'bg-gradient-to-b from-[#1877F2] via-[#166FE5] to-[#1256B8] border-[#1877F2]/30 text-white'
+            : 'bg-gradient-to-b from-rose-950/40 via-neutral-900 to-neutral-950 border-rose-900/20'
+        }`}
+      >
+        <div
+          className={`absolute top-0 right-1/4 w-96 h-96 rounded-full blur-3xl pointer-events-none ${
+            isFacebookBg ? 'bg-white/10' : 'bg-rose-600/10'
+          }`}
+        />
+        <div
+          className={`absolute bottom-0 left-1/4 w-96 h-96 rounded-full blur-3xl pointer-events-none ${
+            isFacebookBg ? 'bg-sky-300/15' : 'bg-pink-600/10'
+          }`}
+        />
 
         <div className="max-w-4xl mx-auto text-center relative z-10">
-          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs font-semibold uppercase tracking-wider mb-4 animate-pulse">
-            <Flame className="w-3.5 h-3.5 text-rose-500 fill-rose-500" />
+          <div
+            className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-semibold uppercase tracking-wider mb-4 animate-pulse border ${
+              isFacebookBg
+                ? 'bg-white/15 border-white/30 text-white'
+                : 'bg-rose-500/10 border-rose-500/20 text-rose-400'
+            }`}
+          >
+            <Flame className={`w-3.5 h-3.5 ${isFacebookBg ? 'text-white fill-white' : 'text-rose-500 fill-rose-500'}`} />
             Verified AirBus Singles Near You
           </div>
 
           <h1 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight text-white mb-3">
-            Trip Dating <span className="text-transparent bg-clip-text bg-gradient-to-r from-rose-400 to-pink-500">– A Safer Way to Meet Like-Minded Singles</span>
+            Trip Dating{' '}
+            <span
+              className={
+                isFacebookBg
+                  ? 'text-[#E7F3FF]'
+                  : 'text-transparent bg-clip-text bg-gradient-to-r from-rose-400 to-pink-500'
+              }
+            >
+              – A Safer Way to Meet Like-Minded Singles
+            </span>
           </h1>
 
           {/* Action CTAs */}
           <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
             <button
               onClick={() => setShowRegisterModal(true)}
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-gradient-to-r from-rose-600 to-pink-600 hover:from-rose-500 hover:to-pink-500 text-white font-semibold text-sm shadow-lg shadow-rose-950/50 transition duration-150 active:scale-95"
+              className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-full font-semibold text-sm shadow-lg transition duration-150 active:scale-95 cursor-pointer ${
+                isFacebookBg
+                  ? 'bg-white hover:bg-[#E7F3FF] text-[#1877F2] shadow-blue-950/30'
+                  : 'bg-gradient-to-r from-rose-600 to-pink-600 hover:from-rose-500 hover:to-pink-500 text-white shadow-rose-950/50'
+              }`}
             >
               <UserPlus className="w-4 h-4" />
               Become a Trip Date · Free Forever
@@ -1486,43 +1548,126 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
                 setShowGuidedEntry(true);
                 setGuidedStep(1);
               }}
-              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full bg-neutral-800/80 hover:bg-neutral-800 border border-neutral-700/60 text-neutral-200 font-medium text-sm transition duration-150 active:scale-95"
+              className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-full font-medium text-sm transition duration-150 active:scale-95 cursor-pointer border ${
+                isFacebookBg
+                  ? 'bg-white/15 hover:bg-white/25 border-white/30 text-white'
+                  : 'bg-neutral-800/80 hover:bg-neutral-800 border-neutral-700/60 text-neutral-200'
+              }`}
             >
-              <Compass className="w-4 h-4 text-rose-400" />
+              <Compass className={`w-4 h-4 ${isFacebookBg ? 'text-white' : 'text-rose-400'}`} />
               3-Step Match Finder
             </button>
+
+            {/* Background Color Toggle: Default / Facebook Feed / Facebook Like Blue */}
+            <div
+              className={`inline-flex items-center gap-1 p-1 rounded-full border ${
+                isFacebookBg
+                  ? 'bg-black/20 border-white/25'
+                  : 'bg-neutral-900/90 border-neutral-700/70'
+              }`}
+              role="group"
+              aria-label="Trip Dating background color toggle"
+            >
+              <button
+                type="button"
+                onClick={() => selectBgTheme('default')}
+                aria-pressed={bgTheme === 'default'}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition cursor-pointer ${
+                  bgTheme === 'default'
+                    ? 'bg-white text-neutral-950 shadow-sm'
+                    : 'text-white/80 hover:text-white'
+                }`}
+              >
+                <Palette className="w-3.5 h-3.5" />
+                <span>Default</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => selectBgTheme('facebook')}
+                aria-pressed={bgTheme === 'facebook'}
+                title="Facebook Feed Background (#F0F2F5)"
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition cursor-pointer ${
+                  bgTheme === 'facebook'
+                    ? 'bg-white text-[#1877F2] shadow-sm'
+                    : 'text-white/85 hover:text-white'
+                }`}
+              >
+                <span className="w-2.5 h-2.5 rounded-full bg-[#F0F2F5] border border-black/20 shrink-0" />
+                <span>Facebook</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => selectBgTheme('facebook_like')}
+                aria-pressed={bgTheme === 'facebook_like'}
+                title="Facebook Like Blue Background (#1877F2)"
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition cursor-pointer ${
+                  bgTheme === 'facebook_like'
+                    ? 'bg-white text-[#1877F2] shadow-sm'
+                    : 'text-white/85 hover:text-white'
+                }`}
+              >
+                <ThumbsUp className="w-3.5 h-3.5" />
+                <span>FB Like</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>
 
       {/* Safety Policy Disclaimer Strip */}
-      <div className="bg-neutral-900/60 border-y border-neutral-800/60 px-4 py-2.5">
-        <div className="max-w-4xl mx-auto flex items-center justify-between text-xs text-neutral-400">
+      <div
+        className={`border-y px-4 py-2.5 transition-colors duration-200 ${
+          isFacebookBg
+            ? 'bg-white border-[#DADDE1]'
+            : 'bg-neutral-900/60 border-neutral-800/60'
+        }`}
+      >
+        <div
+          className={`max-w-4xl mx-auto flex items-center justify-between text-xs ${
+            isFacebookBg ? 'text-[#65676B]' : 'text-neutral-400'
+          }`}
+        >
           <div className="flex items-center gap-2">
-            <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+            <ShieldCheck className={`w-4 h-4 shrink-0 ${isFacebookBg ? 'text-[#1877F2]' : 'text-emerald-400'}`} />
             <span>
-              <strong className="text-neutral-200">Safety Shield:</strong> Automated content filtration ensures zero adult solicitation, zero commercial merchandise, and zero accommodation spam.
+              <strong className={isFacebookBg ? 'text-[#1C1E21]' : 'text-neutral-200'}>Safety Shield:</strong> Automated content filtration ensures zero adult solicitation, zero commercial merchandise, and zero accommodation spam.
             </span>
           </div>
-          <span className="hidden sm:inline text-neutral-500">M-Pesa Till 943210 · Buy Goods</span>
+          <span className={`hidden sm:inline ${isFacebookBg ? 'text-[#65676B]' : 'text-neutral-500'}`}>
+            M-Pesa Till 943210 · Buy Goods
+          </span>
         </div>
       </div>
 
       {/* Main Content Container */}
       <div className="max-w-3xl mx-auto px-4 sm:px-6 pt-6">
         {/* Filter Bar */}
-        <div className="bg-neutral-900/80 border border-neutral-800 rounded-2xl p-4 mb-6 shadow-xl backdrop-blur-sm">
+        <div
+          className={`border rounded-2xl p-4 mb-6 backdrop-blur-sm transition-colors duration-200 ${
+            isFacebookBg
+              ? 'bg-white border-[#DADDE1] shadow-sm'
+              : 'bg-neutral-900/80 border-neutral-800 shadow-xl'
+          }`}
+        >
           <div className="flex flex-col sm:flex-row gap-3">
             {/* Search */}
             <div className="relative flex-1">
-              <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-neutral-400" />
+              <Search
+                className={`w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 ${
+                  isFacebookBg ? 'text-[#65676B]' : 'text-neutral-400'
+                }`}
+              />
               <input
                 type="text"
                 placeholder="Search by name, hobby, neighborhood..."
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && loadProfiles()}
-                className="w-full bg-neutral-950 border border-neutral-800 rounded-xl pl-10 pr-4 py-2 text-sm text-neutral-200 placeholder-neutral-500 focus:outline-none focus:border-rose-500 focus:ring-1 focus:ring-rose-500"
+                className={`w-full border rounded-xl pl-10 pr-4 py-2 text-sm focus:outline-none ${
+                  isFacebookBg
+                    ? 'bg-[#F0F2F5] border-[#CED0D4] text-[#1C1E21] placeholder-[#65676B] focus:border-[#1877F2] focus:ring-1 focus:ring-[#1877F2]'
+                    : 'bg-neutral-950 border-neutral-800 text-neutral-200 placeholder-neutral-500 focus:border-rose-500 focus:ring-1 focus:ring-rose-500'
+                }`}
               />
             </div>
 
@@ -1531,7 +1676,11 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
               <select
                 value={selectedGender}
                 onChange={e => setSelectedGender(e.target.value)}
-                className="bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-xs font-medium text-neutral-300 focus:outline-none focus:border-rose-500"
+                className={`border rounded-xl px-3 py-2 text-xs font-medium focus:outline-none ${
+                  isFacebookBg
+                    ? 'bg-[#F0F2F5] border-[#CED0D4] text-[#1C1E21] focus:border-[#1877F2]'
+                    : 'bg-neutral-950 border-neutral-800 text-neutral-300 focus:border-rose-500'
+                }`}
               >
                 <option value="all">All Genders</option>
                 <option value="female">Women</option>
@@ -1541,7 +1690,11 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
               <select
                 value={selectedCity}
                 onChange={e => setSelectedCity(e.target.value)}
-                className="bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-xs font-medium text-neutral-300 focus:outline-none focus:border-rose-500"
+                className={`border rounded-xl px-3 py-2 text-xs font-medium focus:outline-none ${
+                  isFacebookBg
+                    ? 'bg-[#F0F2F5] border-[#CED0D4] text-[#1C1E21] focus:border-[#1877F2]'
+                    : 'bg-neutral-950 border-neutral-800 text-neutral-300 focus:border-rose-500'
+                }`}
               >
                 <option value="all">All Kenya</option>
                 <option value="Nairobi">Nairobi</option>
@@ -1555,7 +1708,11 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
               <select
                 value={filterDistance}
                 onChange={e => setFilterDistance(e.target.value === 'all' ? 'all' : Number(e.target.value))}
-                className="bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-xs font-medium text-neutral-300 focus:outline-none focus:border-rose-500"
+                className={`border rounded-xl px-3 py-2 text-xs font-medium focus:outline-none ${
+                  isFacebookBg
+                    ? 'bg-[#F0F2F5] border-[#CED0D4] text-[#1C1E21] focus:border-[#1877F2]'
+                    : 'bg-neutral-950 border-neutral-800 text-neutral-300 focus:border-rose-500'
+                }`}
                 title="Filter by distance from your current location"
               >
                 <option value="all">📍 Any Distance</option>
@@ -1568,7 +1725,11 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
               <select
                 value={selectedIntention}
                 onChange={e => setSelectedIntention(e.target.value)}
-                className="bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-xs font-medium text-neutral-300 focus:outline-none focus:border-rose-500"
+                className={`border rounded-xl px-3 py-2 text-xs font-medium focus:outline-none ${
+                  isFacebookBg
+                    ? 'bg-[#F0F2F5] border-[#CED0D4] text-[#1C1E21] focus:border-[#1877F2]'
+                    : 'bg-neutral-950 border-neutral-800 text-neutral-300 focus:border-rose-500'
+                }`}
               >
                 <option value="all">All Goals</option>
                 <option value="dating_companionship">Dating & Companionship</option>
@@ -1583,15 +1744,19 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
                 onClick={() => setShowAdvancedFiltersModal(true)}
                 className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold border transition cursor-pointer shrink-0 ${
                   advFilterAgeMin > 18 || advFilterAgeMax < 55 || advFilterTravelStyle !== 'all' || advFilterInterests.length > 0
-                    ? 'bg-rose-600/20 text-rose-300 border-rose-500/50 ring-1 ring-rose-500/40'
-                    : 'bg-neutral-950 hover:bg-neutral-800 text-neutral-300 border-neutral-800'
+                    ? isFacebookBg
+                      ? 'bg-[#E7F3FF] text-[#1877F2] border-[#1877F2]/40 ring-1 ring-[#1877F2]/30'
+                      : 'bg-rose-600/20 text-rose-300 border-rose-500/50 ring-1 ring-rose-500/40'
+                    : isFacebookBg
+                      ? 'bg-[#F0F2F5] hover:bg-[#E4E6EB] text-[#1C1E21] border-[#CED0D4]'
+                      : 'bg-neutral-950 hover:bg-neutral-800 text-neutral-300 border-neutral-800'
                 }`}
                 title="Open Advanced Filters"
               >
-                <SlidersHorizontal className="w-3.5 h-3.5 text-rose-400" />
+                <SlidersHorizontal className={`w-3.5 h-3.5 ${isFacebookBg ? 'text-[#1877F2]' : 'text-rose-400'}`} />
                 <span>Filters</span>
                 {(advFilterAgeMin > 18 || advFilterAgeMax < 55 || advFilterTravelStyle !== 'all' || advFilterInterests.length > 0) && (
-                  <span className="w-2 h-2 rounded-full bg-rose-500" />
+                  <span className={`w-2 h-2 rounded-full ${isFacebookBg ? 'bg-[#1877F2]' : 'bg-rose-500'}`} />
                 )}
               </button>
             </div>
@@ -1601,19 +1766,43 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
         {/* Loading State */}
         {loading && (
           <div className="py-20 text-center">
-            <div className="w-10 h-10 border-4 border-rose-500/20 border-t-rose-500 rounded-full animate-spin mx-auto mb-4" />
-            <p className="text-neutral-400 text-sm">Discovering verified singles near you...</p>
+            <div
+              className={`w-10 h-10 border-4 rounded-full animate-spin mx-auto mb-4 ${
+                bgTheme === 'facebook_like'
+                  ? 'border-white/30 border-t-white'
+                  : bgTheme === 'facebook'
+                    ? 'border-[#1877F2]/20 border-t-[#1877F2]'
+                    : 'border-rose-500/20 border-t-rose-500'
+              }`}
+            />
+            <p
+              className={`text-sm ${
+                bgTheme === 'facebook_like'
+                  ? 'text-white font-medium'
+                  : bgTheme === 'facebook'
+                    ? 'text-[#65676B]'
+                    : 'text-neutral-400'
+              }`}
+            >
+              Discovering verified singles near you...
+            </p>
           </div>
         )}
 
         {/* Error State */}
         {!loading && error && (
-          <div className="bg-red-950/40 border border-red-800/50 rounded-2xl p-6 text-center text-red-300 mb-8">
-            <AlertCircle className="w-8 h-8 mx-auto text-red-400 mb-2" />
+          <div
+            className={`border rounded-2xl p-6 text-center mb-8 ${
+              isFacebookBg
+                ? 'bg-white border-red-300 text-red-700 shadow-sm'
+                : 'bg-red-950/40 border-red-800/50 text-red-300'
+            }`}
+          >
+            <AlertCircle className={`w-8 h-8 mx-auto mb-2 ${isFacebookBg ? 'text-red-600' : 'text-red-400'}`} />
             <p className="font-semibold">{error}</p>
             <button
               onClick={loadProfiles}
-              className="mt-3 px-4 py-1.5 rounded-lg bg-red-800/50 hover:bg-red-700/50 text-xs font-medium text-white"
+              className="mt-3 px-4 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-xs font-medium text-white cursor-pointer"
             >
               Retry
             </button>
@@ -1622,10 +1811,18 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
 
         {/* Empty State */}
         {!loading && !error && displayedProfiles.length === 0 && (
-          <div className="bg-neutral-900 border border-neutral-800 rounded-3xl p-10 text-center max-w-md mx-auto">
-            <Flame className="w-12 h-12 text-rose-500/40 mx-auto mb-3" />
-            <h3 className="text-lg font-bold text-neutral-200">No profiles match these filters</h3>
-            <p className="text-xs text-neutral-400 mt-1 mb-6">
+          <div
+            className={`border rounded-3xl p-10 text-center max-w-md mx-auto ${
+              isFacebookBg
+                ? 'bg-white border-[#DADDE1] shadow-sm'
+                : 'bg-neutral-900 border-neutral-800'
+            }`}
+          >
+            <Flame className={`w-12 h-12 mx-auto mb-3 ${isFacebookBg ? 'text-[#1877F2]/60' : 'text-rose-500/40'}`} />
+            <h3 className={`text-lg font-bold ${isFacebookBg ? 'text-[#1C1E21]' : 'text-neutral-200'}`}>
+              No profiles match these filters
+            </h3>
+            <p className={`text-xs mt-1 mb-6 ${isFacebookBg ? 'text-[#65676B]' : 'text-neutral-400'}`}>
               Try widening your distance, gender, or keyword filters, or adjust advanced criteria!
             </p>
             <button
@@ -1640,7 +1837,11 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
                 setAdvFilterTravelStyle('all');
                 setAdvFilterInterests([]);
               }}
-              className="px-4 py-2 bg-neutral-800 hover:bg-neutral-700 text-xs font-semibold rounded-xl text-neutral-200 cursor-pointer"
+              className={`px-4 py-2 text-xs font-semibold rounded-xl cursor-pointer ${
+                isFacebookBg
+                  ? 'bg-[#1877F2] hover:bg-[#166FE5] text-white'
+                  : 'bg-neutral-800 hover:bg-neutral-700 text-neutral-200'
+              }`}
             >
               Reset All Filters
             </button>
@@ -1657,7 +1858,11 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
               return (
                 <article
                   key={profile.id}
-                  className="bg-neutral-900/90 border border-neutral-800 rounded-3xl overflow-hidden shadow-2xl transition hover:border-neutral-700/80 relative"
+                  className={`border rounded-3xl overflow-hidden transition relative ${
+                    isFacebookBg
+                      ? 'bg-white border-[#DADDE1] shadow-md hover:border-[#BCC0C4]'
+                      : 'bg-neutral-900/90 border-neutral-800 shadow-2xl hover:border-neutral-700/80'
+                  }`}
                 >
                   {/* Photo Gallery Viewer (up to 4 photos) */}
                   <div className="relative aspect-[4/3] sm:aspect-[16/10] bg-neutral-950 overflow-hidden group">
@@ -1797,8 +2002,17 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
                           onMouseLeave={() => setHoveredBioProfileId(null)}
                         >
                           <div className="flex items-center gap-2">
-                            <h2 className="text-2xl font-bold text-white tracking-tight cursor-pointer hover:text-rose-400 transition flex items-center gap-1.5">
-                              <span>{profile.fullName}</span>, <span className="text-rose-400 font-medium">{profile.age}</span>
+                            <h2
+                              className={`text-2xl font-bold tracking-tight cursor-pointer transition flex items-center gap-1.5 ${
+                                isFacebookBg
+                                  ? 'text-[#1C1E21] hover:text-[#1877F2]'
+                                  : 'text-white hover:text-rose-400'
+                              }`}
+                            >
+                              <span>{profile.fullName}</span>,{' '}
+                              <span className={`font-medium ${isFacebookBg ? 'text-[#1877F2]' : 'text-rose-400'}`}>
+                                {profile.age}
+                              </span>
                             </h2>
                             <span className="w-2 h-2 rounded-full bg-emerald-400" title="Verified Safe Profile" />
                           </div>
@@ -1843,13 +2057,23 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
                         </div>
 
                         {/* Location and Distance Proximity Badge */}
-                        <div className="flex items-center gap-2 text-xs text-neutral-400 mt-1 flex-wrap">
+                        <div
+                          className={`flex items-center gap-2 text-xs mt-1 flex-wrap ${
+                            isFacebookBg ? 'text-[#65676B]' : 'text-neutral-400'
+                          }`}
+                        >
                           <span className="flex items-center gap-1">
-                            <MapPin className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                            <MapPin className={`w-3.5 h-3.5 shrink-0 ${isFacebookBg ? 'text-[#1877F2]' : 'text-rose-400'}`} />
                             <span>{profile.location || profile.city}</span>
                           </span>
-                          <span className="px-2 py-0.5 rounded-full bg-rose-500/10 border border-rose-500/20 text-rose-300 text-[11px] font-medium flex items-center gap-1">
-                            <Navigation className="w-3 h-3 text-rose-400" />
+                          <span
+                            className={`px-2 py-0.5 rounded-full border text-[11px] font-medium flex items-center gap-1 ${
+                              isFacebookBg
+                                ? 'bg-[#E7F3FF] border-[#1877F2]/25 text-[#1877F2]'
+                                : 'bg-rose-500/10 border-rose-500/20 text-rose-300'
+                            }`}
+                          >
+                            <Navigation className={`w-3 h-3 ${isFacebookBg ? 'text-[#1877F2]' : 'text-rose-400'}`} />
                             <span>{profile.distanceKm} km away</span>
                           </span>
                         </div>
@@ -1870,7 +2094,7 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
                               r="19"
                               stroke="currentColor"
                               strokeWidth="3.5"
-                              className="text-neutral-800"
+                              className={isFacebookBg ? 'text-[#E4E6EB]' : 'text-neutral-800'}
                               fill="transparent"
                             />
                             <circle
@@ -1882,13 +2106,27 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
                               strokeDasharray={119.3}
                               strokeDashoffset={119.3 - (119.3 * profile.matchScore.score) / 100}
                               strokeLinecap="round"
-                              className="text-rose-500 transition-all duration-700 ease-out"
+                              className={`transition-all duration-700 ease-out ${
+                                isFacebookBg ? 'text-[#1877F2]' : 'text-rose-500'
+                              }`}
                               fill="transparent"
                             />
                           </svg>
                           <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
-                            <span className="text-[11px] font-extrabold text-white leading-none">{profile.matchScore.score}%</span>
-                            <span className="text-[7px] text-rose-400 font-bold uppercase tracking-wider">Match</span>
+                            <span
+                              className={`text-[11px] font-extrabold leading-none ${
+                                isFacebookBg ? 'text-[#1C1E21]' : 'text-white'
+                              }`}
+                            >
+                              {profile.matchScore.score}%
+                            </span>
+                            <span
+                              className={`text-[7px] font-bold uppercase tracking-wider ${
+                                isFacebookBg ? 'text-[#1877F2]' : 'text-rose-400'
+                              }`}
+                            >
+                              Match
+                            </span>
                           </div>
 
                           {/* Hover Tooltip: Heartwarming AI Compatibility Explanation */}
@@ -1913,8 +2151,14 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
                         </div>
 
                         {/* Views stats */}
-                        <div className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-neutral-800 text-neutral-300 text-xs">
-                          <Eye className="w-3.5 h-3.5 text-neutral-400" />
+                        <div
+                          className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs ${
+                            isFacebookBg
+                              ? 'bg-[#F0F2F5] text-[#65676B]'
+                              : 'bg-neutral-800 text-neutral-300'
+                          }`}
+                        >
+                          <Eye className={`w-3.5 h-3.5 ${isFacebookBg ? 'text-[#65676B]' : 'text-neutral-400'}`} />
                           <span>{profile.views || 0}</span>
                         </div>
 
@@ -1927,14 +2171,16 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
                               : 'hover:scale-105 active:scale-95'
                           } ${
                             profile.isLikedByViewer
-                              ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
-                              : 'bg-neutral-800 text-neutral-300 hover:text-rose-400 border border-neutral-700/60'
+                              ? 'bg-rose-500/20 text-rose-500 border border-rose-500/30'
+                              : isFacebookBg
+                                ? 'bg-[#F0F2F5] text-[#1C1E21] hover:text-rose-500 border border-[#DADDE1]'
+                                : 'bg-neutral-800 text-neutral-300 hover:text-rose-400 border border-neutral-700/60'
                           }`}
                           title={`Show interest in ${profile.fullName}`}
                         >
                           <Heart
                             className={`w-3.5 h-3.5 ${
-                              profile.isLikedByViewer ? 'fill-rose-400 text-rose-400' : ''
+                              profile.isLikedByViewer ? 'fill-rose-500 text-rose-500' : ''
                             }`}
                           />
                           <span>{profile.likes || 0}</span>
@@ -1948,7 +2194,11 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
                               e.stopPropagation();
                               setOpenCardMenuProfileId(openCardMenuProfileId === profile.id ? null : profile.id);
                             }}
-                            className="p-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-300 hover:text-white transition cursor-pointer"
+                            className={`p-1.5 rounded-lg transition cursor-pointer ${
+                              isFacebookBg
+                                ? 'bg-[#F0F2F5] hover:bg-[#E4E6EB] text-[#65676B] hover:text-[#1C1E21]'
+                                : 'bg-neutral-800 hover:bg-neutral-700 text-neutral-300 hover:text-white'
+                            }`}
                             title="More options"
                           >
                             <MoreVertical className="w-4 h-4" />
@@ -1986,8 +2236,14 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
 
                     {/* Dating Goal Tag */}
                     <div className="flex flex-wrap gap-2">
-                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs font-medium">
-                        <Sparkles className="w-3 h-3 text-rose-400" />
+                      <span
+                        className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md border text-xs font-medium ${
+                          isFacebookBg
+                            ? 'bg-[#E7F3FF] border-[#1877F2]/25 text-[#1877F2]'
+                            : 'bg-rose-500/10 border-rose-500/20 text-rose-300'
+                        }`}
+                      >
+                        <Sparkles className={`w-3 h-3 ${isFacebookBg ? 'text-[#1877F2]' : 'text-rose-400'}`} />
                         {profile.datingIntention === 'serious_relationship' && 'Looking for Serious Relationship'}
                         {profile.datingIntention === 'dating_companionship' && 'Dating & Companionship'}
                         {profile.datingIntention === 'travel_partner' && 'Travel & Adventure Partner'}
@@ -1996,14 +2252,30 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
                     </div>
 
                     {/* Bio Description */}
-                    <p className="text-sm text-neutral-300 leading-relaxed font-normal">
+                    <p
+                      className={`text-sm leading-relaxed font-normal ${
+                        isFacebookBg ? 'text-[#1C1E21]' : 'text-neutral-300'
+                      }`}
+                    >
                       {profile.description}
                     </p>
 
                     {/* Looking For snippet */}
                     {profile.lookingFor && (
-                      <div className="bg-neutral-950/70 border border-neutral-800 rounded-xl p-3.5 text-xs text-neutral-300">
-                        <span className="font-semibold text-rose-400 block mb-1">What I am looking for:</span>
+                      <div
+                        className={`border rounded-xl p-3.5 text-xs ${
+                          isFacebookBg
+                            ? 'bg-[#F0F2F5] border-[#DADDE1] text-[#1C1E21]'
+                            : 'bg-neutral-950/70 border-neutral-800 text-neutral-300'
+                        }`}
+                      >
+                        <span
+                          className={`font-semibold block mb-1 ${
+                            isFacebookBg ? 'text-[#1877F2]' : 'text-rose-400'
+                          }`}
+                        >
+                          What I am looking for:
+                        </span>
                         {profile.lookingFor}
                       </div>
                     )}
@@ -2019,15 +2291,31 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
                             setWatchingVideoIndex(0);
                             handleRecordView(profile.id);
                           }}
-                          className="flex-1 py-2.5 px-3.5 rounded-2xl bg-gradient-to-r from-rose-950/70 via-neutral-900 to-rose-950/70 border border-rose-500/40 hover:border-rose-400 text-rose-200 hover:text-white text-xs font-bold flex items-center justify-center gap-2 transition cursor-pointer shadow-md hover:shadow-rose-950/40 active:scale-[0.99] min-w-0"
+                          className={`flex-1 py-2.5 px-3.5 rounded-2xl border text-xs font-bold flex items-center justify-center gap-2 transition cursor-pointer shadow-md active:scale-[0.99] min-w-0 ${
+                            isFacebookBg
+                              ? 'bg-[#1877F2] hover:bg-[#166FE5] border-[#1877F2] text-white'
+                              : 'bg-gradient-to-r from-rose-950/70 via-neutral-900 to-rose-950/70 border-rose-500/40 hover:border-rose-400 text-rose-200 hover:text-white hover:shadow-rose-950/40'
+                          }`}
                         >
-                          <Video className="w-4 h-4 text-rose-400 shrink-0" />
+                          <Video className={`w-4 h-4 shrink-0 ${isFacebookBg ? 'text-white' : 'text-rose-400'}`} />
                           <span className="truncate">Watch {profile.fullName}&apos;s 9:16 Video</span>
-                          <span className="text-[10px] bg-rose-500/20 text-rose-300 font-mono px-1.5 py-0.5 rounded border border-rose-500/30 shrink-0">
+                          <span
+                            className={`text-[10px] font-mono px-1.5 py-0.5 rounded border shrink-0 ${
+                              isFacebookBg
+                                ? 'bg-black/20 text-white border-white/25'
+                                : 'bg-rose-500/20 text-rose-300 border-rose-500/30'
+                            }`}
+                          >
                             ⏱️ {profile.videoDuration || 60}s
                           </span>
                           {profile.videoFilter && profile.videoFilter !== 'normal' && (
-                            <span className="text-[10px] bg-purple-500/20 text-purple-300 font-semibold px-2 py-0.5 rounded-full border border-purple-500/30 hidden sm:flex items-center gap-1 shrink-0">
+                            <span
+                              className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border hidden sm:flex items-center gap-1 shrink-0 ${
+                                isFacebookBg
+                                  ? 'bg-white/20 text-white border-white/30'
+                                  : 'bg-purple-500/20 text-purple-300 border-purple-500/30'
+                              }`}
+                            >
                               <Wand2 className="w-2.5 h-2.5" />
                               {getVideoFilterBadge(profile.videoFilter)}
                             </span>
@@ -2048,13 +2336,21 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
                           } ${
                             profile.isLikedByViewer
                               ? 'bg-rose-600 hover:bg-rose-500 text-white border-rose-400 shadow-rose-950/60 ring-2 ring-rose-500/40'
-                              : 'bg-neutral-900 hover:bg-neutral-800 text-rose-300 border-rose-500/30 hover:border-rose-400'
+                              : isFacebookBg
+                                ? 'bg-[#F0F2F5] hover:bg-[#E4E6EB] text-[#1C1E21] border-[#CED0D4]'
+                                : 'bg-neutral-900 hover:bg-neutral-800 text-rose-300 border-rose-500/30 hover:border-rose-400'
                           }`}
                           title={`Show interest in ${profile.fullName}'s video profile`}
                         >
-                          <Heart className={`w-4 h-4 ${profile.isLikedByViewer ? 'fill-white text-white animate-bounce' : 'text-rose-400'}`} />
+                          <Heart className={`w-4 h-4 ${profile.isLikedByViewer ? 'fill-white text-white animate-bounce' : 'text-rose-500'}`} />
                           <span className="hidden xs:inline sm:inline">{profile.isLikedByViewer ? 'Interested ❤️' : 'Show Interest'}</span>
-                          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-black/50 text-white">
+                          <span
+                            className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${
+                              isFacebookBg && !profile.isLikedByViewer
+                                ? 'bg-[#E4E6EB] text-[#1C1E21]'
+                                : 'bg-black/50 text-white'
+                            }`}
+                          >
                             {profile.likes || 0}
                           </span>
                         </button>
@@ -2066,37 +2362,67 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
                             e.stopPropagation();
                             setReportModalProfile(profile);
                           }}
-                          className="py-2.5 px-3 rounded-2xl border border-neutral-800 bg-neutral-900/80 hover:bg-rose-950/40 hover:border-rose-500/40 text-neutral-400 hover:text-rose-300 text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer shadow-sm active:scale-95 shrink-0"
+                          className={`py-2.5 px-3 rounded-2xl border text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer shadow-sm active:scale-95 shrink-0 ${
+                            isFacebookBg
+                              ? 'border-[#CED0D4] bg-[#F0F2F5] hover:bg-red-50 hover:border-red-300 text-[#65676B] hover:text-red-600'
+                              : 'border-neutral-800 bg-neutral-900/80 hover:bg-rose-950/40 hover:border-rose-500/40 text-neutral-400 hover:text-rose-300'
+                          }`}
                           title="Report suspicious or inappropriate profile"
                         >
-                          <Flag className="w-3.5 h-3.5 text-neutral-400 hover:text-rose-400" />
+                          <Flag className="w-3.5 h-3.5" />
                           <span className="hidden sm:inline">Report</span>
                         </button>
                       </div>
                     )}
 
                     {/* Contact Access Section: 10-Minute Countdown OR KES 50 Unlock CTA */}
-                    <div className="pt-2 border-t border-neutral-800/80">
+                    <div className={`pt-2 border-t ${isFacebookBg ? 'border-[#DADDE1]' : 'border-neutral-800/80'}`}>
                       {isLocallyUnlocked ? (
-                        <div className="bg-gradient-to-r from-emerald-950/50 to-neutral-900 border border-emerald-500/40 rounded-2xl p-4 space-y-3">
+                        <div
+                          className={`border rounded-2xl p-4 space-y-3 ${
+                            isFacebookBg
+                              ? 'bg-emerald-50 border-emerald-200'
+                              : 'bg-gradient-to-r from-emerald-950/50 to-neutral-900 border-emerald-500/40'
+                          }`}
+                        >
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
                               <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" />
-                              <span className="text-xs font-bold uppercase tracking-wider text-emerald-400">
+                              <span
+                                className={`text-xs font-bold uppercase tracking-wider ${
+                                  isFacebookBg ? 'text-emerald-700' : 'text-emerald-400'
+                                }`}
+                              >
                                 Contact Unlocked (Live)
                               </span>
                             </div>
-                            <div className="flex items-center gap-1 text-xs font-mono font-bold text-amber-300 bg-amber-950/60 border border-amber-800/40 px-2.5 py-1 rounded-lg">
-                              <Clock className="w-3.5 h-3.5 text-amber-400" />
+                            <div
+                              className={`flex items-center gap-1 text-xs font-mono font-bold border px-2.5 py-1 rounded-lg ${
+                                isFacebookBg
+                                  ? 'text-amber-800 bg-amber-100 border-amber-300'
+                                  : 'text-amber-300 bg-amber-950/60 border-amber-800/40'
+                              }`}
+                            >
+                              <Clock className={`w-3.5 h-3.5 ${isFacebookBg ? 'text-amber-600' : 'text-amber-400'}`} />
                               <span>{formatCountdown(countdownSeconds || 600)} remaining</span>
                             </div>
                           </div>
 
                           {/* Revealed Phone Number */}
-                          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-neutral-950 border border-neutral-800 rounded-xl p-3">
+                          <div
+                            className={`flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 border rounded-xl p-3 ${
+                              isFacebookBg
+                                ? 'bg-white border-emerald-200'
+                                : 'bg-neutral-950 border-neutral-800'
+                            }`}
+                          >
                             <div className="flex items-center gap-2.5">
-                              <Phone className="w-4 h-4 text-emerald-400" />
-                              <span className="font-mono text-base font-bold text-white tracking-wide">
+                              <Phone className={`w-4 h-4 ${isFacebookBg ? 'text-emerald-600' : 'text-emerald-400'}`} />
+                              <span
+                                className={`font-mono text-base font-bold tracking-wide ${
+                                  isFacebookBg ? 'text-[#1C1E21]' : 'text-white'
+                                }`}
+                              >
                                 {profile.phoneNumber}
                               </span>
                             </div>
@@ -2104,7 +2430,11 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
                             <div className="flex items-center gap-2">
                               <button
                                 onClick={() => copyToClipboard(profile.phoneNumber || '')}
-                                className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-xs font-semibold text-neutral-200 transition"
+                                className={`flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                                  isFacebookBg
+                                    ? 'bg-[#E4E6EB] hover:bg-[#D8DADF] text-[#1C1E21]'
+                                    : 'bg-neutral-800 hover:bg-neutral-700 text-neutral-200'
+                                }`}
                               >
                                 <Copy className="w-3.5 h-3.5" />
                                 {copiedPhone === profile.phoneNumber ? 'Copied!' : 'Copy'}
@@ -2130,24 +2460,42 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
                             </div>
                           </div>
 
-                          <p className="text-[11px] text-neutral-400">
+                          <p className={`text-[11px] ${isFacebookBg ? 'text-[#65676B]' : 'text-neutral-400'}`}>
                             Verified via Till 943210. This contact window automatically closes when the timer reaches 00:00 to protect member privacy.
                           </p>
                         </div>
                       ) : (
-                        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-neutral-950/80 border border-neutral-800 rounded-2xl p-3.5">
+                        <div
+                          className={`flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 border rounded-2xl p-3.5 ${
+                            isFacebookBg
+                              ? 'bg-[#F0F2F5] border-[#DADDE1]'
+                              : 'bg-neutral-950/80 border-neutral-800'
+                          }`}
+                        >
                           <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-xl bg-neutral-900 border border-neutral-800 flex items-center justify-center shrink-0">
-                              <Lock className="w-5 h-5 text-rose-400" />
+                            <div
+                              className={`w-10 h-10 rounded-xl border flex items-center justify-center shrink-0 ${
+                                isFacebookBg
+                                  ? 'bg-white border-[#DADDE1]'
+                                  : 'bg-neutral-900 border-neutral-800'
+                              }`}
+                            >
+                              <Lock className={`w-5 h-5 ${isFacebookBg ? 'text-[#1877F2]' : 'text-rose-400'}`} />
                             </div>
                             <div>
                               <div className="flex items-center gap-2">
-                                <span className="font-mono text-sm font-semibold text-neutral-400 tracking-wider">
+                                <span
+                                  className={`font-mono text-sm font-semibold tracking-wider ${
+                                    isFacebookBg ? 'text-[#1C1E21]' : 'text-neutral-400'
+                                  }`}
+                                >
                                   {profile.phoneNumber || '+254 7•• ••• •••'}
                                 </span>
-                                <span className="text-[11px] font-medium text-neutral-500">(Protected)</span>
+                                <span className={`text-[11px] font-medium ${isFacebookBg ? 'text-[#65676B]' : 'text-neutral-500'}`}>
+                                  (Protected)
+                                </span>
                               </div>
-                              <p className="text-[11px] text-neutral-500">
+                              <p className={`text-[11px] ${isFacebookBg ? 'text-[#65676B]' : 'text-neutral-500'}`}>
                                 10-minute temporary unlock via M-Pesa Buy Goods Till 943210
                               </p>
                             </div>
@@ -2159,7 +2507,11 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
                               setPayerPhone(currentUser?.phone || '');
                               setPaymentMsg(null);
                             }}
-                            className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-rose-600 to-pink-600 hover:from-rose-500 hover:to-pink-500 text-white font-bold text-xs uppercase tracking-wider shadow-lg shadow-rose-950/40 transition active:scale-95 shrink-0"
+                            className={`inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider shadow-lg transition active:scale-95 shrink-0 cursor-pointer ${
+                              isFacebookBg
+                                ? 'bg-[#1877F2] hover:bg-[#166FE5] text-white shadow-blue-500/25'
+                                : 'bg-gradient-to-r from-rose-600 to-pink-600 hover:from-rose-500 hover:to-pink-500 text-white shadow-rose-950/40'
+                            }`}
                           >
                             <Sparkles className="w-3.5 h-3.5" />
                             SEE CONTACT · KES 50
