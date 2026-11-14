@@ -48,7 +48,21 @@ export interface DatabaseSchema {
   tripDatingPaymentRequests: import('../types').TripDatingPaymentRequest[];
   tripDatingContactUnlocks: import('../types').TripDatingContactUnlock[];
   snappAddCampaigns?: import('../types').SnappAddCampaign[];
-  musicTracks?: import('../types').MusicTrack[];
+  musicTracks?: import('../types').AudioTrack[];
+  audio_tracks?: import('../types').AudioTrack[];
+  audio_licenses?: import('../types').AudioLicense[];
+  short_jobs?: import('../types').ShortJob[];
+  short_audio?: import('../types').ShortAudioConfig[];
+  listing_audio?: import('../types').ListingAudioConfig[];
+  short_analytics?: Record<string, import('../types').ShortAnalyticsRecord>;
+  audioReports?: Array<{
+    id: string;
+    trackId: string;
+    postId?: string;
+    reporterEmail: string;
+    reason: string;
+    createdAt: number;
+  }>;
   localGuides?: import('../types').LocalGuideProfile[];
   neighborhoodArticles?: import('../types').NeighborhoodArticle[];
   blackFridaySubscribers?: import('../types').BlackFridaySubscriber[];

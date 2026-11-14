@@ -8,6 +8,10 @@ import {
   CURRENCY_RATES,
   ListingPromotion,
   BoostRecord,
+  Post,
+  ShortJob,
+  ListingAudioConfig,
+  ShortAudioConfig,
 } from '../types';
 import { api } from '../api';
 import {
@@ -48,11 +52,18 @@ import {
   Flame,
   Compass,
   Percent,
+  Video,
+  Music,
+  RefreshCw,
+  Captions,
 } from 'lucide-react';
 import { AMENITY_GROUPS, PLANS } from '../constants';
 import { extractYouTubeId, getYouTubeThumbnailUrl, isYouTubeUrl } from '../utils/youtube';
 import { ComplimentaryGiftsSelector } from './ComplimentaryGiftsSelector';
 import { ListingMediaViewer } from './ListingMediaViewer';
+import { ShortsCreatorModal } from './shorts/ShortsCreatorModal';
+import { ShortsAudioPickerSheet } from './shorts/ShortsAudioPickerSheet';
+import { getShortsTierRules } from '../config/shortsTierConfig';
 
 interface OwnerDashboardProps {
   user: User;
@@ -69,6 +80,7 @@ interface OwnerDashboardProps {
   onDescribeStayAI: (params: any) => Promise<{ description: string; highlights: string[] }>;
   currency: Currency;
   onBackToFeed?: () => void;
+  onNavigateToShorts?: () => void;
   showToast?: (msg: string) => void;
 }
 
@@ -87,9 +99,10 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
   onDescribeStayAI,
   currency,
   onBackToFeed,
+  onNavigateToShorts,
   showToast,
 }) => {
-  const [activeTab, setActiveTab] = useState<'listings' | 'reservations' | 'promotions' | 'new-stay' | 'insights'>('listings');
+  const [activeTab, setActiveTab] = useState<'listings' | 'reservations' | 'promotions' | 'shorts' | 'new-stay' | 'insights'>('listings');
 
   // Check if subscription is active
   const isPlanActive = plan.status === 'active' && plan.expiresAt > Date.now();
@@ -119,6 +132,180 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
   useEffect(() => {
     fetchPromotions();
   }, []);
+
+  // Shorts & Reels Auto-Creation + Per-Listing Tier Quotas + Gold Listing Audio State
+  const tierRules = getShortsTierRules(plan.tier, isPlanActive);
+  const [myShortJobs, setMyShortJobs] = useState<ShortJob[]>([]);
+  const [myShortsPosts, setMyShortsPosts] = useState<Post[]>([]);
+  const [shortsAnalyticsMap, setShortsAnalyticsMap] = useState<Record<string, { views: number; plays: number; replays: number; actionClicks: number }>>({});
+  const [loadingShorts, setLoadingShorts] = useState(false);
+  const [autoCreateShortOnUpload, setAutoCreateShortOnUpload] = useState(true);
+  const [autoShortCaptions, setAutoShortCaptions] = useState(true);
+  const [autoShortReviewBeforePosting, setAutoShortReviewBeforePosting] = useState(false);
+  const [creatorModalOpen, setCreatorModalOpen] = useState(false);
+  const [creatorFixedStay, setCreatorFixedStay] = useState<Stay | null>(null);
+  const [creatorInitialMedia, setCreatorInitialMedia] = useState<{
+    sourceType: 'video' | 'photo';
+    files: string[];
+    stayId?: string;
+    caption?: string;
+    label?: string;
+  } | undefined>(undefined);
+  const [listingAudioStay, setListingAudioStay] = useState<Stay | null>(null);
+  const [listingAudioSaving, setListingAudioSaving] = useState(false);
+
+  const loadCreatorShorts = async () => {
+    setLoadingShorts(true);
+    try {
+      const [jobsRes, feedRes, analyticsRes] = await Promise.all([
+        api.getShortJobs().catch(() => ({ jobs: [] })),
+        api.getShortsFeed({ ownerEmail: user.email }).catch(() => ({ posts: [] })),
+        api.getOwnerShortsAnalytics().catch(() => ({ byShort: [] })),
+      ]);
+      setMyShortJobs(jobsRes.jobs || []);
+      setMyShortsPosts(feedRes.posts || []);
+      const aMap: Record<string, { views: number; plays: number; replays: number; actionClicks: number }> = {};
+      for (const row of analyticsRes?.byShort || []) {
+        const clicksTotal = Object.values(row.clicks || {}).reduce((acc: number, v: any) => acc + (Number(v) || 0), 0);
+        aMap[row.shortId] = {
+          views: row.views || 0,
+          plays: row.plays || 0,
+          replays: row.replays || 0,
+          actionClicks: clicksTotal,
+        };
+      }
+      setShortsAnalyticsMap(aMap);
+    } finally {
+      setLoadingShorts(false);
+    }
+  };
+
+  useEffect(() => {
+    loadCreatorShorts();
+  }, [user.email]);
+
+  useEffect(() => {
+    const hasActiveJobs = myShortJobs.some(j => j.state === 'queued' || j.state === 'processing');
+    if (!hasActiveJobs) return;
+    const timer = window.setInterval(async () => {
+      try {
+        const res = await api.getShortJobs();
+        const prevMap = new Map(myShortJobs.map(j => [j.id, j.state]));
+        for (const job of res.jobs || []) {
+          const prev = prevMap.get(job.id);
+          if ((prev === 'queued' || prev === 'processing') && job.state === 'ready') {
+            showToast?.(
+              job.reviewBeforePosting
+                ? 'Your 9:16 Short draft is ready to review & publish!'
+                : 'Your 9:16 Short was automatically published to Shorts!'
+            );
+            api.getShortsFeed({ ownerEmail: user.email }).then(r => setMyShortsPosts(r.posts || [])).catch(() => {});
+          } else if ((prev === 'queued' || prev === 'processing') && job.state === 'failed') {
+            showToast?.(`Short generation failed: ${job.errorMessage || 'Please retry in Shorts & Reels tab.'}`);
+          }
+        }
+        setMyShortJobs(res.jobs || []);
+      } catch {}
+    }, 3000);
+    return () => window.clearInterval(timer);
+  }, [myShortJobs, user.email]);
+
+  const fileToDataUrl = (file: File): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.onerror = () => reject(new Error('Failed to read file'));
+      reader.readAsDataURL(file);
+    });
+
+  const getListingQuotaInfo = (stayId: string) => {
+    const publishedCount = myShortsPosts.filter(
+      p => (p.stayId === stayId || p.listing_id === stayId) && p.type === 'short'
+    ).length;
+    const activeJobCount = myShortJobs.filter(
+      j =>
+        j.stayId === stayId &&
+        (j.state === 'queued' || j.state === 'processing' || (j.state === 'ready' && !j.publishedPostId))
+    ).length;
+    const used = publishedCount + activeJobCount;
+    const limit = tierRules.shorts_per_listing;
+    return {
+      used,
+      limit,
+      remaining: Math.max(0, limit - used),
+      tier: plan.tier,
+      isPlanActive,
+      shortsAudioEnabled: tierRules.shorts_audio_enabled,
+    };
+  };
+
+  const handleOpenAutoCreateForMedia = (
+    stay: Stay,
+    sourceType: 'video' | 'photo',
+    files: string[],
+    label: string
+  ) => {
+    if (!isPlanActive || tierRules.shorts_per_listing <= 0) {
+      setGateModal({
+        isOpen: true,
+        title: 'Upgrade to Gold or Diamond',
+        message: isPlanActive
+          ? 'Auto-Create Shorts is locked on the Silver plan. Upgrade to Diamond (1 Short per listing) or Gold (5 Shorts per listing).'
+          : 'Your host subscription is inactive or expired. Activate Diamond or Gold to auto-create 9:16 Shorts from listing media.',
+        actionText: 'Upgrade to Gold or Diamond',
+      });
+      return;
+    }
+
+    const quota = getListingQuotaInfo(stay.id);
+    if (quota.remaining <= 0) {
+      setGateModal({
+        isOpen: true,
+        title: `Short Limit Reached (${quota.used}/${quota.limit})`,
+        message:
+          plan.tier === 'Diamond'
+            ? `This listing already uses ${quota.used} of ${quota.limit} Short allowed on Diamond. Delete an existing Short on this listing or upgrade to Gold (5 Shorts per listing).`
+            : `This listing has reached the maximum of ${quota.limit} Shorts. Delete an existing Short on this listing to create a new one.`,
+        actionText: plan.tier === 'Diamond' ? 'Upgrade to Gold (5 Shorts)' : 'View Plans',
+      });
+      return;
+    }
+
+    setCreatorFixedStay(stay);
+    setCreatorInitialMedia({
+      sourceType,
+      files,
+      stayId: stay.id,
+      caption: `${stay.title} · ${stay.location}`,
+      label,
+    });
+    setCreatorModalOpen(true);
+  };
+
+  const handleDeleteShort = async (postId: string) => {
+    try {
+      await api.deleteShortPost(postId);
+      setMyShortsPosts(prev => prev.filter(p => p.id !== postId));
+      setMyShortJobs(prev => prev.filter(j => j.publishedPostId !== postId));
+      showToast?.('Short deleted. 1 slot freed on this listing!');
+    } catch (err: any) {
+      showToast?.(err.message || 'Could not delete Short.');
+    }
+  };
+
+  const handleOpenListingAudio = (stay: Stay) => {
+    if (!isPlanActive || !tierRules.listing_audio_enabled) {
+      setGateModal({
+        isOpen: true,
+        title: 'Gold Plan Required for Listing Audio',
+        message:
+          'Adding background music or a voice-over directly to a listing page is an exclusive Gold Host feature. Upgrade to Gold to unlock.',
+        actionText: 'Upgrade to Gold',
+      });
+      return;
+    }
+    setListingAudioStay(stay);
+  };
 
   // Welcome Gifts & Host Greeting Wizard State
   const [welcomeGifts, setWelcomeGifts] = useState<string[]>([
@@ -460,7 +647,49 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
       });
 
       if (createdStay && createdStay.id) {
-        setAiShortPromptStay(createdStay);
+        if (autoCreateShortOnUpload && isPlanActive && tierRules.shorts_per_listing > 0) {
+          (async () => {
+            try {
+              let sourceType: 'video' | 'photo' = 'photo';
+              let mediaFiles: string[] = wizardPhotos.map(p => p.url).filter(Boolean);
+
+              if (videoFile && mediaMode !== 'photos') {
+                const dataUrl = await fileToDataUrl(videoFile);
+                const uploaded = await api.uploadShortMedia([dataUrl], 'video');
+                sourceType = 'video';
+                mediaFiles = uploaded.urls;
+              } else if (fullVideoUrl && !youtubeVideoId && !fullVideoUrl.startsWith('blob:') && mediaMode !== 'photos') {
+                sourceType = 'video';
+                mediaFiles = [fullVideoUrl];
+              }
+
+              if (mediaFiles.length > 0) {
+                const jobRes = await api.createShortJob({
+                  stayId: createdStay.id,
+                  sourceType,
+                  sourceFiles: mediaFiles,
+                  caption: `${title} · ${area} — ${desc?.slice(0, 110) || 'Book directly on AirBus'}`,
+                  hashtags: ['#AirBusStays', `#${area.replace(/[^a-zA-Z0-9]/g, '') || 'Kenya'}`, '#TravelKenya'],
+                  autoCaptionsEnabled: autoShortCaptions,
+                  reviewBeforePosting: autoShortReviewBeforePosting,
+                  audioConfig: {
+                    mode: 'none',
+                    audioStartSec: 0,
+                    originalVolume: 100,
+                    musicVolume: 0,
+                    voiceOverVolume: 0,
+                    autoDuckMusic: false,
+                  },
+                  idempotencyKey: `stay_auto_${createdStay.id}`,
+                });
+                setMyShortJobs(prev => [jobRes.job, ...prev]);
+                showToast?.('Auto-creating your 9:16 Short in the background!');
+              }
+            } catch (shortErr: any) {
+              console.warn('Auto Short creation failed:', shortErr);
+            }
+          })();
+        }
       }
 
       // Reset wizard
@@ -890,8 +1119,23 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
         </button>
 
         <button
+          onClick={() => setActiveTab('shorts')}
+          className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ${
+            activeTab === 'shorts'
+              ? 'bg-[#e4002b] text-white shadow-sm'
+              : 'text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800'
+          }`}
+        >
+          <Video className="w-4 h-4 text-rose-500" />
+          <span>Shorts &amp; Reels ({myShortsPosts.length})</span>
+          {myShortJobs.some(j => j.state === 'queued' || j.state === 'processing') && (
+            <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
+          )}
+        </button>
+
+        <button
           onClick={handleAddListingClick}
-          className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+          className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ${
             activeTab === 'new-stay'
               ? 'bg-[#e4002b] text-white shadow-sm'
               : 'text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800'
@@ -1019,10 +1263,39 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                         <button
                           onClick={() => openManageMediaModal(s)}
                           className="px-3 py-1.5 rounded-full text-xs font-bold border border-rose-300 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 hover:bg-rose-100 transition-colors flex items-center gap-1 cursor-pointer"
-                          title="Manage listing video tour and photo gallery"
+                          title="Manage listing video tour, photos & Auto-Create Shorts"
                         >
                           <Film className="w-3.5 h-3.5 text-rose-600" />
                           <span>Media ({s.hasVideo ? 'Video' : ''}{s.hasVideo && s.hasPhotos ? ' + ' : ''}{s.hasPhotos ? `${s.media?.photos?.length || s.images?.length || 1} Photos` : !s.hasVideo ? 'None' : ''})</span>
+                        </button>
+
+                        <button
+                          onClick={() => handleOpenListingAudio(s)}
+                          className={`px-3 py-1.5 rounded-full text-xs font-bold border transition-colors flex items-center gap-1 cursor-pointer ${
+                            s.listingAudio && s.listingAudio.mode !== 'none'
+                              ? 'bg-amber-500/15 border-amber-400 text-amber-700 dark:text-amber-300'
+                              : tierRules.listing_audio_enabled
+                              ? 'border-stone-200 dark:border-stone-700 hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-700 dark:text-stone-300'
+                              : 'border-stone-200 dark:border-stone-800 bg-stone-100 dark:bg-stone-900 text-stone-400'
+                          }`}
+                          title={
+                            tierRules.listing_audio_enabled
+                              ? 'Add optional music or voice-over to this listing page (Gold)'
+                              : 'Gold Plan required for Listing Page Audio'
+                          }
+                        >
+                          {tierRules.listing_audio_enabled ? (
+                            <Music className="w-3.5 h-3.5 text-amber-500" />
+                          ) : (
+                            <Lock className="w-3.5 h-3.5 text-stone-400" />
+                          )}
+                          <span>
+                            {s.listingAudio && s.listingAudio.mode !== 'none'
+                              ? 'Listing Audio Active'
+                              : tierRules.listing_audio_enabled
+                              ? 'Listing Audio (Optional)'
+                              : 'Listing Audio (Gold)'}
+                          </span>
                         </button>
 
                         <button
@@ -1223,6 +1496,226 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                         </div>
                       </div>
                     )}
+
+                    {/* Per-Listing Media Shorts Studio (Attached directly to each Video & Photo) */}
+                    {(() => {
+                      const quota = getListingQuotaInfo(s.id);
+                      const directVideo = s.media?.video?.url || s.videoUrl;
+                      const hasDirectVideo = Boolean(directVideo && !isYouTubeUrl(directVideo) && !directVideo.startsWith('blob:'));
+                      const stayPhotos = Array.from(
+                        new Set(
+                          (
+                            s.media?.photos?.map(p => p.url) ||
+                            s.images ||
+                            (s.thumbnailUrl ? [s.thumbnailUrl] : [])
+                          ).filter(Boolean)
+                        )
+                      );
+                      const stayShorts = myShortsPosts.filter(
+                        p => (p.stayId === s.id || p.listing_id === s.id) && p.type === 'short'
+                      );
+                      const stayJobs = myShortJobs.filter(j => j.stayId === s.id);
+                      const lockedNoTier = !isPlanActive || tierRules.shorts_per_listing <= 0;
+
+                      return (
+                        <div className="p-3.5 rounded-2xl bg-stone-50 dark:bg-stone-900/70 border border-stone-200 dark:border-stone-800 space-y-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <Video className="w-4 h-4 text-[#e4002b]" />
+                              <span className="text-xs font-extrabold text-stone-900 dark:text-white">
+                                Listing Shorts &amp; Audio
+                              </span>
+                              {lockedNoTier ? (
+                                <button
+                                  type="button"
+                                  onClick={onOpenPlanModal}
+                                  className="px-2 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-[10px] font-bold text-amber-700 dark:text-amber-300 flex items-center gap-1 cursor-pointer"
+                                >
+                                  <Lock className="w-3 h-3" />
+                                  <span>Upgrade to Gold or Diamond</span>
+                                </button>
+                              ) : (
+                                <span
+                                  className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                    quota.remaining > 0
+                                      ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+                                      : 'bg-rose-500/15 text-rose-700 dark:text-rose-300'
+                                  }`}
+                                >
+                                  Shorts used: {quota.used} of {quota.limit} ({plan.tier})
+                                </span>
+                              )}
+                            </div>
+
+                            {s.listingAudio && s.listingAudio.mode !== 'none' && (
+                              <div className="flex items-center gap-2 text-[11px]">
+                                <span className="text-amber-600 dark:text-amber-300 font-semibold flex items-center gap-1">
+                                  <Music className="w-3 h-3" />
+                                  {s.listingAudio.trackTitle || 'Listing Voice-Over'}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    await api.deleteListingAudio(s.id);
+                                    onUpdateStay(s.id, { listingAudio: null, listingAudioLocked: false });
+                                    showToast?.('Listing audio removed.');
+                                  }}
+                                  className="text-rose-500 font-bold hover:underline cursor-pointer"
+                                >
+                                  Remove
+                                </button>
+                              </div>
+                            )}
+                          </div>
+
+                          {s.listingAudioLocked && (
+                            <div className="p-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-[11px] text-amber-800 dark:text-amber-300 flex items-center justify-between gap-2">
+                              <span>Your saved listing audio is preserved cleanly, and is currently inactive until you upgrade back to Gold.</span>
+                              <button
+                                type="button"
+                                onClick={onOpenPlanModal}
+                                className="px-2.5 py-1 rounded-full bg-amber-500 text-black text-[10px] font-extrabold shrink-0 cursor-pointer"
+                              >
+                                Upgrade to Gold
+                              </button>
+                            </div>
+                          )}
+
+                          {/* Individual Videos & Photos with attached "Auto Create Short" action */}
+                          <div className="flex flex-wrap gap-2.5">
+                            {hasDirectVideo && directVideo && (
+                              <div className="flex items-center gap-2 p-2 rounded-xl bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700">
+                                <div className="w-11 h-11 rounded-lg bg-black overflow-hidden relative shrink-0 flex items-center justify-center">
+                                  {s.thumbnailUrl ? (
+                                    <img src={s.thumbnailUrl} alt="Listing video" className="w-full h-full object-cover opacity-80" />
+                                  ) : (
+                                    <Film className="w-4 h-4 text-white" />
+                                  )}
+                                  <span className="absolute bottom-0.5 right-0.5 bg-black/80 text-white text-[8px] font-bold px-1 rounded">
+                                    VID
+                                  </span>
+                                </div>
+                                <div className="space-y-1">
+                                  <span className="text-[11px] font-bold text-stone-800 dark:text-stone-200 block">
+                                    Listing Video
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenAutoCreateForMedia(s, 'video', [directVideo], 'Listing Video')}
+                                    className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold flex items-center gap-1 cursor-pointer ${
+                                      lockedNoTier || quota.remaining <= 0
+                                        ? 'bg-stone-200 dark:bg-stone-700 text-stone-600 dark:text-stone-300'
+                                        : 'bg-[#e4002b] hover:bg-[#c90026] text-white shadow-xs'
+                                    }`}
+                                  >
+                                    {lockedNoTier ? <Lock className="w-3 h-3" /> : <Video className="w-3 h-3" />}
+                                    <span>Auto Create Short</span>
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+
+                            {stayPhotos.slice(0, 6).map((photoUrl, pIdx) => (
+                              <div
+                                key={`${s.id}_p_${pIdx}`}
+                                className="flex items-center gap-2 p-2 rounded-xl bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700"
+                              >
+                                <img
+                                  src={photoUrl}
+                                  alt={`Photo ${pIdx + 1}`}
+                                  className="w-11 h-11 rounded-lg object-cover shrink-0 border border-stone-200 dark:border-stone-700"
+                                />
+                                <div className="space-y-1">
+                                  <span className="text-[11px] font-bold text-stone-800 dark:text-stone-200 block">
+                                    Photo #{pIdx + 1}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenAutoCreateForMedia(s, 'photo', [photoUrl], `Photo #${pIdx + 1}`)}
+                                    className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold flex items-center gap-1 cursor-pointer ${
+                                      lockedNoTier || quota.remaining <= 0
+                                        ? 'bg-stone-200 dark:bg-stone-700 text-stone-600 dark:text-stone-300'
+                                        : 'bg-gradient-to-r from-[#ff2e93] to-[#8b5cf6] text-white shadow-xs'
+                                    }`}
+                                  >
+                                    {lockedNoTier ? <Lock className="w-3 h-3" /> : <ImageIcon className="w-3 h-3" />}
+                                    <span>Auto Create Short</span>
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+
+                          {/* Active Short Jobs or Published Shorts for this Listing */}
+                          {(stayJobs.some(j => j.state === 'queued' || j.state === 'processing' || j.state === 'failed') ||
+                            stayShorts.length > 0) && (
+                            <div className="pt-2 border-t border-stone-200 dark:border-stone-800 space-y-1.5">
+                              {stayJobs
+                                .filter(j => j.state === 'queued' || j.state === 'processing' || j.state === 'failed')
+                                .map(job => (
+                                  <div
+                                    key={job.id}
+                                    className="flex items-center justify-between gap-2 text-[11px] bg-white dark:bg-stone-800 px-2.5 py-1.5 rounded-xl border border-stone-200 dark:border-stone-700"
+                                  >
+                                    <span className="truncate font-semibold">
+                                      Job ({job.state} · {job.progress}%): {job.stageLabel}
+                                    </span>
+                                    {job.state === 'failed' && (
+                                      <button
+                                        type="button"
+                                        onClick={async () => {
+                                          const r = await api.retryShortJob(job.id);
+                                          setMyShortJobs(prev => prev.map(x => (x.id === job.id ? r.job : x)));
+                                          showToast?.('Retrying Short creation...');
+                                        }}
+                                        className="px-2 py-0.5 rounded-full bg-[#e4002b] text-white text-[10px] font-bold cursor-pointer"
+                                      >
+                                        Retry
+                                      </button>
+                                    )}
+                                  </div>
+                                ))}
+
+                              {stayShorts.map(post => {
+                                const stats = shortsAnalyticsMap[post.id];
+                                return (
+                                  <div
+                                    key={post.id}
+                                    className="flex flex-wrap items-center justify-between gap-2 text-[11px] bg-white dark:bg-stone-800 px-2.5 py-1.5 rounded-xl border border-stone-200 dark:border-stone-700"
+                                  >
+                                    <span className="font-bold text-stone-800 dark:text-stone-200 truncate max-w-[200px]">
+                                      Short: {post.caption || post.description || 'Short Reel'}
+                                    </span>
+                                    <div className="flex items-center gap-3 text-stone-500">
+                                      <span>Plays: {stats?.plays ?? post.plays ?? 0}</span>
+                                      <span>Replays: {stats?.replays ?? post.replays ?? 0}</span>
+                                      <span>Clicks: {stats?.actionClicks ?? post.actionClicks ?? 0}</span>
+                                      {onNavigateToShorts && (
+                                        <button
+                                          type="button"
+                                          onClick={onNavigateToShorts}
+                                          className="text-[#e4002b] font-bold hover:underline cursor-pointer"
+                                        >
+                                          Watch
+                                        </button>
+                                      )}
+                                      <button
+                                        type="button"
+                                        onClick={() => handleDeleteShort(post.id)}
+                                        className="text-rose-500 font-bold hover:underline cursor-pointer flex items-center gap-0.5"
+                                      >
+                                        <Trash2 className="w-3 h-3" />
+                                        <span>Delete</span>
+                                      </button>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
 
                     {/* Performance Metrics Bar */}
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-3 border-t border-stone-100 dark:border-stone-800 text-xs">
@@ -1688,6 +2181,270 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                         })}
                   </tbody>
                 </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* TAB: CREATOR SHORTS & REELS STUDIO (Per-Listing Jobs & Published Shorts Overview) */}
+      {activeTab === 'shorts' && (
+        <div className="space-y-6">
+          <div className="p-5 bg-white dark:bg-[#15171e] rounded-3xl border border-stone-200 dark:border-stone-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h2 className="text-lg font-extrabold text-stone-900 dark:text-white flex items-center gap-2">
+                <Video className="w-5 h-5 text-[#e4002b]" />
+                <span>Host Shorts Studio ({plan.tier} Tier)</span>
+              </h2>
+              <p className="text-xs text-stone-500 mt-0.5">
+                {tierRules.shorts_per_listing > 0
+                  ? `You can auto-create up to ${tierRules.shorts_per_listing} Short${tierRules.shorts_per_listing > 1 ? 's' : ''} per listing directly from any listing's video or photos in My Stays.`
+                  : 'Upgrade to Diamond (1 Short/listing) or Gold (5 Shorts/listing) to unlock Auto-Create Shorts on your listings.'}
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {onNavigateToShorts && (
+                <button
+                  type="button"
+                  onClick={onNavigateToShorts}
+                  className="px-4 py-2 rounded-full border border-stone-200 dark:border-stone-700 text-xs font-bold text-stone-700 dark:text-stone-200 hover:bg-stone-100 dark:hover:bg-stone-800 cursor-pointer"
+                >
+                  Watch Public Shorts Feed
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setActiveTab('listings')}
+                className="px-4 py-2 rounded-full bg-[#e4002b] hover:bg-[#c90026] text-white text-xs font-bold shadow cursor-pointer flex items-center gap-1.5"
+              >
+                <Film className="w-4 h-4" />
+                <span>Create from Listing Media</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Background Jobs Queue */}
+          {myShortJobs.length > 0 && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-extrabold text-stone-900 dark:text-white">
+                  Background Creation Jobs ({myShortJobs.length})
+                </h3>
+                <button
+                  type="button"
+                  onClick={loadCreatorShorts}
+                  className="text-xs font-bold text-stone-500 hover:text-stone-900 dark:hover:text-white flex items-center gap-1 cursor-pointer"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${loadingShorts ? 'animate-spin' : ''}`} />
+                  <span>Refresh</span>
+                </button>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {myShortJobs.map(job => (
+                  <div
+                    key={job.id}
+                    className="p-4 rounded-2xl bg-white dark:bg-[#15171e] border border-stone-200 dark:border-stone-800 space-y-2.5"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span
+                        className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full ${
+                          job.state === 'ready'
+                            ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
+                            : job.state === 'failed'
+                            ? 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300'
+                            : 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
+                        }`}
+                      >
+                        {job.state === 'ready'
+                          ? job.publishedPostId && job.reviewBeforePosting
+                            ? 'Draft / Ready'
+                            : 'Ready & Published'
+                          : job.state}
+                      </span>
+                      <span className="text-[11px] font-mono text-stone-400">
+                        {job.sourceType.toUpperCase()} · {job.progress}%
+                      </span>
+                    </div>
+
+                    <p className="text-xs font-bold text-stone-900 dark:text-white line-clamp-2">
+                      {job.caption}
+                    </p>
+
+                    <div className="w-full h-1.5 rounded-full bg-stone-100 dark:bg-stone-800 overflow-hidden">
+                      <div
+                        className={`h-full transition-all ${
+                          job.state === 'failed' ? 'bg-rose-500' : 'bg-[#e4002b]'
+                        }`}
+                        style={{ width: `${job.progress}%` }}
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between text-[11px] text-stone-500">
+                      <span className="truncate flex items-center gap-1">
+                        <Music className="w-3 h-3 text-[#e4002b]" />
+                        {job.audioConfig?.trackTitle || 'Auto-assigned soundtrack'}
+                      </span>
+                      <span className="shrink-0">{job.stageLabel}</span>
+                    </div>
+
+                    {job.errorMessage && (
+                      <div className="p-2 rounded-xl bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 text-[11px]">
+                        {job.errorMessage}
+                      </div>
+                    )}
+
+                    <div className="flex items-center gap-2 pt-1">
+                      {job.state === 'failed' && (
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            try {
+                              const res = await api.retryShortJob(job.id);
+                              setMyShortJobs(prev => prev.map(item => (item.id === job.id ? res.job : item)));
+                              showToast?.('Retrying Short creation in background...');
+                            } catch (err: any) {
+                              showToast?.(err.message || 'Retry failed');
+                            }
+                          }}
+                          className="px-3 py-1.5 rounded-full bg-[#e4002b] text-white text-xs font-bold flex items-center gap-1 cursor-pointer"
+                        >
+                          <RefreshCw className="w-3.5 h-3.5" />
+                          <span>Retry</span>
+                        </button>
+                      )}
+                      {job.state === 'ready' && job.reviewBeforePosting && (
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            try {
+                              const res = await api.publishDraftShort(job.id);
+                              showToast?.('Short published to Shorts & Reels!');
+                              setMyShortsPosts(prev => [res.post, ...prev.filter(p => p.id !== res.post.id)]);
+                              loadCreatorShorts();
+                            } catch (err: any) {
+                              showToast?.(err.message || 'Failed to publish draft');
+                            }
+                          }}
+                          className="px-3 py-1.5 rounded-full bg-emerald-600 text-white text-xs font-bold flex items-center gap-1 cursor-pointer"
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span>Confirm &amp; Publish</span>
+                        </button>
+                      )}
+                      {job.state === 'ready' && job.outputVideoUrl && onNavigateToShorts && (
+                        <button
+                          type="button"
+                          onClick={onNavigateToShorts}
+                          className="px-3 py-1.5 rounded-full bg-stone-100 dark:bg-stone-800 text-stone-800 dark:text-stone-200 text-xs font-bold ml-auto cursor-pointer"
+                        >
+                          Watch in Shorts
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Published Shorts Grid */}
+          <div className="space-y-3">
+            <h3 className="text-sm font-extrabold text-stone-900 dark:text-white">
+              Published Shorts &amp; Reels ({myShortsPosts.length})
+            </h3>
+            {myShortsPosts.length === 0 ? (
+              <div className="p-10 text-center bg-white dark:bg-[#15171e] rounded-3xl border border-dashed border-stone-200 dark:border-stone-800 space-y-3">
+                <Video className="w-10 h-10 text-stone-400 mx-auto" />
+                <p className="text-xs text-stone-500">
+                  No Shorts published yet. Open any listing in My Stays and click Auto Create Short beside its video or photos.
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {myShortsPosts.map(post => {
+                  const linkedStay = myStays.find(st => st.id === (post.stayId || post.listing_id));
+                  const stats = shortsAnalyticsMap[post.id];
+                  return (
+                    <div
+                      key={post.id}
+                      className="rounded-3xl bg-white dark:bg-[#15171e] border border-stone-200 dark:border-stone-800 overflow-hidden shadow-xs flex flex-col"
+                    >
+                      <div className="relative aspect-[9/16] max-h-80 bg-black overflow-hidden">
+                        {post.videoUrl ? (
+                          <video
+                            src={post.videoUrl}
+                            poster={post.coverUrl}
+                            controls
+                            playsInline
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <img
+                            src={post.coverUrl || 'https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?auto=format&fit=crop&w=600&q=80'}
+                            alt={post.caption || post.description}
+                            className="w-full h-full object-cover"
+                          />
+                        )}
+                        <span className="absolute top-2.5 left-2.5 px-2 py-0.5 rounded-full bg-black/70 text-white text-[10px] font-bold uppercase">
+                          {post.sourceType || 'video'} · {post.status || 'approved'}
+                        </span>
+                      </div>
+                      <div className="p-4 space-y-2 flex-1 flex flex-col justify-between">
+                        <div>
+                          {linkedStay && (
+                            <span className="text-[10px] font-extrabold text-[#e4002b] block truncate mb-0.5">
+                              Listing: {linkedStay.title}
+                            </span>
+                          )}
+                          <p className="text-xs font-bold text-stone-900 dark:text-white line-clamp-2">
+                            {post.caption || post.description}
+                          </p>
+                          {post.shortAudio && post.shortAudio.mode !== 'none' && (post.shortAudio.trackTitle || post.shortAudio.voiceOverUrl) && (
+                            <div className="text-[11px] text-[#e4002b] font-semibold mt-1 flex items-center gap-1 truncate">
+                              <Music className="w-3 h-3 shrink-0" />
+                              <span className="truncate">
+                                Audio: {post.shortAudio.trackTitle || 'Host Voice-Over'}
+                                {post.shortAudio.trackArtist ? ` - ${post.shortAudio.trackArtist}` : ''}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex items-center justify-between pt-2 border-t border-stone-100 dark:border-stone-800 text-[11px] text-stone-500">
+                          <span className="flex items-center gap-2.5">
+                            <span title="Views" className="flex items-center gap-1">
+                              <Eye className="w-3.5 h-3.5" /> {stats?.views ?? post.views ?? 0}
+                            </span>
+                            <span title="Replays" className="flex items-center gap-1">
+                              <RefreshCw className="w-3 h-3" /> {stats?.replays ?? post.replays ?? 0}
+                            </span>
+                            <span title="Listing Clicks" className="font-semibold">
+                              {stats?.actionClicks ?? post.actionClicks ?? 0} clicks
+                            </span>
+                          </span>
+                          <div className="flex items-center gap-2">
+                            {onNavigateToShorts && (
+                              <button
+                                type="button"
+                                onClick={onNavigateToShorts}
+                                className="font-bold text-[#e4002b] hover:underline cursor-pointer"
+                              >
+                                Feed →
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteShort(post.id)}
+                              className="p-1 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-full cursor-pointer"
+                              title="Delete Short and free listing slot"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -2596,6 +3353,72 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                   )}
                 </div>
 
+                {/* Auto-Create 9:16 Short / Reel on Upload (Diamond & Gold Plans Only) */}
+                {tierRules.shorts_per_listing > 0 ? (
+                  <div className="p-4 rounded-2xl bg-gradient-to-r from-rose-50 to-purple-50 dark:from-rose-950/30 dark:to-purple-950/30 border border-rose-200 dark:border-rose-800/60 space-y-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <h4 className="text-xs font-extrabold text-stone-900 dark:text-white flex items-center gap-1.5">
+                          <Video className="w-4 h-4 text-[#e4002b]" />
+                          <span>Create Short automatically (9:16 Reel · {plan.tier} Tier)</span>
+                        </h4>
+                        <p className="text-[11px] text-stone-600 dark:text-stone-300 mt-0.5">
+                          Automatically builds a 9:16 vertical Short from this listing’s video or photos ({tierRules.shorts_per_listing} Short{tierRules.shorts_per_listing > 1 ? 's' : ''} allowed per listing).
+                        </p>
+                      </div>
+                      <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                        <input
+                          type="checkbox"
+                          checked={autoCreateShortOnUpload}
+                          onChange={e => setAutoCreateShortOnUpload(e.target.checked)}
+                          className="sr-only peer"
+                        />
+                        <div className="w-9 h-5 bg-stone-300 peer-focus:outline-none rounded-full peer dark:bg-stone-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-stone-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#e4002b]"></div>
+                      </label>
+                    </div>
+
+                    {autoCreateShortOnUpload && (
+                      <div className="pt-2 border-t border-rose-200/70 dark:border-rose-800/40 flex flex-wrap items-center justify-between gap-3 text-[11px]">
+                        <div className="flex flex-wrap items-center gap-4">
+                          <label className="flex items-center gap-1.5 font-semibold text-stone-700 dark:text-stone-200 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={autoShortCaptions}
+                              onChange={e => setAutoShortCaptions(e.target.checked)}
+                              className="accent-[#e4002b]"
+                            />
+                            <Captions className="w-3.5 h-3.5 text-[#e4002b]" />
+                            <span>Auto-captions</span>
+                          </label>
+                          <label className="flex items-center gap-1.5 font-semibold text-stone-700 dark:text-stone-200 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={autoShortReviewBeforePosting}
+                              onChange={e => setAutoShortReviewBeforePosting(e.target.checked)}
+                              className="accent-[#e4002b]"
+                            />
+                            <span>Review before posting (save draft)</span>
+                          </label>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="p-4 rounded-2xl bg-stone-100 dark:bg-stone-900 border border-stone-200 dark:border-stone-800 flex items-center justify-between gap-3">
+                    <div className="text-xs text-stone-600 dark:text-stone-300 flex items-center gap-2">
+                      <Lock className="w-4 h-4 text-amber-500 shrink-0" />
+                      <span>Auto-Create 9:16 Shorts is available on Diamond (1/listing) and Gold (5/listing) plans.</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={onOpenPlanModal}
+                      className="px-3 py-1.5 rounded-full bg-amber-500 text-black text-[11px] font-extrabold shrink-0 cursor-pointer"
+                    >
+                      Upgrade
+                    </button>
+                  </div>
+                )}
+
                 <div className="pt-4 flex justify-between">
                   <button
                     type="button"
@@ -2721,20 +3544,39 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
 
             {/* Video Manager */}
             <div className="p-4 bg-stone-50 dark:bg-stone-900 rounded-2xl border border-stone-200 dark:border-stone-800 space-y-3">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <h4 className="text-xs font-bold text-stone-800 dark:text-stone-200 flex items-center gap-1.5">
                   <Film className="w-4 h-4 text-[#e4002b]" />
                   <span>Primary Video Tour</span>
                 </h4>
-                {manageMediaVideoUrl && (
-                  <button
-                    type="button"
-                    onClick={() => setManageMediaVideoUrl('')}
-                    className="text-[11px] text-rose-500 font-bold hover:underline cursor-pointer"
-                  >
-                    Remove Video
-                  </button>
-                )}
+                <div className="flex items-center gap-2">
+                  {manageMediaVideoUrl && !isYouTubeUrl(manageMediaVideoUrl) && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        handleOpenAutoCreateForMedia(
+                          manageMediaStay,
+                          'video',
+                          [manageMediaVideoUrl],
+                          'Primary Video Tour'
+                        )
+                      }
+                      className="px-2.5 py-1 rounded-full bg-[#e4002b] hover:bg-[#c90026] text-white text-[10px] font-extrabold flex items-center gap-1 cursor-pointer"
+                    >
+                      <Video className="w-3 h-3" />
+                      <span>Auto Create Short</span>
+                    </button>
+                  )}
+                  {manageMediaVideoUrl && (
+                    <button
+                      type="button"
+                      onClick={() => setManageMediaVideoUrl('')}
+                      className="text-[11px] text-rose-500 font-bold hover:underline cursor-pointer"
+                    >
+                      Remove Video
+                    </button>
+                  )}
+                </div>
               </div>
               <input
                 type="url"
@@ -2753,7 +3595,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                   <span>Photo Gallery ({manageMediaPhotos.length} / 30 photos)</span>
                 </h4>
                 <span className="text-[10px] text-stone-400">
-                  {manageMediaPhotos.length === 0 ? 'No photos' : 'Click a photo to make it cover'}
+                  {manageMediaPhotos.length === 0 ? 'No photos' : 'Create a Short from any photo or set cover'}
                 </span>
               </div>
 
@@ -2787,51 +3629,68 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                 </button>
               </div>
 
-              {/* Photos Grid */}
+              {/* Photos Grid (each photo has an explicit "Auto Create Short" button) */}
               {manageMediaPhotos.length > 0 && (
-                <div className="grid grid-cols-3 sm:grid-cols-5 gap-2 max-h-52 overflow-y-auto p-1">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 max-h-60 overflow-y-auto p-1">
                   {manageMediaPhotos.map((p, idx) => (
                     <div
                       key={idx}
-                      className={`relative group rounded-xl overflow-hidden aspect-square border-2 transition-all ${
+                      className={`rounded-xl overflow-hidden border-2 bg-white dark:bg-stone-800 flex flex-col transition-all ${
                         p.isCover ? 'border-[#e4002b] ring-2 ring-rose-500/30' : 'border-stone-200 dark:border-stone-700'
                       }`}
                     >
-                      <img src={p.url} alt={`Photo ${idx + 1}`} className="w-full h-full object-cover" />
-                      {p.isCover && (
-                        <span className="absolute top-1 left-1 bg-[#e4002b] text-white text-[8px] font-black uppercase px-1 rounded shadow">
-                          Cover
-                        </span>
-                      )}
-                      <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-around p-1">
-                        {!p.isCover && (
+                      <div className="relative aspect-square">
+                        <img src={p.url} alt={`Photo ${idx + 1}`} className="w-full h-full object-cover" />
+                        {p.isCover && (
+                          <span className="absolute top-1 left-1 bg-[#e4002b] text-white text-[8px] font-black uppercase px-1 rounded shadow">
+                            Cover
+                          </span>
+                        )}
+                        <div className="absolute top-1 right-1 flex items-center gap-1">
+                          {!p.isCover && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setManageMediaPhotos(prev => prev.map((item, i) => ({ ...item, isCover: i === idx })));
+                              }}
+                              className="text-[9px] bg-white/95 text-stone-900 font-bold px-1.5 py-0.5 rounded shadow cursor-pointer"
+                            >
+                              Cover
+                            </button>
+                          )}
                           <button
                             type="button"
                             onClick={() => {
-                              setManageMediaPhotos(prev => prev.map((item, i) => ({ ...item, isCover: i === idx })));
+                              setManageMediaPhotos(prev => {
+                                const filtered = prev.filter((_, i) => i !== idx);
+                                return filtered.map((item, i) => ({
+                                  ...item,
+                                  order: i,
+                                  isCover: i === 0 ? true : item.isCover && !filtered[0]?.isCover ? false : item.isCover,
+                                }));
+                              });
                             }}
-                            className="text-[9px] bg-white text-stone-900 font-bold px-1.5 py-0.5 rounded shadow"
+                            className="p-1 text-white bg-rose-600 rounded shadow hover:bg-rose-700 cursor-pointer"
                           >
-                            Cover
+                            <Trash2 className="w-3 h-3" />
                           </button>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setManageMediaPhotos(prev => {
-                              const filtered = prev.filter((_, i) => i !== idx);
-                              return filtered.map((item, i) => ({
-                                ...item,
-                                order: i,
-                                isCover: i === 0 ? true : item.isCover && !filtered[0]?.isCover ? false : item.isCover,
-                              }));
-                            });
-                          }}
-                          className="p-1 text-white bg-rose-600 rounded shadow hover:bg-rose-700"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                        </button>
+                        </div>
                       </div>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleOpenAutoCreateForMedia(
+                            manageMediaStay,
+                            'photo',
+                            [p.url],
+                            `Photo #${idx + 1}`
+                          )
+                        }
+                        className="w-full py-1.5 px-2 bg-stone-900 dark:bg-stone-950 hover:bg-[#e4002b] text-white text-[10px] font-bold flex items-center justify-center gap-1 transition-colors cursor-pointer"
+                      >
+                        <Video className="w-3 h-3" />
+                        <span>Auto Create Short</span>
+                      </button>
                     </div>
                   ))}
                 </div>
@@ -3159,6 +4018,115 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Full Shorts Auto-Creator Studio Modal (Strictly Bound to Listing + Tier Quota) */}
+      <ShortsCreatorModal
+        isOpen={creatorModalOpen}
+        onClose={() => {
+          setCreatorModalOpen(false);
+          setCreatorFixedStay(null);
+          setCreatorInitialMedia(undefined);
+        }}
+        user={user}
+        myStays={myStays}
+        fixedStay={creatorFixedStay || undefined}
+        quotaInfo={creatorFixedStay ? getListingQuotaInfo(creatorFixedStay.id) : undefined}
+        initialMedia={creatorInitialMedia}
+        onOpenUpgrade={() => {
+          setCreatorModalOpen(false);
+          onOpenPlanModal();
+        }}
+        onJobUpdated={job => {
+          setMyShortJobs(prev => {
+            const exists = prev.some(j => j.id === job.id);
+            return exists ? prev.map(j => (j.id === job.id ? job : j)) : [job, ...prev];
+          });
+        }}
+        onShortPublished={post => {
+          setMyShortsPosts(prev => [post, ...prev.filter(p => p.id !== post.id)]);
+          showToast?.('Short published to Shorts & Reels!');
+          loadCreatorShorts();
+        }}
+        showToast={showToast}
+      />
+
+      {/* Gold Host Optional Listing Audio Sheet */}
+      {listingAudioStay && (
+        <ShortsAudioPickerSheet
+          isOpen={true}
+          onClose={() => setListingAudioStay(null)}
+          purpose="listing"
+          hideOriginalTab={true}
+          allowMusicAndVoiceOver={tierRules.listing_audio_enabled}
+          value={
+            listingAudioStay.listingAudio
+              ? {
+                  mode: listingAudioStay.listingAudio.mode,
+                  trackId: listingAudioStay.listingAudio.trackId,
+                  trackTitle: listingAudioStay.listingAudio.trackTitle,
+                  trackArtist: listingAudioStay.listingAudio.trackArtist,
+                  trackUrl: listingAudioStay.listingAudio.trackUrl,
+                  audioStartSec: 0,
+                  originalVolume: 100,
+                  musicVolume: listingAudioStay.listingAudio.musicVolume ?? 70,
+                  voiceOverUrl: listingAudioStay.listingAudio.voiceOverUrl,
+                  voiceOverSource: listingAudioStay.listingAudio.voiceOverSource,
+                  voiceOverVolume: listingAudioStay.listingAudio.voiceOverVolume ?? 100,
+                  ttsScript: listingAudioStay.listingAudio.ttsScript,
+                  ttsVoice: listingAudioStay.listingAudio.ttsVoice,
+                  ttsLanguage: listingAudioStay.listingAudio.ttsLanguage,
+                  autoDuckMusic: listingAudioStay.listingAudio.autoDuckMusic ?? true,
+                  rightsConfirmed: listingAudioStay.listingAudio.rightsConfirmed,
+                  requiresAttribution: listingAudioStay.listingAudio.requiresAttribution,
+                  attributionText: listingAudioStay.listingAudio.attributionText,
+                }
+              : {
+                  mode: 'none',
+                  audioStartSec: 0,
+                  originalVolume: 100,
+                  musicVolume: 70,
+                  voiceOverVolume: 100,
+                  autoDuckMusic: true,
+                }
+          }
+          onChange={async (nextCfg: ShortAudioConfig) => {
+            if (listingAudioSaving) return;
+            setListingAudioSaving(true);
+            try {
+              if (nextCfg.mode === 'none') {
+                await api.deleteListingAudio(listingAudioStay.id);
+                await onUpdateStay(listingAudioStay.id, { listingAudio: null, listingAudioLocked: false });
+                showToast?.('Listing audio removed.');
+              } else {
+                const res = await api.saveListingAudio(listingAudioStay.id, {
+                  mode: nextCfg.mode as ListingAudioConfig['mode'],
+                  trackId: nextCfg.trackId,
+                  musicVolume: nextCfg.musicVolume,
+                  voiceOverUrl: nextCfg.voiceOverUrl,
+                  voiceOverSource: nextCfg.voiceOverSource,
+                  voiceOverVolume: nextCfg.voiceOverVolume,
+                  ttsScript: nextCfg.ttsScript,
+                  ttsVoice: nextCfg.ttsVoice,
+                  ttsLanguage: nextCfg.ttsLanguage,
+                  autoDuckMusic: nextCfg.autoDuckMusic,
+                  rightsConfirmed: nextCfg.rightsConfirmed ?? true,
+                });
+                await onUpdateStay(listingAudioStay.id, {
+                  listingAudio: res.listingAudio,
+                  listingAudioLocked: false,
+                });
+                showToast?.('Gold listing audio saved!');
+              }
+            } catch (err: any) {
+              showToast?.(err.message || 'Failed to update listing audio.');
+            } finally {
+              setListingAudioSaving(false);
+            }
+          }}
+          defaultScript={`Welcome to ${listingAudioStay.title} in ${listingAudioStay.location}.`}
+          showToast={showToast}
+        />
       )}
     </div>
   );

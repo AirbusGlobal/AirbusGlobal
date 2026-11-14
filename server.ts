@@ -5,7 +5,11 @@ import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { GoogleGenAI } from '@google/genai';
 import { db, hashPassword, PLANS } from './src/server/db';
-import { User, Stay, Booking, ChatThread, ChatMessage, PaymentRecordType, PaymentRecordMethod } from './src/types';
+import { User, Stay, Booking, ChatThread, ChatMessage, PaymentRecordType, PaymentRecordMethod, ShortIntentType } from './src/types';
+import { audioLibraryService } from './src/server/services/audioLibraryService';
+import { mediaProcessingService } from './src/server/services/mediaProcessingService';
+import { shortJobQueue } from './src/server/services/shortJobQueue';
+import { SHORTS_TIER_CONFIG, AUDIO_UPLOAD_CONFIG } from './src/config/shortsTierConfig';
 
 dotenv.config();
 
@@ -16,7 +20,13 @@ const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 const isProduction = process.env.NODE_ENV === 'production';
 
-app.use(express.json());
+app.use(express.json({ limit: '65mb' }));
+
+// Serve generated Shorts, thumbnails, raw media, and free-source audio assets
+const uploadsRoot = path.resolve(process.cwd(), 'uploads');
+if (!fs.existsSync(uploadsRoot)) fs.mkdirSync(uploadsRoot, { recursive: true });
+app.use('/uploads', express.static(uploadsRoot));
+app.use('/AirbusGlobal/uploads', express.static(uploadsRoot));
 
 // Normalize /AirbusGlobal/api into /api so both paths work seamlessly
 app.use((req, res, next) => {
@@ -407,8 +417,10 @@ app.get('/api/stays', (req, res) => {
     });
 
     if (ownerEmail) {
-      // Owner dashboard sees all their stays (live, review, paused, expired)
-      stays = db.getRaw().stays.filter(s => s.ownerEmail?.toLowerCase() === String(ownerEmail).toLowerCase());
+      // Owner dashboard sees all their stays (live, review, paused, expired) hydrated with listing audio state
+      stays = db.getRaw().stays
+        .filter(s => s.ownerEmail?.toLowerCase() === String(ownerEmail).toLowerCase())
+        .map(s => db.hydrateStayAudio(s, viewerUser));
     }
 
     return res.json({ stays });
@@ -987,6 +999,37 @@ app.delete('/api/stays/:id', (req, res) => {
 
   db.deleteStay(req.params.id);
   return res.json({ success: true });
+});
+
+// Gold-Only Listing Audio (optional 1 music track +/or 1 voice-over on listing page)
+app.put('/api/stays/:id/audio', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user || (user.role !== 'owner' && user.role !== 'admin')) {
+    return res.status(403).json({ error: 'Only registered hosts can configure listing audio.' });
+  }
+  try {
+    const config = db.saveListingAudio(req.params.id, user.email, user.role === 'admin', req.body || {});
+    const updatedStay = db.getStayById(req.params.id, user, true);
+    return res.json({ listingAudio: config, stay: updatedStay });
+  } catch (err: any) {
+    const msg = err?.message || 'Unable to save listing audio.';
+    const status = msg.toLowerCase().includes('gold') || msg.toLowerCase().includes('only the host') ? 403 : 400;
+    return res.status(status).json({ error: msg });
+  }
+});
+
+app.delete('/api/stays/:id/audio', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user || (user.role !== 'owner' && user.role !== 'admin')) {
+    return res.status(403).json({ error: 'Only the listing host can delete listing audio.' });
+  }
+  try {
+    db.deleteListingAudio(req.params.id, user.email, user.role === 'admin');
+    const updatedStay = db.getStayById(req.params.id, user, true);
+    return res.json({ success: true, stay: updatedStay });
+  } catch (err: any) {
+    return res.status(403).json({ error: err.message || 'Unable to remove listing audio.' });
+  }
 });
 
 // Listing Media removal (Host or Admin)
@@ -2561,6 +2604,351 @@ app.post('/api/posts/:id/view', (req, res) => {
   const viewer = req.ip || req.headers['x-forwarded-for'] || 'anonymous';
   const recorded = db.recordViewEvent(req.params.id, String(viewer));
   return res.json({ recorded });
+});
+
+app.patch('/api/posts/:id', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ error: 'Authentication required.' });
+  try {
+    const post = db.updatePostShort(req.params.id, user.email, req.body || {});
+    return res.json({ post });
+  } catch (err: any) {
+    const msg = err.message || 'Unable to update post.';
+    return res.status(msg.toLowerCase().includes('diamond') || msg.toLowerCase().includes('only the creator') ? 403 : 400).json({ error: msg });
+  }
+});
+
+app.delete('/api/posts/:id', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ error: 'Authentication required.' });
+  try {
+    const result = db.deleteShortPost(req.params.id, user.email, user.role === 'admin');
+    return res.json(result);
+  } catch (err: any) {
+    const msg = err.message || 'Unable to delete Short.';
+    return res.status(msg.includes('permission') ? 403 : 404).json({ error: msg });
+  }
+});
+
+app.delete('/api/shorts/:id', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ error: 'Authentication required.' });
+  try {
+    const result = db.deleteShortPost(req.params.id, user.email, user.role === 'admin');
+    return res.json(result);
+  } catch (err: any) {
+    const msg = err.message || 'Unable to delete Short.';
+    return res.status(msg.includes('permission') ? 403 : 404).json({ error: msg });
+  }
+});
+
+app.post('/api/posts/:id/like', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ error: 'Sign in to like this Short.' });
+  try {
+    const result = db.toggleLikePost(req.params.id, user.email);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message });
+  }
+});
+
+app.post('/api/posts/:id/comments', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ error: 'Sign in to comment.' });
+  try {
+    const comment = db.addPostComment(req.params.id, user.email, user.name, req.body?.text || '');
+    return res.status(201).json({ comment });
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message });
+  }
+});
+
+app.post('/api/posts/:id/share', (req, res) => {
+  const shares = db.incrementPostShare(req.params.id);
+  return res.json({ shares });
+});
+
+// -----------------------------------------------------------------------------
+// SHORTS / REELS HOST-ONLY AUTO-CREATION, TIER CONFIG, AUDIO LIBRARY & ANALYTICS
+// -----------------------------------------------------------------------------
+app.get('/api/config/shorts-tiers', (req, res) => {
+  return res.json({
+    tiers: SHORTS_TIER_CONFIG,
+    audioUpload: {
+      allowedExtensions: AUDIO_UPLOAD_CONFIG.allowedExtensions,
+      allowedMimeTypes: AUDIO_UPLOAD_CONFIG.allowedMimeTypes,
+      maxFileSizeBytes: AUDIO_UPLOAD_CONFIG.maxFileSizeBytes,
+      maxShortDurationSec: AUDIO_UPLOAD_CONFIG.maxShortDurationSec,
+      maxListingDurationSec: AUDIO_UPLOAD_CONFIG.maxListingDurationSec,
+    },
+  });
+});
+
+app.get('/api/owner/listings/:stayId/shorts-status', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user || (user.role !== 'owner' && user.role !== 'admin')) {
+    return res.status(403).json({ error: 'Host authentication required.' });
+  }
+  try {
+    const status = db.getListingShortsStatus(req.params.stayId, user.email, user.role === 'admin');
+    return res.json(status);
+  } catch (err: any) {
+    const msg = err.message || 'Listing Shorts status unavailable.';
+    return res.status(msg.includes('Unauthorized') ? 403 : 404).json({ error: msg });
+  }
+});
+
+app.get('/api/owner/shorts-analytics', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user || (user.role !== 'owner' && user.role !== 'admin')) {
+    return res.status(403).json({ error: 'Host authentication required.' });
+  }
+  const summary = db.getOwnerShortsAnalytics(user.email);
+  return res.json(summary);
+});
+
+app.get('/api/audio/tracks', async (req, res) => {
+  await audioLibraryService.ensureLocalAudioAssets().catch(() => {});
+  const q = typeof req.query.q === 'string' ? req.query.q : undefined;
+  const genre = typeof req.query.genre === 'string' ? req.query.genre : undefined;
+  const mood = typeof req.query.mood === 'string' ? req.query.mood : undefined;
+  const trendingOnly = req.query.trending === 'true';
+  const page = Number(req.query.page) || 1;
+  const limit = Number(req.query.limit) || 25;
+  const result = db.getAudioLibrary({ query: q, genre, mood, trendingOnly, page, limit });
+  return res.json(result);
+});
+
+app.post('/api/audio/tracks/:id/report', (req, res) => {
+  const user = getAuthUser(req);
+  const reporter = user?.email || req.body?.email || 'anonymous@airbus.ke';
+  const { reason, postId } = req.body || {};
+  const report = db.reportAudioTrack(req.params.id, reporter, reason || 'Licensing / audio issue', postId);
+  return res.status(201).json({
+    report,
+    message: 'Audio report submitted for moderation review.',
+  });
+});
+
+app.post('/api/shorts/tts', async (req, res) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ error: 'Sign in to generate text-to-speech voice-over.' });
+  if (user.role !== 'owner' && user.role !== 'admin') {
+    return res.status(403).json({ error: 'Only Diamond or Gold hosts can generate voice-over audio.' });
+  }
+  const { script, voice, language, purpose } = req.body || {};
+  const tierInfo = db.getHostEffectiveTier(user.email);
+  if (purpose === 'listing') {
+    if (!tierInfo.rules.listing_audio_enabled && user.role !== 'admin') {
+      return res.status(403).json({ error: 'Listing voice-over audio is exclusive to active Gold hosts.' });
+    }
+  } else if (!tierInfo.rules.shorts_audio_enabled && user.role !== 'admin') {
+    return res.status(403).json({ error: 'Shorts voice-over audio requires an active Diamond or Gold plan.' });
+  }
+  if (!script || !String(script).trim()) {
+    return res.status(400).json({ error: 'Please enter a script or caption to convert to voice-over.' });
+  }
+  try {
+    const result = await audioLibraryService.synthesizeTtsTrack({
+      script: String(script).trim().slice(0, 500),
+      voice: voice ? String(voice) : 'warm_female',
+      language: language ? String(language) : 'en-KE',
+    });
+    return res.status(201).json(result);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Voice-over generation failed.' });
+  }
+});
+
+app.post('/api/shorts/upload-media', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ error: 'Please sign in to upload media.' });
+  if (user.role !== 'owner' && user.role !== 'admin') {
+    return res.status(403).json({ error: 'Only hosts can upload Short & Listing audio media.' });
+  }
+
+  const { files, kind, purpose } = req.body || {};
+  if (!Array.isArray(files) || files.length === 0) {
+    return res.status(400).json({ error: 'No media files received.' });
+  }
+  try {
+    if (kind === 'audio') {
+      const tierInfo = db.getHostEffectiveTier(user.email);
+      if (purpose === 'listing' && !tierInfo.rules.listing_audio_enabled && user.role !== 'admin') {
+        return res.status(403).json({ error: 'Listing audio uploads require an active Gold subscription.' });
+      }
+      if (purpose !== 'listing' && !tierInfo.rules.shorts_audio_enabled && user.role !== 'admin') {
+        return res.status(403).json({ error: 'Shorts audio uploads require an active Diamond or Gold subscription.' });
+      }
+      files.forEach((f: string) =>
+        audioLibraryService.validateAudioDataUrl(f, AUDIO_UPLOAD_CONFIG.maxFileSizeBytes)
+      );
+    }
+    const prefix = kind === 'audio' ? 'vo' : kind === 'photo' ? 'img' : 'vid';
+    const savedUrls = files.slice(0, 12).map((item: string) =>
+      mediaProcessingService.saveDataUrlToDisk(item, prefix)
+    );
+    return res.status(201).json({ urls: savedUrls });
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'Media upload failed.' });
+  }
+});
+
+app.post('/api/shorts/jobs', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ error: 'Please sign in to auto-create a Short.' });
+
+  const {
+    idempotencyKey,
+    stayId,
+    sourceType,
+    sourceFiles,
+    autoCreateEnabled,
+    reviewBeforePosting,
+    autoCaptionsEnabled,
+    aspectCropMode,
+    trimStartSec,
+    trimEndSec,
+    caption,
+    hashtags,
+    audioConfig,
+  } = req.body || {};
+
+  if (!sourceType || !['video', 'photo'].includes(sourceType)) {
+    return res.status(400).json({ error: 'sourceType must be video or photo.' });
+  }
+  if (!Array.isArray(sourceFiles) || sourceFiles.length === 0) {
+    return res.status(400).json({ error: 'At least one listing video or photo is required.' });
+  }
+
+  const key =
+    typeof idempotencyKey === 'string' && idempotencyKey.trim()
+      ? idempotencyKey.trim()
+      : `idem_${user.email}_${stayId || 'none'}_${sourceType}_${Date.now()}`;
+
+  // Duplicate idempotency key does NOT double-charge quota — return existing job cleanly
+  const existingByKey = db.getShortJobs(user.email).find(j => j.idempotencyKey === key);
+  if (existingByKey) {
+    return res.status(200).json({ job: existingByKey, deduplicated: true });
+  }
+
+  let validatedUsage;
+  try {
+    const check = db.assertHostCanCreateShort(stayId, user, audioConfig);
+    validatedUsage = check.usage;
+  } catch (err: any) {
+    return res.status(403).json({ error: err.message || 'You are not authorized to auto-create Shorts for this listing.' });
+  }
+
+  try {
+    const savedSources = sourceFiles.slice(0, 10).map((item: string) =>
+      mediaProcessingService.saveDataUrlToDisk(item, sourceType === 'photo' ? 'img' : 'vid')
+    );
+
+    const resolvedAudioConfig = audioConfig ? { ...audioConfig } : undefined;
+    if (resolvedAudioConfig?.voiceOverUrl && resolvedAudioConfig.voiceOverUrl.startsWith('data:')) {
+      audioLibraryService.validateAudioDataUrl(
+        resolvedAudioConfig.voiceOverUrl,
+        AUDIO_UPLOAD_CONFIG.maxFileSizeBytes
+      );
+      resolvedAudioConfig.voiceOverUrl = mediaProcessingService.saveDataUrlToDisk(resolvedAudioConfig.voiceOverUrl, 'vo');
+    }
+
+    const result = shortJobQueue.enqueue({
+      idempotencyKey: key,
+      ownerEmail: user.email,
+      ownerName: user.name,
+      stayId,
+      sourceType,
+      sourceFiles: savedSources,
+      autoCreateEnabled,
+      reviewBeforePosting,
+      autoCaptionsEnabled,
+      aspectCropMode,
+      trimStartSec,
+      trimEndSec,
+      caption,
+      hashtags,
+      audioConfig: resolvedAudioConfig,
+      allowAudio: validatedUsage.shortsAudioEnabled,
+    });
+
+    const updatedUsage = db.getListingShortUsage(stayId, user.email);
+    return res.status(result.deduplicated ? 200 : 202).json({ ...result, usage: updatedUsage });
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'Unable to queue Short creation job.' });
+  }
+});
+
+app.get('/api/shorts/jobs', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ error: 'Authentication required.' });
+  if (user.role !== 'owner' && user.role !== 'admin') {
+    return res.status(403).json({ error: 'Host access required.' });
+  }
+  const jobs = db.getShortJobs(user.email);
+  return res.json({ jobs });
+});
+
+app.get('/api/shorts/jobs/:id', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ error: 'Authentication required.' });
+  const job = db.getShortJobById(req.params.id);
+  if (!job || (job.ownerEmail !== user.email.toLowerCase() && user.role !== 'admin')) {
+    return res.status(404).json({ error: 'Job not found.' });
+  }
+  return res.json({ job });
+});
+
+app.post('/api/shorts/jobs/:id/retry', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ error: 'Authentication required.' });
+  const existing = db.getShortJobById(req.params.id);
+  if (!existing || (existing.ownerEmail !== user.email.toLowerCase() && user.role !== 'admin')) {
+    return res.status(404).json({ error: 'Job not found.' });
+  }
+  try {
+    db.assertHostCanCreateShort(existing.stayId, user, existing.audioConfig);
+  } catch (err: any) {
+    return res.status(403).json({ error: err.message });
+  }
+  const job = shortJobQueue.retryJob(req.params.id);
+  return res.json({ job });
+});
+
+app.post('/api/shorts/jobs/:id/publish', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ error: 'Authentication required.' });
+  try {
+    const result = db.publishDraftShort(req.params.id, user.email, req.body || {});
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'Could not publish Short.' });
+  }
+});
+
+// Public Shorts Feed (No login required to watch; marks unavailable listings safely)
+app.get('/api/shorts/feed', (req, res) => {
+  const trackId = typeof req.query.trackId === 'string' ? req.query.trackId : undefined;
+  const ownerEmail = typeof req.query.ownerEmail === 'string' ? req.query.ownerEmail : undefined;
+  const posts = db.getPublicShortsFeed({ trackId, ownerEmail });
+  return res.json({ posts });
+});
+
+// Public Shorts Playback & Listing-Action Click Analytics
+app.post('/api/shorts/:id/analytics', (req, res) => {
+  const { event, intent } = req.body || {};
+  const validEvents = ['view', 'play', 'replay', 'click'];
+  if (!validEvents.includes(event)) {
+    return res.status(400).json({ error: 'Valid event (view | play | replay | click) required.' });
+  }
+  const record = db.recordShortAnalytics(
+    req.params.id,
+    event,
+    intent as ShortIntentType | undefined
+  );
+  return res.json({ analytics: record });
 });
 
 // -----------------------------------------------------------------------------

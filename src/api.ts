@@ -39,6 +39,14 @@ import {
   SponsorSlot,
   LocalGuideProfile,
   NeighborhoodArticle,
+  AudioTrack,
+  AudioLicense,
+  ShortAudioConfig,
+  ShortJob,
+  PostComment,
+  ListingAudioConfig,
+  ShortIntentType,
+  ShortAnalyticsRecord,
 } from './types';
 
 
@@ -1527,6 +1535,207 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data),
     });
+  },
+
+  // --- SHORTS / REELS AUTO-CREATION & AUDIO ---
+  async getAudioLibrary(params?: {
+    q?: string;
+    genre?: string;
+    mood?: string;
+    trending?: boolean;
+    page?: number;
+    limit?: number;
+  }): Promise<{ tracks: AudioTrack[]; licenses: AudioLicense[]; total: number }> {
+    const sp = new URLSearchParams();
+    if (params?.q) sp.set('q', params.q);
+    if (params?.genre && params.genre !== 'All') sp.set('genre', params.genre);
+    if (params?.mood && params.mood !== 'All') sp.set('mood', params.mood);
+    if (params?.trending) sp.set('trending', 'true');
+    if (params?.page) sp.set('page', String(params.page));
+    if (params?.limit) sp.set('limit', String(params.limit));
+    return this.request(`/api/audio/tracks?${sp.toString()}`);
+  },
+
+  async reportAudioTrack(trackId: string, reason: string, postId?: string): Promise<{ message: string }> {
+    return this.request(`/api/audio/tracks/${encodeURIComponent(trackId)}/report`, {
+      method: 'POST',
+      body: JSON.stringify({ reason, postId }),
+    });
+  },
+
+  async generateVoiceOverTTS(data: {
+    script: string;
+    voice?: string;
+    language?: string;
+    purpose?: 'short' | 'listing';
+  }): Promise<{ audioUrl: string; durationSeconds: number }> {
+    return this.request('/api/shorts/tts', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async uploadShortMedia(
+    files: string[],
+    kind: 'video' | 'photo' | 'audio',
+    purpose?: 'short' | 'listing'
+  ): Promise<{ urls: string[] }> {
+    return this.request('/api/shorts/upload-media', {
+      method: 'POST',
+      body: JSON.stringify({ files, kind, purpose }),
+    });
+  },
+
+  async createShortJob(data: {
+    idempotencyKey?: string;
+    stayId?: string;
+    sourceType: 'video' | 'photo';
+    sourceFiles: string[];
+    autoCreateEnabled?: boolean;
+    reviewBeforePosting?: boolean;
+    autoCaptionsEnabled?: boolean;
+    aspectCropMode?: 'smart_center' | 'blur_fill';
+    trimStartSec?: number;
+    trimEndSec?: number;
+    caption?: string;
+    hashtags?: string[];
+    audioConfig?: Partial<ShortAudioConfig>;
+  }): Promise<{ job: ShortJob; deduplicated: boolean; usage?: any }> {
+    return this.request('/api/shorts/jobs', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async getShortJobs(): Promise<{ jobs: ShortJob[] }> {
+    return this.request('/api/shorts/jobs');
+  },
+
+  async getShortJob(id: string): Promise<{ job: ShortJob }> {
+    return this.request(`/api/shorts/jobs/${encodeURIComponent(id)}`);
+  },
+
+  async retryShortJob(id: string): Promise<{ job: ShortJob }> {
+    return this.request(`/api/shorts/jobs/${encodeURIComponent(id)}/retry`, {
+      method: 'POST',
+    });
+  },
+
+  async publishDraftShort(
+    jobId: string,
+    updates?: {
+      caption?: string;
+      hashtags?: string[];
+      captionsEnabled?: boolean;
+      audioConfig?: Partial<ShortAudioConfig>;
+    }
+  ): Promise<{ job: ShortJob; post: Post }> {
+    return this.request(`/api/shorts/jobs/${encodeURIComponent(jobId)}/publish`, {
+      method: 'POST',
+      body: JSON.stringify(updates || {}),
+    });
+  },
+
+  async updateShortPost(
+    postId: string,
+    updates: {
+      caption?: string;
+      hashtags?: string[];
+      captionsEnabled?: boolean;
+      status?: PostStatus;
+      audioConfig?: Partial<ShortAudioConfig>;
+    }
+  ): Promise<{ post: Post }> {
+    return this.request(`/api/posts/${encodeURIComponent(postId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(updates),
+    });
+  },
+
+  async deleteShortPost(postId: string): Promise<{ deleted: boolean; stayId?: string }> {
+    return this.request(`/api/posts/${encodeURIComponent(postId)}`, {
+      method: 'DELETE',
+    });
+  },
+
+  async getShortsTierConfig(): Promise<{ tiers: Record<string, any>; audioUpload: any }> {
+    return this.request('/api/config/shorts-tiers');
+  },
+
+  async getListingShortsStatus(stayId: string): Promise<{
+    stayId: string;
+    usage: {
+      used: number;
+      limit: number;
+      remaining: number;
+      tier: StayCategory;
+      isPlanActive: boolean;
+      shortsAudioEnabled: boolean;
+      listingAudioEnabled: boolean;
+    };
+    jobs: ShortJob[];
+    shorts: Post[];
+    listingAudio: ListingAudioConfig | null;
+    listingAudioLocked: boolean;
+  }> {
+    return this.request(`/api/owner/listings/${encodeURIComponent(stayId)}/shorts-status`);
+  },
+
+  async saveListingAudio(
+    stayId: string,
+    payload: Partial<ListingAudioConfig>
+  ): Promise<{ listingAudio: ListingAudioConfig; stay: Stay }> {
+    return this.request(`/api/stays/${encodeURIComponent(stayId)}/audio`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async deleteListingAudio(stayId: string): Promise<{ success: boolean; stay: Stay }> {
+    return this.request(`/api/stays/${encodeURIComponent(stayId)}/audio`, {
+      method: 'DELETE',
+    });
+  },
+
+  async recordShortAnalytics(
+    shortId: string,
+    event: 'view' | 'play' | 'replay' | 'click',
+    intent?: ShortIntentType
+  ): Promise<{ analytics: ShortAnalyticsRecord }> {
+    return this.request(`/api/shorts/${encodeURIComponent(shortId)}/analytics`, {
+      method: 'POST',
+      body: JSON.stringify({ event, intent }),
+    });
+  },
+
+  async getOwnerShortsAnalytics(): Promise<{ totals: any; byShort: any[] }> {
+    return this.request('/api/owner/shorts-analytics');
+  },
+
+  async toggleLikePost(postId: string): Promise<{ liked: boolean; likes: number }> {
+    return this.request(`/api/posts/${encodeURIComponent(postId)}/like`, {
+      method: 'POST',
+    });
+  },
+
+  async addPostComment(postId: string, text: string): Promise<{ comment: PostComment }> {
+    return this.request(`/api/posts/${encodeURIComponent(postId)}/comments`, {
+      method: 'POST',
+      body: JSON.stringify({ text }),
+    });
+  },
+
+  async sharePost(postId: string): Promise<{ shares: number }> {
+    return this.request(`/api/posts/${encodeURIComponent(postId)}/share`, {
+      method: 'POST',
+    });
+  },
+
+  async getShortsFeed(params?: { trackId?: string; ownerEmail?: string }): Promise<{ posts: Post[] }> {
+    const sp = new URLSearchParams();
+    if (params?.trackId) sp.set('trackId', params.trackId);
+    if (params?.ownerEmail) sp.set('ownerEmail', params.ownerEmail);
+    return this.request(`/api/shorts/feed?${sp.toString()}`);
   },
 };
 

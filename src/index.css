@@ -202,3 +202,32 @@
 .dark-tiles-filter {
   filter: brightness(0.65) invert(1) contrast(2.8) hue-rotate(200deg) saturate(0.4);
 }
+
+/* Shorts/Reels Single-Line Audio Marquee & Spin Animations */
+@keyframes shortsMarquee {
+  0% {
+    transform: translateX(0%);
+  }
+  20% {
+    transform: translateX(0%);
+  }
+  85% {
+    transform: translateX(-45%);
+  }
+  100% {
+    transform: translateX(0%);
+  }
+}
+
+.shorts-audio-marquee {
+  display: inline-flex;
+  white-space: nowrap;
+  animation: shortsMarquee 10s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shorts-audio-marquee {
+    animation: none;
+  }
+}
+

@@ -9,6 +9,7 @@ import {
   PaymentRecord,
   NotificationItem,
   Currency,
+  ShortIntentType,
 } from './types';
 import { api } from './api';
 import { Header } from './components/Header';
@@ -91,6 +92,8 @@ export default function App() {
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [authInitialMode, setAuthInitialMode] = useState<'login' | 'register'>('login');
   const [activeStayId, setActiveStayId] = useState<string | null>(null);
+  const [activeStayIntent, setActiveStayIntent] = useState<ShortIntentType | null>(null);
+  const [returnToShort, setReturnToShort] = useState<{ shortId: string; index: number } | null>(null);
   const [negotiateStayId, setNegotiateStayId] = useState<string | null>(null);
   const [chatStayId, setChatStayId] = useState<string | null>(null);
   const [planModalOpen, setPlanModalOpen] = useState(false);
@@ -245,8 +248,10 @@ export default function App() {
     return () => window.removeEventListener('hashchange', handleHashChange);
   }, [user]);
 
-  // Private Admin Portal Route Sync & Robots Meta Tag Injection (Requirements 2 & 3)
+  // Private Admin Portal & Deep-Linked Listing (/listing/:id?intent=...&source=short) Route Sync
   useEffect(() => {
+    const validIntents = new Set<ShortIntentType>(['availability', 'book', 'chat', 'negotiate', 'whatsapp']);
+
     const handleRouteSync = () => {
       const match = isAdminRoute(window.location.pathname);
       setIsOnAdminRoute(match);
@@ -262,6 +267,30 @@ export default function App() {
       } else if (robotsMeta) {
         robotsMeta.content = 'index, follow';
       }
+
+      if (!match) {
+        const listingMatch = window.location.pathname.match(/\/listing\/([^/?#]+)/);
+        if (listingMatch) {
+          const listingStayId = decodeURIComponent(listingMatch[1]);
+          const params = new URLSearchParams(window.location.search);
+          const intentParam = params.get('intent') as ShortIntentType | null;
+          const sourceParam = params.get('source');
+          const historyState = window.history.state as { fromShort?: { shortId: string; index: number } } | null;
+
+          setActiveStayId(listingStayId);
+          setActiveStayIntent(intentParam && validIntents.has(intentParam) ? intentParam : null);
+          if (sourceParam === 'short' || historyState?.fromShort) {
+            setReturnToShort(historyState?.fromShort || { shortId: '', index: 0 });
+          }
+        } else {
+          // If navigating back to /#shorts via browser Back button, close active listing modal cleanly
+          if (window.location.hash === '#shorts') {
+            setCurrentTab('shorts');
+            setActiveStayId(null);
+            setActiveStayIntent(null);
+          }
+        }
+      }
     };
 
     handleRouteSync();
@@ -269,10 +298,21 @@ export default function App() {
     return () => window.removeEventListener('popstate', handleRouteSync);
   }, []);
 
-  // Load reviews when active stay opens
+  // Load reviews & fresh stay details (including Gold listingAudio) when active stay opens
   useEffect(() => {
     if (activeStayId) {
       api.getReviews(activeStayId).then(res => setActiveStayReviews(res.reviews)).catch(() => {});
+      api
+        .getStay(activeStayId)
+        .then(res => {
+          if (res?.stay) {
+            setStays(prev => {
+              const exists = prev.some(s => s.id === res.stay.id);
+              return exists ? prev.map(s => (s.id === res.stay.id ? res.stay : s)) : [res.stay, ...prev];
+            });
+          }
+        })
+        .catch(() => {});
     }
   }, [activeStayId]);
 
@@ -331,8 +371,45 @@ export default function App() {
   // Handlers
   const handleNavigate = (tab: string) => {
     setCurrentTab(tab);
-    window.location.hash = tab === 'home' ? '' : tab;
+    if (window.location.pathname.startsWith('/listing/')) {
+      window.history.pushState({}, '', tab === 'home' ? '/' : `/#${tab}`);
+    } else {
+      window.location.hash = tab === 'home' ? '' : tab;
+    }
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleNavigateToListingFromShort = (
+    stayId: string,
+    intent: ShortIntentType,
+    shortId: string,
+    index: number
+  ) => {
+    const fromShortPayload = { shortId, index };
+    setReturnToShort(fromShortPayload);
+    setActiveStayIntent(intent);
+    setActiveStayId(stayId);
+    const nextUrl = `/listing/${encodeURIComponent(stayId)}?intent=${encodeURIComponent(intent)}&source=short#stay-${encodeURIComponent(stayId)}`;
+    try {
+      window.history.pushState({ fromShort: fromShortPayload }, '', nextUrl);
+    } catch {
+      window.location.hash = `stay-${stayId}`;
+    }
+  };
+
+  const handleBackToShort = () => {
+    setActiveStayId(null);
+    setActiveStayIntent(null);
+    setCurrentTab('shorts');
+    try {
+      if (window.location.pathname.startsWith('/listing/')) {
+        window.history.pushState({}, '', '/#shorts');
+      } else {
+        window.location.hash = 'shorts';
+      }
+    } catch {
+      window.location.hash = 'shorts';
+    }
   };
 
   const handleLoginSuccess = async (loggedInUser: User) => {
@@ -611,38 +688,40 @@ export default function App() {
         </div>
       )}
 
-      {/* Global Header */}
-      <Header
-        currentTab={currentTab}
-        onNavigate={handleNavigate}
-        user={user}
-        onOpenAuth={mode => {
-          setAuthInitialMode(mode || 'login');
-          setAuthModalOpen(true);
-        }}
-        onLogout={handleLogout}
-        currency={currency}
-        onCurrencyChange={setCurrency}
-        searchQuery={searchQuery}
-        onSearchChange={setSearchQuery}
-        guestCount={guestCount}
-        onGuestCountChange={setGuestCount}
-        onSearchSubmit={() => handleNavigate('home')}
-        unreadCount={totalUnreadMessages}
-        unreadNotifications={unreadNotifsCount}
-        onOpenNotifications={() => setNotificationsOpen(true)}
-        onOpenTripFinder={() => setTripFinderOpen(true)}
-        onOpenPlans={() => {
-          setPlanWalletMode(false);
-          setPlanModalOpen(true);
-        }}
-        onOpenSettings={() => setSettingsModalOpen(true)}
-        walletBalance={walletBalance}
-        onOpenWallet={() => {
-          setPlanWalletMode(true);
-          setPlanModalOpen(true);
-        }}
-      />
+      {/* Global Header (hidden on mobile during fullscreen Shorts view to guarantee 100dvh safe-area fit) */}
+      <div className={currentTab === 'shorts' ? 'hidden md:block' : ''}>
+        <Header
+          currentTab={currentTab}
+          onNavigate={handleNavigate}
+          user={user}
+          onOpenAuth={mode => {
+            setAuthInitialMode(mode || 'login');
+            setAuthModalOpen(true);
+          }}
+          onLogout={handleLogout}
+          currency={currency}
+          onCurrencyChange={setCurrency}
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+          guestCount={guestCount}
+          onGuestCountChange={setGuestCount}
+          onSearchSubmit={() => handleNavigate('home')}
+          unreadCount={totalUnreadMessages}
+          unreadNotifications={unreadNotifsCount}
+          onOpenNotifications={() => setNotificationsOpen(true)}
+          onOpenTripFinder={() => setTripFinderOpen(true)}
+          onOpenPlans={() => {
+            setPlanWalletMode(false);
+            setPlanModalOpen(true);
+          }}
+          onOpenSettings={() => setSettingsModalOpen(true)}
+          walletBalance={walletBalance}
+          onOpenWallet={() => {
+            setPlanWalletMode(true);
+            setPlanModalOpen(true);
+          }}
+        />
+      </div>
 
       {/* Main Content Router */}
       <main className="flex-1">
@@ -671,19 +750,14 @@ export default function App() {
             savedStayIds={wishlistIds}
             user={user}
             onToggleSave={handleToggleWishlist}
+            onNavigateToListing={handleNavigateToListingFromShort}
             onBookNow={id => setActiveStayId(id)}
-            onNegotiate={id => setNegotiateStayId(id)}
-            onChatHost={id => setChatStayId(id)}
             onBackToFeed={() => handleNavigate('home')}
+            initialShortId={returnToShort?.shortId || null}
             currency={currency}
             onUpdateStay={(id, updates) =>
               setStays(prev => prev.map(s => (s.id === id ? { ...s, ...updates } : s)))
             }
-            userWalletBalance={walletBalance}
-            onOpenTopup={() => {
-              setPlanWalletMode(true);
-              setPlanModalOpen(true);
-            }}
             onOpenAuth={() => {
               setAuthInitialMode('login');
               setAuthModalOpen(true);
@@ -733,6 +807,8 @@ export default function App() {
               onUpdateProfile={handleUpdateProfile}
               currency={currency}
               onBackToFeed={() => handleNavigate('home')}
+              onNavigateToShorts={() => handleNavigate('shorts')}
+              showToast={showToast}
             />
           )
         )}
@@ -807,6 +883,7 @@ export default function App() {
               onDescribeStayAI={params => api.describeStayAI(params)}
               currency={currency}
               onBackToFeed={() => handleNavigate('home')}
+              onNavigateToShorts={() => handleNavigate('shorts')}
               showToast={showToast}
             />
           )
@@ -868,17 +945,19 @@ export default function App() {
         )}
       </main>
 
-      {/* Airbnb-Mimic Mega Footer with dynamic category tabs & Kenyan destinations */}
-      <Footer
-        onNavigate={handleNavigate}
-        currency={currency}
-        onCurrencyChange={setCurrency}
-        onOpenTripFinder={() => setTripFinderOpen(true)}
-        onOpenPlans={() => {
-          setPlanWalletMode(false);
-          setPlanModalOpen(true);
-        }}
-      />
+      {/* Airbnb-Mimic Mega Footer with dynamic category tabs & Kenyan destinations (hidden in fullscreen Shorts player) */}
+      {currentTab !== 'shorts' && (
+        <Footer
+          onNavigate={handleNavigate}
+          currency={currency}
+          onCurrencyChange={setCurrency}
+          onOpenTripFinder={() => setTripFinderOpen(true)}
+          onOpenPlans={() => {
+            setPlanWalletMode(false);
+            setPlanModalOpen(true);
+          }}
+        />
+      )}
 
       {/* MODALS */}
       {/* 1. Neon Auth Modal */}
@@ -896,8 +975,17 @@ export default function App() {
         stay={activeStay}
         isOpen={!!activeStayId}
         onClose={() => {
+          if (returnToShort) {
+            handleBackToShort();
+            return;
+          }
           setActiveStayId(null);
-          window.location.hash = currentTab === 'home' ? '' : currentTab;
+          setActiveStayIntent(null);
+          if (window.location.pathname.startsWith('/listing/')) {
+            window.history.pushState({}, '', currentTab === 'home' ? '/' : `/#${currentTab}`);
+          } else {
+            window.location.hash = currentTab === 'home' ? '' : currentTab;
+          }
         }}
         user={user}
         isSaved={!!activeStayId && wishlistIds.includes(activeStayId)}
@@ -911,6 +999,7 @@ export default function App() {
         relatedStays={stays.filter(s => s.id !== activeStayId)}
         onSelectRelatedStay={id => {
           setActiveStayId(id);
+          setActiveStayIntent(null);
           window.location.hash = `stay-${id}`;
         }}
         onUpdateStay={(id, updates) =>
@@ -926,6 +1015,9 @@ export default function App() {
           setAuthModalOpen(true);
         }}
         showToast={showToast}
+        initialIntent={activeStayIntent}
+        fromShort={Boolean(returnToShort)}
+        onBackToShort={handleBackToShort}
       />
 
       {/* 3. Negotiate Modal */}

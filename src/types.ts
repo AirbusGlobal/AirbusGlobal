@@ -182,6 +182,11 @@ export interface Stay {
   region?: string;
   localCurrency?: string;
   localCurrencyPrice?: number;
+
+  // Gold-Only Listing Audio (optional music +/or voice-over on listing page)
+  listingAudio?: ListingAudioConfig | null;
+  listingAudioLocked?: boolean;
+  ownerTier?: StayCategory;
 }
 
 export interface LocalGuideProfile {
@@ -588,24 +593,200 @@ export const CURRENCY_RATES: Record<Currency, number> = {
   EUR: 0.0071,
 };
 
-// --- Posts & Media ---
+// --- Posts & Media + Shorts Auto-Creation & Audio ---
 export type PostType = 'photo' | 'short' | 'video';
 export type PostStatus = 'draft' | 'pending' | 'approved' | 'rejected' | 'removed';
+
+export type AudioLicenseType =
+  | 'CC0'
+  | 'Royalty-Free'
+  | 'CC-BY-4.0'
+  | 'Pixabay-License'
+  | 'YouTube-Audio-Library'
+  | 'Jamendo-Royalty-Free'
+  | 'Original-User-Audio';
+
+export interface AudioLicense {
+  id: string;
+  licenseType: AudioLicenseType;
+  source: 'Pixabay Music' | 'YouTube Audio Library' | 'Free Music Archive' | 'Jamendo' | 'AirBus Free Studio' | 'User Upload';
+  requiresAttribution: boolean;
+  attributionText: string;
+  commercialUgcAllowed: boolean;
+  licenseUrl?: string;
+  createdAt: number;
+}
+
+export interface AudioTrack {
+  id: string;
+  title: string;
+  artist: string;
+  genre: string;
+  mood?: string;
+  duration: number;
+  licence: string;
+  licenseId?: string;
+  licenseType: AudioLicenseType;
+  source: AudioLicense['source'];
+  requiresAttribution: boolean;
+  attributionText: string;
+  commercialUgcAllowed: boolean;
+  trending?: boolean;
+  previewStartSec?: number;
+  previewDurationSec?: number;
+  audioUrl: string;
+  coverUrl?: string;
+  useCount?: number;
+  reportedCount?: number;
+  createdAt?: number;
+}
+
+export type ShortAudioMode = 'none' | 'song' | 'voiceover' | 'original' | 'song_plus_voiceover';
+
+export type ShortIntentType = 'availability' | 'book' | 'chat' | 'negotiate' | 'whatsapp';
+
+export interface ListingAudioConfig {
+  id: string;
+  stayId: string;
+  ownerEmail: string;
+  mode: 'none' | 'song' | 'voiceover' | 'song_plus_voiceover';
+  trackId?: string;
+  trackTitle?: string;
+  trackArtist?: string;
+  trackUrl?: string;
+  musicVolume: number; // 0..100
+  voiceOverUrl?: string;
+  voiceOverSource?: 'mic' | 'upload' | 'tts';
+  voiceOverVolume: number; // 0..100
+  ttsScript?: string;
+  ttsVoice?: string;
+  ttsLanguage?: string;
+  autoDuckMusic?: boolean;
+  rightsConfirmed?: boolean;
+  requiresAttribution?: boolean;
+  attributionText?: string;
+  active?: boolean;
+  updatedAt: number;
+}
+
+export interface ShortAnalyticsRecord {
+  shortId: string;
+  listingId?: string;
+  ownerEmail?: string;
+  views: number;
+  plays: number;
+  replays: number;
+  clicks: Record<ShortIntentType, number>;
+  updatedAt: number;
+}
+
+export interface ShortAudioConfig {
+  id?: string;
+  postId?: string;
+  mode: ShortAudioMode;
+  trackId?: string;
+  trackTitle?: string;
+  trackArtist?: string;
+  trackUrl?: string;
+  audioStartSec?: number; // Trim/choose-start-point inside song
+  originalVolume: number; // 0..100
+  musicVolume: number; // 0..100
+  voiceOverVolume: number; // 0..100
+  autoDuckMusic: boolean; // Lower music while voice-over plays
+  voiceOverUrl?: string;
+  voiceOverSource?: 'mic' | 'upload' | 'tts';
+  ttsScript?: string;
+  ttsVoice?: string;
+  ttsLanguage?: string;
+  licenseId?: string;
+  requiresAttribution?: boolean;
+  attributionText?: string;
+  isDefaultAssigned?: boolean;
+  rightsConfirmed?: boolean;
+}
+
+export interface CaptionSegment {
+  id: string;
+  startSec: number;
+  endSec: number;
+  text: string;
+}
+
+export interface PostComment {
+  id: string;
+  postId: string;
+  authorEmail: string;
+  authorName: string;
+  text: string;
+  createdAt: number;
+}
+
+export type ShortJobState = 'queued' | 'processing' | 'ready' | 'failed';
+
+export interface ShortJob {
+  id: string;
+  idempotencyKey: string;
+  ownerEmail: string;
+  ownerName: string;
+  stayId?: string;
+  sourceType: 'video' | 'photo';
+  sourceFiles: string[];
+  autoCreateEnabled: boolean;
+  autoPublish: boolean; // Default true; false when "Review before posting" is on
+  reviewBeforePosting: boolean;
+  autoCaptionsEnabled: boolean;
+  aspectCropMode: 'smart_center' | 'blur_fill';
+  trimStartSec: number;
+  trimEndSec: number;
+  caption: string;
+  hashtags: string[];
+  captions: CaptionSegment[];
+  audioConfig: ShortAudioConfig;
+  state: ShortJobState;
+  progress: number; // 0..100
+  stageLabel: string;
+  outputVideoUrl?: string;
+  outputThumbnailUrl?: string;
+  outputDurationSec?: number;
+  publishedPostId?: string;
+  errorMessage?: string;
+  retryCount: number;
+  createdAt: number;
+  updatedAt: number;
+}
 
 export interface Post {
   id: string;
   ownerEmail: string;
+  host_id?: string;
+  creatorName?: string;
   stayId?: string;
+  listing_id?: string;
+  listingUnavailable?: boolean;
   type: PostType;
-  description: string; // Max 300 characters
+  description: string; // Max 300 characters / caption
+  caption?: string;
+  hashtags?: string[];
   coverUrl: string;
   images?: string[]; // 1 to 10 images
   videoUrl?: string;
   videoAssetId?: string;
   durationSeconds?: number; // Short <= 60s, Video <= 1800s (30m)
+  sourceType?: 'video' | 'photo';
+  autoGenerated?: boolean;
+  jobId?: string;
+  captionsEnabled?: boolean;
+  captions?: CaptionSegment[];
+  shortAudio?: ShortAudioConfig;
+  comments?: PostComment[];
+  likedByUserEmails?: string[];
+  moderationStatus?: 'approved' | 'flagged' | 'pending';
   status: PostStatus;
   rejectionReason?: string;
   views: number;
+  plays?: number;
+  replays?: number;
+  actionClicks?: number;
   likes: number;
   shares: number;
   viralityScore?: number;

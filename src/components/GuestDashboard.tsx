@@ -46,6 +46,8 @@ interface GuestDashboardProps {
   onUpdateProfile: (data: any) => Promise<void>;
   currency: Currency;
   onBackToFeed?: () => void;
+  onNavigateToShorts?: () => void;
+  showToast?: (msg: string) => void;
 }
 
 export const GuestDashboard: React.FC<GuestDashboardProps> = ({
@@ -64,6 +66,8 @@ export const GuestDashboard: React.FC<GuestDashboardProps> = ({
   onUpdateProfile,
   currency,
   onBackToFeed,
+  onNavigateToShorts,
+  showToast,
 }) => {
   const [activeTab, setActiveTab] = useState<'trips' | 'wishlist' | 'messages' | 'recommended' | 'profile'>('trips');
   const [tripFilter, setTripFilter] = useState<'upcoming' | 'past' | 'cancelled'>('upcoming');

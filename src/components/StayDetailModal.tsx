@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Stay,
   Booking,
@@ -8,6 +8,7 @@ import {
   CURRENCY_RATES,
   VideoComment,
   AdRequest,
+  ShortIntentType,
 } from '../types';
 import { ListingMediaViewer } from './ListingMediaViewer';
 import {
@@ -45,6 +46,8 @@ import {
   Gift,
   ChevronRight,
   ArrowRight,
+  Music,
+  Mic,
 } from 'lucide-react';
 import { api } from '../api';
 import { PriceTrendCard } from './PriceTrendCard';
@@ -87,6 +90,9 @@ interface StayDetailModalProps {
   onOpenTopup?: () => void;
   onOpenAuth?: () => void;
   showToast?: (msg: string) => void;
+  initialIntent?: ShortIntentType | null;
+  fromShort?: boolean;
+  onBackToShort?: () => void;
 }
 
 export const StayDetailModal: React.FC<StayDetailModalProps> = ({
@@ -109,6 +115,9 @@ export const StayDetailModal: React.FC<StayDetailModalProps> = ({
   onOpenTopup,
   onOpenAuth,
   showToast,
+  initialIntent = null,
+  fromShort = false,
+  onBackToShort,
 }) => {
   const todayStr = new Date().toISOString().slice(0, 10);
   const tomorrowStr = new Date(Date.now() + 864e5).toISOString().slice(0, 10);
@@ -230,6 +239,107 @@ export const StayDetailModal: React.FC<StayDetailModalProps> = ({
       setIsFollowing(user && stay.owner ? (stay.hostFollowedByUserEmails || []).includes(user.email) : false);
     }
   }, [stay?.id, user?.email]);
+
+  // Gold Host Optional Listing Audio state (ALWAYS starts paused on arrival; never autoplays with sound)
+  const activeListingAudio =
+    stay?.listingAudio && stay.listingAudio.active && stay.listingAudio.mode !== 'none' && !stay.listingAudioLocked
+      ? stay.listingAudio
+      : null;
+  const [listingAudioPlaying, setListingAudioPlaying] = useState(false);
+  const [listingAudioMuted, setListingAudioMuted] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('airbus_listing_audio_muted') === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const listingMusicRef = useRef<HTMLAudioElement | null>(null);
+  const listingVoRef = useRef<HTMLAudioElement | null>(null);
+
+  // Refs for Short-to-Listing deep-link intent targeting
+  const bookingSectionRef = useRef<HTMLDivElement | null>(null);
+  const checkInInputRef = useRef<HTMLInputElement | null>(null);
+  const whatsappCtaRef = useRef<HTMLAnchorElement | null>(null);
+  const [highlightedIntent, setHighlightedIntent] = useState<ShortIntentType | null>(null);
+
+  // Sync Listing Audio play/pause & mute state; guarantee full stop when modal closes or stay changes
+  useEffect(() => {
+    const musicEl = listingMusicRef.current;
+    const voEl = listingVoRef.current;
+
+    if (!isOpen || !activeListingAudio) {
+      musicEl?.pause();
+      voEl?.pause();
+      setListingAudioPlaying(false);
+      return;
+    }
+
+    if (musicEl) {
+      if (listingAudioPlaying && !listingAudioMuted && activeListingAudio.trackUrl && (activeListingAudio.musicVolume ?? 70) > 0) {
+        if (musicEl.getAttribute('src') !== activeListingAudio.trackUrl) {
+          musicEl.src = activeListingAudio.trackUrl;
+        }
+        const duckFactor = activeListingAudio.voiceOverUrl && activeListingAudio.autoDuckMusic ? 0.35 : 1;
+        musicEl.volume = Math.min(1, Math.max(0, ((activeListingAudio.musicVolume ?? 70) / 100) * duckFactor));
+        musicEl.play().catch(() => {});
+      } else {
+        musicEl.pause();
+      }
+    }
+
+    if (voEl) {
+      if (listingAudioPlaying && !listingAudioMuted && activeListingAudio.voiceOverUrl && (activeListingAudio.voiceOverVolume ?? 100) > 0) {
+        if (voEl.getAttribute('src') !== activeListingAudio.voiceOverUrl) {
+          voEl.src = activeListingAudio.voiceOverUrl;
+        }
+        voEl.volume = Math.min(1, Math.max(0, (activeListingAudio.voiceOverVolume ?? 100) / 100));
+        voEl.play().catch(() => {});
+      } else {
+        voEl.pause();
+      }
+    }
+  }, [isOpen, stay?.id, activeListingAudio?.id, activeListingAudio?.trackUrl, activeListingAudio?.voiceOverUrl, listingAudioPlaying, listingAudioMuted]);
+
+  useEffect(() => {
+    return () => {
+      listingMusicRef.current?.pause();
+      listingVoRef.current?.pause();
+    };
+  }, []);
+
+  // Reset listing audio playback on stay switch or modal close
+  useEffect(() => {
+    setListingAudioPlaying(false);
+  }, [stay?.id, isOpen]);
+
+  // Execute Short-to-Listing deep-link intent once opened on the target listing
+  useEffect(() => {
+    if (!isOpen || !stay || !initialIntent) {
+      setHighlightedIntent(null);
+      return;
+    }
+
+    setHighlightedIntent(initialIntent);
+    const timer = window.setTimeout(() => {
+      if (initialIntent === 'availability') {
+        setCheckoutStep('details');
+        bookingSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        checkInInputRef.current?.focus();
+      } else if (initialIntent === 'book') {
+        setCheckoutStep('details');
+        bookingSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      } else if (initialIntent === 'chat') {
+        onChatHost(stay.id);
+      } else if (initialIntent === 'negotiate') {
+        onNegotiate(stay.id);
+      } else if (initialIntent === 'whatsapp') {
+        whatsappCtaRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        whatsappCtaRef.current?.focus();
+      }
+    }, 120);
+
+    return () => window.clearTimeout(timer);
+  }, [isOpen, stay?.id, initialIntent]);
 
   if (!isOpen || !stay) return null;
 
@@ -451,14 +561,17 @@ export const StayDetailModal: React.FC<StayDetailModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-2 sm:p-4 overflow-y-auto animate-in fade-in duration-200">
       <div className="relative w-full max-w-4xl bg-white dark:bg-[#15171e] text-stone-900 dark:text-stone-100 rounded-3xl overflow-hidden shadow-2xl border border-stone-200 dark:border-stone-800 my-auto">
-        {/* Modal Top Header with Ubiquitous Go Back Button */}
+        {/* Modal Top Header with Ubiquitous Go Back / Back to Short Button */}
         <div className="sticky top-0 z-30 bg-white/95 dark:bg-[#15171e]/95 backdrop-blur-md px-4 sm:px-6 py-3 border-b border-stone-100 dark:border-stone-800 flex items-center justify-between">
           <button
-            onClick={onClose}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 text-stone-700 dark:text-stone-200 text-xs font-bold transition-all cursor-pointer"
+            onClick={() => {
+              if (fromShort && onBackToShort) onBackToShort();
+              else onClose();
+            }}
+            className="flex items-center gap-2 px-3 py-1.5 min-h-[44px] rounded-full bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 text-stone-700 dark:text-stone-200 text-xs font-bold transition-all cursor-pointer"
           >
             <ArrowLeft className="w-4 h-4 text-[#e4002b]" />
-            <span>Go Back</span>
+            <span>{fromShort ? 'Back to Short' : 'Go Back'}</span>
           </button>
 
           <div className="flex items-center gap-2">
@@ -504,6 +617,66 @@ export const StayDetailModal: React.FC<StayDetailModalProps> = ({
             aspectRatio="video"
             autoPlay={true}
           />
+
+          {/* Gold Host Optional Listing Audio Bar (Starts paused — never autoplays with sound) */}
+          {activeListingAudio && (
+            <div className="p-3 rounded-2xl bg-gradient-to-r from-amber-500/10 via-stone-50 to-rose-500/10 dark:from-amber-950/30 dark:via-stone-900 dark:to-rose-950/30 border border-amber-500/30 flex flex-wrap items-center justify-between gap-3">
+              <audio ref={listingMusicRef} loop preload="none" />
+              <audio ref={listingVoRef} preload="none" />
+
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-9 h-9 rounded-xl bg-amber-500/20 text-amber-600 dark:text-amber-300 flex items-center justify-center shrink-0">
+                  {activeListingAudio.voiceOverUrl && !activeListingAudio.trackUrl ? (
+                    <Mic className="w-4 h-4" />
+                  ) : (
+                    <Music className="w-4 h-4" />
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <div className="text-xs font-extrabold text-stone-900 dark:text-white truncate">
+                    {activeListingAudio.trackTitle
+                      ? `${activeListingAudio.trackTitle}${activeListingAudio.trackArtist ? ` — ${activeListingAudio.trackArtist}` : ''}`
+                      : 'Host Listing Voice-Over'}
+                  </div>
+                  <div className="text-[10px] text-stone-500 truncate">
+                    {activeListingAudio.voiceOverUrl && activeListingAudio.trackTitle
+                      ? 'Includes Host Voice-Over + Soundtrack'
+                      : 'Optional Listing Audio (Tap Play to listen)'}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setListingAudioPlaying(p => !p)}
+                  className="min-w-[44px] min-h-[44px] px-3.5 rounded-full bg-[#e4002b] hover:bg-[#c90026] text-white text-xs font-extrabold flex items-center gap-1.5 shadow cursor-pointer"
+                  aria-label={listingAudioPlaying ? 'Pause listing audio' : 'Play listing audio'}
+                >
+                  {listingAudioPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 fill-current" />}
+                  <span>{listingAudioPlaying ? 'Pause' : 'Play'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setListingAudioMuted(prev => {
+                      const next = !prev;
+                      try {
+                        localStorage.setItem('airbus_listing_audio_muted', String(next));
+                      } catch {}
+                      return next;
+                    });
+                  }}
+                  className="min-w-[44px] min-h-[44px] px-3 rounded-full bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 text-stone-700 dark:text-stone-200 text-xs font-bold flex items-center justify-center gap-1 cursor-pointer"
+                  aria-label={listingAudioMuted ? 'Unmute listing audio' : 'Mute listing audio'}
+                >
+                  {listingAudioMuted ? <VolumeX className="w-4 h-4 text-rose-500" /> : <Volume2 className="w-4 h-4 text-emerald-500" />}
+                  <span className="hidden sm:inline">{listingAudioMuted ? 'Muted' : 'Sound'}</span>
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* YouTube-Style Channel & Engagement Social Bar */}
           <div className="flex flex-wrap items-center justify-between gap-4 p-4 rounded-2xl bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-800">
@@ -800,7 +973,14 @@ export const StayDetailModal: React.FC<StayDetailModalProps> = ({
                 onNegotiate={() => onNegotiate(stay.id)}
               />
 
-              <div className="bg-stone-50 dark:bg-stone-900 p-5 rounded-3xl border border-stone-200 dark:border-stone-800 shadow-sm space-y-4 sticky top-16">
+              <div
+                ref={bookingSectionRef}
+                className={`bg-stone-50 dark:bg-stone-900 p-5 rounded-3xl border shadow-sm space-y-4 sticky top-16 transition-all ${
+                  highlightedIntent === 'book' || highlightedIntent === 'availability'
+                    ? 'border-[#e4002b] ring-2 ring-[#e4002b]/40'
+                    : 'border-stone-200 dark:border-stone-800'
+                }`}
+              >
                 <div className="flex items-baseline justify-between">
                   <div>
                     <span className="text-2xl font-black text-stone-900 dark:text-white">
@@ -958,11 +1138,12 @@ export const StayDetailModal: React.FC<StayDetailModalProps> = ({
                       <div>
                         <label className="text-[10px] font-bold text-stone-500 uppercase">Check-in</label>
                         <input
+                          ref={checkInInputRef}
                           type="date"
                           value={checkIn}
                           min={todayStr}
                           onChange={e => setCheckIn(e.target.value)}
-                          className="w-full mt-1 px-2.5 py-1.5 bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 rounded-xl text-xs outline-none"
+                          className="w-full mt-1 px-2.5 py-1.5 bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 rounded-xl text-xs outline-none focus:border-[#e4002b]"
                           required
                         />
                       </div>
@@ -1314,15 +1495,18 @@ export const StayDetailModal: React.FC<StayDetailModalProps> = ({
                 {/* Direct WhatsApp button ONLY when owner subscription is active */}
                 {stay.whatsapp && !isOwnerExpired && (
                   <a
+                    ref={whatsappCtaRef}
                     href={`https://wa.me/${stay.whatsapp.replace(/[^0-9]/g, '')}?text=Hello!%20I'm%20inquiring%20about%20your%20stay%20on%20AirBus:%20${encodeURIComponent(
                       stay.title
                     )}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="w-full py-2 px-3 bg-[#16a34a] hover:bg-[#15803d] text-white text-xs font-bold rounded-full flex items-center justify-center gap-1.5 transition-colors shadow-sm"
+                    className={`w-full min-h-[44px] py-2 px-3 bg-[#16a34a] hover:bg-[#15803d] text-white text-xs font-bold rounded-full flex items-center justify-center gap-1.5 transition-all shadow-sm ${
+                      highlightedIntent === 'whatsapp' ? 'ring-4 ring-emerald-300 animate-pulse' : ''
+                    }`}
                   >
                     <PhoneCall className="w-3.5 h-3.5" />
-                    <span>Chat on WhatsApp</span>
+                    <span>{highlightedIntent === 'whatsapp' ? 'Book direct on WhatsApp →' : 'Chat on WhatsApp'}</span>
                   </a>
                 )}
 

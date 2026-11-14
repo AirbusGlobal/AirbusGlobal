@@ -41,6 +41,28 @@
       "idVerified": true,
       "createdAt": 1794059163487,
       "isVVVIP": true
+    },
+    {
+      "id": "u_1794630146335",
+      "name": "E2E Host",
+      "email": "e2e_host_1794630146329@airbus.ke",
+      "role": "owner",
+      "passwordHash": "250691ff34f91b987ac9b9d386f5070969c714aa00f08ad209c7ae6ba117dbc8",
+      "phone": "",
+      "location": "Nairobi, Kenya",
+      "idVerified": false,
+      "createdAt": 1794630146335
+    },
+    {
+      "id": "u_1794630164581",
+      "name": "E2E Host",
+      "email": "e2e_host_1794630164577@airbus.ke",
+      "role": "owner",
+      "passwordHash": "250691ff34f91b987ac9b9d386f5070969c714aa00f08ad209c7ae6ba117dbc8",
+      "phone": "",
+      "location": "Nairobi, Kenya",
+      "idVerified": false,
+      "createdAt": 1794630164581
     }
   ],
   "stays": [
@@ -773,7 +795,26 @@
         42,
         32
       ],
-      "createdAt": 1793906999981
+      "createdAt": 1793906999981,
+      "media": {
+        "video": {
+          "url": "https://assets.mixkit.co/videos/preview/mixkit-villa-with-pool-and-terrace-in-front-of-the-sea-43406-large.mp4",
+          "thumbnail": "https://images.unsplash.com/photo-1613490493576-7fde63acd811?auto=format&fit=crop&w=800&q=80",
+          "duration": 60,
+          "size": 15000000
+        },
+        "photos": [
+          {
+            "url": "https://images.unsplash.com/photo-1613490493576-7fde63acd811?auto=format&fit=crop&w=800&q=80",
+            "order": 0,
+            "isCover": true
+          }
+        ]
+      },
+      "hasVideo": true,
+      "hasPhotos": true,
+      "moderationStatus": "approved",
+      "mediaModerationStatus": "clean"
     },
     {
       "id": "s_plus_2",
@@ -840,7 +881,26 @@
         38,
         25
       ],
-      "createdAt": 1794166199981
+      "createdAt": 1794166199981,
+      "media": {
+        "video": {
+          "url": "https://assets.mixkit.co/videos/preview/mixkit-luxury-home-with-pool-and-sea-view-43410-large.mp4",
+          "thumbnail": "https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?auto=format&fit=crop&w=800&q=80",
+          "duration": 60,
+          "size": 15000000
+        },
+        "photos": [
+          {
+            "url": "https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?auto=format&fit=crop&w=800&q=80",
+            "order": 0,
+            "isCover": true
+          }
+        ]
+      },
+      "hasVideo": true,
+      "hasPhotos": true,
+      "moderationStatus": "approved",
+      "mediaModerationStatus": "clean"
     },
     {
       "id": "s_local_1",
@@ -898,7 +958,26 @@
         145,
         190
       ],
-      "createdAt": 1793561399981
+      "createdAt": 1793561399981,
+      "media": {
+        "video": {
+          "url": "https://assets.mixkit.co/videos/preview/mixkit-modern-apartment-with-living-room-and-terrace-43405-large.mp4",
+          "thumbnail": "https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?auto=format&fit=crop&w=800&q=80",
+          "duration": 60,
+          "size": 15000000
+        },
+        "photos": [
+          {
+            "url": "https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?auto=format&fit=crop&w=800&q=80",
+            "order": 0,
+            "isCover": true
+          }
+        ]
+      },
+      "hasVideo": true,
+      "hasPhotos": true,
+      "moderationStatus": "approved",
+      "mediaModerationStatus": "clean"
     },
     {
       "id": "s_local_2",
@@ -956,7 +1035,26 @@
         175,
         220
       ],
-      "createdAt": 1793388599981
+      "createdAt": 1793388599981,
+      "media": {
+        "video": {
+          "url": "https://assets.mixkit.co/videos/preview/mixkit-swimming-pool-surrounded-by-palm-trees-at-sunset-42028-large.mp4",
+          "thumbnail": "https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?auto=format&fit=crop&w=800&q=80",
+          "duration": 60,
+          "size": 15000000
+        },
+        "photos": [
+          {
+            "url": "https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?auto=format&fit=crop&w=800&q=80",
+            "order": 0,
+            "isCover": true
+          }
+        ]
+      },
+      "hasVideo": true,
+      "hasPhotos": true,
+      "moderationStatus": "approved",
+      "mediaModerationStatus": "clean"
     },
     {
       "id": "s_ww_1",
@@ -1024,7 +1122,26 @@
         210,
         260
       ],
-      "createdAt": 1793820599981
+      "createdAt": 1793820599981,
+      "media": {
+        "video": {
+          "url": "https://assets.mixkit.co/videos/preview/mixkit-villa-with-pool-and-terrace-in-front-of-the-sea-43406-large.mp4",
+          "thumbnail": "https://images.unsplash.com/photo-1512917774080-9991f1c4c750?auto=format&fit=crop&w=800&q=80",
+          "duration": 60,
+          "size": 15000000
+        },
+        "photos": [
+          {
+            "url": "https://images.unsplash.com/photo-1512917774080-9991f1c4c750?auto=format&fit=crop&w=800&q=80",
+            "order": 0,
+            "isCover": true
+          }
+        ]
+      },
+      "hasVideo": true,
+      "hasPhotos": true,
+      "moderationStatus": "approved",
+      "mediaModerationStatus": "clean"
     },
     {
       "id": "s_ww_2",
@@ -1088,7 +1205,26 @@
         185,
         210
       ],
-      "createdAt": 1794079799981
+      "createdAt": 1794079799981,
+      "media": {
+        "video": {
+          "url": "https://assets.mixkit.co/videos/preview/mixkit-swimming-pool-surrounded-by-palm-trees-at-sunset-42028-large.mp4",
+          "thumbnail": "https://images.unsplash.com/photo-1540541338287-41700207dee6?auto=format&fit=crop&w=800&q=80",
+          "duration": 60,
+          "size": 15000000
+        },
+        "photos": [
+          {
+            "url": "https://images.unsplash.com/photo-1540541338287-41700207dee6?auto=format&fit=crop&w=800&q=80",
+            "order": 0,
+            "isCover": true
+          }
+        ]
+      },
+      "hasVideo": true,
+      "hasPhotos": true,
+      "moderationStatus": "approved",
+      "mediaModerationStatus": "clean"
     },
     {
       "id": "s_ww_3",
@@ -1157,7 +1293,26 @@
         220,
         280
       ],
-      "createdAt": 1794252599981
+      "createdAt": 1794252599981,
+      "media": {
+        "video": {
+          "url": "https://assets.mixkit.co/videos/preview/mixkit-modern-apartment-with-living-room-and-terrace-43405-large.mp4",
+          "thumbnail": "https://images.unsplash.com/photo-1512453979798-5ea266f8880c?auto=format&fit=crop&w=800&q=80",
+          "duration": 60,
+          "size": 15000000
+        },
+        "photos": [
+          {
+            "url": "https://images.unsplash.com/photo-1512453979798-5ea266f8880c?auto=format&fit=crop&w=800&q=80",
+            "order": 0,
+            "isCover": true
+          }
+        ]
+      },
+      "hasVideo": true,
+      "hasPhotos": true,
+      "moderationStatus": "approved",
+      "mediaModerationStatus": "clean"
     },
     {
       "id": "s_ww_4",
@@ -1226,7 +1381,26 @@
         110,
         160
       ],
-      "createdAt": 1794338999982
+      "createdAt": 1794338999982,
+      "media": {
+        "video": {
+          "url": "https://assets.mixkit.co/videos/preview/mixkit-wooden-house-in-the-middle-of-a-forest-43410-large.mp4",
+          "thumbnail": "https://images.unsplash.com/photo-1537996194471-e657df975ab4?auto=format&fit=crop&w=800&q=80",
+          "duration": 60,
+          "size": 15000000
+        },
+        "photos": [
+          {
+            "url": "https://images.unsplash.com/photo-1537996194471-e657df975ab4?auto=format&fit=crop&w=800&q=80",
+            "order": 0,
+            "isCover": true
+          }
+        ]
+      },
+      "hasVideo": true,
+      "hasPhotos": true,
+      "moderationStatus": "approved",
+      "mediaModerationStatus": "clean"
     }
   ],
   "bookings": [
@@ -1512,6 +1686,20 @@
       "graceExpiresAt": 1797169801182,
       "hasPaidSubscription": true,
       "period": "monthly"
+    },
+    "e2e_host_1794630146329@airbus.ke": {
+      "tier": "Silver",
+      "status": "pending",
+      "expiresAt": 0,
+      "graceExpiresAt": 0,
+      "hasPaidSubscription": false
+    },
+    "e2e_host_1794630164577@airbus.ke": {
+      "tier": "Gold",
+      "status": "active",
+      "expiresAt": 1797222167762,
+      "graceExpiresAt": 1797394967762,
+      "hasPaidSubscription": true
     }
   },
   "wallets": {
@@ -1519,7 +1707,9 @@
     "guest@airbus.ke": 1000,
     "treasury": 0,
     "kamalahari93@gmail.com": 0,
-    "admin@airbus.ke": 3000
+    "admin@airbus.ke": 3000,
+    "e2e_host_1794630146329@airbus.ke": 0,
+    "e2e_host_1794630164577@airbus.ke": 0
   },
   "wishlists": [
     {
@@ -1532,6 +1722,66 @@
     }
   ],
   "notifications": [
+    {
+      "id": "notif_17946301646040.5259412255710725",
+      "userEmail": "kamalahari93@gmail.com",
+      "title": "New Video Listing Pending Approval",
+      "message": "E2E Host submitted \"E2E Tier Test Villa\" for review.",
+      "read": false,
+      "link": "/#admin",
+      "type": "system",
+      "createdAt": 1794630164605
+    },
+    {
+      "id": "notif_1794630164581",
+      "userEmail": "e2e_host_1794630164577@airbus.ke",
+      "title": "Welcome Host! Please Select a 30-Day Plan",
+      "message": "To upload and publish short-stay videos, please select a hosting plan (Silver, Diamond, or Gold) and complete M-Pesa payment.",
+      "read": false,
+      "link": "/#owner",
+      "type": "subscription",
+      "createdAt": 1794630164581
+    },
+    {
+      "id": "notif_1794630146335",
+      "userEmail": "e2e_host_1794630146329@airbus.ke",
+      "title": "Welcome Host! Please Select a 30-Day Plan",
+      "message": "To upload and publish short-stay videos, please select a hosting plan (Silver, Diamond, or Gold) and complete M-Pesa payment.",
+      "read": false,
+      "link": "/#owner",
+      "type": "subscription",
+      "createdAt": 1794630146335
+    },
+    {
+      "id": "notif_short_1794600566072_k5p",
+      "userEmail": "owner@airbus.ke",
+      "title": "Short Creation Failed — Retry Available",
+      "message": "Background processing stopped: Command failed: ffmpeg -y -ss 0 -t 20 -i /app/applet/uploads/shorts/does_not_exist_12345.mp4 -vf scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1,format=yuv420p -r 30 -c:v libx264 -preset veryfast -crf 24 -an /app/applet/uploads/shorts/tmp_vid_sjob_1794600565867_xeq61.mp4\nffmpeg version 4.4.2-0ubuntu0.22.04.1+esm17 Copyright (c) 2000-2021 the FFmpeg developers\n  built with gcc 11 (Ubuntu 11.4.0-1ubuntu1~22.04.3)\n  configuration: --prefix=/usr --extra-version=0ubuntu0.22.04.1+esm17 --toolchain=hardened --libdir=/usr/lib/x86_64-linux-gnu --incdir=/usr/include/x86_64-linux-gnu --arch=amd64 --enable-gpl --disable-stripping --enable-gnutls --enable-ladspa --enable-libaom --enable-libass --enable-libbluray --enable-libbs2b --enable-libcaca --enable-libcdio --enable-libcodec2 --enable-libdav1d --enable-libflite --enable-libfontconfig --enable-libfreetype --enable-libfribidi --enable-libgme --enable-libgsm --enable-libjack --enable-libmp3lame --enable-libmysofa --enable-libopenjpeg --enable-libopenmpt --enable-libopus --enable-libpulse --enable-librabbitmq --enable-librubberband --enable-libshine --enable-libsnappy --enable-libsoxr --enable-libspeex --enable-libsrt --enable-libssh --enable-libtheora --enable-libtwolame --enable-libvidstab --enable-libvorbis --enable-libvpx --enable-libwebp --enable-libx265 --enable-libxml2 --enable-libxvid --enable-libzimg --enable-libzmq --enable-libzvbi --enable-lv2 --enable-omx --enable-openal --enable-opencl --enable-opengl --enable-sdl2 --enable-pocketsphinx --enable-librsvg --enable-libmfx --enable-libdc1394 --enable-libdrm --enable-libiec61883 --enable-chromaprint --enable-frei0r --enable-libx264 --enable-shared\n  libavutil      56. 70.100 / 56. 70.100\n  libavcodec     58.134.100 / 58.134.100\n  libavformat    58. 76.100 / 58. 76.100\n  libavdevice    58. 13.100 / 58. 13.100\n  libavfilter     7.110.100 /  7.110.100\n  libswscale      5.  9.100 /  5.  9.100\n  libswresample   3.  9.100 /  3.  9.100\n  libpostproc    55.  9.100 / 55.  9.100\n/app/applet/uploads/shorts/does_not_exist_12345.mp4: No such file or directory\n. Open your Shorts tab to retry.",
+      "read": false,
+      "link": "/#owner",
+      "type": "system",
+      "createdAt": 1794600566072
+    },
+    {
+      "id": "notif_short_1794600565569_re0",
+      "userEmail": "owner@airbus.ke",
+      "title": "Your Short Draft is Ready ✨",
+      "message": "Your 9:16 Short (15s) finished processing and is waiting in your profile drafts to publish.",
+      "read": false,
+      "link": "/#shorts",
+      "type": "system",
+      "createdAt": 1794600565569
+    },
+    {
+      "id": "notif_short_1794600535142_zf0",
+      "userEmail": "owner@airbus.ke",
+      "title": "Your Short is Live on AirBus Reels! 🎬",
+      "message": "Your 9:16 Short (5s) with \"Nyali Coastal Breeze\" has been automatically posted to Shorts.",
+      "read": false,
+      "link": "/#shorts",
+      "type": "system",
+      "createdAt": 1794600535142
+    },
     {
       "id": "notif_1794405064151",
       "userEmail": "guest@airbus.ke",
@@ -1706,6 +1956,48 @@
   "tickets": [],
   "auditLogs": [
     {
+      "id": "aud_1794630167765",
+      "action": "admin_plan_adjust",
+      "actorEmail": "kamalahari93@gmail.com",
+      "details": "Updated plan for e2e_host_1794630164577@airbus.ke to Gold (+30 days)",
+      "createdAt": 1794630167765
+    },
+    {
+      "id": "aud_1794630167747",
+      "action": "admin_plan_adjust",
+      "actorEmail": "kamalahari93@gmail.com",
+      "details": "Updated plan for e2e_host_1794630164577@airbus.ke to Silver (+30 days)",
+      "createdAt": 1794630167747
+    },
+    {
+      "id": "aud_1794630167675",
+      "action": "admin_plan_adjust",
+      "actorEmail": "kamalahari93@gmail.com",
+      "details": "Updated plan for e2e_host_1794630164577@airbus.ke to Gold (+30 days)",
+      "createdAt": 1794630167675
+    },
+    {
+      "id": "aud_1794630164623",
+      "action": "admin_plan_adjust",
+      "actorEmail": "kamalahari93@gmail.com",
+      "details": "Updated plan for e2e_host_1794630164577@airbus.ke to Diamond (+30 days)",
+      "createdAt": 1794630164623
+    },
+    {
+      "id": "aud_1794630164594",
+      "action": "admin_plan_adjust",
+      "actorEmail": "kamalahari93@gmail.com",
+      "details": "Updated plan for e2e_host_1794630164577@airbus.ke to Silver (+30 days)",
+      "createdAt": 1794630164594
+    },
+    {
+      "id": "aud_arep_1794600565858",
+      "action": "audio_reported",
+      "actorEmail": "owner@airbus.ke",
+      "details": "Reported audio track mus_1 on post post_short_1794600535138_if07: Verification check",
+      "createdAt": 1794600565858
+    },
+    {
       "id": "aud_1794405064149",
       "action": "payment_approve",
       "actorEmail": "kamalahari93@gmail.com",
@@ -1851,6 +2143,137 @@
   },
   "posts": [
     {
+      "id": "post_short_1794600565565_pv0d",
+      "ownerEmail": "owner@airbus.ke",
+      "creatorName": "David Mutua",
+      "type": "short",
+      "description": "Photo Slideshow Ken Burns Draft #AirBusStays #TravelKenya #ShortStay",
+      "caption": "Photo Slideshow Ken Burns Draft",
+      "hashtags": [
+        "#AirBusStays",
+        "#TravelKenya",
+        "#ShortStay"
+      ],
+      "coverUrl": "/uploads/shorts/short_sjob_1794600527289_2q16c.jpg",
+      "images": [
+        "/uploads/raw/img_1794600527254_x5vje.png",
+        "/uploads/raw/img_1794600527254_bbhge.png"
+      ],
+      "videoUrl": "/uploads/shorts/short_sjob_1794600527289_2q16c.mp4",
+      "durationSeconds": 15,
+      "sourceType": "photo",
+      "autoGenerated": true,
+      "jobId": "sjob_1794600527289_2q16c",
+      "captionsEnabled": true,
+      "captions": [
+        {
+          "id": "cap_1",
+          "startSec": 0,
+          "endSec": 15,
+          "text": "Photo Slideshow Ken Burns Draft"
+        }
+      ],
+      "shortAudio": {
+        "mode": "song",
+        "trackId": "mus_1",
+        "trackTitle": "Safari Sunrise Vibes",
+        "trackArtist": "Mara Beats",
+        "trackUrl": "/uploads/audio/mus_1.wav",
+        "audioStartSec": 0,
+        "originalVolume": 25,
+        "musicVolume": 80,
+        "voiceOverVolume": 0,
+        "autoDuckMusic": true,
+        "licenseId": "lic_pixabay",
+        "requiresAttribution": false,
+        "attributionText": "Safari Sunrise Vibes by Mara Beats · Pixabay Music (Free UGC)",
+        "isDefaultAssigned": true
+      },
+      "comments": [],
+      "likedByUserEmails": [],
+      "moderationStatus": "approved",
+      "status": "approved",
+      "views": 0,
+      "likes": 0,
+      "shares": 0,
+      "viralityScore": 50,
+      "createdAt": 1794600565565,
+      "updatedAt": 1794600565833,
+      "host_id": "owner@airbus.ke",
+      "plays": 1,
+      "replays": 1,
+      "actionClicks": 1
+    },
+    {
+      "id": "post_short_1794600535138_if07",
+      "ownerEmail": "owner@airbus.ke",
+      "creatorName": "David Mutua",
+      "type": "short",
+      "description": "Auto-framed Kilimani Sunset Tour #Nairobi #AirBusShorts",
+      "caption": "Auto-framed Kilimani Sunset Tour",
+      "hashtags": [
+        "#Nairobi",
+        "#AirBusShorts"
+      ],
+      "coverUrl": "/uploads/shorts/short_sjob_1794600527263_ho9yf.jpg",
+      "videoUrl": "/uploads/shorts/short_sjob_1794600527263_ho9yf.mp4",
+      "durationSeconds": 5,
+      "sourceType": "video",
+      "autoGenerated": true,
+      "jobId": "sjob_1794600527263_ho9yf",
+      "captionsEnabled": true,
+      "captions": [
+        {
+          "id": "cap_1",
+          "startSec": 0,
+          "endSec": 5,
+          "text": "Auto-framed Kilimani Sunset Tour"
+        }
+      ],
+      "shortAudio": {
+        "mode": "song_plus_voiceover",
+        "trackId": "mus_2",
+        "trackTitle": "Nyali Coastal Breeze",
+        "trackArtist": "Diani Chillwave",
+        "trackUrl": "/uploads/audio/mus_2.wav",
+        "audioStartSec": 0,
+        "originalVolume": 20,
+        "musicVolume": 75,
+        "voiceOverVolume": 95,
+        "autoDuckMusic": true,
+        "voiceOverUrl": "/uploads/audio/tts_1794600524883_zecw.mp3",
+        "voiceOverSource": "tts",
+        "licenseId": "lic_yt_audio",
+        "requiresAttribution": false,
+        "attributionText": "Nyali Coastal Breeze by Diani Chillwave · YouTube Audio Library",
+        "isDefaultAssigned": false,
+        "id": "saud_1794600535138",
+        "postId": "post_short_1794600535138_if07"
+      },
+      "comments": [
+        {
+          "id": "pcom_1794600565848_veyg",
+          "postId": "post_short_1794600535138_if07",
+          "authorEmail": "owner@airbus.ke",
+          "authorName": "David Mutua",
+          "text": "Super clean 9:16 video!",
+          "createdAt": 1794600565848
+        }
+      ],
+      "likedByUserEmails": [
+        "owner@airbus.ke"
+      ],
+      "moderationStatus": "approved",
+      "status": "approved",
+      "views": 0,
+      "likes": 1,
+      "shares": 1,
+      "viralityScore": 50,
+      "createdAt": 1794600535138,
+      "updatedAt": 1794600535138,
+      "host_id": "owner@airbus.ke"
+    },
+    {
       "id": "post_short_1",
       "ownerEmail": "owner@airbus.ke",
       "stayId": "s1",
@@ -1865,7 +2288,31 @@
       "shares": 145,
       "viralityScore": 92,
       "createdAt": 1792315432749,
-      "updatedAt": 1792315432749
+      "updatedAt": 1792315432749,
+      "creatorName": "David Mutua",
+      "shortAudio": {
+        "mode": "song",
+        "trackId": "mus_1",
+        "trackTitle": "Safari Sunrise Vibes",
+        "trackArtist": "Mara Beats",
+        "trackUrl": "/uploads/audio/mus_1.wav",
+        "audioStartSec": 0,
+        "originalVolume": 25,
+        "musicVolume": 80,
+        "voiceOverVolume": 0,
+        "autoDuckMusic": true,
+        "licenseId": "lic_pixabay",
+        "requiresAttribution": false,
+        "attributionText": "Safari Sunrise Vibes by Mara Beats · Pixabay Music (Free UGC)",
+        "isDefaultAssigned": true
+      },
+      "comments": [],
+      "hashtags": [
+        "#AirBusStays",
+        "#TravelKenya"
+      ],
+      "listing_id": "s1",
+      "host_id": "owner@airbus.ke"
     },
     {
       "id": "post_video_2",
@@ -1882,7 +2329,15 @@
       "shares": 230,
       "viralityScore": 96,
       "createdAt": 1791969832749,
-      "updatedAt": 1791969832749
+      "updatedAt": 1791969832749,
+      "creatorName": "David Mutua",
+      "comments": [],
+      "hashtags": [
+        "#AirBusStays",
+        "#TravelKenya"
+      ],
+      "listing_id": "s4",
+      "host_id": "owner@airbus.ke"
     },
     {
       "id": "post_photo_3",
@@ -1902,7 +2357,15 @@
       "shares": 88,
       "viralityScore": 84,
       "createdAt": 1791451432749,
-      "updatedAt": 1791451432749
+      "updatedAt": 1791451432749,
+      "creatorName": "David Mutua",
+      "comments": [],
+      "hashtags": [
+        "#AirBusStays",
+        "#TravelKenya"
+      ],
+      "listing_id": "s3",
+      "host_id": "owner@airbus.ke"
     },
     {
       "id": "post_pending_4",
@@ -1919,7 +2382,31 @@
       "shares": 0,
       "viralityScore": 0,
       "createdAt": 1793172232749,
-      "updatedAt": 1793172232749
+      "updatedAt": 1793172232749,
+      "creatorName": "David Mutua",
+      "shortAudio": {
+        "mode": "song",
+        "trackId": "mus_1",
+        "trackTitle": "Safari Sunrise Vibes",
+        "trackArtist": "Mara Beats",
+        "trackUrl": "/uploads/audio/mus_1.wav",
+        "audioStartSec": 0,
+        "originalVolume": 25,
+        "musicVolume": 80,
+        "voiceOverVolume": 0,
+        "autoDuckMusic": true,
+        "licenseId": "lic_pixabay",
+        "requiresAttribution": false,
+        "attributionText": "Safari Sunrise Vibes by Mara Beats · Pixabay Music (Free UGC)",
+        "isDefaultAssigned": true
+      },
+      "comments": [],
+      "hashtags": [
+        "#AirBusStays",
+        "#TravelKenya"
+      ],
+      "listing_id": "s2",
+      "host_id": "owner@airbus.ke"
     }
   ],
   "adRequests": [
@@ -2821,93 +3308,164 @@
   "musicTracks": [
     {
       "id": "mus_1",
-      "title": "Amazing Grace (Acoustic Sunrise)",
-      "artist": "Nairobi Gospel Choir",
-      "genre": "Gospel",
-      "duration": 45,
-      "licence": "Royalty-Free Commercial",
-      "audioUrl": "https://cdn.freesound.org/previews/415/415804_5121236-lq.mp3"
-    },
-    {
-      "id": "mus_2",
-      "title": "Hallelujah Praise",
-      "artist": "Grace Collective",
-      "genre": "Gospel",
-      "duration": 52,
-      "licence": "Royalty-Free Commercial",
-      "audioUrl": "https://cdn.freesound.org/previews/387/387232_1474204-lq.mp3"
-    },
-    {
-      "id": "mus_3",
       "title": "Safari Sunrise Vibes",
       "artist": "Mara Beats",
       "genre": "Afrobeat",
-      "duration": 38,
-      "licence": "Royalty-Free Commercial",
-      "audioUrl": "https://cdn.freesound.org/previews/398/398808_5121236-lq.mp3"
+      "mood": "Uplifting",
+      "duration": 36,
+      "licence": "Pixabay Content License (UGC Allowed)",
+      "licenseId": "lic_pixabay",
+      "licenseType": "Pixabay-License",
+      "source": "Pixabay Music",
+      "requiresAttribution": false,
+      "attributionText": "Safari Sunrise Vibes by Mara Beats · Pixabay Music (Free UGC)",
+      "commercialUgcAllowed": true,
+      "trending": true,
+      "previewStartSec": 0,
+      "previewDurationSec": 25,
+      "useCount": 343,
+      "audioUrl": "/uploads/audio/mus_1.wav",
+      "reportedCount": 1
     },
     {
-      "id": "mus_4",
+      "id": "mus_2",
       "title": "Nyali Coastal Breeze",
       "artist": "Diani Chillwave",
-      "genre": "Ambient",
+      "genre": "Chill",
+      "mood": "Relaxed",
       "duration": 42,
-      "licence": "Royalty-Free Commercial",
-      "audioUrl": "https://cdn.freesound.org/previews/456/456561_5121236-lq.mp3"
+      "licence": "YouTube Audio Library (No Attribution)",
+      "licenseId": "lic_yt_audio",
+      "licenseType": "YouTube-Audio-Library",
+      "source": "YouTube Audio Library",
+      "requiresAttribution": false,
+      "attributionText": "Nyali Coastal Breeze by Diani Chillwave · YouTube Audio Library",
+      "commercialUgcAllowed": true,
+      "trending": true,
+      "previewStartSec": 0,
+      "previewDurationSec": 25,
+      "useCount": 290,
+      "audioUrl": "/uploads/audio/mus_2.wav"
     },
     {
-      "id": "mus_5",
+      "id": "mus_3",
       "title": "Westlands Skyline Groove",
       "artist": "Urban Rift",
       "genre": "Upbeat",
+      "mood": "Energetic",
       "duration": 40,
-      "licence": "Royalty-Free Commercial",
-      "audioUrl": "https://cdn.freesound.org/previews/517/517684_10672018-lq.mp3"
+      "licence": "CC BY 4.0 (Attribution Required)",
+      "licenseId": "lic_cc_by_fma",
+      "licenseType": "CC-BY-4.0",
+      "source": "Free Music Archive",
+      "requiresAttribution": true,
+      "attributionText": "Music: \"Westlands Skyline Groove\" by Urban Rift (FMA · CC BY 4.0)",
+      "commercialUgcAllowed": true,
+      "trending": true,
+      "previewStartSec": 0,
+      "previewDurationSec": 25,
+      "useCount": 215,
+      "audioUrl": "/uploads/audio/mus_3.wav"
     },
     {
-      "id": "mus_6",
+      "id": "mus_4",
       "title": "Great Rift Acoustic Serenade",
       "artist": "Naivasha Strings",
       "genre": "Acoustic",
-      "duration": 48,
-      "licence": "Royalty-Free Commercial",
-      "audioUrl": "https://cdn.freesound.org/previews/320/320655_5260872-lq.mp3"
+      "mood": "Warm",
+      "duration": 45,
+      "licence": "Jamendo Royalty-Free (Attribution)",
+      "licenseId": "lic_jamendo",
+      "licenseType": "Jamendo-Royalty-Free",
+      "source": "Jamendo",
+      "requiresAttribution": true,
+      "attributionText": "Audio: \"Great Rift Acoustic Serenade\" by Naivasha Strings (Jamendo CC BY)",
+      "commercialUgcAllowed": true,
+      "trending": false,
+      "previewStartSec": 0,
+      "previewDurationSec": 25,
+      "useCount": 164,
+      "audioUrl": "/uploads/audio/mus_4.wav"
     },
     {
-      "id": "mus_7",
+      "id": "mus_5",
       "title": "Savannah Wonder & Majesty",
       "artist": "African Philharmonic",
       "genre": "Cinematic",
-      "duration": 58,
-      "licence": "Royalty-Free Commercial",
-      "audioUrl": "https://cdn.freesound.org/previews/564/564627_5121236-lq.mp3"
+      "mood": "Inspiring",
+      "duration": 50,
+      "licence": "YouTube Audio Library (Free UGC)",
+      "licenseId": "lic_yt_audio",
+      "licenseType": "YouTube-Audio-Library",
+      "source": "YouTube Audio Library",
+      "requiresAttribution": false,
+      "attributionText": "Savannah Wonder & Majesty by African Philharmonic · YouTube Audio Library",
+      "commercialUgcAllowed": true,
+      "trending": true,
+      "previewStartSec": 0,
+      "previewDurationSec": 30,
+      "useCount": 198,
+      "audioUrl": "/uploads/audio/mus_5.wav"
+    },
+    {
+      "id": "mus_6",
+      "title": "Amazing Grace (Acoustic Sunrise)",
+      "artist": "Nairobi Gospel Choir",
+      "genre": "Gospel",
+      "mood": "Peaceful",
+      "duration": 45,
+      "licence": "CC0 Public Domain",
+      "licenseId": "lic_cc0",
+      "licenseType": "CC0",
+      "source": "AirBus Free Studio",
+      "requiresAttribution": false,
+      "attributionText": "CC0 Public Domain · Nairobi Gospel Choir",
+      "commercialUgcAllowed": true,
+      "trending": false,
+      "previewStartSec": 0,
+      "previewDurationSec": 25,
+      "useCount": 130,
+      "audioUrl": "/uploads/audio/mus_6.wav"
+    },
+    {
+      "id": "mus_7",
+      "title": "Lamu Swahili Sunset Lo-Fi",
+      "artist": "Shela Sunset",
+      "genre": "Ambient",
+      "mood": "Chill",
+      "duration": 38,
+      "licence": "Pixabay Content License (UGC Allowed)",
+      "licenseId": "lic_pixabay",
+      "licenseType": "Pixabay-License",
+      "source": "Pixabay Music",
+      "requiresAttribution": false,
+      "attributionText": "Lamu Swahili Sunset Lo-Fi by Shela Sunset · Pixabay Music",
+      "commercialUgcAllowed": true,
+      "trending": true,
+      "previewStartSec": 0,
+      "previewDurationSec": 25,
+      "useCount": 277,
+      "audioUrl": "/uploads/audio/mus_7.wav"
     },
     {
       "id": "mus_8",
-      "title": "Deep Praise & Worship Instrumental",
-      "artist": "Faith Harmonies",
-      "genre": "Gospel",
-      "duration": 60,
-      "licence": "Royalty-Free Commercial",
-      "audioUrl": "https://cdn.freesound.org/previews/415/415804_5121236-lq.mp3"
-    },
-    {
-      "id": "mus_9",
-      "title": "Lamu Swahili Chill",
-      "artist": "Shela Sunset",
-      "genre": "Chill",
-      "duration": 35,
-      "licence": "Royalty-Free Commercial",
-      "audioUrl": "https://cdn.freesound.org/previews/456/456561_5121236-lq.mp3"
-    },
-    {
-      "id": "mus_10",
-      "title": "Upbeat Kenya Explorer",
-      "artist": "Kilimanjaro Pulse",
-      "genre": "Upbeat",
+      "title": "Kilimanjaro Morning Pulse",
+      "artist": "Highland Echo",
+      "genre": "Afrobeat",
+      "mood": "Happy",
       "duration": 44,
-      "licence": "Royalty-Free Commercial",
-      "audioUrl": "https://cdn.freesound.org/previews/398/398808_5121236-lq.mp3"
+      "licence": "CC BY 4.0 (Attribution Required)",
+      "licenseId": "lic_cc_by_fma",
+      "licenseType": "CC-BY-4.0",
+      "source": "Free Music Archive",
+      "requiresAttribution": true,
+      "attributionText": "Music: \"Kilimanjaro Morning Pulse\" by Highland Echo (FMA · CC BY 4.0)",
+      "commercialUgcAllowed": true,
+      "trending": false,
+      "previewStartSec": 0,
+      "previewDurationSec": 25,
+      "useCount": 112,
+      "audioUrl": "/uploads/audio/mus_8.wav"
     }
   ],
   "localGuides": [
@@ -3017,5 +3575,511 @@
       "createdAt": 1794598210379
     }
   ],
-  "guideRequests": []
+  "guideRequests": [],
+  "audio_licenses": [
+    {
+      "id": "lic_pixabay",
+      "licenseType": "Pixabay-License",
+      "source": "Pixabay Music",
+      "requiresAttribution": false,
+      "attributionText": "Free for commercial & UGC video use via Pixabay Content License",
+      "commercialUgcAllowed": true,
+      "licenseUrl": "https://pixabay.com/service/license-summary/",
+      "createdAt": 1794600503378
+    },
+    {
+      "id": "lic_yt_audio",
+      "licenseType": "YouTube-Audio-Library",
+      "source": "YouTube Audio Library",
+      "requiresAttribution": false,
+      "attributionText": "Free to use in monetized & UGC videos (YouTube Audio Library)",
+      "commercialUgcAllowed": true,
+      "licenseUrl": "https://support.google.com/youtube/answer/3376882",
+      "createdAt": 1794600503378
+    },
+    {
+      "id": "lic_cc_by_fma",
+      "licenseType": "CC-BY-4.0",
+      "source": "Free Music Archive",
+      "requiresAttribution": true,
+      "attributionText": "Music via Free Music Archive (CC BY 4.0) — Attribution required",
+      "commercialUgcAllowed": true,
+      "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "createdAt": 1794600503378
+    },
+    {
+      "id": "lic_jamendo",
+      "licenseType": "Jamendo-Royalty-Free",
+      "source": "Jamendo",
+      "requiresAttribution": true,
+      "attributionText": "Licensed for UGC Short video via Jamendo Royalty-Free Catalog (CC BY)",
+      "commercialUgcAllowed": true,
+      "licenseUrl": "https://www.jamendo.com/legal/licenses",
+      "createdAt": 1794600503378
+    },
+    {
+      "id": "lic_cc0",
+      "licenseType": "CC0",
+      "source": "AirBus Free Studio",
+      "requiresAttribution": false,
+      "attributionText": "CC0 Public Domain — No attribution required",
+      "commercialUgcAllowed": true,
+      "createdAt": 1794600503378
+    }
+  ],
+  "audio_tracks": [
+    {
+      "id": "mus_1",
+      "title": "Safari Sunrise Vibes",
+      "artist": "Mara Beats",
+      "genre": "Afrobeat",
+      "mood": "Uplifting",
+      "duration": 36,
+      "licence": "Pixabay Content License (UGC Allowed)",
+      "licenseId": "lic_pixabay",
+      "licenseType": "Pixabay-License",
+      "source": "Pixabay Music",
+      "requiresAttribution": false,
+      "attributionText": "Safari Sunrise Vibes by Mara Beats · Pixabay Music (Free UGC)",
+      "commercialUgcAllowed": true,
+      "trending": true,
+      "previewStartSec": 0,
+      "previewDurationSec": 25,
+      "useCount": 343,
+      "audioUrl": "/uploads/audio/mus_1.wav",
+      "reportedCount": 1
+    },
+    {
+      "id": "mus_2",
+      "title": "Nyali Coastal Breeze",
+      "artist": "Diani Chillwave",
+      "genre": "Chill",
+      "mood": "Relaxed",
+      "duration": 42,
+      "licence": "YouTube Audio Library (No Attribution)",
+      "licenseId": "lic_yt_audio",
+      "licenseType": "YouTube-Audio-Library",
+      "source": "YouTube Audio Library",
+      "requiresAttribution": false,
+      "attributionText": "Nyali Coastal Breeze by Diani Chillwave · YouTube Audio Library",
+      "commercialUgcAllowed": true,
+      "trending": true,
+      "previewStartSec": 0,
+      "previewDurationSec": 25,
+      "useCount": 290,
+      "audioUrl": "/uploads/audio/mus_2.wav"
+    },
+    {
+      "id": "mus_3",
+      "title": "Westlands Skyline Groove",
+      "artist": "Urban Rift",
+      "genre": "Upbeat",
+      "mood": "Energetic",
+      "duration": 40,
+      "licence": "CC BY 4.0 (Attribution Required)",
+      "licenseId": "lic_cc_by_fma",
+      "licenseType": "CC-BY-4.0",
+      "source": "Free Music Archive",
+      "requiresAttribution": true,
+      "attributionText": "Music: \"Westlands Skyline Groove\" by Urban Rift (FMA · CC BY 4.0)",
+      "commercialUgcAllowed": true,
+      "trending": true,
+      "previewStartSec": 0,
+      "previewDurationSec": 25,
+      "useCount": 215,
+      "audioUrl": "/uploads/audio/mus_3.wav"
+    },
+    {
+      "id": "mus_4",
+      "title": "Great Rift Acoustic Serenade",
+      "artist": "Naivasha Strings",
+      "genre": "Acoustic",
+      "mood": "Warm",
+      "duration": 45,
+      "licence": "Jamendo Royalty-Free (Attribution)",
+      "licenseId": "lic_jamendo",
+      "licenseType": "Jamendo-Royalty-Free",
+      "source": "Jamendo",
+      "requiresAttribution": true,
+      "attributionText": "Audio: \"Great Rift Acoustic Serenade\" by Naivasha Strings (Jamendo CC BY)",
+      "commercialUgcAllowed": true,
+      "trending": false,
+      "previewStartSec": 0,
+      "previewDurationSec": 25,
+      "useCount": 164,
+      "audioUrl": "/uploads/audio/mus_4.wav"
+    },
+    {
+      "id": "mus_5",
+      "title": "Savannah Wonder & Majesty",
+      "artist": "African Philharmonic",
+      "genre": "Cinematic",
+      "mood": "Inspiring",
+      "duration": 50,
+      "licence": "YouTube Audio Library (Free UGC)",
+      "licenseId": "lic_yt_audio",
+      "licenseType": "YouTube-Audio-Library",
+      "source": "YouTube Audio Library",
+      "requiresAttribution": false,
+      "attributionText": "Savannah Wonder & Majesty by African Philharmonic · YouTube Audio Library",
+      "commercialUgcAllowed": true,
+      "trending": true,
+      "previewStartSec": 0,
+      "previewDurationSec": 30,
+      "useCount": 198,
+      "audioUrl": "/uploads/audio/mus_5.wav"
+    },
+    {
+      "id": "mus_6",
+      "title": "Amazing Grace (Acoustic Sunrise)",
+      "artist": "Nairobi Gospel Choir",
+      "genre": "Gospel",
+      "mood": "Peaceful",
+      "duration": 45,
+      "licence": "CC0 Public Domain",
+      "licenseId": "lic_cc0",
+      "licenseType": "CC0",
+      "source": "AirBus Free Studio",
+      "requiresAttribution": false,
+      "attributionText": "CC0 Public Domain · Nairobi Gospel Choir",
+      "commercialUgcAllowed": true,
+      "trending": false,
+      "previewStartSec": 0,
+      "previewDurationSec": 25,
+      "useCount": 130,
+      "audioUrl": "/uploads/audio/mus_6.wav"
+    },
+    {
+      "id": "mus_7",
+      "title": "Lamu Swahili Sunset Lo-Fi",
+      "artist": "Shela Sunset",
+      "genre": "Ambient",
+      "mood": "Chill",
+      "duration": 38,
+      "licence": "Pixabay Content License (UGC Allowed)",
+      "licenseId": "lic_pixabay",
+      "licenseType": "Pixabay-License",
+      "source": "Pixabay Music",
+      "requiresAttribution": false,
+      "attributionText": "Lamu Swahili Sunset Lo-Fi by Shela Sunset · Pixabay Music",
+      "commercialUgcAllowed": true,
+      "trending": true,
+      "previewStartSec": 0,
+      "previewDurationSec": 25,
+      "useCount": 277,
+      "audioUrl": "/uploads/audio/mus_7.wav"
+    },
+    {
+      "id": "mus_8",
+      "title": "Kilimanjaro Morning Pulse",
+      "artist": "Highland Echo",
+      "genre": "Afrobeat",
+      "mood": "Happy",
+      "duration": 44,
+      "licence": "CC BY 4.0 (Attribution Required)",
+      "licenseId": "lic_cc_by_fma",
+      "licenseType": "CC-BY-4.0",
+      "source": "Free Music Archive",
+      "requiresAttribution": true,
+      "attributionText": "Music: \"Kilimanjaro Morning Pulse\" by Highland Echo (FMA · CC BY 4.0)",
+      "commercialUgcAllowed": true,
+      "trending": false,
+      "previewStartSec": 0,
+      "previewDurationSec": 25,
+      "useCount": 112,
+      "audioUrl": "/uploads/audio/mus_8.wav"
+    }
+  ],
+  "short_jobs": [
+    {
+      "id": "sjob_1794630164632_h1h7k",
+      "idempotencyKey": "e2e_d1_1794630164627",
+      "ownerEmail": "e2e_host_1794630164577@airbus.ke",
+      "ownerName": "E2E Host",
+      "stayId": "s_1794630164602",
+      "sourceType": "photo",
+      "sourceFiles": [
+        "https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?auto=format&fit=crop&w=800&q=80"
+      ],
+      "autoCreateEnabled": true,
+      "autoPublish": true,
+      "reviewBeforePosting": false,
+      "autoCaptionsEnabled": true,
+      "aspectCropMode": "smart_center",
+      "trimStartSec": 0,
+      "trimEndSec": 0,
+      "caption": "Take a closer look inside this curated AirBus stay ✨ #AirBusStays #TravelKenya",
+      "hashtags": [
+        "#AirBusStays",
+        "#TravelKenya",
+        "#ShortStay"
+      ],
+      "captions": [],
+      "audioConfig": {
+        "mode": "none",
+        "originalVolume": 100,
+        "musicVolume": 0,
+        "voiceOverVolume": 0,
+        "autoDuckMusic": false,
+        "requiresAttribution": false,
+        "isDefaultAssigned": false
+      },
+      "state": "processing",
+      "progress": 32,
+      "stageLabel": "Composing Ken Burns 9:16 slideshow (1 photo)",
+      "retryCount": 0,
+      "createdAt": 1794630164632,
+      "updatedAt": 1794630164639
+    },
+    {
+      "id": "sjob_1794600565867_xeq61",
+      "idempotencyKey": "verify_fail_1794600565865",
+      "ownerEmail": "owner@airbus.ke",
+      "ownerName": "David Mutua",
+      "sourceType": "video",
+      "sourceFiles": [
+        "/uploads/shorts/does_not_exist_12345.mp4"
+      ],
+      "autoCreateEnabled": true,
+      "autoPublish": true,
+      "reviewBeforePosting": false,
+      "autoCaptionsEnabled": true,
+      "aspectCropMode": "smart_center",
+      "trimStartSec": 0,
+      "trimEndSec": 0,
+      "caption": "Should fail safely",
+      "hashtags": [
+        "#AirBusStays",
+        "#TravelKenya",
+        "#ShortStay"
+      ],
+      "captions": [],
+      "audioConfig": {
+        "mode": "song",
+        "trackId": "mus_1",
+        "trackTitle": "Safari Sunrise Vibes",
+        "trackArtist": "Mara Beats",
+        "trackUrl": "/uploads/audio/mus_1.wav",
+        "audioStartSec": 0,
+        "originalVolume": 25,
+        "musicVolume": 80,
+        "voiceOverVolume": 0,
+        "autoDuckMusic": true,
+        "licenseId": "lic_pixabay",
+        "requiresAttribution": false,
+        "attributionText": "Safari Sunrise Vibes by Mara Beats · Pixabay Music (Free UGC)",
+        "isDefaultAssigned": true
+      },
+      "state": "failed",
+      "progress": 48,
+      "stageLabel": "Processing failed",
+      "retryCount": 0,
+      "createdAt": 1794600565867,
+      "updatedAt": 1794600566070,
+      "errorMessage": "Command failed: ffmpeg -y -ss 0 -t 20 -i /app/applet/uploads/shorts/does_not_exist_12345.mp4 -vf scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1,format=yuv420p -r 30 -c:v libx264 -preset veryfast -crf 24 -an /app/applet/uploads/shorts/tmp_vid_sjob_1794600565867_xeq61.mp4\nffmpeg version 4.4.2-0ubuntu0.22.04.1+esm17 Copyright (c) 2000-2021 the FFmpeg developers\n  built with gcc 11 (Ubuntu 11.4.0-1ubuntu1~22.04.3)\n  configuration: --prefix=/usr --extra-version=0ubuntu0.22.04.1+esm17 --toolchain=hardened --libdir=/usr/lib/x86_64-linux-gnu --incdir=/usr/include/x86_64-linux-gnu --arch=amd64 --enable-gpl --disable-stripping --enable-gnutls --enable-ladspa --enable-libaom --enable-libass --enable-libbluray --enable-libbs2b --enable-libcaca --enable-libcdio --enable-libcodec2 --enable-libdav1d --enable-libflite --enable-libfontconfig --enable-libfreetype --enable-libfribidi --enable-libgme --enable-libgsm --enable-libjack --enable-libmp3lame --enable-libmysofa --enable-libopenjpeg --enable-libopenmpt --enable-libopus --enable-libpulse --enable-librabbitmq --enable-librubberband --enable-libshine --enable-libsnappy --enable-libsoxr --enable-libspeex --enable-libsrt --enable-libssh --enable-libtheora --enable-libtwolame --enable-libvidstab --enable-libvorbis --enable-libvpx --enable-libwebp --enable-libx265 --enable-libxml2 --enable-libxvid --enable-libzimg --enable-libzmq --enable-libzvbi --enable-lv2 --enable-omx --enable-openal --enable-opencl --enable-opengl --enable-sdl2 --enable-pocketsphinx --enable-librsvg --enable-libmfx --enable-libdc1394 --enable-libdrm --enable-libiec61883 --enable-chromaprint --enable-frei0r --enable-libx264 --enable-shared\n  libavutil      56. 70.100 / 56. 70.100\n  libavcodec     58.134.100 / 58.134.100\n  libavformat    58. 76.100 / 58. 76.100\n  libavdevice    58. 13.100 / 58. 13.100\n  libavfilter     7.110.100 /  7.110.100\n  libswscale      5.  9.100 /  5.  9.100\n  libswresample   3.  9.100 /  3.  9.100\n  libpostproc    55.  9.100 / 55.  9.100\n/app/applet/uploads/shorts/does_not_exist_12345.mp4: No such file or directory\n"
+    },
+    {
+      "id": "sjob_1794600527289_2q16c",
+      "idempotencyKey": "verify_photo_1794600527285",
+      "ownerEmail": "owner@airbus.ke",
+      "ownerName": "David Mutua",
+      "sourceType": "photo",
+      "sourceFiles": [
+        "/uploads/raw/img_1794600527254_x5vje.png",
+        "/uploads/raw/img_1794600527254_bbhge.png"
+      ],
+      "autoCreateEnabled": true,
+      "autoPublish": false,
+      "reviewBeforePosting": true,
+      "autoCaptionsEnabled": true,
+      "aspectCropMode": "smart_center",
+      "trimStartSec": 0,
+      "trimEndSec": 0,
+      "caption": "Photo Slideshow Ken Burns Draft",
+      "hashtags": [
+        "#AirBusStays",
+        "#TravelKenya",
+        "#ShortStay"
+      ],
+      "captions": [
+        {
+          "id": "cap_1",
+          "startSec": 0,
+          "endSec": 15,
+          "text": "Photo Slideshow Ken Burns Draft"
+        }
+      ],
+      "audioConfig": {
+        "mode": "song",
+        "trackId": "mus_1",
+        "trackTitle": "Safari Sunrise Vibes",
+        "trackArtist": "Mara Beats",
+        "trackUrl": "/uploads/audio/mus_1.wav",
+        "audioStartSec": 0,
+        "originalVolume": 25,
+        "musicVolume": 80,
+        "voiceOverVolume": 0,
+        "autoDuckMusic": true,
+        "licenseId": "lic_pixabay",
+        "requiresAttribution": false,
+        "attributionText": "Safari Sunrise Vibes by Mara Beats · Pixabay Music (Free UGC)",
+        "isDefaultAssigned": true
+      },
+      "state": "ready",
+      "progress": 100,
+      "stageLabel": "Published to Shorts",
+      "retryCount": 0,
+      "createdAt": 1794600527289,
+      "updatedAt": 1794600565833,
+      "outputVideoUrl": "/uploads/shorts/short_sjob_1794600527289_2q16c.mp4",
+      "outputThumbnailUrl": "/uploads/shorts/short_sjob_1794600527289_2q16c.jpg",
+      "outputDurationSec": 15,
+      "publishedPostId": "post_short_1794600565565_pv0d"
+    },
+    {
+      "id": "sjob_1794600527263_ho9yf",
+      "idempotencyKey": "verify_vid_1794600527257",
+      "ownerEmail": "owner@airbus.ke",
+      "ownerName": "David Mutua",
+      "sourceType": "video",
+      "sourceFiles": [
+        "/uploads/raw/vid_1794600527248_eahtr.mp4"
+      ],
+      "autoCreateEnabled": true,
+      "autoPublish": true,
+      "reviewBeforePosting": false,
+      "autoCaptionsEnabled": true,
+      "aspectCropMode": "blur_fill",
+      "trimStartSec": 0,
+      "trimEndSec": 0,
+      "caption": "Auto-framed Kilimani Sunset Tour",
+      "hashtags": [
+        "#Nairobi",
+        "#AirBusShorts"
+      ],
+      "captions": [
+        {
+          "id": "cap_1",
+          "startSec": 0,
+          "endSec": 5,
+          "text": "Auto-framed Kilimani Sunset Tour"
+        }
+      ],
+      "audioConfig": {
+        "mode": "song_plus_voiceover",
+        "trackId": "mus_2",
+        "trackTitle": "Nyali Coastal Breeze",
+        "trackArtist": "Diani Chillwave",
+        "trackUrl": "/uploads/audio/mus_2.wav",
+        "audioStartSec": 0,
+        "originalVolume": 20,
+        "musicVolume": 75,
+        "voiceOverVolume": 95,
+        "autoDuckMusic": true,
+        "voiceOverUrl": "/uploads/audio/tts_1794600524883_zecw.mp3",
+        "voiceOverSource": "tts",
+        "licenseId": "lic_yt_audio",
+        "requiresAttribution": false,
+        "attributionText": "Nyali Coastal Breeze by Diani Chillwave · YouTube Audio Library",
+        "isDefaultAssigned": false
+      },
+      "state": "ready",
+      "progress": 100,
+      "stageLabel": "Ready & published to Shorts",
+      "retryCount": 0,
+      "createdAt": 1794600527263,
+      "updatedAt": 1794600535137,
+      "outputVideoUrl": "/uploads/shorts/short_sjob_1794600527263_ho9yf.mp4",
+      "outputThumbnailUrl": "/uploads/shorts/short_sjob_1794600527263_ho9yf.jpg",
+      "outputDurationSec": 5,
+      "publishedPostId": "post_short_1794600535138_if07"
+    }
+  ],
+  "short_audio": [
+    {
+      "mode": "song",
+      "trackId": "mus_1",
+      "trackTitle": "Safari Sunrise Vibes",
+      "trackArtist": "Mara Beats",
+      "trackUrl": "/uploads/audio/mus_1.wav",
+      "audioStartSec": 0,
+      "originalVolume": 25,
+      "musicVolume": 80,
+      "voiceOverVolume": 0,
+      "autoDuckMusic": true,
+      "licenseId": "lic_pixabay",
+      "requiresAttribution": false,
+      "attributionText": "Safari Sunrise Vibes by Mara Beats · Pixabay Music (Free UGC)",
+      "isDefaultAssigned": true,
+      "id": "saud_1794600565565",
+      "postId": "post_short_1794600565565_pv0d"
+    },
+    {
+      "mode": "song_plus_voiceover",
+      "trackId": "mus_2",
+      "trackTitle": "Nyali Coastal Breeze",
+      "trackArtist": "Diani Chillwave",
+      "trackUrl": "/uploads/audio/mus_2.wav",
+      "audioStartSec": 0,
+      "originalVolume": 20,
+      "musicVolume": 75,
+      "voiceOverVolume": 95,
+      "autoDuckMusic": true,
+      "voiceOverUrl": "/uploads/audio/tts_1794600524883_zecw.mp3",
+      "voiceOverSource": "tts",
+      "licenseId": "lic_yt_audio",
+      "requiresAttribution": false,
+      "attributionText": "Nyali Coastal Breeze by Diani Chillwave · YouTube Audio Library",
+      "isDefaultAssigned": false,
+      "id": "saud_1794600535138",
+      "postId": "post_short_1794600535138_if07"
+    }
+  ],
+  "audioReports": [
+    {
+      "id": "arep_1794600565858",
+      "trackId": "mus_1",
+      "postId": "post_short_1794600535138_if07",
+      "reporterEmail": "owner@airbus.ke",
+      "reason": "Verification check",
+      "createdAt": 1794600565858
+    }
+  ],
+  "listing_audio": [
+    {
+      "id": "laud_1794630167734",
+      "stayId": "s_1794630164602",
+      "ownerEmail": "e2e_host_1794630164577@airbus.ke",
+      "mode": "song",
+      "trackId": "mus_1",
+      "trackTitle": "Safari Sunrise Vibes",
+      "trackArtist": "Mara Beats",
+      "trackUrl": "/uploads/audio/mus_1.wav",
+      "musicVolume": 75,
+      "voiceOverVolume": 100,
+      "autoDuckMusic": true,
+      "rightsConfirmed": true,
+      "requiresAttribution": false,
+      "attributionText": "Safari Sunrise Vibes by Mara Beats · Pixabay Music (Free UGC)",
+      "active": true,
+      "updatedAt": 1794630167734
+    }
+  ],
+  "short_analytics": {
+    "post_short_1794600565565_pv0d": {
+      "shortId": "post_short_1794600565565_pv0d",
+      "ownerEmail": "owner@airbus.ke",
+      "views": 0,
+      "plays": 1,
+      "replays": 1,
+      "clicks": {
+        "availability": 0,
+        "book": 0,
+        "chat": 0,
+        "negotiate": 0,
+        "whatsapp": 1
+      },
+      "updatedAt": 1794630123798
+    }
+  }
 }
