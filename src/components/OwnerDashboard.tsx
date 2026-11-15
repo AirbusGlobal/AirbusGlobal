@@ -489,13 +489,13 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
     const validExtensions = ['mp4', 'mov', 'webm', 'm4v'];
     const ext = file.name.split('.').pop()?.toLowerCase() || '';
     if (!validExtensions.includes(ext) && !file.type.startsWith('video/')) {
-      alert('Please upload a video file in MP4, MOV, or WebM format.');
+      showToast?.('Please upload a video file in MP4, MOV, or WebM format.');
       return;
     }
 
     // Size limit: 50MB
     if (file.size > 50 * 1024 * 1024) {
-      alert('Video file size exceeds 50MB limit. Please upload a short tour video (max 60 seconds).');
+      showToast?.('Video file size exceeds 50MB limit. Please upload a short tour video (max 60 seconds).');
       return;
     }
 
@@ -528,7 +528,8 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
 
   const handleGenerateAI = async () => {
     if (!title || !area) {
-      alert('Please fill in Title and Area first before generating AI description.');
+      setWizardError('Please fill in Title and Area first before generating AI description.');
+      showToast?.('Please fill in Title and Area first before generating AI description.');
       return;
     }
     setAiGenerating(true);
@@ -542,7 +543,8 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
       setDesc(res.description);
       setAiHighlights(res.highlights || []);
     } catch (err: any) {
-      alert('AI generator error: ' + err.message);
+      setWizardError('AI generator error: ' + err.message);
+      showToast?.('AI generator error: ' + err.message);
     } finally {
       setAiGenerating(false);
     }
@@ -887,7 +889,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
       });
       setEditingGiftsStayId(null);
     } catch (err: any) {
-      alert('Could not update gifts: ' + err.message);
+      showToast?.('Could not update gifts: ' + err.message);
     } finally {
       setEditSaving(false);
     }
@@ -895,17 +897,21 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
 
   const handleBlockDates = async (stayId: string) => {
     if (!blockFrom || !blockTo || blockTo <= blockFrom) {
-      alert('Please select valid block dates.');
+      showToast?.('Please select valid block dates.');
       return;
     }
     const stay = myStays.find(s => s.id === stayId);
     if (!stay) return;
     const existing = stay.blockedDates || [];
     const updated = [...existing, { from: blockFrom, to: blockTo }];
-    await onUpdateStay(stayId, { blockedDates: updated });
-    setBlockFrom('');
-    setBlockTo('');
-    setBlockStayId(null);
+    try {
+      await onUpdateStay(stayId, { blockedDates: updated });
+      setBlockFrom('');
+      setBlockTo('');
+      setBlockStayId(null);
+    } catch (err: any) {
+      showToast?.(err?.message || 'Could not update blocked dates.');
+    }
   };
 
   const handleRemoveBlock = async (stayId: string, idx: number) => {
@@ -981,7 +987,10 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
           <div>
             <div className="flex items-center gap-2 mb-1.5">
               <span className="bg-gradient-to-r from-[#ff2e93] to-[#8b5cf6] text-white text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full tracking-wider">
-                Owner Host Console
+                Host Mode
+              </span>
+              <span className="bg-white/10 text-stone-200 text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-white/15">
+                Host Console
               </span>
               <span className="bg-emerald-500/20 text-emerald-300 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-500/30">
                 Direct Host Payouts (0% Commission)
@@ -2681,9 +2690,11 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                     type="button"
                     onClick={() => {
                       if (!title || !area) {
-                        alert('Please fill in title and area.');
+                        setWizardError('Please fill in title and area.');
+                        showToast?.('Please fill in title and area.');
                         return;
                       }
+                      setWizardError(null);
                       setStep(2);
                     }}
                     className="px-6 py-2.5 bg-[#e4002b] text-white rounded-full text-xs font-bold hover:bg-[#c90026] cursor-pointer flex items-center gap-1.5"

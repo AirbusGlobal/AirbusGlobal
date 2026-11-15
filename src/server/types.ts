@@ -2,6 +2,10 @@ export * from '../types';
 
 export interface DatabaseSchema {
   users: import('../types').User[];
+  guestCredentials?: import('../types').CredentialRecord[];
+  hostCredentials?: import('../types').CredentialRecord[];
+  authSessions?: Record<string, import('../types').AuthSession>;
+  failedLoginAttempts?: Record<string, { count: number; updatedAt: number }>;
   stays: import('../types').Stay[];
   bookings: import('../types').Booking[];
   reviews: import('../types').Review[];

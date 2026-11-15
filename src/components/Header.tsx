@@ -320,21 +320,16 @@ export const Header: React.FC<HeaderProps> = ({
                     </div>
                     <div className="text-[11px] text-stone-500 truncate">{user.email}</div>
                     <div className="mt-1 flex items-center gap-1.5">
-                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-[#e4002b]/10 text-[#e4002b] dark:bg-[#e4002b]/20 uppercase">
-                        {user.role} mode
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-[#e4002b]/10 text-[#e4002b] dark:bg-[#e4002b]/20">
+                        {user.role === 'owner' ? 'Host Mode' : user.role === 'admin' ? 'Admin' : 'Guest Mode'}
                       </span>
-                      {user.role === 'owner' && (
-                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300">
-                          Host
-                        </span>
-                      )}
                     </div>
                     <button
                       type="button"
                       onClick={handleDashboardClick}
                       className="mt-2 w-full text-center py-1.5 bg-stone-900 dark:bg-white text-white dark:text-stone-900 rounded-lg font-bold hover:opacity-90 transition-opacity cursor-pointer text-xs"
                     >
-                      Open {user.role === 'owner' ? 'Owner Hub' : 'Guest Dashboard'}
+                      Open {user.role === 'owner' ? 'Host Dashboard' : 'Guest Dashboard'}
                     </button>
                     <button
                       type="button"
@@ -346,7 +341,7 @@ export const Header: React.FC<HeaderProps> = ({
                     >
                       <span className="flex items-center gap-1.5">
                         <Wallet className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                        Wallet (Till 943210)
+                        {user.role === 'owner' ? 'Host Wallet' : 'Guest Wallet'} (Till 943210)
                       </span>
                       <span className="font-mono text-emerald-700 dark:text-emerald-300">
                         KES {(walletBalance || 0).toLocaleString()}
@@ -417,7 +412,7 @@ export const Header: React.FC<HeaderProps> = ({
                       className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-stone-700 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors cursor-pointer font-medium text-left"
                     >
                       <PlusCircle className="w-4 h-4 text-[#e4002b] shrink-0" />
-                      <span>{user?.role === 'owner' ? 'Owner Hub' : 'Become a host'}</span>
+                      <span>{user?.role === 'owner' ? 'Host Dashboard' : 'Host Portal'}</span>
                     </button>
                   )}
 
@@ -558,7 +553,7 @@ export const Header: React.FC<HeaderProps> = ({
           <div className="flex items-center justify-between pb-2 border-b border-stone-100 dark:border-stone-800">
             <span className="text-xs text-stone-500 font-medium">Account & Navigation</span>
             <span className="text-xs font-bold text-[#e4002b]">
-              {user ? `${user.role.toUpperCase()} MODE` : 'GUEST'}
+              {user ? (user.role === 'owner' ? 'Host Mode' : user.role === 'admin' ? 'Admin' : 'Guest Mode') : 'Guest'}
             </span>
           </div>
 
@@ -625,7 +620,7 @@ export const Header: React.FC<HeaderProps> = ({
               className="text-left py-1.5 text-stone-800 dark:text-stone-200 font-medium flex items-center gap-2"
             >
               <PlusCircle className="w-4 h-4 text-[#e4002b]" />
-              <span>{user?.role === 'owner' ? 'Owner Hub' : 'Become a host'}</span>
+              <span>{user?.role === 'owner' ? 'Host Dashboard' : 'Host Portal'}</span>
             </button>
           )}
 
@@ -680,7 +675,7 @@ export const Header: React.FC<HeaderProps> = ({
                 className="text-left py-1.5 text-stone-800 dark:text-stone-200 font-medium flex items-center gap-2"
               >
                 <UserIcon className="w-4 h-4" />
-                <span>Open Dashboard ({user.role})</span>
+                <span>Open Dashboard ({user.role === 'owner' ? 'Host Mode' : 'Guest Mode'})</span>
               </button>
               {onOpenSettings && (
                 <button

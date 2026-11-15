@@ -91,6 +91,7 @@ export default function App() {
   // Modal States
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [authInitialMode, setAuthInitialMode] = useState<'login' | 'register'>('login');
+  const [authInitialPortal, setAuthInitialPortal] = useState<'guest' | 'owner' | null>(null);
   const [activeStayId, setActiveStayId] = useState<string | null>(null);
   const [activeStayIntent, setActiveStayIntent] = useState<ShortIntentType | null>(null);
   const [returnToShort, setReturnToShort] = useState<{ shortId: string; index: number } | null>(null);
@@ -182,6 +183,45 @@ export default function App() {
   useEffect(() => {
     loadInitialData();
   }, [loadInitialData]);
+
+  // Real-Time Wallet Balance SSE Stream (Updates Guest & Host wallets immediately on Admin approval)
+  useEffect(() => {
+    const token = api.getToken();
+    if (!user || !token || typeof EventSource === 'undefined') return;
+
+    const es = new EventSource(api.getWalletStreamUrl());
+    const handleWalletEvent = (event: MessageEvent) => {
+      try {
+        const payload = JSON.parse(event.data);
+        if (typeof payload.balance === 'number') {
+          setWalletBalance(prev => {
+            if (prev !== payload.balance && payload.balance > prev) {
+              showToast(`Wallet updated: KES ${payload.balance.toLocaleString()}`);
+            }
+            return payload.balance;
+          });
+          if (user.role === 'owner' || user.role === 'admin') {
+            api.getHostPlan().then(p => setHostPlan(p.plan)).catch(() => {});
+          }
+          api
+            .getNotifications()
+            .then(n => {
+              setNotifications(n.notifications);
+              setUnreadNotifsCount(n.unreadCount);
+            })
+            .catch(() => {});
+        }
+      } catch {
+        // Ignore malformed SSE frame
+      }
+    };
+
+    es.addEventListener('wallet_update', handleWalletEvent as EventListener);
+    return () => {
+      es.removeEventListener('wallet_update', handleWalletEvent as EventListener);
+      es.close();
+    };
+  }, [user]);
 
   // Capture ?ref=CODE from URL and track referral click
   useEffect(() => {
@@ -426,9 +466,10 @@ export default function App() {
     else handleNavigate('guest');
   };
 
-  const handleLogout = () => {
-    api.logout();
+  const handleLogout = async () => {
+    await api.logoutSession();
     setUser(null);
+    setWalletBalance(0);
     setBookings([]);
     setWishlistIds([]);
     setThreads([]);
@@ -766,7 +807,7 @@ export default function App() {
           />
         )}
 
-        {/* GUEST DASHBOARD (Private) */}
+        {/* GUEST DASHBOARD (Private — Guest Credentials Only) */}
         {currentTab === 'guest' && (
           !user ? (
             <div className="max-w-md mx-auto my-12 p-8 bg-white dark:bg-[#15171e] rounded-3xl border border-stone-200 dark:border-stone-800 text-center space-y-4 shadow-xl">
@@ -775,17 +816,47 @@ export default function App() {
               </div>
               <h3 className="text-lg font-bold text-stone-900 dark:text-white">Private Guest Dashboard</h3>
               <p className="text-xs text-stone-500 leading-relaxed">
-                Please sign in to view your private reservations, saved short-stay wishlist, and direct host negotiation threads.
+                Sign in with your Guest credentials to view your trips, wishlist, negotiations, and private Guest Wallet.
               </p>
               <button
                 onClick={() => {
                   setAuthInitialMode('login');
+                  setAuthInitialPortal('guest');
                   setAuthModalOpen(true);
                 }}
                 className="px-6 py-2.5 bg-[#e4002b] hover:bg-[#c90026] text-white rounded-full text-xs font-bold transition-all shadow cursor-pointer"
               >
-                Sign In / Register
+                Login to Guest
               </button>
+            </div>
+          ) : user.role !== 'guest' ? (
+            <div className="max-w-md mx-auto my-12 p-8 bg-white dark:bg-[#15171e] rounded-3xl border border-stone-200 dark:border-stone-800 text-center space-y-4 shadow-xl">
+              <div className="w-12 h-12 rounded-2xl bg-cyan-500/10 text-cyan-600 flex items-center justify-center mx-auto">
+                <Lock className="w-6 h-6" />
+              </div>
+              <h3 className="text-lg font-bold text-stone-900 dark:text-white">Guest Portal Only</h3>
+              <p className="text-xs text-stone-500 leading-relaxed">
+                Your active session ({user.username || user.name}) is a Host/Admin account. Guest and Host credentials are strictly separate. Log out and sign in or sign up as a Guest to access the Guest Dashboard.
+              </p>
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-2 pt-2">
+                <button
+                  onClick={() => handleNavigate('home')}
+                  className="w-full sm:w-auto px-5 py-2.5 rounded-full border border-stone-300 dark:border-stone-700 text-xs font-bold text-stone-700 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800 cursor-pointer"
+                >
+                  Explore Stays
+                </button>
+                <button
+                  onClick={async () => {
+                    await handleLogout();
+                    setAuthInitialMode('login');
+                    setAuthInitialPortal('guest');
+                    setAuthModalOpen(true);
+                  }}
+                  className="w-full sm:w-auto px-6 py-2.5 rounded-full bg-[#e4002b] hover:bg-[#c90026] text-white text-xs font-bold shadow transition-all cursor-pointer"
+                >
+                  Log Out &amp; Login to Guest
+                </button>
+              </div>
             </div>
           ) : (
             <GuestDashboard
@@ -794,6 +865,9 @@ export default function App() {
               stays={stays}
               wishlistIds={wishlistIds}
               threads={threads}
+              walletBalance={walletBalance}
+              onWalletBalanceUpdated={bal => setWalletBalance(bal)}
+              onOpenAdvertise={() => window.dispatchEvent(new CustomEvent('airbus:open-advert-modal'))}
               onToggleSave={handleToggleWishlist}
               onSelectStay={id => {
                 setActiveStayId(id);
@@ -813,25 +887,26 @@ export default function App() {
           )
         )}
 
-        {/* OWNER HUB DASHBOARD (Private) */}
+        {/* OWNER HUB DASHBOARD (Private — Host Credentials Only) */}
         {currentTab === 'owner' && (
           !user ? (
             <div className="max-w-md mx-auto my-12 p-8 bg-white dark:bg-[#15171e] rounded-3xl border border-stone-200 dark:border-stone-800 text-center space-y-4 shadow-xl">
               <div className="w-12 h-12 rounded-2xl bg-amber-500/10 text-amber-600 flex items-center justify-center mx-auto">
                 <Lock className="w-6 h-6" />
               </div>
-              <h3 className="text-lg font-bold text-stone-900 dark:text-white">Private Owner Hub</h3>
+              <h3 className="text-lg font-bold text-stone-900 dark:text-white">Private Host Dashboard</h3>
               <p className="text-xs text-stone-500 leading-relaxed">
-                Sign in to manage your listings, active subscriptions, booking calendar, and host wallet.
+                Sign in with your Host credentials to manage your listings, 30-day subscriptions, and Host wallet.
               </p>
               <button
                 onClick={() => {
                   setAuthInitialMode('login');
+                  setAuthInitialPortal('owner');
                   setAuthModalOpen(true);
                 }}
                 className="px-6 py-2.5 bg-[#e4002b] hover:bg-[#c90026] text-white rounded-full text-xs font-bold transition-all shadow cursor-pointer"
               >
-                Sign In to Owner Hub
+                Login to Host
               </button>
             </div>
           ) : user.role !== 'owner' && user.role !== 'admin' ? (
@@ -839,25 +914,27 @@ export default function App() {
               <div className="w-12 h-12 rounded-2xl bg-amber-500/10 text-amber-600 flex items-center justify-center mx-auto">
                 <Lock className="w-6 h-6" />
               </div>
-              <h3 className="text-lg font-bold text-stone-900 dark:text-white">Host Registration Required</h3>
+              <h3 className="text-lg font-bold text-stone-900 dark:text-white">Host Portal Only</h3>
               <p className="text-xs text-stone-500 leading-relaxed">
-                Your account ({user.email}) is currently registered as a Guest. You can switch to a Host account or explore stays.
+                Your active session ({user.username || user.name}) is a Guest account. Guests and Hosts have separate credentials and dashboards. To access the Host Dashboard, log out first and sign up or log in with Host credentials.
               </p>
               <div className="flex flex-col sm:flex-row items-center justify-center gap-2 pt-2">
                 <button
                   onClick={() => handleNavigate('home')}
-                  className="w-full sm:w-auto px-5 py-2.5 rounded-full border border-stone-300 dark:border-stone-700 text-xs font-bold text-stone-700 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800"
+                  className="w-full sm:w-auto px-5 py-2.5 rounded-full border border-stone-300 dark:border-stone-700 text-xs font-bold text-stone-700 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800 cursor-pointer"
                 >
                   Explore Stays
                 </button>
                 <button
                   onClick={async () => {
-                    await handleUpdateProfile({ role: 'owner' });
-                    showToast('Role updated to Host / Owner!');
+                    await handleLogout();
+                    setAuthInitialMode('login');
+                    setAuthInitialPortal('owner');
+                    setAuthModalOpen(true);
                   }}
                   className="w-full sm:w-auto px-6 py-2.5 rounded-full bg-[#e4002b] hover:bg-[#c90026] text-white text-xs font-bold shadow transition-all cursor-pointer"
                 >
-                  Activate Host Account
+                  Log Out &amp; Login to Host
                 </button>
               </div>
             </div>
@@ -963,8 +1040,12 @@ export default function App() {
       {/* 1. Neon Auth Modal */}
       <AuthModal
         isOpen={authModalOpen}
-        onClose={() => setAuthModalOpen(false)}
+        onClose={() => {
+          setAuthModalOpen(false);
+          setAuthInitialPortal(null);
+        }}
         initialMode={authInitialMode}
+        initialPortal={authInitialPortal}
         onLoginSuccess={handleLoginSuccess}
         onLogin={(email, pass) => api.login(email, pass)}
         onRegister={data => api.register(data)}
@@ -1128,6 +1209,21 @@ export default function App() {
         }}
         userWalletBalance={walletBalance}
         userEmail={user?.email}
+        userRole={user?.role}
+        onOpenWalletDeposit={() => {
+          if (!user) {
+            setAuthInitialMode('login');
+            setAuthInitialPortal(null);
+            setAuthModalOpen(true);
+            return;
+          }
+          if (user.role === 'guest') {
+            handleNavigate('guest');
+          } else if (user.role === 'owner') {
+            setPlanWalletMode(true);
+            setPlanModalOpen(true);
+          }
+        }}
         showToast={showToast}
       />
     </div>

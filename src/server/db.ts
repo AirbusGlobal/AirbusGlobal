@@ -28,6 +28,10 @@ import {
   ReferralProfile,
   ReferralCommissionRecord,
   PlatformSettings,
+  AuthPortal,
+  AuthSession,
+  CredentialRecord,
+  PasswordFingerprint,
   ViralityReport,
   StayPriceTrend,
   Currency,
@@ -105,13 +109,107 @@ export function hashPassword(password: string): string {
   return crypto.createHash('sha256').update(password + 'airbus_salt_2026').digest('hex');
 }
 
+export function normalizeUsername(username: string): string {
+  return String(username || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '');
+}
+
+function levenshteinDistance(a: string, b: string): number {
+  const m = a.length;
+  const n = b.length;
+  if (m === 0) return n;
+  if (n === 0) return m;
+  const dp: number[] = Array.from({ length: n + 1 }, (_, j) => j);
+  for (let i = 1; i <= m; i++) {
+    let prev = dp[0];
+    dp[0] = i;
+    for (let j = 1; j <= n; j++) {
+      const temp = dp[j];
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      dp[j] = Math.min(dp[j] + 1, dp[j - 1] + 1, prev + cost);
+      prev = temp;
+    }
+  }
+  return dp[n];
+}
+
+function buildPasswordFingerprint(password: string): PasswordFingerprint {
+  const raw = String(password || '');
+  const lower = raw.toLowerCase();
+  const stripped = lower.replace(/[^a-z0-9]/g, '');
+  const classes = [
+    /[a-z]/.test(raw) ? 'l' : '',
+    /[A-Z]/.test(raw) ? 'u' : '',
+    /[0-9]/.test(raw) ? 'd' : '',
+    /[^a-zA-Z0-9]/.test(raw) ? 's' : '',
+  ]
+    .filter(Boolean)
+    .join('');
+
+  const shingles = new Set<string>();
+  for (const source of [lower, stripped]) {
+    if (source.length >= 3) {
+      for (let i = 0; i <= source.length - 3; i++) {
+        const gram = source.slice(i, i + 3);
+        const h = crypto
+          .createHash('sha256')
+          .update('airbus_sh_' + gram + '_2026')
+          .digest('hex')
+          .slice(0, 12);
+        shingles.add(h);
+      }
+    }
+  }
+
+  return {
+    exactHash: hashPassword(raw),
+    lowerHash: crypto.createHash('sha256').update(lower + '_lower_2026').digest('hex'),
+    strippedHash: crypto.createHash('sha256').update(stripped + '_strip_2026').digest('hex'),
+    normalizedLength: stripped.length,
+    charClasses: classes,
+    shingleHashes: Array.from(shingles).sort(),
+  };
+}
+
+function passwordsTooSimilar(candidate: PasswordFingerprint, existing?: PasswordFingerprint): boolean {
+  if (!existing) return false;
+  if (candidate.exactHash === existing.exactHash) return true;
+  if (candidate.lowerHash === existing.lowerHash) return true;
+  if (
+    candidate.normalizedLength >= 4 &&
+    existing.normalizedLength >= 4 &&
+    candidate.strippedHash === existing.strippedHash
+  ) {
+    return true;
+  }
+  if (
+    candidate.shingleHashes.length >= 2 &&
+    existing.shingleHashes.length >= 2
+  ) {
+    const setB = new Set(existing.shingleHashes);
+    let intersection = 0;
+    for (const h of candidate.shingleHashes) {
+      if (setB.has(h)) intersection++;
+    }
+    const union = candidate.shingleHashes.length + existing.shingleHashes.length - intersection;
+    if (union > 0 && intersection / union >= 0.55) {
+      return true;
+    }
+  }
+  return false;
+}
+
 const SEED_USERS: User[] = [
   {
     id: 'u_guest',
-    name: 'Sarah Wanjiku',
+    name: 'SarahWanjiku',
+    username: 'SarahWanjiku',
+    portal: 'guest',
     email: 'guest@airbus.ke',
     role: 'guest',
-    passwordHash: hashPassword('password123'),
+    passwordHash: hashPassword('Sarah$Nairobi88!'),
     phone: '+254 712 345 678',
     location: 'Nairobi, Kenya',
     bio: 'Passionate traveller, remote software engineer & video stay enthusiast.',
@@ -122,10 +220,12 @@ const SEED_USERS: User[] = [
   },
   {
     id: 'u_owner',
-    name: 'David Mutua',
+    name: 'DavidMutua',
+    username: 'DavidMutua',
+    portal: 'owner',
     email: 'owner@airbus.ke',
     role: 'owner',
-    passwordHash: hashPassword('password123'),
+    passwordHash: hashPassword('Mutua@Westlands91#'),
     phone: '+254 722 987 654',
     location: 'Westlands, Nairobi',
     bio: 'Superhost managing luxury villas in Westlands and beachfront retreats in Diani & Nyali.',
@@ -137,6 +237,8 @@ const SEED_USERS: User[] = [
   {
     id: 'u_admin_master',
     name: 'Kamala Hari',
+    username: 'KamalaHari',
+    portal: 'admin',
     email: 'kamalahari93@gmail.com',
     role: 'admin',
     passwordHash: hashPassword('2019xyz//'),
@@ -1656,16 +1758,59 @@ export const SEED_TRIP_DATING_PROFILES: TripDatingProfile[] = [
 
 class DatabaseStore {
   private data: DatabaseSchema;
+  private walletListeners = new Set<(payload: {
+    email: string;
+    balance: number;
+    holdBalance: number;
+    available: number;
+    updatedAt: number;
+  }) => void>();
 
   constructor() {
     this.data = this.load();
+    this.ensurePortalCredentialSeeds();
     this.checkSubscriptionExpirations();
     this.checkUpcomingCheckinReminders();
     this.initShortServices();
   }
 
+  public subscribeWalletUpdates(
+    listener: (payload: {
+      email: string;
+      balance: number;
+      holdBalance: number;
+      available: number;
+      updatedAt: number;
+    }) => void
+  ): () => void {
+    this.walletListeners.add(listener);
+    return () => {
+      this.walletListeners.delete(listener);
+    };
+  }
+
+  public emitWalletUpdate(email: string) {
+    const cleanEmail = (email || '').toLowerCase().trim();
+    if (!cleanEmail) return;
+    const wr = this.ensureWallet(cleanEmail);
+    const available = Math.max(0, (wr.balance || 0) - (wr.holdBalance || 0));
+    const payload = {
+      email: cleanEmail,
+      balance: wr.balance || 0,
+      holdBalance: wr.holdBalance || 0,
+      available,
+      updatedAt: Date.now(),
+    };
+    this.walletListeners.forEach(fn => {
+      try {
+        fn(payload);
+      } catch (err) {
+        console.warn('Wallet listener error:', err);
+      }
+    });
+  }
+
   private initShortServices() {
-    audioLibraryService.ensureLocalAudioAssets().catch(() => {});
     shortJobQueue.init({
       getShortJobs: (ownerEmail?: string) => this.getShortJobs(ownerEmail),
       getShortJobById: (id: string) => this.getShortJobById(id),
@@ -2406,13 +2551,499 @@ class DatabaseStore {
     }
   }
 
-  // --- Users & Auth ---
+  // --- Users, Isolated Portal Credentials & Auth ---
+  private ensurePortalCredentialSeeds() {
+    if (!this.data.guestCredentials) this.data.guestCredentials = [];
+    if (!this.data.hostCredentials) this.data.hostCredentials = [];
+    if (!this.data.authSessions) this.data.authSessions = {};
+    if (!this.data.failedLoginAttempts) this.data.failedLoginAttempts = {};
+
+    const oldWeakHash = hashPassword('password123');
+    let changed = false;
+
+    for (const user of this.data.users) {
+      if (user.role === 'admin') {
+        if (!user.username) {
+          user.username = 'KamalaHari';
+          user.portal = 'admin';
+          changed = true;
+        }
+        continue;
+      }
+
+      const portal: AuthPortal = user.role === 'owner' ? 'owner' : 'guest';
+      const store = portal === 'owner' ? this.data.hostCredentials : this.data.guestCredentials;
+
+      // Migrate legacy identical demo passwords on seed users so uniqueness holds
+      if (user.email === 'guest@airbus.ke' && (!user.passwordHash || user.passwordHash === oldWeakHash)) {
+        user.passwordHash = hashPassword('Sarah$Nairobi88!');
+        user.username = 'SarahWanjiku';
+        user.name = 'SarahWanjiku';
+        changed = true;
+      } else if (user.email === 'owner@airbus.ke' && (!user.passwordHash || user.passwordHash === oldWeakHash)) {
+        user.passwordHash = hashPassword('Mutua@Westlands91#');
+        user.username = 'DavidMutua';
+        user.name = 'DavidMutua';
+        changed = true;
+      }
+
+      if (!user.username) {
+        user.username = user.name.replace(/\s+/g, '') || user.email.split('@')[0];
+        changed = true;
+      }
+      if (!user.portal) {
+        user.portal = portal;
+        changed = true;
+      }
+
+      const existingCred = store.find(c => c.userEmail.toLowerCase() === user.email.toLowerCase());
+      if (!existingCred) {
+        const defaultRawPass =
+          user.email === 'guest@airbus.ke'
+            ? 'Sarah$Nairobi88!'
+            : user.email === 'owner@airbus.ke'
+            ? 'Mutua@Westlands91#'
+            : `${user.username}_Seed#${user.id}`;
+        const rawPassHash = user.passwordHash || hashPassword(defaultRawPass);
+        const fp =
+          user.email === 'guest@airbus.ke'
+            ? buildPasswordFingerprint('Sarah$Nairobi88!')
+            : user.email === 'owner@airbus.ke'
+            ? buildPasswordFingerprint('Mutua@Westlands91#')
+            : {
+                exactHash: rawPassHash,
+                lowerHash: rawPassHash,
+                strippedHash: rawPassHash,
+                normalizedLength: 10,
+                charClasses: 'ld',
+                shingleHashes: [],
+              };
+
+        store.push({
+          id: `cred_${portal}_${user.id}`,
+          portal,
+          username: user.username,
+          normalizedUsername: normalizeUsername(user.username),
+          userEmail: user.email.toLowerCase(),
+          userId: user.id,
+          passwordHash: rawPassHash,
+          passwordFingerprint: fp,
+          createdAt: user.createdAt || Date.now(),
+          updatedAt: Date.now(),
+        });
+        changed = true;
+      }
+    }
+
+    // Ensure seeded guest & host wallets exist cleanly
+    this.ensureWallet('guest@airbus.ke');
+    this.ensureWallet('owner@airbus.ke');
+
+    if (changed) {
+      this.save();
+    }
+  }
+
+  public assertUsernameUnique(username: string, excludeUserId?: string) {
+    const trimmed = String(username || '').trim();
+    if (trimmed.length < 3) {
+      throw new Error('Username must be at least 3 characters.');
+    }
+    const norm = normalizeUsername(trimmed);
+    if (norm.length < 3) {
+      throw new Error('Username must contain at least 3 letters or numbers.');
+    }
+
+    const allCreds: CredentialRecord[] = [
+      ...(this.data.guestCredentials || []),
+      ...(this.data.hostCredentials || []),
+    ];
+
+    for (const c of allCreds) {
+      if (excludeUserId && (c.userId === excludeUserId || c.id === excludeUserId)) continue;
+      if (
+        c.normalizedUsername === norm ||
+        (norm.length >= 3 && c.normalizedUsername.length >= 3 && levenshteinDistance(norm, c.normalizedUsername) <= 1)
+      ) {
+        throw new Error('This username is already taken or too similar to an existing username. Please choose a different one.');
+      }
+    }
+
+    for (const u of this.data.users) {
+      if (excludeUserId && u.id === excludeUserId) continue;
+      const uNorm = normalizeUsername(u.username || u.name);
+      if (
+        uNorm &&
+        (uNorm === norm || (norm.length >= 3 && uNorm.length >= 3 && levenshteinDistance(norm, uNorm) <= 1))
+      ) {
+        throw new Error('This username is already taken or too similar to an existing username. Please choose a different one.');
+      }
+    }
+  }
+
+  public assertPasswordUnique(password: string, excludeUserId?: string) {
+    const raw = String(password || '');
+    if (raw.length < 6) {
+      throw new Error('Password must be at least 6 characters.');
+    }
+    const candidateFp = buildPasswordFingerprint(raw);
+
+    const allCreds: CredentialRecord[] = [
+      ...(this.data.guestCredentials || []),
+      ...(this.data.hostCredentials || []),
+    ];
+
+    for (const c of allCreds) {
+      if (excludeUserId && (c.userId === excludeUserId || c.id === excludeUserId)) continue;
+      if (c.passwordHash === candidateFp.exactHash || passwordsTooSimilar(candidateFp, c.passwordFingerprint)) {
+        throw new Error('This password matches or is too similar to an existing password. Please choose a completely different password.');
+      }
+    }
+
+    for (const u of this.data.users) {
+      if (excludeUserId && u.id === excludeUserId) continue;
+      if (u.passwordHash && u.passwordHash === candidateFp.exactHash) {
+        throw new Error('This password matches or is too similar to an existing password. Please choose a completely different password.');
+      }
+    }
+  }
+
+  public createAuthSession(user: User, portal: AuthPortal | 'admin'): AuthSession {
+    if (!this.data.authSessions) this.data.authSessions = {};
+    const token = `sess_${portal}_${crypto.randomUUID()}`;
+    const session: AuthSession = {
+      token,
+      userId: user.id,
+      userEmail: user.email.toLowerCase(),
+      username: user.username || user.name,
+      portal,
+      role: user.role,
+      createdAt: Date.now(),
+      expiresAt: Date.now() + 30 * 864e5,
+    };
+    this.data.authSessions[token] = session;
+    this.save();
+    return session;
+  }
+
+  public getUserByAuthToken(token: string): User | null {
+    const clean = (token || '').trim();
+    if (!clean) return null;
+    const sess = this.data.authSessions?.[clean];
+    if (sess) {
+      if (sess.expiresAt > Date.now()) {
+        const u = this.findUserByEmail(sess.userEmail);
+        if (u && u.role === sess.role) return u;
+      }
+      return null;
+    }
+    // Backwards-compatible fallback for admin API calls still sending admin email
+    const u = this.findUserByEmail(clean);
+    if (u && u.role === 'admin') return u;
+    return null;
+  }
+
+  public invalidateSession(token: string) {
+    const clean = (token || '').trim();
+    if (this.data.authSessions && this.data.authSessions[clean]) {
+      delete this.data.authSessions[clean];
+      this.save();
+    }
+  }
+
+  public registerPortalUser(opts: {
+    portal: AuthPortal;
+    username: string;
+    password: string;
+    referredByCode?: string;
+    phone?: string;
+    location?: string;
+  }): { user: User; token: string } {
+    const portal: AuthPortal = opts.portal === 'owner' ? 'owner' : 'guest';
+    const rawUsername = String(opts.username || '').trim();
+    const rawPassword = String(opts.password || '');
+
+    this.assertUsernameUnique(rawUsername);
+    this.assertPasswordUnique(rawPassword);
+
+    const slug = normalizeUsername(rawUsername) || 'user';
+    const suffix = Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+    const internalEmail = `${slug}_${suffix}@${portal}.airbus.ke`;
+    const passHash = hashPassword(rawPassword);
+    const fp = buildPasswordFingerprint(rawPassword);
+    const userId = 'u_' + Date.now() + '_' + Math.random().toString(36).slice(2, 5);
+    const now = Date.now();
+
+    const newUser: User = {
+      id: userId,
+      name: rawUsername,
+      username: rawUsername,
+      portal,
+      email: internalEmail,
+      role: portal === 'owner' ? 'owner' : 'guest',
+      passwordHash: passHash,
+      phone: opts.phone || '',
+      location: opts.location || 'Nairobi, Kenya',
+      idVerified: false,
+      createdAt: now,
+    };
+
+    const credRecord: CredentialRecord = {
+      id: `cred_${portal}_${userId}`,
+      portal,
+      username: rawUsername,
+      normalizedUsername: normalizeUsername(rawUsername),
+      userEmail: internalEmail,
+      userId,
+      passwordHash: passHash,
+      passwordFingerprint: fp,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    if (portal === 'owner') {
+      if (!this.data.hostCredentials) this.data.hostCredentials = [];
+      this.data.hostCredentials.push(credRecord);
+    } else {
+      if (!this.data.guestCredentials) this.data.guestCredentials = [];
+      this.data.guestCredentials.push(credRecord);
+    }
+
+    this.createUser(newUser);
+    this.ensureWallet(internalEmail);
+
+    if (opts.referredByCode) {
+      this.recordReferralSignup(opts.referredByCode, internalEmail);
+    }
+
+    const session = this.createAuthSession(newUser, portal);
+    return { user: newUser, token: session.token };
+  }
+
+  public loginPortalUser(opts: {
+    portal: AuthPortal;
+    username: string;
+    password: string;
+  }): { user: User; token: string } {
+    const portal: AuthPortal = opts.portal === 'owner' ? 'owner' : 'guest';
+    const rawUsername = String(opts.username || '');
+    const rawPassword = String(opts.password || '');
+
+    if (!this.data.failedLoginAttempts) this.data.failedLoginAttempts = {};
+    const attemptKey = `${portal}:${normalizeUsername(rawUsername) || '_blank'}`;
+
+    const store =
+      portal === 'owner' ? this.data.hostCredentials || [] : this.data.guestCredentials || [];
+    const passHash = hashPassword(rawPassword);
+
+    // Strictly exact (case-sensitive & punctuation-sensitive) match ONLY in the chosen portal store
+    const matchedCred = store.find(
+      c => c.username === rawUsername && c.passwordHash === passHash
+    );
+
+    if (!matchedCred) {
+      const prev = this.data.failedLoginAttempts[attemptKey]?.count || 0;
+      const next = prev + 1;
+      this.data.failedLoginAttempts[attemptKey] = { count: next, updatedAt: Date.now() };
+      this.save();
+      const err: any = new Error(
+        next >= 3
+          ? `Invalid ${portal === 'owner' ? 'Host' : 'Guest'} username or password (Attempt ${next}). Please use Forgot Password / Forgot Username below.`
+          : 'Username and password did not match exactly (check capitalization and punctuation).'
+      );
+      err.failedAttempts = next;
+      err.showRecovery = next >= 3;
+      throw err;
+    }
+
+    const user = this.findUserByEmail(matchedCred.userEmail);
+    const expectedRole = portal === 'owner' ? 'owner' : 'guest';
+    if (!user || user.role !== expectedRole) {
+      const prev = this.data.failedLoginAttempts[attemptKey]?.count || 0;
+      const next = prev + 1;
+      this.data.failedLoginAttempts[attemptKey] = { count: next, updatedAt: Date.now() };
+      this.save();
+      const err: any = new Error('Account cannot access this portal. Please use the correct Login entrance.');
+      err.failedAttempts = next;
+      err.showRecovery = next >= 3;
+      throw err;
+    }
+
+    delete this.data.failedLoginAttempts[attemptKey];
+    const session = this.createAuthSession(user, portal);
+    return { user, token: session.token };
+  }
+
+  public recoverPortalCredential(opts: {
+    portal: AuthPortal;
+    mode: 'password' | 'username';
+    currentUsername?: string;
+    newPassword?: string;
+    currentPassword?: string;
+    newUsername?: string;
+  }): { user: User; token: string; message: string } {
+    const portal: AuthPortal = opts.portal === 'owner' ? 'owner' : 'guest';
+    const store =
+      portal === 'owner' ? this.data.hostCredentials || [] : this.data.guestCredentials || [];
+
+    if (opts.mode === 'password') {
+      const exactUser = String(opts.currentUsername || '');
+      const nextPass = String(opts.newPassword || '');
+      const cred = store.find(c => c.username === exactUser);
+      if (!cred) {
+        throw new Error(
+          `No ${portal === 'owner' ? 'Host' : 'Guest'} account matched that exact username (case-sensitive). Try "Forgot Username" instead.`
+        );
+      }
+      this.assertPasswordUnique(nextPass, cred.userId);
+      const nextHash = hashPassword(nextPass);
+      cred.passwordHash = nextHash;
+      cred.passwordFingerprint = buildPasswordFingerprint(nextPass);
+      cred.updatedAt = Date.now();
+
+      const user = this.findUserByEmail(cred.userEmail);
+      if (!user) throw new Error('Linked account record not found.');
+      user.passwordHash = nextHash;
+
+      if (this.data.failedLoginAttempts) {
+        delete this.data.failedLoginAttempts[`${portal}:${cred.normalizedUsername}`];
+      }
+      const session = this.createAuthSession(user, portal);
+      return {
+        user,
+        token: session.token,
+        message: 'Password reset! You are now logged in with your new password.',
+      };
+    }
+
+    // mode === 'username'
+    const curPass = String(opts.currentPassword || '');
+    const nextUsername = String(opts.newUsername || '').trim();
+    const curHash = hashPassword(curPass);
+    const cred = store.find(c => c.passwordHash === curHash);
+    if (!cred) {
+      throw new Error(
+        `No ${portal === 'owner' ? 'Host' : 'Guest'} account matched that password in this portal.`
+      );
+    }
+    this.assertUsernameUnique(nextUsername, cred.userId);
+    const oldNorm = cred.normalizedUsername;
+    cred.username = nextUsername;
+    cred.normalizedUsername = normalizeUsername(nextUsername);
+    cred.updatedAt = Date.now();
+
+    const user = this.findUserByEmail(cred.userEmail);
+    if (!user) throw new Error('Linked account record not found.');
+    user.username = nextUsername;
+    user.name = nextUsername;
+
+    if (this.data.failedLoginAttempts) {
+      delete this.data.failedLoginAttempts[`${portal}:${oldNorm}`];
+      delete this.data.failedLoginAttempts[`${portal}:${cred.normalizedUsername}`];
+    }
+    const session = this.createAuthSession(user, portal);
+    return {
+      user,
+      token: session.token,
+      message: `Username updated to "${nextUsername}". You are now logged in!`,
+    };
+  }
+
+  public updatePortalPassword(user: User, newPassword: string) {
+    this.assertPasswordUnique(newPassword, user.id);
+    const nextHash = hashPassword(newPassword);
+    const nextFp = buildPasswordFingerprint(newPassword);
+    user.passwordHash = nextHash;
+
+    const credLists = [this.data.guestCredentials || [], this.data.hostCredentials || []];
+    for (const list of credLists) {
+      const cred = list.find(c => c.userId === user.id || c.userEmail.toLowerCase() === user.email.toLowerCase());
+      if (cred) {
+        cred.passwordHash = nextHash;
+        cred.passwordFingerprint = nextFp;
+        cred.updatedAt = Date.now();
+      }
+    }
+    this.save();
+  }
+
+  public assertHostSubscriptionActive(email: string) {
+    const plan = this.getHostPlan(email);
+    const isActive = plan.status === 'active' && (plan.expiresAt === 0 || plan.expiresAt > Date.now());
+    if (!isActive) {
+      throw new Error(
+        'Your 30-day Host subscription is inactive or expired. Please activate or renew a plan before publishing listings, uploading media, promoting, or running adverts.'
+      );
+    }
+  }
+
+  public getAdminWalletsBreakdown() {
+    const usersByEmail = new Map<string, User>();
+    this.data.users.forEach(u => usersByEmail.set(u.email.toLowerCase(), u));
+
+    const guestWallets: Array<{
+      email: string;
+      name: string;
+      username: string;
+      balance: number;
+      holdBalance: number;
+      available: number;
+      lifetimeEarnings: number;
+      lifetimeSpent: number;
+      updatedAt: number;
+    }> = [];
+    const hostWallets: typeof guestWallets = [];
+
+    for (const user of this.data.users) {
+      if (user.role === 'admin') continue;
+      const clean = user.email.toLowerCase();
+      const wr = this.ensureWallet(clean);
+      const item = {
+        email: clean,
+        name: user.name,
+        username: user.username || user.name,
+        balance: wr.balance || 0,
+        holdBalance: wr.holdBalance || 0,
+        available: Math.max(0, (wr.balance || 0) - (wr.holdBalance || 0)),
+        lifetimeEarnings: wr.lifetimeEarnings || 0,
+        lifetimeSpent: wr.lifetimeSpent || 0,
+        updatedAt: wr.updatedAt || Date.now(),
+      };
+      if (user.role === 'owner') hostWallets.push(item);
+      else guestWallets.push(item);
+    }
+
+    const allDeposits = (this.data.paymentRecords || [])
+      .filter(p => p.kind === 'deposit' || p.kind === 'wallet' || p.type === 'deposit' || p.type === 'wallet' || p.type === 'wallet_topup')
+      .map(p => {
+        const e = (p.userId || p.hostEmail || '').toLowerCase();
+        const u = usersByEmail.get(e);
+        return {
+          ...p,
+          userRole: p.userRole || u?.role || 'guest',
+          userName: p.userName || u?.username || u?.name || e,
+        };
+      })
+      .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+
+    const guestDeposits = allDeposits.filter(d => d.userRole === 'guest');
+    const hostDeposits = allDeposits.filter(d => d.userRole === 'owner');
+
+    return {
+      guestWallets,
+      hostWallets,
+      guestDeposits,
+      hostDeposits,
+    };
+  }
+
   public findUserByEmail(email: string): User | undefined {
     return this.data.users.find(u => u.email.toLowerCase() === email.toLowerCase());
   }
 
   public createUser(user: User): User {
     this.data.users.push(user);
+    this.ensureWallet(user.email);
     if (user.role === 'owner') {
       this.data.wallets[user.email] = 0;
       // Host must pay 30-day subscription before uploading videos!
@@ -3236,6 +3867,7 @@ class DatabaseStore {
     wr.updatedAt = Date.now();
 
     this.save();
+    this.emitWalletUpdate(cleanWallet);
     return newTx;
   }
 
@@ -3293,11 +3925,15 @@ class DatabaseStore {
   }
 
   public createPayment(input: any): PaymentRecord {
+    const payerEmail = (input.userId || input.hostEmail || 'guest@airbus.ke').toLowerCase().trim();
+    const payer = this.findUserByEmail(payerEmail);
     const p: PaymentRecord = {
       id: input.id || ('pay_' + Date.now()),
-      userId: input.userId || input.hostEmail || 'guest@airbus.ke',
-      user_id: input.userId || input.hostEmail || 'guest@airbus.ke',
-      hostEmail: input.hostEmail || input.userId,
+      userId: payerEmail,
+      user_id: payerEmail,
+      userRole: input.userRole || payer?.role || 'guest',
+      userName: input.userName || payer?.username || payer?.name || payerEmail,
+      hostEmail: input.hostEmail || payerEmail,
       kind: input.kind || 'wallet',
       type: input.type || (input.kind === 'plan' ? 'subscription' : 'booking_fee'),
       method: input.method || 'mpesa',
@@ -3385,11 +4021,14 @@ class DatabaseStore {
     adminWallet.updatedAt = Date.now();
     this.data.wallets['admin@airbus.ke'] = adminWallet.balance;
 
+    const payer = this.findUserByEmail(cleanUserId);
     const paymentId = 'pay_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
     const payment: PaymentRecord = {
       id: paymentId,
       userId: cleanUserId,
       user_id: cleanUserId,
+      userRole: payer?.role || 'guest',
+      userName: payer?.username || payer?.name || cleanUserId,
       hostEmail: cleanUserId,
       type: opts.type,
       kind: opts.type === 'subscription' ? 'plan' : 'advert',
@@ -3418,6 +4057,7 @@ class DatabaseStore {
       walletId: cleanUserId,
       wallet_id: cleanUserId,
       direction: 'debit',
+      amount: intAmount,
       amountSc: intAmount,
       amount_sc: intAmount,
       relatedPaymentId: paymentId,
@@ -3432,6 +4072,7 @@ class DatabaseStore {
       walletId: 'admin@airbus.ke',
       wallet_id: 'admin@airbus.ke',
       direction: 'credit',
+      amount: intAmount,
       amountSc: intAmount,
       amount_sc: intAmount,
       relatedPaymentId: paymentId,
@@ -3486,6 +4127,8 @@ class DatabaseStore {
     });
 
     this.save();
+    this.emitWalletUpdate(cleanUserId);
+    this.emitWalletUpdate('admin@airbus.ke');
     return { payment, userTx, adminTx };
   }
 
@@ -3805,19 +4448,30 @@ class DatabaseStore {
       createdAt: now,
     });
 
-    const itemLabel = p.type === 'boost' ? 'Visibility Boost' : p.type === 'advert' ? 'Advert Campaign' : p.type === 'subscription' ? 'Hosting Subscription' : 'Payment';
+    const payerUser = this.findUserByEmail(hostEmail);
+    const isGuest = payerUser?.role === 'guest';
+    const itemLabel = p.type === 'boost' ? 'Visibility Boost' : p.type === 'advert' ? 'Advert Campaign' : p.type === 'subscription' ? 'Hosting Subscription' : (p.kind === 'deposit' || p.type === 'deposit' || p.kind === 'wallet' ? 'Wallet Deposit' : 'Payment');
     this.createNotification({
       id: 'notif_' + Date.now(),
       userEmail: hostEmail,
       title: `${itemLabel} Approved! ✓`,
       message: `Your payment of KES ${finalApprovedAmount.toLocaleString()} (${p.method.toUpperCase()}) was verified! Your ${itemLabel.toLowerCase()} is now active.`,
       read: false,
-      link: p.type === 'advert' ? '/#ads' : '/#owner',
+      link: isGuest ? '/#guest' : p.type === 'advert' ? '/#ads' : '/#owner',
       type: p.type === 'subscription' ? 'subscription' : 'payment',
       createdAt: now,
     });
 
     this.save();
+    this.emitWalletUpdate(hostEmail);
+    this.emitWalletUpdate('admin@airbus.ke');
+    const stayIdSplit = (p.referenceId && (this.data.sponsorSlots || []).find(s => s.id === p.referenceId)?.listing_id) || undefined;
+    if (stayIdSplit) {
+      const st = this.getStayById(stayIdSplit);
+      if (st?.ownerEmail && st.ownerEmail.toLowerCase() !== hostEmail) {
+        this.emitWalletUpdate(st.ownerEmail);
+      }
+    }
     return p;
   }
 
@@ -3955,6 +4609,7 @@ class DatabaseStore {
         walletId: 'admin@airbus.ke',
         wallet_id: 'admin@airbus.ke',
         direction: 'debit',
+        amount: amount,
         amountSc: amount,
         amount_sc: amount,
         relatedPaymentId: p.id,
@@ -3969,6 +4624,7 @@ class DatabaseStore {
         walletId: cleanUserId,
         wallet_id: cleanUserId,
         direction: 'credit',
+        amount: amount,
         amountSc: amount,
         amount_sc: amount,
         relatedPaymentId: p.id,
@@ -4043,10 +4699,12 @@ class DatabaseStore {
     });
 
     this.save();
+    this.emitWalletUpdate(cleanUserId);
+    this.emitWalletUpdate('admin@airbus.ke');
     return p;
   }
 
-  // --- Ad Slots (10 SC/day dynamic adverts) ---
+  // --- Ad Slots (10 SC/day dynamic adverts - Wallet Only) ---
   public createAdSlot(opts: {
     ownerId: string;
     title: string;
@@ -4055,13 +4713,28 @@ class DatabaseStore {
     thumbnailUrl: string;
     videoUrl?: string;
     durationDays: number;
-    paymentMethod: 'wallet' | 'mpesa';
+    paymentMethod?: 'wallet' | 'mpesa';
     mpesaCode?: string;
   }): { slot: AdSlot; payment: PaymentRecord } {
+    if (opts.paymentMethod && opts.paymentMethod !== 'wallet') {
+      throw new Error('Adverts must be paid strictly from your private AirBus Wallet. Please deposit funds to your wallet first.');
+    }
+
     const days = Math.min(90, Math.max(1, Math.floor(opts.durationDays || 7)));
     const costSc = days * 10; // Exactly 10 SC / day
 
     const cleanOwnerId = opts.ownerId.toLowerCase().trim();
+    const wallet = this.ensureWallet(cleanOwnerId);
+    const available = Math.max(0, (wallet.balance || 0) - (wallet.holdBalance || 0));
+    if (available <= 0) {
+      throw new Error('Your AirBus Wallet is empty (KES 0). Please deposit funds via M-Pesa Till 943210 before advertising.');
+    }
+    if (available < costSc) {
+      throw new Error(
+        `Insufficient wallet balance. You have ${available} KES/Coins, but this campaign requires ${costSc} KES/Coins. Please deposit the shortfall of ${costSc - available} KES to your wallet.`
+      );
+    }
+
     const slotId = 'adslot_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
 
     const slot: AdSlot = {
@@ -4082,8 +4755,7 @@ class DatabaseStore {
       cost_sc: costSc,
       status: 'pending_approval',
       paymentId: '',
-      paymentMethod: opts.paymentMethod,
-      mpesaCode: opts.mpesaCode?.trim().toUpperCase(),
+      paymentMethod: 'wallet',
       impressions: 0,
       clicks: 0,
       createdAt: Date.now(),
@@ -4092,32 +4764,17 @@ class DatabaseStore {
       updated_at: Date.now(),
     };
 
-    let payment: PaymentRecord;
-
-    if (opts.paymentMethod === 'wallet') {
-      const result = this.payWithWallet({
-        userId: cleanOwnerId,
-        type: 'advert',
-        amountSc: costSc,
-        referenceId: slotId,
-        durationDays: days,
-        note: `Advert Payment for "${opts.title}" (${days} days @ 10 SC/day)`,
-      });
-      payment = result.payment;
-      slot.paymentId = payment.id;
-      slot.payment_id = payment.id;
-    } else {
-      payment = this.createMpesaPayment({
-        userId: cleanOwnerId,
-        type: 'advert',
-        amountKes: costSc,
-        mpesaCode: opts.mpesaCode || '',
-        referenceId: slotId,
-        durationDays: days,
-      });
-      slot.paymentId = payment.id;
-      slot.payment_id = payment.id;
-    }
+    const result = this.payWithWallet({
+      userId: cleanOwnerId,
+      type: 'advert',
+      amountSc: costSc,
+      referenceId: slotId,
+      durationDays: days,
+      note: `Advert Payment for "${opts.title}" (${days} days @ 10 SC/day)`,
+    });
+    const payment = result.payment;
+    slot.paymentId = payment.id;
+    slot.payment_id = payment.id;
 
     if (!this.data.adSlots) this.data.adSlots = [];
     this.data.adSlots.unshift(slot);
@@ -4708,6 +5365,8 @@ class DatabaseStore {
     this.assertBalanceInvariant();
 
     this.save();
+    if (!isSystemFrom) this.emitWalletUpdate(cleanFrom);
+    if (!isSystemTo) this.emitWalletUpdate(cleanTo);
     return entry;
   }
 
@@ -4961,6 +5620,7 @@ class DatabaseStore {
     });
 
     this.save();
+    this.emitWalletUpdate(email);
     const updatedRec = this.ensureWallet(email);
     const remaining = updatedRec.balance - (updatedRec.holdBalance || 0);
     return { plan: targetPlan, ledger, walletBalance: remaining };
@@ -5142,10 +5802,17 @@ class DatabaseStore {
       throw new Error(`All ${settings.maxAdSlotsPerPost} sponsor ad slots on this stay video are currently occupied.`);
     }
 
-    // Place hold on advertiser's wallet
+    // Place hold on advertiser's wallet (wallet-only adverts)
+    const wallet = this.ensureWallet(req.advertiserEmail);
+    const available = Math.max(0, (wallet.balance || 0) - (wallet.holdBalance || 0));
+    if (available <= 0) {
+      throw new Error('Your AirBus Wallet is empty (KES 0). Please deposit funds via M-Pesa Till 943210 before advertising.');
+    }
     const holdPlaced = this.placeWalletHold(req.advertiserEmail, totalAmount);
     if (!holdPlaced) {
-      throw new Error('Your wallet balance is not enough for this payment. Please top up your wallet, or enter the amount you have paid (or want to pay) to the Till 943210 in the custom amount field.');
+      throw new Error(
+        `Insufficient wallet balance (${available} KES available, ${totalAmount} KES required). Please deposit funds into your AirBus Wallet first.`
+      );
     }
 
     // Calculate dynamic 70/30 split
@@ -5332,10 +5999,14 @@ class DatabaseStore {
     const coins = Math.max(10, Math.floor(data.coinsPaid));
     const cleanEmail = data.userEmail.toLowerCase().trim();
 
-    // Check wallet balance
+    // Check wallet balance (wallet-only adverts)
     const wallet = this.ensureWallet(cleanEmail);
-    if (wallet.balance < coins) {
-      throw new Error(`Insufficient SnappCoins. You need ${coins} SC, but have ${wallet.balance} SC. Please top up.`);
+    const available = Math.max(0, (wallet.balance || 0) - (wallet.holdBalance || 0));
+    if (available <= 0) {
+      throw new Error('Your AirBus Wallet is empty (KES 0). Please deposit funds via M-Pesa Till 943210 before running an advert.');
+    }
+    if (available < coins) {
+      throw new Error(`Insufficient wallet balance. You need ${coins} SC, but have ${available} SC. Please deposit funds to your wallet.`);
     }
 
     // Debit wallet atomically
@@ -5402,6 +6073,7 @@ class DatabaseStore {
     });
 
     this.save();
+    this.emitWalletUpdate(cleanEmail);
     return { campaign, walletBalance: wallet.balance };
   }
 
@@ -5598,6 +6270,7 @@ class DatabaseStore {
         walletId: cleanEmail,
         wallet_id: cleanEmail,
         direction: 'debit',
+        amount: costSc,
         amountSc: costSc,
         amount_sc: costSc,
         relatedPaymentId: paymentId,
@@ -5612,6 +6285,7 @@ class DatabaseStore {
         walletId: 'admin@airbus.ke',
         wallet_id: 'admin@airbus.ke',
         direction: 'credit',
+        amount: costSc,
         amountSc: costSc,
         amount_sc: costSc,
         relatedPaymentId: paymentId,
@@ -5707,6 +6381,10 @@ class DatabaseStore {
     });
 
     this.save();
+    if (opts.paymentMethod === 'wallet') {
+      this.emitWalletUpdate(cleanEmail);
+      this.emitWalletUpdate('admin@airbus.ke');
+    }
 
     return {
       boost,
@@ -5723,7 +6401,7 @@ class DatabaseStore {
     return this.data.boosts.filter(b => (b.owner_id || b.ownerId || '').toLowerCase() === clean);
   }
 
-  // --- Dynamic Sponsor Slots (1 to 10 Slots with 70/30 Split) ---
+  // --- Dynamic Sponsor Slots (1 to 10 Slots with 70/30 Split - Wallet Only) ---
   public purchaseSponsorSlot(opts: {
     listingId: string;
     advertiserEmail: string;
@@ -5732,13 +6410,17 @@ class DatabaseStore {
     linkUrl: string;
     thumbnailUrl: string;
     durationDays: number;
-    paymentMethod: 'wallet' | 'mpesa';
+    paymentMethod?: 'wallet' | 'mpesa';
     mpesaCode?: string;
   }): {
     sponsorSlot: SponsorSlot;
     payment: PaymentRecord;
     message: string;
   } {
+    if (opts.paymentMethod && opts.paymentMethod !== 'wallet') {
+      throw new Error('Adverts must be paid strictly from your private AirBus Wallet. Please deposit funds to your wallet first.');
+    }
+
     const cleanEmail = opts.advertiserEmail.toLowerCase().trim();
     const stay = this.getStayById(opts.listingId);
     if (!stay) throw new Error('Listing stay not found');
@@ -5758,116 +6440,84 @@ class DatabaseStore {
     const slotId = 'sponsor_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
     const paymentId = 'pay_sponsor_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
 
-    let paymentRecord: PaymentRecord;
-
-    if (opts.paymentMethod === 'wallet') {
-      const userWallet = this.ensureWallet(cleanEmail);
-      const available = userWallet.balance - (userWallet.holdBalance || 0);
-      if (available < costSc) {
-        throw new Error('Not enough SC. Top up your wallet or pay with M-Pesa');
-      }
-
-      userWallet.balance -= costSc;
-      userWallet.lifetimeSpent = (userWallet.lifetimeSpent || 0) + costSc;
-      userWallet.updatedAt = Date.now();
-      this.data.wallets[cleanEmail] = userWallet.balance;
-
-      const adminWallet = this.ensureWallet('admin@airbus.ke');
-      adminWallet.balance += costSc;
-      adminWallet.lifetimeEarnings = (adminWallet.lifetimeEarnings || 0) + costSc;
-      adminWallet.updatedAt = Date.now();
-      this.data.wallets['admin@airbus.ke'] = adminWallet.balance;
-
-      paymentRecord = {
-        id: paymentId,
-        userId: cleanEmail,
-        user_id: cleanEmail,
-        type: 'advert',
-        kind: 'advert',
-        method: 'wallet',
-        amountSc: costSc,
-        amount_sc: costSc,
-        amountKes: costKes,
-        amount_kes: costKes,
-        amount: costSc,
-        status: 'pending',
-        referenceId: slotId,
-        reference_id: slotId,
-        durationDays: days,
-        duration_days: days,
-        createdAt: Date.now(),
-        created_at: Date.now(),
-        updatedAt: Date.now(),
-        updated_at: Date.now(),
-      };
-
-      const userTx: WalletTransaction = {
-        id: 'wtx_' + Date.now() + '_slot_dr',
-        walletId: cleanEmail,
-        wallet_id: cleanEmail,
-        direction: 'debit',
-        amountSc: costSc,
-        amount_sc: costSc,
-        relatedPaymentId: paymentId,
-        related_payment_id: paymentId,
-        note: `Sponsor slot #${nextSlotNumber} on "${stay.title}" (${days} days)`,
-        createdAt: Date.now(),
-        created_at: Date.now(),
-      };
-
-      const adminTx: WalletTransaction = {
-        id: 'wtx_' + Date.now() + '_slot_cr',
-        walletId: 'admin@airbus.ke',
-        wallet_id: 'admin@airbus.ke',
-        direction: 'credit',
-        amountSc: costSc,
-        amount_sc: costSc,
-        relatedPaymentId: paymentId,
-        related_payment_id: paymentId,
-        note: `Sponsor slot payment for "${stay.title}" from ${cleanEmail}`,
-        createdAt: Date.now(),
-        created_at: Date.now(),
-      };
-
-      if (!this.data.walletTransactions) this.data.walletTransactions = [];
-      this.data.walletTransactions.unshift(userTx, adminTx);
-    } else {
-      const cleanCode = (opts.mpesaCode || '').trim().toUpperCase();
-      if (!/^[A-Z0-9]{10}$/.test(cleanCode)) {
-        throw new Error('Please enter a valid 10-character alphanumeric M-Pesa receipt code (e.g. QGH7X2K9LM).');
-      }
-      const duplicate = (this.data.paymentRecords || []).some(
-        p => (p.mpesaCode?.toUpperCase() === cleanCode || p.mpesa_code?.toUpperCase() === cleanCode)
-      );
-      if (duplicate) {
-        throw new Error('This M-Pesa transaction code has already been submitted. Please check your receipt.');
-      }
-
-      paymentRecord = {
-        id: paymentId,
-        userId: cleanEmail,
-        user_id: cleanEmail,
-        type: 'advert',
-        kind: 'advert',
-        method: 'mpesa',
-        amountSc: costSc,
-        amount_sc: costSc,
-        amountKes: costKes,
-        amount_kes: costKes,
-        amount: costKes,
-        mpesaCode: cleanCode,
-        mpesa_code: cleanCode,
-        status: 'pending',
-        referenceId: slotId,
-        reference_id: slotId,
-        durationDays: days,
-        duration_days: days,
-        createdAt: Date.now(),
-        created_at: Date.now(),
-        updatedAt: Date.now(),
-        updated_at: Date.now(),
-      };
+    const userWallet = this.ensureWallet(cleanEmail);
+    const available = Math.max(0, userWallet.balance - (userWallet.holdBalance || 0));
+    if (available <= 0) {
+      throw new Error('Your AirBus Wallet is empty (KES 0). Please deposit funds via M-Pesa Till 943210 before advertising.');
     }
+    if (available < costSc) {
+      throw new Error(`Insufficient wallet balance. Required: ${costSc} SC, Available: ${available} SC. Please deposit funds to your wallet.`);
+    }
+
+    userWallet.balance -= costSc;
+    userWallet.lifetimeSpent = (userWallet.lifetimeSpent || 0) + costSc;
+    userWallet.updatedAt = Date.now();
+    this.data.wallets[cleanEmail] = userWallet.balance;
+
+    const adminWallet = this.ensureWallet('admin@airbus.ke');
+    adminWallet.balance += costSc;
+    adminWallet.lifetimeEarnings = (adminWallet.lifetimeEarnings || 0) + costSc;
+    adminWallet.updatedAt = Date.now();
+    this.data.wallets['admin@airbus.ke'] = adminWallet.balance;
+
+    const advertiserUser = this.findUserByEmail(cleanEmail);
+    const paymentRecord: PaymentRecord = {
+      id: paymentId,
+      userId: cleanEmail,
+      user_id: cleanEmail,
+      userRole: advertiserUser?.role || 'guest',
+      userName: advertiserUser?.username || advertiserUser?.name || cleanEmail,
+      type: 'advert',
+      kind: 'advert',
+      method: 'wallet',
+      amountSc: costSc,
+      amount_sc: costSc,
+      amountKes: costKes,
+      amount_kes: costKes,
+      amount: costSc,
+      status: 'pending',
+      referenceId: slotId,
+      reference_id: slotId,
+      durationDays: days,
+      duration_days: days,
+      createdAt: Date.now(),
+      created_at: Date.now(),
+      updatedAt: Date.now(),
+      updated_at: Date.now(),
+    };
+
+    const userTx: WalletTransaction = {
+      id: 'wtx_' + Date.now() + '_slot_dr',
+      walletId: cleanEmail,
+      wallet_id: cleanEmail,
+      direction: 'debit',
+      amount: costSc,
+      amountSc: costSc,
+      amount_sc: costSc,
+      relatedPaymentId: paymentId,
+      related_payment_id: paymentId,
+      note: `Sponsor slot #${nextSlotNumber} on "${stay.title}" (${days} days)`,
+      createdAt: Date.now(),
+      created_at: Date.now(),
+    };
+
+    const adminTx: WalletTransaction = {
+      id: 'wtx_' + Date.now() + '_slot_cr',
+      walletId: 'admin@airbus.ke',
+      wallet_id: 'admin@airbus.ke',
+      direction: 'credit',
+      amount: costSc,
+      amountSc: costSc,
+      amount_sc: costSc,
+      relatedPaymentId: paymentId,
+      related_payment_id: paymentId,
+      note: `Sponsor slot payment for "${stay.title}" from ${cleanEmail}`,
+      createdAt: Date.now(),
+      created_at: Date.now(),
+    };
+
+    if (!this.data.walletTransactions) this.data.walletTransactions = [];
+    this.data.walletTransactions.unshift(userTx, adminTx);
 
     if (!this.data.paymentRecords) this.data.paymentRecords = [];
     this.data.paymentRecords.unshift(paymentRecord);
@@ -5920,7 +6570,7 @@ class DatabaseStore {
       cost_sc: costSc,
       costCoins: costSc,
       cost_coins: costSc,
-      paymentMethod: opts.paymentMethod,
+      paymentMethod: 'wallet',
       status: 'pending',
       paymentId,
       impressions: 0,
@@ -5935,11 +6585,13 @@ class DatabaseStore {
       id: 'aud_' + Date.now(),
       action: 'sponsor_slot_purchase',
       actorEmail: cleanEmail,
-      details: `Reserved sponsor slot #${nextSlotNumber} on "${stay.title}" (${days} days) via ${opts.paymentMethod.toUpperCase()}`,
+      details: `Reserved sponsor slot #${nextSlotNumber} on "${stay.title}" (${days} days) via WALLET`,
       createdAt: Date.now(),
     });
 
     this.save();
+    this.emitWalletUpdate(cleanEmail);
+    this.emitWalletUpdate('admin@airbus.ke');
 
     return {
       sponsorSlot,

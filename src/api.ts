@@ -309,27 +309,32 @@ export const api = {
 
     const targetUrl = API_BASE_URL ? `${API_BASE_URL}${endpoint}` : endpoint;
 
+    let res: Response;
     try {
-      const res = await fetch(targetUrl, {
+      res = await fetch(targetUrl, {
         ...options,
         headers,
       });
-
-      const contentType = res.headers.get('content-type') || '';
-      // Detect GitHub Pages static 404 HTML fallback
-      if (!contentType.includes('application/json')) {
-        return this.getStaticFallback<T>(endpoint);
-      }
-
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || `HTTP error ${res.status}`);
-      }
-      return data;
     } catch (err: any) {
-      console.warn(`API call failed for ${endpoint}, using resilient fallback:`, err);
+      console.warn(`Network call failed for ${endpoint}, using resilient fallback:`, err);
       return this.getStaticFallback<T>(endpoint);
     }
+
+    const contentType = res.headers.get('content-type') || '';
+    // Detect GitHub Pages static 404 HTML fallback
+    if (!contentType.includes('application/json')) {
+      return this.getStaticFallback<T>(endpoint);
+    }
+
+    const data = await res.json();
+    if (!res.ok) {
+      const apiErr: any = new Error(data.error || `HTTP error ${res.status}`);
+      apiErr.status = res.status;
+      if (data.failedAttempts !== undefined) apiErr.failedAttempts = data.failedAttempts;
+      if (data.showRecovery !== undefined) apiErr.showRecovery = data.showRecovery;
+      throw apiErr;
+    }
+    return data;
   },
 
   getStaticFallback<T>(endpoint: string): T {
@@ -425,11 +430,24 @@ export const api = {
     return {} as T;
   },
 
-  // Auth
+  // Auth (Admin Email Login + Isolated Guest/Host Portal Login & Sign-Up)
   async login(email: string, password: string): Promise<{ user: User; token: string }> {
     const data = await this.request<{ user: User; token: string }>('/api/auth/login', {
       method: 'POST',
       body: JSON.stringify({ email, password }),
+    });
+    this.setToken(data.token);
+    return data;
+  },
+
+  async loginPortal(
+    portal: 'guest' | 'owner',
+    username: string,
+    password: string
+  ): Promise<{ user: User; token: string }> {
+    const data = await this.request<{ user: User; token: string }>('/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ portal, username, password }),
     });
     this.setToken(data.token);
     return data;
@@ -442,6 +460,45 @@ export const api = {
     });
     this.setToken(data.token);
     return data;
+  },
+
+  async registerPortal(data: {
+    portal: 'guest' | 'owner';
+    username: string;
+    password: string;
+    referredByCode?: string;
+  }): Promise<{ user: User; token: string }> {
+    const res = await this.request<{ user: User; token: string }>('/api/auth/register', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+    this.setToken(res.token);
+    return res;
+  },
+
+  async recoverCredential(data: {
+    portal: 'guest' | 'owner';
+    mode: 'password' | 'username';
+    currentUsername?: string;
+    newPassword?: string;
+    currentPassword?: string;
+    newUsername?: string;
+  }): Promise<{ user: User; token: string; message: string }> {
+    const res = await this.request<{ user: User; token: string; message: string }>('/api/auth/recovery', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+    this.setToken(res.token);
+    return res;
+  },
+
+  async logoutSession(): Promise<void> {
+    try {
+      await this.request('/api/auth/logout', { method: 'POST' });
+    } catch {
+      // Ignore logout network error
+    }
+    this.logout();
   },
 
   async getMe(): Promise<{ user: User }> {
@@ -862,7 +919,7 @@ export const api = {
     });
   },
 
-  // Ad Slots (Advertise Here)
+  // Ad Slots (Advertise Here - Wallet Only)
   async createAdSlot(slotData: {
     title: string;
     description: string;
@@ -870,12 +927,11 @@ export const api = {
     thumbnailUrl: string;
     videoUrl?: string;
     durationDays: number;
-    paymentMethod: 'wallet' | 'mpesa';
-    mpesaCode?: string;
+    paymentMethod?: 'wallet';
   }): Promise<{ slot: AdSlot; payment: PaymentRecord }> {
     return this.request('/api/ads/slots', {
       method: 'POST',
-      body: JSON.stringify(slotData),
+      body: JSON.stringify({ ...slotData, paymentMethod: 'wallet' }),
     });
   },
 
@@ -1046,7 +1102,42 @@ export const api = {
     return this.request('/api/wallet');
   },
 
-  async topupWallet(amount: number, mpesaCode: string): Promise<{ payment: PaymentRecord }> {
+  getWalletStreamUrl(): string {
+    const token = this.getToken() || '';
+    const base = API_BASE_URL ? `${API_BASE_URL}/api/wallet/stream` : '/api/wallet/stream';
+    return `${base}?token=${encodeURIComponent(token)}`;
+  },
+
+  async getAdminWallets(): Promise<{
+    guestWallets: Array<{
+      email: string;
+      name: string;
+      username: string;
+      balance: number;
+      holdBalance: number;
+      available: number;
+      lifetimeEarnings: number;
+      lifetimeSpent: number;
+      updatedAt: number;
+    }>;
+    hostWallets: Array<{
+      email: string;
+      name: string;
+      username: string;
+      balance: number;
+      holdBalance: number;
+      available: number;
+      lifetimeEarnings: number;
+      lifetimeSpent: number;
+      updatedAt: number;
+    }>;
+    guestDeposits: PaymentRecord[];
+    hostDeposits: PaymentRecord[];
+  }> {
+    return this.request('/api/admin/wallets');
+  },
+
+  async topupWallet(amount: number, mpesaCode: string): Promise<{ payment: PaymentRecord; message?: string }> {
     return this.request('/api/wallet/topup', {
       method: 'POST',
       body: JSON.stringify({ amount, mpesaCode }),

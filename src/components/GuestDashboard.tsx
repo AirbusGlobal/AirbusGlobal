@@ -26,9 +26,16 @@ import {
   Gift,
   List,
   CalendarDays,
+  Wallet,
+  Megaphone,
+  Coins,
+  Check,
+  AlertCircle,
 } from 'lucide-react';
 import { StayCard } from './StayCard';
 import { BookingCalendarView } from './BookingCalendarView';
+import { api } from '../api';
+import { LedgerEntry } from '../types';
 
 interface GuestDashboardProps {
   user: User;
@@ -36,6 +43,9 @@ interface GuestDashboardProps {
   stays: Stay[];
   wishlistIds: string[];
   threads: ChatThread[];
+  walletBalance?: number;
+  onWalletBalanceUpdated?: (bal: number) => void;
+  onOpenAdvertise?: () => void;
   onToggleSave: (stayId: string) => void;
   onSelectStay: (stayId: string) => void;
   onCheckAvailability: (stayId: string) => void;
@@ -56,6 +66,9 @@ export const GuestDashboard: React.FC<GuestDashboardProps> = ({
   stays,
   wishlistIds,
   threads,
+  walletBalance = 0,
+  onWalletBalanceUpdated,
+  onOpenAdvertise,
   onToggleSave,
   onSelectStay,
   onCheckAvailability,
@@ -69,9 +82,40 @@ export const GuestDashboard: React.FC<GuestDashboardProps> = ({
   onNavigateToShorts,
   showToast,
 }) => {
-  const [activeTab, setActiveTab] = useState<'trips' | 'wishlist' | 'messages' | 'recommended' | 'profile'>('trips');
+  const [activeTab, setActiveTab] = useState<'trips' | 'wallet' | 'wishlist' | 'messages' | 'recommended' | 'profile'>('trips');
   const [tripFilter, setTripFilter] = useState<'upcoming' | 'past' | 'cancelled'>('upcoming');
   const [tripsDisplayMode, setTripsDisplayMode] = useState<'list' | 'calendar'>('list');
+
+  // Guest Wallet & M-Pesa Till 943210 Deposit State
+  const [ledger, setLedger] = useState<LedgerEntry[]>([]);
+  const [loadingWallet, setLoadingWallet] = useState(false);
+  const [depositAmount, setDepositAmount] = useState('500');
+  const [depositCode, setDepositCode] = useState('');
+  const [depositing, setDepositing] = useState(false);
+  const [depositMsg, setDepositMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const loadGuestWallet = React.useCallback(async () => {
+    setLoadingWallet(true);
+    try {
+      const res = await api.getWallet();
+      if (res?.wallet?.balance !== undefined) {
+        onWalletBalanceUpdated?.(res.wallet.balance);
+      }
+      if (Array.isArray(res?.ledger)) {
+        setLedger(res.ledger);
+      }
+    } catch {
+      // Ignore network hiccup
+    } finally {
+      setLoadingWallet(false);
+    }
+  }, [onWalletBalanceUpdated]);
+
+  React.useEffect(() => {
+    if (activeTab === 'wallet') {
+      loadGuestWallet();
+    }
+  }, [activeTab, walletBalance, loadGuestWallet]);
 
   // Profile form state
   const [name, setName] = useState(user.name);
@@ -201,7 +245,7 @@ export const GuestDashboard: React.FC<GuestDashboardProps> = ({
           <div>
             <div className="flex items-center gap-2 mb-1.5">
               <span className="bg-[#ff2e93] text-white text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full tracking-wider">
-                Guest Dashboard
+                Guest Mode
               </span>
               {user.idVerified && (
                 <span className="bg-emerald-500/20 text-emerald-300 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 border border-emerald-500/30">
@@ -213,12 +257,23 @@ export const GuestDashboard: React.FC<GuestDashboardProps> = ({
               Hi {user.name.split(' ')[0]} 👋
             </h1>
             <p className="text-xs text-stone-300 mt-1 max-w-md">
-              Manage your upcoming short-stay trips, track real-time host negotiations, and access your saved video listings.
+              Manage your upcoming short-stay trips, private Guest Wallet (Till 943210), negotiations, and saved video listings.
             </p>
           </div>
 
           {/* Quick Metrics Badges */}
           <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setActiveTab('wallet')}
+              className="bg-emerald-500/15 hover:bg-emerald-500/25 backdrop-blur-md px-3.5 py-2 rounded-2xl border border-emerald-400/30 text-center cursor-pointer transition-colors"
+            >
+              <div className="text-base font-extrabold text-emerald-300 font-mono">
+                KES {walletBalance.toLocaleString()}
+              </div>
+              <div className="text-[10px] text-emerald-200 uppercase font-semibold">Guest Wallet</div>
+            </button>
+
             <div className="bg-white/10 backdrop-blur-md px-3.5 py-2 rounded-2xl border border-white/10 text-center">
               <div className="text-base font-extrabold text-emerald-400">{upcomingBookings.length}</div>
               <div className="text-[10px] text-stone-300 uppercase font-semibold">Upcoming</div>
@@ -382,6 +437,18 @@ export const GuestDashboard: React.FC<GuestDashboardProps> = ({
         </button>
 
         <button
+          onClick={() => setActiveTab('wallet')}
+          className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ${
+            activeTab === 'wallet'
+              ? 'bg-emerald-600 text-white shadow-sm'
+              : 'text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800'
+          }`}
+        >
+          <Wallet className="w-4 h-4" />
+          <span>Guest Wallet (KES {walletBalance.toLocaleString()})</span>
+        </button>
+
+        <button
           onClick={() => setActiveTab('wishlist')}
           className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ${
             activeTab === 'wishlist'
@@ -429,6 +496,218 @@ export const GuestDashboard: React.FC<GuestDashboardProps> = ({
           <span>Profile Settings</span>
         </button>
       </div>
+
+      {/* TAB: PRIVATE GUEST WALLET & M-PESA DEPOSIT + WALLET-ONLY ADVERTS */}
+      {activeTab === 'wallet' && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Left: Balance Card & Advertise CTA */}
+          <div className="space-y-4">
+            <div className="p-6 rounded-3xl bg-gradient-to-br from-emerald-950 via-stone-900 to-stone-950 text-white border border-emerald-500/30 shadow-xl space-y-4">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-black uppercase tracking-wider text-emerald-300 flex items-center gap-1.5">
+                  <Wallet className="w-4 h-4" /> Private Guest Wallet
+                </span>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-bold">
+                  Live Sync
+                </span>
+              </div>
+
+              <div>
+                <div className="text-3xl font-black font-mono text-white">
+                  KES {walletBalance.toLocaleString()}
+                </div>
+                <div className="text-xs text-stone-400 mt-0.5">
+                  Available SnappCoins: <strong className="text-amber-400 font-mono">{walletBalance.toLocaleString()} SC</strong>
+                </div>
+              </div>
+
+              <div className="pt-3 border-t border-white/10 space-y-2">
+                <div className="text-xs text-stone-300">
+                  Use your private Guest Wallet to sponsor listings or run adverts on AirBus (10 SC / day).
+                </div>
+                {walletBalance <= 0 && (
+                  <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-[11px] text-amber-200 flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                    <span>Your wallet balance is empty. Deposit funds via M-Pesa Till 943210 on the right before running adverts.</span>
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={() => onOpenAdvertise?.()}
+                  disabled={walletBalance <= 0}
+                  className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-[#e4002b] to-[#ff2e93] hover:opacity-95 text-white font-extrabold text-xs flex items-center justify-center gap-2 shadow cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <Megaphone className="w-4 h-4" />
+                  <span>Advertise on AirBus (Wallet Only)</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Transaction Ledger */}
+            <div className="p-5 rounded-3xl bg-white dark:bg-[#15171e] border border-stone-200 dark:border-stone-800 shadow-sm space-y-3">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-extrabold text-stone-900 dark:text-white flex items-center gap-1.5">
+                  <Coins className="w-4 h-4 text-amber-500" />
+                  <span>Recent Wallet Activity</span>
+                </h4>
+                {loadingWallet && <span className="text-[10px] text-stone-400">Refreshing...</span>}
+              </div>
+
+              {ledger.length === 0 ? (
+                <p className="text-xs text-stone-500 py-4 text-center">No wallet transactions yet.</p>
+              ) : (
+                <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                  {ledger.slice(0, 12).map(tx => (
+                    <div
+                      key={tx.id}
+                      className="p-2.5 rounded-xl bg-stone-50 dark:bg-stone-900/60 border border-stone-100 dark:border-stone-800 flex items-center justify-between gap-2 text-xs"
+                    >
+                      <div className="min-w-0">
+                        <div className="font-semibold text-stone-800 dark:text-stone-200 truncate">
+                          {tx.description || tx.type}
+                        </div>
+                        <div className="text-[10px] text-stone-400">
+                          {new Date(tx.createdAt).toLocaleDateString()}
+                        </div>
+                      </div>
+                      <span
+                        className={`font-mono font-bold shrink-0 ${
+                          tx.toWallet?.toLowerCase() === user.email.toLowerCase()
+                            ? 'text-emerald-600 dark:text-emerald-400'
+                            : 'text-rose-600 dark:text-rose-400'
+                        }`}
+                      >
+                        {tx.toWallet?.toLowerCase() === user.email.toLowerCase() ? '+' : '-'}KES {tx.amount.toLocaleString()}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Right: M-Pesa Till 943210 Deposit Form */}
+          <div className="lg:col-span-2 bg-white dark:bg-[#15171e] p-6 rounded-3xl border border-stone-200 dark:border-stone-800 shadow-sm space-y-5">
+            <div>
+              <span className="text-[10px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300">
+                M-Pesa Till 943210
+              </span>
+              <h3 className="text-lg font-extrabold text-stone-900 dark:text-white mt-2">
+                Deposit Funds to Your Guest Wallet
+              </h3>
+              <p className="text-xs text-stone-500 mt-1">
+                Go to M-Pesa → Lipa na M-Pesa → Buy Goods &amp; Services → Till Number{' '}
+                <strong className="font-mono text-stone-900 dark:text-white">943210</strong>. Once you pay, enter the amount and your M-Pesa confirmation code below. Your wallet balance updates live immediately when Admin approves!
+              </p>
+            </div>
+
+            <form
+              onSubmit={async e => {
+                e.preventDefault();
+                setDepositMsg(null);
+                const num = Number(depositAmount);
+                if (!num || num < 10) {
+                  setDepositMsg({ type: 'error', text: 'Minimum deposit amount is KES 10.' });
+                  return;
+                }
+                const cleanCode = depositCode.trim().toUpperCase();
+                if (!/^[A-Z0-9]{8,15}$/.test(cleanCode)) {
+                  setDepositMsg({ type: 'error', text: 'Enter a valid 8-15 character M-Pesa confirmation code (e.g. QWE123RTY4).' });
+                  return;
+                }
+                setDepositing(true);
+                try {
+                  const res = await api.topupWallet(num, cleanCode);
+                  setDepositCode('');
+                  setDepositMsg({
+                    type: 'success',
+                    text: res?.message || `Deposit of KES ${num.toLocaleString()} (${cleanCode}) submitted! Awaiting Admin verification — your balance will update automatically.`,
+                  });
+                  showToast?.(`Deposit ${cleanCode} submitted for Admin approval.`);
+                } catch (err: any) {
+                  setDepositMsg({ type: 'error', text: err.message || 'Deposit submission failed.' });
+                } finally {
+                  setDepositing(false);
+                }
+              }}
+              className="space-y-4"
+            >
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xs font-bold text-stone-700 dark:text-stone-300 block mb-1">
+                    Deposit Amount (KES)
+                  </label>
+                  <input
+                    type="number"
+                    min={10}
+                    required
+                    value={depositAmount}
+                    onChange={e => setDepositAmount(e.target.value)}
+                    placeholder="e.g. 500"
+                    className="w-full px-3.5 py-2.5 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-sm font-mono font-bold outline-none focus:border-emerald-500"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-stone-700 dark:text-stone-300 block mb-1">
+                    M-Pesa Confirmation Code
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    maxLength={15}
+                    value={depositCode}
+                    onChange={e => setDepositCode(e.target.value.toUpperCase())}
+                    placeholder="e.g. QGH7X2K9LM"
+                    className="w-full px-3.5 py-2.5 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-sm font-mono uppercase tracking-wider outline-none focus:border-emerald-500"
+                  />
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                {[100, 300, 500, 1000, 2500].map(preset => (
+                  <button
+                    key={preset}
+                    type="button"
+                    onClick={() => setDepositAmount(String(preset))}
+                    className={`px-3 py-1 rounded-full text-xs font-bold border transition-all cursor-pointer ${
+                      depositAmount === String(preset)
+                        ? 'bg-emerald-600 text-white border-emerald-600'
+                        : 'bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 border-stone-200 dark:border-stone-700'
+                    }`}
+                  >
+                    KES {preset.toLocaleString()}
+                  </button>
+                ))}
+              </div>
+
+              {depositMsg && (
+                <div
+                  className={`p-3 rounded-xl text-xs flex items-start gap-2 ${
+                    depositMsg.type === 'success'
+                      ? 'bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-400/50 text-emerald-800 dark:text-emerald-200'
+                      : 'bg-rose-50 dark:bg-rose-950/60 border border-rose-400/50 text-rose-800 dark:text-rose-200'
+                  }`}
+                >
+                  {depositMsg.type === 'success' ? (
+                    <Check className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+                  ) : (
+                    <AlertCircle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
+                  )}
+                  <span>{depositMsg.text}</span>
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={depositing}
+                className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs sm:text-sm shadow transition-all cursor-pointer disabled:opacity-50"
+              >
+                {depositing ? 'Submitting Deposit...' : 'Submit M-Pesa Deposit for Admin Approval'}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* TAB 1: MY TRIPS */}
       {activeTab === 'trips' && (
@@ -756,7 +1035,7 @@ export const GuestDashboard: React.FC<GuestDashboardProps> = ({
             </div>
             <div>
               <h3 className="text-base font-bold text-stone-900 dark:text-white">{user.name}</h3>
-              <div className="text-xs text-stone-400">{user.email} · Role: {user.role}</div>
+              <div className="text-xs text-stone-400">{user.email} · Guest Mode</div>
             </div>
           </div>
 

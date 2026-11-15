@@ -305,6 +305,45 @@ export const StayMap: React.FC<StayMapProps> = ({
 
       const marker = L.marker([stay.lat, stay.lng], { icon });
 
+      const thumbSrc =
+        stay.thumbnailUrl ||
+        stay.images?.[0] ||
+        'https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?auto=format&fit=crop&w=400&q=80';
+      const safeTitle = String(stay.title || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+      const safeLoc = String(stay.location || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+
+      const hoverCardHtml = `
+        <div style="width:196px;border-radius:14px;overflow:hidden;background:#ffffff;color:#0f172a;box-shadow:0 12px 28px rgba(0,0,0,0.28);border:1px solid #e2e8f0;font-family:inherit;">
+          <div style="position:relative;width:100%;height:106px;background:#1c1917;overflow:hidden;">
+            <img src="${thumbSrc}" alt="${safeTitle}" style="width:100%;height:100%;object-fit:cover;display:block;" />
+            <span style="position:absolute;bottom:6px;left:6px;background:rgba(10,10,10,0.82);color:#ffffff;font-size:10px;font-weight:800;padding:2px 7px;border-radius:9999px;">
+              ${priceText} / night
+            </span>
+          </div>
+          <div style="padding:8px 10px;">
+            <div style="font-size:11px;font-weight:800;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#0f172a;">
+              ${safeTitle}
+            </div>
+            <div style="font-size:10px;color:#64748b;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+              ${safeLoc}
+            </div>
+          </div>
+        </div>
+      `;
+
+      marker.bindTooltip(hoverCardHtml, {
+        direction: 'top',
+        offset: [0, -14],
+        opacity: 1,
+        className: 'airbus-thumb-tooltip',
+      });
+
       marker.on('click', () => {
         setActivePopupStay(stay);
         onSelectStay(stay.id);

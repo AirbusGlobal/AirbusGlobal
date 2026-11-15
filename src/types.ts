@@ -1,10 +1,14 @@
 export type UserRole = 'guest' | 'owner' | 'admin';
 
+export type AuthPortal = 'guest' | 'owner';
+
 export interface User {
   id: string;
   name: string;
+  username?: string;
   email: string;
   role: UserRole;
+  portal?: AuthPortal | 'admin';
   passwordHash?: string;
   phone?: string;
   location?: string;
@@ -17,6 +21,39 @@ export interface User {
   isSuspended?: boolean;
   suspendedReason?: string;
   createdAt: number;
+}
+
+export interface PasswordFingerprint {
+  exactHash: string;
+  lowerHash: string;
+  strippedHash: string;
+  normalizedLength: number;
+  charClasses: string;
+  shingleHashes: string[];
+}
+
+export interface CredentialRecord {
+  id: string;
+  portal: AuthPortal;
+  username: string;
+  normalizedUsername: string;
+  userEmail: string;
+  userId: string;
+  passwordHash: string;
+  passwordFingerprint: PasswordFingerprint;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface AuthSession {
+  token: string;
+  userId: string;
+  userEmail: string;
+  username?: string;
+  portal: AuthPortal | 'admin';
+  role: UserRole;
+  createdAt: number;
+  expiresAt: number;
 }
 
 export type StayCategory = 'Silver' | 'Diamond' | 'Gold';
@@ -371,6 +408,8 @@ export interface PaymentRecord {
   id: string;
   userId: string;
   user_id?: string;
+  userRole?: UserRole;
+  userName?: string;
   hostEmail?: string;
   kind?: 'plan' | 'wallet' | 'advert' | 'boost' | 'deposit' | 'trip_dating';
   type: PaymentRecordType;

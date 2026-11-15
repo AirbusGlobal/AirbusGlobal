@@ -1,12 +1,25 @@
 import React, { useState, useEffect } from 'react';
-import { X, Sparkles, CheckCircle2, UserCheck, Shield, Key, KeyRound, RotateCcw } from 'lucide-react';
-import { User, UserRole } from '../types';
+import {
+  X,
+  Sparkles,
+  CheckCircle2,
+  UserCheck,
+  Shield,
+  Key,
+  RotateCcw,
+  User as UserIcon,
+  Building2,
+  ArrowLeft,
+  AlertTriangle,
+} from 'lucide-react';
+import { User } from '../types';
 import { api } from '../api';
 
 interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
   initialMode?: 'login' | 'register' | 'reset-password';
+  initialPortal?: 'guest' | 'owner' | null;
   onLoginSuccess: (user: User) => void;
   onLogin: (email: string, pass: string) => Promise<{ user: User }>;
   onRegister: (data: any) => Promise<{ user: User }>;
@@ -19,6 +32,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   isOpen,
   onClose,
   initialMode = 'login',
+  initialPortal = null,
   onLoginSuccess,
   onLogin,
   onRegister,
@@ -26,17 +40,33 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   canRegisterAdmin = false,
   onAdminSetup,
 }) => {
-  // If in admin portal mode and admin is already registered, registration is disabled
   const effectiveInitialSignUp = adminPortalMode
     ? canRegisterAdmin && initialMode === 'register'
     : initialMode === 'register';
 
   const [isSignUp, setIsSignUp] = useState(effectiveInitialSignUp);
-  const [role, setRole] = useState<UserRole>('guest');
 
-  // Form states
+  // Public dual-portal selector: Guest vs Host
+  const [selectedPortal, setSelectedPortal] = useState<'guest' | 'owner' | null>(
+    adminPortalMode ? null : initialPortal || null
+  );
+  const [registerPortal, setRegisterPortal] = useState<'guest' | 'owner'>(
+    initialPortal === 'owner' ? 'owner' : 'guest'
+  );
+
+  // Public Login state (strictly exact username + password)
+  const [loginUsername, setLoginUsername] = useState('');
   const [loginEmail, setLoginEmail] = useState(adminPortalMode ? 'kamalahari93@gmail.com' : '');
   const [loginPassword, setLoginPassword] = useState('');
+
+  // Public 3-failed-attempts Recovery state (Forgot Password or Forgot Username)
+  const [failedAttempts, setFailedAttempts] = useState(0);
+  const [showRecoveryPrompt, setShowRecoveryPrompt] = useState(false);
+  const [recoveryMode, setRecoveryMode] = useState<'none' | 'password' | 'username'>('none');
+  const [recCurrentUsername, setRecCurrentUsername] = useState('');
+  const [recNewPassword, setRecNewPassword] = useState('');
+  const [recCurrentPassword, setRecCurrentPassword] = useState('');
+  const [recNewUsername, setRecNewUsername] = useState('');
 
   // Admin Reset Password State
   const [isResetMode, setIsResetMode] = useState(initialMode === 'reset-password');
@@ -46,6 +76,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [resetConfirmPassword, setResetConfirmPassword] = useState('');
   const [resetSuccess, setResetSuccess] = useState<string | null>(null);
 
+  // Sign-Up State (Public collects username & password only; Admin setup collects full details)
+  const [registerUsername, setRegisterUsername] = useState('');
   const [registerName, setRegisterName] = useState('');
   const [registerEmail, setRegisterEmail] = useState('');
   const [registerPassword, setRegisterPassword] = useState('');
@@ -76,11 +108,24 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       if (adminPortalMode) {
         setLoginEmail('kamalahari93@gmail.com');
         setResetEmail('kamalahari93@gmail.com');
+        setSelectedPortal(null);
+      } else {
+        setSelectedPortal(initialPortal || null);
+        setRegisterPortal(initialPortal === 'owner' ? 'owner' : 'guest');
       }
+      setLoginUsername('');
+      setLoginPassword('');
+      setFailedAttempts(0);
+      setShowRecoveryPrompt(false);
+      setRecoveryMode('none');
+      setRecCurrentUsername('');
+      setRecNewPassword('');
+      setRecCurrentPassword('');
+      setRecNewUsername('');
       setError(null);
       setResetSuccess(null);
     }
-  }, [isOpen, initialMode, adminPortalMode, canRegisterAdmin]);
+  }, [isOpen, initialMode, initialPortal, adminPortalMode, canRegisterAdmin]);
 
   if (!isOpen) return null;
 
@@ -124,21 +169,93 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    if (!loginEmail || !loginPassword) {
-      setError('Please provide your email and password.');
-      return;
-    }
-    setLoading(true);
-    try {
-      const res = await onLogin(loginEmail, loginPassword);
-      if (adminPortalMode && res.user.role !== 'admin') {
-        setError('Access denied: this account does not have administrator privileges.');
+
+    if (adminPortalMode) {
+      if (!loginEmail || !loginPassword) {
+        setError('Please provide your email and password.');
         return;
       }
+      setLoading(true);
+      try {
+        const res = await onLogin(loginEmail, loginPassword);
+        if (res.user.role !== 'admin') {
+          setError('Access denied: this account does not have administrator privileges.');
+          return;
+        }
+        onLoginSuccess(res.user);
+        onClose();
+      } catch (err: any) {
+        setError(err.message || 'Login failed. Please check credentials.');
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
+    if (!selectedPortal) {
+      setError('Please select Login to Guest or Login to Host first.');
+      return;
+    }
+
+    // Preserve exact username & password (no .trim() or .toLowerCase()) for exact case/punctuation matching
+    if (!loginUsername || !loginPassword) {
+      setError('Please enter your exact username and password.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const res = await api.loginPortal(selectedPortal, loginUsername, loginPassword);
+      setFailedAttempts(0);
+      setShowRecoveryPrompt(false);
       onLoginSuccess(res.user);
       onClose();
     } catch (err: any) {
-      setError(err.message || 'Login failed. Please check credentials.');
+      const nextCount = typeof err.failedAttempts === 'number' ? err.failedAttempts : failedAttempts + 1;
+      setFailedAttempts(nextCount);
+      if (nextCount >= 3 || err.showRecovery) {
+        setShowRecoveryPrompt(true);
+      }
+      setError(err.message || 'Invalid username or password (check exact capitalization and punctuation).');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRecoverySubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedPortal || recoveryMode === 'none') return;
+    setError(null);
+
+    if (recoveryMode === 'password') {
+      if (!recCurrentUsername || !recNewPassword || recNewPassword.length < 6) {
+        setError('Enter your exact current username and a new password (at least 6 characters).');
+        return;
+      }
+    } else if (recoveryMode === 'username') {
+      if (!recCurrentPassword || !recNewUsername.trim()) {
+        setError('Enter your current password and choose a new unique username.');
+        return;
+      }
+    }
+
+    setLoading(true);
+    try {
+      const res = await api.recoverCredential({
+        portal: selectedPortal,
+        mode: recoveryMode,
+        currentUsername: recCurrentUsername,
+        newPassword: recNewPassword,
+        currentPassword: recCurrentPassword,
+        newUsername: recNewUsername,
+      });
+      setFailedAttempts(0);
+      setShowRecoveryPrompt(false);
+      setRecoveryMode('none');
+      onLoginSuccess(res.user);
+      onClose();
+    } catch (err: any) {
+      setError(err.message || 'Could not recover credentials. Please check your input.');
     } finally {
       setLoading(false);
     }
@@ -147,28 +264,26 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    if (!registerName || !registerEmail || !registerPassword) {
-      setError('Please fill in all registration fields.');
-      return;
-    }
-    if (registerPassword.length < 6) {
-      setError('Password must be at least 6 characters.');
-      return;
-    }
 
-    setLoading(true);
-    try {
-      if (adminPortalMode) {
-        if (!canRegisterAdmin) {
-          setError('Admin registration is closed.');
-          setLoading(false);
-          return;
-        }
-        if (!adminSetupKey.trim()) {
-          setError('Admin Setup Key is required.');
-          setLoading(false);
-          return;
-        }
+    if (adminPortalMode) {
+      if (!registerName || !registerEmail || !registerPassword) {
+        setError('Please fill in all registration fields.');
+        return;
+      }
+      if (registerPassword.length < 6) {
+        setError('Password must be at least 6 characters.');
+        return;
+      }
+      if (!canRegisterAdmin) {
+        setError('Admin registration is closed.');
+        return;
+      }
+      if (!adminSetupKey.trim()) {
+        setError('Admin Setup Key is required.');
+        return;
+      }
+      setLoading(true);
+      try {
         const res = onAdminSetup
           ? await onAdminSetup({
               name: registerName,
@@ -185,15 +300,31 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             });
         onLoginSuccess(res.user);
         onClose();
-        return;
+      } catch (err: any) {
+        setError(err.message || 'Admin registration failed.');
+      } finally {
+        setLoading(false);
       }
+      return;
+    }
 
-      const res = await onRegister({
-        name: registerName,
-        email: registerEmail,
+    // Public Sign-Up: Username + Password only
+    if (!registerUsername.trim() || !registerPassword) {
+      setError('Please choose a unique username and password.');
+      return;
+    }
+    if (registerPassword.length < 6) {
+      setError('Password must be at least 6 characters.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const res = await api.registerPortal({
+        portal: registerPortal,
+        username: registerUsername.trim(),
         password: registerPassword,
-        role,
-        referralCode: referralCode.trim() || undefined,
+        referredByCode: referralCode.trim() || undefined,
       });
       onLoginSuccess(res.user);
       onClose();
@@ -204,12 +335,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     }
   };
 
-  // Demo 1-click login helper
-  const handleQuickDemo = async (email: string) => {
+  // Demo 1-click login helper (uses strictly isolated Guest or Host credentials)
+  const handleQuickDemo = async (portal: 'guest' | 'owner', username: string, password: string) => {
     setLoading(true);
     setError(null);
+    setSelectedPortal(portal);
     try {
-      const res = await onLogin(email, 'password123');
+      const res = await api.loginPortal(portal, username, password);
       onLoginSuccess(res.user);
       onClose();
     } catch (err: any) {
@@ -221,7 +353,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto animate-in fade-in duration-200">
-      <div className="relative w-full max-w-[860px] my-auto">
+      <div className="relative w-full max-w-[880px] my-auto">
         {/* Close Button */}
         <button
           onClick={onClose}
@@ -236,9 +368,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           {/* Animated Angled Neon Gradient Backdrop */}
           <div className="neon-auth-bg" />
 
-          {/* PANEL 1: Form Login (Left side when login is active) */}
-          {/* PANEL 1: Form Login / Reset Password (Left side when login is active) */}
-          <div className="neon-auth-panel form-login">
+          {/* PANEL 1: Form Login / Portal Entrance / Recovery */}
+          <div className="neon-auth-panel form-login overflow-y-auto max-h-[82vh]">
             {isResetMode ? (
               <div>
                 <div className="flex items-center gap-2 mb-2">
@@ -345,13 +476,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   </div>
                 </form>
               </div>
-            ) : (
+            ) : adminPortalMode ? (
               <div>
                 <h2 className="text-3xl font-extrabold font-heading text-white tracking-tight mb-2 drop-shadow-[0_0_12px_#ff2e93]">
-                  Login
+                  Admin Login
                 </h2>
                 <p className="text-xs text-stone-300 mb-6">
-                  {adminPortalMode ? 'Access the AirBus Administrative Control Portal' : 'Access your video stays, booking calendar, or host console.'}
+                  Access the AirBus Administrative Control Portal
                 </p>
 
                 <form onSubmit={handleLoginSubmit} className="space-y-4">
@@ -374,19 +505,17 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                       <label className="text-[11px] font-bold uppercase tracking-wider text-stone-300">
                         Password
                       </label>
-                      {adminPortalMode && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setError(null);
-                            setResetSuccess(null);
-                            setIsResetMode(true);
-                          }}
-                          className="text-[11px] text-[#22d3ee] hover:underline font-semibold cursor-pointer"
-                        >
-                          Forgot / Reset Password?
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setError(null);
+                          setResetSuccess(null);
+                          setIsResetMode(true);
+                        }}
+                        className="text-[11px] text-[#22d3ee] hover:underline font-semibold cursor-pointer"
+                      >
+                        Forgot / Reset Password?
+                      </button>
                     </div>
                     <input
                       type="password"
@@ -408,26 +537,24 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     {loading ? 'Signing in...' : 'Login'}
                   </button>
 
-                  {adminPortalMode && !canRegisterAdmin ? (
+                  {!canRegisterAdmin ? (
                     <div className="space-y-2 mt-4 text-center">
                       <div className="text-xs text-amber-300/80 bg-amber-950/40 border border-amber-800/50 py-1.5 px-3 rounded-xl font-medium">
                         AirBus Administration · Single-Admin Active
                       </div>
-                      <div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setError(null);
-                            setResetSuccess(null);
-                            setIsResetMode(true);
-                          }}
-                          className="text-xs text-stone-400 hover:text-white underline cursor-pointer"
-                        >
-                          Need to reset admin password? Click here
-                        </button>
-                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setError(null);
+                          setResetSuccess(null);
+                          setIsResetMode(true);
+                        }}
+                        className="text-xs text-stone-400 hover:text-white underline cursor-pointer"
+                      >
+                        Need to reset admin password? Click here
+                      </button>
                     </div>
-                  ) : adminPortalMode && canRegisterAdmin ? (
+                  ) : (
                     <p className="text-center text-xs text-stone-400 mt-4">
                       First-time platform setup?{' '}
                       <button
@@ -441,21 +568,312 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                         Setup Sole Admin Account
                       </button>
                     </p>
-                  ) : (
-                    <p className="text-center text-xs text-stone-400 mt-4">
-                      Don’t have an account?{' '}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setError(null);
-                          setIsSignUp(true);
-                        }}
-                        className="text-[#22d3ee] font-bold hover:underline cursor-pointer"
-                      >
-                        Sign Up
-                      </button>
-                    </p>
                   )}
+                </form>
+              </div>
+            ) : !selectedPortal ? (
+              /* STEP 1: TWO DISTINCT ENTRANCES (Login to Guest vs Login to Host) */
+              <div className="space-y-4">
+                <div>
+                  <h2 className="text-2xl sm:text-3xl font-extrabold font-heading text-white tracking-tight mb-1.5 drop-shadow-[0_0_12px_#ff2e93]">
+                    Choose Login Entrance
+                  </h2>
+                  <p className="text-xs text-stone-300">
+                    Guest and Host accounts are strictly separate. Select which dashboard you are signing into:
+                  </p>
+                </div>
+
+                <div className="space-y-3 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedPortal('guest');
+                      setFailedAttempts(0);
+                      setShowRecoveryPrompt(false);
+                      setRecoveryMode('none');
+                      setError(null);
+                    }}
+                    className="w-full p-4 rounded-2xl bg-gradient-to-r from-[#22d3ee]/15 to-cyan-950/50 hover:from-[#22d3ee]/25 hover:to-cyan-900/60 border border-[#22d3ee]/50 text-left transition-all cursor-pointer group flex items-center gap-3.5"
+                  >
+                    <div className="w-11 h-11 rounded-xl bg-[#22d3ee]/20 text-[#22d3ee] flex items-center justify-center shrink-0">
+                      <UserIcon className="w-5 h-5" />
+                    </div>
+                    <div className="flex-1">
+                      <div className="text-sm font-extrabold text-white group-hover:text-[#22d3ee] transition-colors">
+                        Login to Guest
+                      </div>
+                      <div className="text-[11px] text-stone-300">
+                        Book video stays, manage Guest Wallet &amp; trips
+                      </div>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedPortal('owner');
+                      setFailedAttempts(0);
+                      setShowRecoveryPrompt(false);
+                      setRecoveryMode('none');
+                      setError(null);
+                    }}
+                    className="w-full p-4 rounded-2xl bg-gradient-to-r from-[#ff2e93]/15 to-purple-950/50 hover:from-[#ff2e93]/25 hover:to-purple-900/60 border border-[#ff2e93]/50 text-left transition-all cursor-pointer group flex items-center gap-3.5"
+                  >
+                    <div className="w-11 h-11 rounded-xl bg-[#ff2e93]/20 text-[#ff2e93] flex items-center justify-center shrink-0">
+                      <Building2 className="w-5 h-5" />
+                    </div>
+                    <div className="flex-1">
+                      <div className="text-sm font-extrabold text-white group-hover:text-[#ff2e93] transition-colors">
+                        Login to Host
+                      </div>
+                      <div className="text-[11px] text-stone-300">
+                        Manage property listings, subscriptions &amp; Host earnings
+                      </div>
+                    </div>
+                  </button>
+                </div>
+
+                <p className="text-center text-xs text-stone-400 pt-2">
+                  New to AirBus?{' '}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setError(null);
+                      setIsSignUp(true);
+                    }}
+                    className="text-[#22d3ee] font-bold hover:underline cursor-pointer"
+                  >
+                    Sign Up
+                  </button>
+                </p>
+              </div>
+            ) : recoveryMode !== 'none' ? (
+              /* RECOVERY FLOW: Forgot Password OR Forgot Username */
+              <div className="space-y-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRecoveryMode('none');
+                    setError(null);
+                  }}
+                  className="inline-flex items-center gap-1.5 text-xs text-stone-300 hover:text-white cursor-pointer"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5" />
+                  <span>Back to {selectedPortal === 'owner' ? 'Host' : 'Guest'} Login</span>
+                </button>
+
+                <div className="flex items-center gap-2">
+                  <RotateCcw className="w-5 h-5 text-[#22d3ee]" />
+                  <h2 className="text-xl font-extrabold font-heading text-white tracking-tight">
+                    {recoveryMode === 'password' ? 'Reset Password' : 'Reset Username'}
+                  </h2>
+                </div>
+                <p className="text-xs text-stone-300">
+                  {recoveryMode === 'password'
+                    ? `Enter your exact ${selectedPortal === 'owner' ? 'Host' : 'Guest'} username to set a new unique password and sign in.`
+                    : `Enter your exact ${selectedPortal === 'owner' ? 'Host' : 'Guest'} password to set a new unique username and sign in.`}
+                </p>
+
+                <form onSubmit={handleRecoverySubmit} className="space-y-3">
+                  {recoveryMode === 'password' ? (
+                    <>
+                      <div>
+                        <label className="text-[11px] font-bold uppercase tracking-wider text-stone-300 block mb-1">
+                          Exact Current Username
+                        </label>
+                        <input
+                          type="text"
+                          value={recCurrentUsername}
+                          onChange={e => setRecCurrentUsername(e.target.value)}
+                          placeholder="Exact case & punctuation"
+                          className="neon-input text-xs"
+                          required
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[11px] font-bold uppercase tracking-wider text-stone-300 block mb-1">
+                          New Unique Password (6+ chars)
+                        </label>
+                        <input
+                          type="password"
+                          value={recNewPassword}
+                          onChange={e => setRecNewPassword(e.target.value)}
+                          placeholder="Choose a unique password"
+                          className="neon-input text-xs"
+                          required
+                          minLength={6}
+                        />
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div>
+                        <label className="text-[11px] font-bold uppercase tracking-wider text-stone-300 block mb-1">
+                          Exact Current Password
+                        </label>
+                        <input
+                          type="password"
+                          value={recCurrentPassword}
+                          onChange={e => setRecCurrentPassword(e.target.value)}
+                          placeholder="Exact case & punctuation"
+                          className="neon-input text-xs"
+                          required
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[11px] font-bold uppercase tracking-wider text-stone-300 block mb-1">
+                          New Unique Username
+                        </label>
+                        <input
+                          type="text"
+                          value={recNewUsername}
+                          onChange={e => setRecNewUsername(e.target.value)}
+                          placeholder="Choose a unique username"
+                          className="neon-input text-xs"
+                          required
+                        />
+                      </div>
+                    </>
+                  )}
+
+                  {error && (
+                    <div className="p-2.5 bg-red-950/80 border border-red-500/50 rounded-lg text-xs text-red-200">
+                      {error}
+                    </div>
+                  )}
+
+                  <button type="submit" disabled={loading} className="neon-btn w-full text-xs font-bold py-2.5">
+                    {loading ? 'Updating & Signing In...' : 'Update & Sign In'}
+                  </button>
+                </form>
+              </div>
+            ) : (
+              /* STEP 2: SELECTED PORTAL LOGIN FORM (Guest Login OR Host Login) */
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <span
+                    className={`text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full border ${
+                      selectedPortal === 'owner'
+                        ? 'bg-[#ff2e93]/20 text-[#ff2e93] border-[#ff2e93]/40'
+                        : 'bg-[#22d3ee]/20 text-[#22d3ee] border-[#22d3ee]/40'
+                    }`}
+                  >
+                    {selectedPortal === 'owner' ? 'Host Entrance' : 'Guest Entrance'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedPortal(null);
+                      setFailedAttempts(0);
+                      setShowRecoveryPrompt(false);
+                      setError(null);
+                    }}
+                    className="text-[11px] text-stone-400 hover:text-white underline cursor-pointer"
+                  >
+                    Switch Entrance
+                  </button>
+                </div>
+
+                <h2 className="text-2xl sm:text-3xl font-extrabold font-heading text-white tracking-tight mb-1 drop-shadow-[0_0_12px_#ff2e93]">
+                  {selectedPortal === 'owner' ? 'Host Login' : 'Guest Login'}
+                </h2>
+                <p className="text-[11px] text-stone-300 mb-4">
+                  {selectedPortal === 'owner'
+                    ? 'Authenticates against Host credentials only & opens Host Dashboard.'
+                    : 'Authenticates against Guest credentials only & opens Guest Dashboard.'}
+                </p>
+
+                <form onSubmit={handleLoginSubmit} className="space-y-3.5">
+                  <div>
+                    <label className="text-[11px] font-bold uppercase tracking-wider text-stone-300 block mb-1">
+                      Username (Exact Case &amp; Punctuation)
+                    </label>
+                    <input
+                      type="text"
+                      value={loginUsername}
+                      onChange={e => setLoginUsername(e.target.value)}
+                      placeholder={selectedPortal === 'owner' ? 'e.g. DavidMutua' : 'e.g. SarahWanjiku'}
+                      className="neon-input"
+                      autoComplete="username"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-[11px] font-bold uppercase tracking-wider text-stone-300 block mb-1">
+                      Password (Exact Case &amp; Punctuation)
+                    </label>
+                    <input
+                      type="password"
+                      value={loginPassword}
+                      onChange={e => setLoginPassword(e.target.value)}
+                      placeholder="••••••••"
+                      className="neon-input"
+                      autoComplete="current-password"
+                      required
+                    />
+                  </div>
+
+                  {error && (
+                    <div className="p-2.5 bg-red-950/80 border border-red-500/50 rounded-lg text-xs text-red-200">
+                      {error}
+                    </div>
+                  )}
+
+                  {/* Recovery prompt after 3 failed attempts */}
+                  {showRecoveryPrompt && (
+                    <div className="p-3 rounded-xl bg-amber-950/70 border border-amber-500/60 space-y-2">
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-amber-300">
+                        <AlertTriangle className="w-4 h-4 shrink-0" />
+                        <span>Need help signing in? ({failedAttempts} failed attempts)</span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setError(null);
+                            setRecoveryMode('password');
+                          }}
+                          className="py-1.5 px-2.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold text-xs cursor-pointer transition-colors"
+                        >
+                          Forgot Password
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setError(null);
+                            setRecoveryMode('username');
+                          }}
+                          className="py-1.5 px-2.5 rounded-lg bg-stone-800 hover:bg-stone-700 text-white border border-stone-600 font-bold text-xs cursor-pointer transition-colors"
+                        >
+                          Forgot Username
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  <button type="submit" disabled={loading} className="neon-btn w-full text-sm">
+                    {loading
+                      ? 'Authenticating...'
+                      : selectedPortal === 'owner'
+                      ? 'Login to Host'
+                      : 'Login to Guest'}
+                  </button>
+
+                  <p className="text-center text-xs text-stone-400 mt-3">
+                    Need a {selectedPortal === 'owner' ? 'Host' : 'Guest'} account?{' '}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setError(null);
+                        setRegisterPortal(selectedPortal);
+                        setIsSignUp(true);
+                      }}
+                      className="text-[#22d3ee] font-bold hover:underline cursor-pointer"
+                    >
+                      Sign Up as {selectedPortal === 'owner' ? 'Host' : 'Guest'}
+                    </button>
+                  </p>
                 </form>
               </div>
             )}
@@ -474,7 +892,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               <p className="text-xs text-white/90 leading-relaxed font-medium">
                 {adminPortalMode
                   ? 'Sign in to access the platform administrative console, approve stays, manage treasury, and inspect audits.'
-                  : 'We’re thrilled to have you again. Sign in to reach your personalized trips, video listings, or host management console.'}
+                  : 'Choose Login to Guest or Login to Host. Guest and Host portals have isolated credentials and private wallets.'}
               </p>
             </div>
           </div>
@@ -492,18 +910,17 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               <p className="text-xs text-white/90 leading-relaxed font-medium">
                 {adminPortalMode
                   ? 'Create the sole administrator account with your secret setup key. Once registered, setup closes permanently.'
-                  : 'Join as a guest to book video-first stays with real-time negotiation, or register as a host to monetize your properties across Kenya.'}
+                  : 'Create a Guest or Host account with a unique username and unique password. Your username and password are case- and punctuation-sensitive.'}
               </p>
             </div>
           </div>
 
           {/* PANEL 4: Form Register (Right side when register is active) */}
-          <div className="neon-auth-panel form-register">
+          <div className="neon-auth-panel form-register overflow-y-auto max-h-[82vh]">
             <h2 className="text-3xl font-extrabold font-heading text-white tracking-tight mb-2 drop-shadow-[0_0_12px_#ff2e93]">
-              {adminPortalMode ? 'Admin Setup' : 'Register'}
+              {adminPortalMode ? 'Admin Setup' : 'Sign Up'}
             </h2>
 
-            {/* Role Select Buttons: Hidden in admin mode (strictly single admin); In public mode, only guest & owner */}
             {adminPortalMode ? (
               <div className="mb-3 p-2 rounded-xl bg-amber-950/60 border border-amber-700/60 flex items-center justify-center gap-2 text-amber-300 text-xs font-bold">
                 <Shield className="w-4 h-4 text-amber-300" />
@@ -511,56 +928,83 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               </div>
             ) : (
               <div className="flex gap-2 mb-3">
-                {(['guest', 'owner'] as UserRole[]).map(r => (
-                  <button
-                    key={r}
-                    type="button"
-                    onClick={() => setRole(r)}
-                    className={`flex-1 py-1.5 px-2 rounded-full text-xs font-bold transition-all border cursor-pointer capitalize flex items-center justify-center gap-1 ${
-                      role === r
-                        ? 'bg-[#ff2e93] text-white border-[#ff2e93] shadow-[0_0_12px_#ff2e93]'
-                        : 'border-white/20 text-stone-300 hover:border-white/50 bg-black/30'
-                    }`}
-                  >
-                    {r === 'owner' && <UserCheck className="w-3 h-3" />}
-                    <span>{r}</span>
-                  </button>
-                ))}
+                <button
+                  type="button"
+                  onClick={() => setRegisterPortal('guest')}
+                  className={`flex-1 py-1.5 px-2 rounded-full text-xs font-bold transition-all border cursor-pointer flex items-center justify-center gap-1 ${
+                    registerPortal === 'guest'
+                      ? 'bg-[#22d3ee] text-stone-950 border-[#22d3ee] shadow-[0_0_12px_#22d3ee]'
+                      : 'border-white/20 text-stone-300 hover:border-white/50 bg-black/30'
+                  }`}
+                >
+                  <UserIcon className="w-3 h-3" />
+                  <span>Guest Sign Up</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRegisterPortal('owner')}
+                  className={`flex-1 py-1.5 px-2 rounded-full text-xs font-bold transition-all border cursor-pointer flex items-center justify-center gap-1 ${
+                    registerPortal === 'owner'
+                      ? 'bg-[#ff2e93] text-white border-[#ff2e93] shadow-[0_0_12px_#ff2e93]'
+                      : 'border-white/20 text-stone-300 hover:border-white/50 bg-black/30'
+                  }`}
+                >
+                  <UserCheck className="w-3 h-3" />
+                  <span>Host Sign Up</span>
+                </button>
               </div>
             )}
 
             <form onSubmit={handleRegisterSubmit} className="space-y-3">
-              <div>
-                <label className="text-[11px] font-bold uppercase tracking-wider text-stone-300 block mb-0.5">
-                  Full Name
-                </label>
-                <input
-                  type="text"
-                  value={registerName}
-                  onChange={e => setRegisterName(e.target.value)}
-                  placeholder="e.g. Administrator Name"
-                  className="neon-input text-xs"
-                  required
-                />
-              </div>
+              {adminPortalMode ? (
+                <>
+                  <div>
+                    <label className="text-[11px] font-bold uppercase tracking-wider text-stone-300 block mb-0.5">
+                      Full Name
+                    </label>
+                    <input
+                      type="text"
+                      value={registerName}
+                      onChange={e => setRegisterName(e.target.value)}
+                      placeholder="e.g. Administrator Name"
+                      className="neon-input text-xs"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold uppercase tracking-wider text-stone-300 block mb-0.5">
+                      Email Address
+                    </label>
+                    <input
+                      type="email"
+                      value={registerEmail}
+                      onChange={e => setRegisterEmail(e.target.value)}
+                      placeholder="admin@example.com"
+                      className="neon-input text-xs"
+                      required
+                    />
+                  </div>
+                </>
+              ) : (
+                <div>
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-stone-300 block mb-0.5">
+                    Username (Unique Across AirBus)
+                  </label>
+                  <input
+                    type="text"
+                    value={registerUsername}
+                    onChange={e => setRegisterUsername(e.target.value)}
+                    placeholder="Choose a unique username"
+                    className="neon-input text-xs"
+                    autoComplete="username"
+                    required
+                  />
+                </div>
+              )}
 
               <div>
                 <label className="text-[11px] font-bold uppercase tracking-wider text-stone-300 block mb-0.5">
-                  Email Address
-                </label>
-                <input
-                  type="email"
-                  value={registerEmail}
-                  onChange={e => setRegisterEmail(e.target.value)}
-                  placeholder="admin@example.com"
-                  className="neon-input text-xs"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="text-[11px] font-bold uppercase tracking-wider text-stone-300 block mb-0.5">
-                  Password (6+ chars)
+                  Password (Unique · 6+ chars)
                 </label>
                 <input
                   type="password"
@@ -568,6 +1012,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   onChange={e => setRegisterPassword(e.target.value)}
                   placeholder="••••••••"
                   className="neon-input text-xs"
+                  autoComplete="new-password"
                   required
                 />
               </div>
@@ -611,10 +1056,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
               <button type="submit" disabled={loading} className="neon-btn w-full text-xs font-bold py-2.5">
                 {loading
-                  ? 'Provisioning...'
+                  ? 'Creating Account...'
                   : adminPortalMode
                   ? 'Register Sole Administrator'
-                  : `Create ${role.toUpperCase()} Account`}
+                  : `Create ${registerPortal === 'owner' ? 'Host' : 'Guest'} Account`}
               </button>
 
               <p className="text-center text-xs text-stone-400 mt-2">
@@ -627,47 +1072,50 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   }}
                   className="text-[#22d3ee] font-bold hover:underline cursor-pointer"
                 >
-                  Sign In
+                  Login
                 </button>
               </p>
             </form>
           </div>
         </div>
 
-        {/* Frictionless One-Click Demo Profiles (Shown ONLY on public site, NEVER on admin portal; and NEVER with admin role) */}
+        {/* Frictionless One-Click Demo Profiles (Shown ONLY on public site, NEVER on admin portal) */}
         {!adminPortalMode && (
           <div className="mt-4 p-3 bg-stone-900/90 border border-stone-700 rounded-xl backdrop-blur-md text-white shadow-2xl">
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs font-bold text-stone-300 flex items-center gap-1.5">
                 <Key className="w-3.5 h-3.5 text-amber-400" />
-                1-Click Demo Profiles (instant dashboard switch):
+                1-Click Demo Entrances (Separate Guest &amp; Host Credentials):
               </span>
-              <span className="text-[10px] text-stone-400">Password: password123</span>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <button
-                onClick={() => handleQuickDemo('guest@airbus.ke')}
+                type="button"
+                onClick={() => handleQuickDemo('guest', 'SarahWanjiku', 'Sarah$Nairobi88!')}
                 className="px-3 py-2 bg-stone-800 hover:bg-stone-700 border border-stone-600 rounded-lg text-left transition-all group cursor-pointer"
               >
-                <div className="text-xs font-bold text-white group-hover:text-[#ff2e93] transition-colors flex items-center justify-between">
-                  <span>Sarah Wanjiku</span>
-                  <span className="text-[10px] bg-stone-700 px-1.5 py-0.5 rounded text-stone-300">GUEST</span>
+                <div className="text-xs font-bold text-white group-hover:text-[#22d3ee] transition-colors flex items-center justify-between">
+                  <span>Login to Guest · SarahWanjiku</span>
+                  <span className="text-[10px] bg-cyan-950/80 border border-cyan-500/40 px-1.5 py-0.5 rounded text-cyan-300">
+                    GUEST
+                  </span>
                 </div>
-                <div className="text-[11px] text-stone-400 truncate">guest@airbus.ke</div>
-                <div className="text-[10px] text-emerald-400 mt-0.5">→ Guest Trips &amp; Wishlist</div>
+                <div className="text-[10px] text-emerald-400 mt-0.5">→ Opens Guest Dashboard &amp; Wallet</div>
               </button>
 
               <button
-                onClick={() => handleQuickDemo('owner@airbus.ke')}
+                type="button"
+                onClick={() => handleQuickDemo('owner', 'DavidMutua', 'Mutua@Westlands91#')}
                 className="px-3 py-2 bg-stone-800 hover:bg-stone-700 border border-stone-600 rounded-lg text-left transition-all group cursor-pointer"
               >
-                <div className="text-xs font-bold text-white group-hover:text-[#8b5cf6] transition-colors flex items-center justify-between">
-                  <span>David Mutua</span>
-                  <span className="text-[10px] bg-stone-700 px-1.5 py-0.5 rounded text-stone-300">OWNER</span>
+                <div className="text-xs font-bold text-white group-hover:text-[#ff2e93] transition-colors flex items-center justify-between">
+                  <span>Login to Host · DavidMutua</span>
+                  <span className="text-[10px] bg-pink-950/80 border border-pink-500/40 px-1.5 py-0.5 rounded text-pink-300">
+                    HOST
+                  </span>
                 </div>
-                <div className="text-[11px] text-stone-400 truncate">owner@airbus.ke</div>
-                <div className="text-[10px] text-purple-400 mt-0.5">→ Host Listings &amp; Earnings</div>
+                <div className="text-[10px] text-purple-400 mt-0.5">→ Opens Host Dashboard &amp; Listings</div>
               </button>
             </div>
           </div>

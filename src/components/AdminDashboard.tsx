@@ -115,7 +115,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onUpdateAdminUser,
 }) => {
   const [tab, setTab] = useState<
-    'queue' | 'ads' | 'plans' | 'listings' | 'media' | 'users' | 'reports' | 'reviews' | 'audit' | 'posts' | 'withdrawals' | 'settings' | 'treasury' | 'dormant' | 'negotiations' | 'trip-dating'
+    'queue' | 'wallets' | 'ads' | 'plans' | 'listings' | 'media' | 'users' | 'reports' | 'reviews' | 'audit' | 'posts' | 'withdrawals' | 'settings' | 'treasury' | 'dormant' | 'negotiations' | 'trip-dating'
   >('queue');
 
   // Plan adjustment form state
@@ -200,8 +200,35 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [approveModalPayment, setApproveModalPayment] = useState<PaymentRecord | null>(null);
   const [confirmedAmountInput, setConfirmedAmountInput] = useState<number>(0);
   const [processingPayment, setProcessingPayment] = useState(false);
+  const [paymentModalError, setPaymentModalError] = useState<string | null>(null);
   const [reconciliation, setReconciliation] = useState<any>(null);
   const [incomeReport, setIncomeReport] = useState<any>(null);
+  const [adminWalletsData, setAdminWalletsData] = useState<{
+    guestWallets: Array<{
+      email: string;
+      name: string;
+      username: string;
+      balance: number;
+      holdBalance: number;
+      available: number;
+      lifetimeEarnings: number;
+      lifetimeSpent: number;
+      updatedAt: number;
+    }>;
+    hostWallets: Array<{
+      email: string;
+      name: string;
+      username: string;
+      balance: number;
+      holdBalance: number;
+      available: number;
+      lifetimeEarnings: number;
+      lifetimeSpent: number;
+      updatedAt: number;
+    }>;
+    guestDeposits: PaymentRecord[];
+    hostDeposits: PaymentRecord[];
+  }>({ guestWallets: [], hostWallets: [], guestDeposits: [], hostDeposits: [] });
 
   // Admin Account & Security State (Requirement 5)
   const [adminUsername, setAdminUsername] = useState(adminUser?.name || '');
@@ -324,6 +351,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }).catch(() => {});
     api.getLiveUpdates().then(res => {
       if (res && res.counts) setLiveCounts(res.counts);
+    }).catch(() => {});
+    api.getAdminWallets().then(res => {
+      if (res) setAdminWalletsData(res);
     }).catch(() => {});
   };
 
@@ -459,6 +489,26 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           {pendingPayments.length > 0 && (
             <span className="ml-1 px-1.5 py-0.5 rounded-full bg-rose-600 text-white text-[10px] font-black animate-pulse">
               {pendingPayments.length}
+            </span>
+          )}
+        </button>
+
+        {/* Guest & Host Wallets */}
+        <button
+          onClick={() => setTab('wallets')}
+          className={`px-3.5 py-2 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ${
+            tab === 'wallets'
+              ? 'bg-emerald-500 text-stone-950 font-extrabold shadow-sm'
+              : 'text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800'
+          }`}
+        >
+          <Wallet className="w-4 h-4 text-emerald-500" />
+          <span>Guest &amp; Host Wallets</span>
+          {(adminWalletsData.guestDeposits.filter(d => d.status === 'pending').length +
+            adminWalletsData.hostDeposits.filter(d => d.status === 'pending').length) > 0 && (
+            <span className="ml-1 px-1.5 py-0.5 rounded-full bg-emerald-600 text-white text-[10px] font-black">
+              {adminWalletsData.guestDeposits.filter(d => d.status === 'pending').length +
+                adminWalletsData.hostDeposits.filter(d => d.status === 'pending').length}
             </span>
           )}
         </button>
@@ -899,6 +949,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           <button
                             type="button"
                             onClick={() => {
+                              setPaymentModalError(null);
                               setApproveModalPayment(p);
                               setConfirmedAmountInput(p.claimedAmount || p.amount || p.amountSc || 0);
                             }}
@@ -911,6 +962,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           <button
                             type="button"
                             onClick={() => {
+                              setPaymentModalError(null);
                               setRejectModalPayment(p);
                               setRejectReason('Invalid or unverified receipt details.');
                             }}
@@ -928,148 +980,317 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             );
           })()}
 
-          {/* APPROVE MODAL */}
-          {approveModalPayment && (
-            <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
-              <div className="bg-white dark:bg-[#15171e] text-stone-900 dark:text-stone-100 rounded-3xl p-6 max-w-md w-full shadow-2xl border border-stone-200 dark:border-stone-800 space-y-4">
-                <div className="flex items-center gap-2 text-emerald-600">
-                  <CheckCircle2 className="w-6 h-6" />
-                  <h4 className="text-base font-extrabold text-stone-900 dark:text-white">
-                    Confirm Payment Approval
-                  </h4>
-                </div>
+        </div>
+      )}
 
-                <div className="p-3 bg-stone-50 dark:bg-stone-900 rounded-2xl text-xs space-y-2 text-stone-600 dark:text-stone-300">
-                  <div>User: <strong className="text-stone-900 dark:text-white">{approveModalPayment.userId || approveModalPayment.hostEmail}</strong></div>
-                  <div>Type: <strong className="capitalize">{approveModalPayment.type || approveModalPayment.kind}</strong></div>
-                  <div>Claimed Amount: <strong className="font-mono text-emerald-600">{approveModalPayment.claimedAmount || approveModalPayment.amountSc || approveModalPayment.amount} KES</strong></div>
-                  {approveModalPayment.mpesaCode && <div>Receipt: <strong className="font-mono">{approveModalPayment.mpesaCode}</strong></div>}
-
-                  <div className="pt-2 border-t border-stone-200 dark:border-stone-800">
-                    <label className="block text-[11px] font-bold text-stone-700 dark:text-stone-200 mb-1">
-                      Confirmed / Approved Amount (KES) *
-                    </label>
-                    <input
-                      type="number"
-                      min="1"
-                      value={confirmedAmountInput}
-                      onChange={e => setConfirmedAmountInput(Number(e.target.value) || 0)}
-                      className="w-full px-3 py-1.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-xs font-mono font-bold text-stone-900 dark:text-white outline-none focus:border-emerald-500"
-                    />
-                    <span className="text-[10px] text-stone-400 mt-0.5 block">
-                      Edit this amount if the actual Till SMS receipt differs from what the user claimed.
-                    </span>
-                  </div>
-                </div>
-
-                <p className="text-xs text-stone-500 leading-relaxed">
-                  Approving this payment will immediately activate the item (advert slot, host subscription, or wallet top-up) and send an automatic real-time notification to the user.
-                </p>
-
-                <div className="flex items-center justify-end gap-2 pt-2">
-                  <button
-                    type="button"
-                    disabled={processingPayment}
-                    onClick={() => setApproveModalPayment(null)}
-                    className="px-4 py-2 rounded-full border border-stone-200 dark:border-stone-700 text-xs font-bold text-stone-600 hover:bg-stone-100 cursor-pointer"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    disabled={processingPayment}
-                    onClick={async () => {
-                      setProcessingPayment(true);
-                      try {
-                        await api.approvePayment(approveModalPayment.id, confirmedAmountInput > 0 ? confirmedAmountInput : undefined);
-                        showToast?.('Payment approved and activated successfully.');
-                        setApproveModalPayment(null);
-                        loadAdminData();
-                      } catch (err: any) {
-                        alert(err.message || 'Approval failed.');
-                      } finally {
-                        setProcessingPayment(false);
-                      }
-                    }}
-                    className="px-5 py-2 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md cursor-pointer disabled:opacity-50"
-                  >
-                    {processingPayment ? 'Activating...' : 'Yes, Approve & Activate'}
-                  </button>
-                </div>
-              </div>
+      {/* TAB: GUEST WALLET & HOST WALLET MANAGEMENT */}
+      {tab === 'wallets' && (
+        <div className="space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-stone-200 dark:border-stone-800">
+            <div>
+              <h3 className="text-base font-extrabold text-stone-900 dark:text-white flex items-center gap-2">
+                <Wallet className="w-4 h-4 text-emerald-500" />
+                <span>Guest Wallet &amp; Host Wallet Control</span>
+              </h3>
+              <p className="text-xs text-stone-500 mt-0.5">
+                Inspect private Guest and Host wallets and approve or decline M-Pesa Till 943210 deposit claims in real time.
+              </p>
             </div>
-          )}
+            <button
+              type="button"
+              onClick={loadAdminData}
+              className="self-start sm:self-auto px-3 py-1.5 rounded-xl border border-stone-200 dark:border-stone-800 text-xs font-bold text-stone-700 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800 flex items-center gap-1.5 cursor-pointer shadow-xs"
+            >
+              <RefreshCw className="w-3.5 h-3.5 text-stone-400" />
+              <span>Refresh Wallets</span>
+            </button>
+          </div>
 
-          {/* REJECT & REFUND MODAL */}
-          {rejectModalPayment && (
-            <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
-              <div className="bg-white dark:bg-[#15171e] text-stone-900 dark:text-stone-100 rounded-3xl p-6 max-w-md w-full shadow-2xl border border-stone-200 dark:border-stone-800 space-y-4">
-                <div className="flex items-center gap-2 text-rose-600">
-                  <XCircle className="w-6 h-6" />
-                  <h4 className="text-base font-extrabold text-stone-900 dark:text-white">
-                    Decline Payment Submission
-                  </h4>
-                </div>
-
-                <div className="p-3 bg-stone-50 dark:bg-stone-900 rounded-2xl text-xs space-y-1 text-stone-600 dark:text-stone-300">
-                  <div>User: <strong className="text-stone-900 dark:text-white">{rejectModalPayment.userId || rejectModalPayment.hostEmail}</strong></div>
-                  <div>Method: <strong className="uppercase">{rejectModalPayment.method || 'M-Pesa'}</strong></div>
-                  <div>Amount: <strong className="font-mono text-rose-600">{rejectModalPayment.amountSc || rejectModalPayment.amount} Coins</strong></div>
-                </div>
-
-                {rejectModalPayment.method === 'wallet' && (
-                  <div className="p-3 rounded-2xl bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800 text-[11px] text-purple-900 dark:text-purple-200">
-                    <strong>Atomic Reversal: </strong>Since this payment was deducted from the user's wallet, declining will automatically credit {rejectModalPayment.amountSc || rejectModalPayment.amount} Coins back to their wallet with reversal ledger rows.
-                  </div>
-                )}
-
-                <div>
-                  <label className="text-xs font-bold text-stone-700 dark:text-stone-300 block mb-1">
-                    Reason for Rejection *
-                  </label>
-                  <textarea
-                    rows={3}
-                    value={rejectReason}
-                    onChange={e => setRejectReason(e.target.value)}
-                    placeholder="Enter specific reason (e.g. M-Pesa receipt could not be verified on Daraja statement)..."
-                    className="w-full px-3 py-2 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-xs outline-none focus:border-rose-500"
-                    required
-                  />
-                </div>
-
-                <div className="flex items-center justify-end gap-2 pt-2">
-                  <button
-                    type="button"
-                    disabled={processingPayment}
-                    onClick={() => setRejectModalPayment(null)}
-                    className="px-4 py-2 rounded-full border border-stone-200 dark:border-stone-700 text-xs font-bold text-stone-600 hover:bg-stone-100 cursor-pointer"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    disabled={processingPayment || !rejectReason.trim()}
-                    onClick={async () => {
-                      setProcessingPayment(true);
-                      try {
-                        await api.rejectPayment(rejectModalPayment.id, rejectReason.trim());
-                        showToast?.('Payment declined and ledger updated.');
-                        setRejectModalPayment(null);
-                        loadAdminData();
-                      } catch (err: any) {
-                        alert(err.message || 'Decline failed.');
-                      } finally {
-                        setProcessingPayment(false);
-                      }
-                    }}
-                    className="px-5 py-2 rounded-full bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow-md cursor-pointer disabled:opacity-50"
-                  >
-                    {processingPayment ? 'Processing...' : 'Confirm Decline & Notify'}
-                  </button>
-                </div>
+          {/* Summary KPI Row */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="p-4 rounded-2xl bg-white dark:bg-[#15171e] border border-stone-200 dark:border-stone-800">
+              <div className="text-[10px] font-bold uppercase text-stone-400">Guest Wallets Total</div>
+              <div className="text-lg font-black text-emerald-600 dark:text-emerald-400 mt-0.5">
+                KES {adminWalletsData.guestWallets.reduce((s, w) => s + w.balance, 0).toLocaleString()}
               </div>
+              <div className="text-[11px] text-stone-500">{adminWalletsData.guestWallets.length} guest accounts</div>
             </div>
-          )}
+            <div className="p-4 rounded-2xl bg-white dark:bg-[#15171e] border border-stone-200 dark:border-stone-800">
+              <div className="text-[10px] font-bold uppercase text-stone-400">Pending Guest Deposits</div>
+              <div className="text-lg font-black text-amber-600 dark:text-amber-400 mt-0.5">
+                {adminWalletsData.guestDeposits.filter(d => d.status === 'pending').length}
+              </div>
+              <div className="text-[11px] text-stone-500">Till 943210 claims</div>
+            </div>
+            <div className="p-4 rounded-2xl bg-white dark:bg-[#15171e] border border-stone-200 dark:border-stone-800">
+              <div className="text-[10px] font-bold uppercase text-stone-400">Host Wallets Total</div>
+              <div className="text-lg font-black text-purple-600 dark:text-purple-400 mt-0.5">
+                KES {adminWalletsData.hostWallets.reduce((s, w) => s + w.balance, 0).toLocaleString()}
+              </div>
+              <div className="text-[11px] text-stone-500">{adminWalletsData.hostWallets.length} host accounts</div>
+            </div>
+            <div className="p-4 rounded-2xl bg-white dark:bg-[#15171e] border border-stone-200 dark:border-stone-800">
+              <div className="text-[10px] font-bold uppercase text-stone-400">Pending Host Deposits</div>
+              <div className="text-lg font-black text-rose-600 dark:text-rose-400 mt-0.5">
+                {adminWalletsData.hostDeposits.filter(d => d.status === 'pending').length}
+              </div>
+              <div className="text-[11px] text-stone-500">Till 943210 claims</div>
+            </div>
+          </div>
+
+          {/* SECTION 1: GUEST WALLET & DEPOSITS */}
+          <div className="p-5 bg-white dark:bg-[#15171e] rounded-3xl border border-stone-200 dark:border-stone-800 space-y-4">
+            <div className="flex items-center justify-between">
+              <h4 className="text-sm font-extrabold text-stone-900 dark:text-white flex items-center gap-2">
+                <span className="px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 text-[10px] font-black uppercase">
+                  Guest Wallet
+                </span>
+                <span>Guest Till 943210 Deposits &amp; Balances</span>
+              </h4>
+            </div>
+
+            {adminWalletsData.guestDeposits.length === 0 ? (
+              <div className="p-5 rounded-2xl bg-stone-50 dark:bg-stone-900/60 border border-dashed border-stone-200 dark:border-stone-800 text-xs text-stone-400 text-center">
+                No Guest wallet deposits recorded yet.
+              </div>
+            ) : (
+              <div className="space-y-2.5">
+                {adminWalletsData.guestDeposits.map(dep => (
+                  <div
+                    key={dep.id}
+                    className={`p-4 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                      dep.status === 'pending'
+                        ? 'bg-amber-50/50 dark:bg-amber-950/20 border-amber-300 dark:border-amber-800/70'
+                        : 'bg-stone-50 dark:bg-stone-900/60 border-stone-200 dark:border-stone-800'
+                    }`}
+                  >
+                    <div className="space-y-1 text-xs">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span
+                          className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full ${
+                            dep.status === 'pending'
+                              ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                              : dep.status === 'approved'
+                              ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                              : 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
+                          }`}
+                        >
+                          {dep.status}
+                        </span>
+                        <span className="font-black text-stone-900 dark:text-white font-mono">
+                          KES {(dep.claimedAmount || dep.amount).toLocaleString()}
+                        </span>
+                        {dep.mpesaCode && (
+                          <span className="font-mono text-[11px] font-bold px-2 py-0.5 rounded bg-stone-200 dark:bg-stone-800 text-stone-800 dark:text-stone-200">
+                            Till Receipt: {dep.mpesaCode}
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-stone-600 dark:text-stone-300">
+                        Guest: <strong className="text-stone-900 dark:text-white">{dep.userName || dep.userId || dep.hostEmail}</strong>{' '}
+                        <span className="text-stone-400 font-mono">({dep.userId || dep.hostEmail})</span>
+                      </div>
+                      <div className="text-[11px] text-stone-400">
+                        Submitted: {new Date(dep.createdAt).toLocaleString()}
+                      </div>
+                    </div>
+
+                    {dep.status === 'pending' && (
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPaymentModalError(null);
+                            setApproveModalPayment(dep);
+                            setConfirmedAmountInput(dep.claimedAmount || dep.amount || 0);
+                          }}
+                          className="px-3.5 py-2 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1 cursor-pointer shadow-xs"
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span>Approve &amp; Credit</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPaymentModalError(null);
+                            setRejectModalPayment(dep);
+                            setRejectReason('Unverified M-Pesa Till 943210 deposit code.');
+                          }}
+                          className="px-3.5 py-2 rounded-full bg-stone-200 dark:bg-stone-800 hover:bg-rose-100 text-rose-600 text-xs font-bold flex items-center gap-1 cursor-pointer"
+                        >
+                          <XCircle className="w-3.5 h-3.5" />
+                          <span>Decline</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {adminWalletsData.guestWallets.length > 0 && (
+              <div className="overflow-x-auto pt-2">
+                <table className="w-full text-left text-xs min-w-[540px]">
+                  <thead className="border-b border-stone-200 dark:border-stone-800 text-[10px] uppercase font-bold text-stone-400">
+                    <tr>
+                      <th className="py-2 px-3">Guest Account</th>
+                      <th className="py-2 px-3">Username</th>
+                      <th className="py-2 px-3">Balance</th>
+                      <th className="py-2 px-3">On Hold</th>
+                      <th className="py-2 px-3">Available</th>
+                      <th className="py-2 px-3">Lifetime Spent</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-stone-100 dark:divide-stone-800">
+                    {adminWalletsData.guestWallets.map(w => (
+                      <tr key={w.email}>
+                        <td className="py-2.5 px-3">
+                          <div className="font-bold text-stone-900 dark:text-white">{w.name}</div>
+                          <div className="text-[11px] text-stone-400 font-mono">{w.email}</div>
+                        </td>
+                        <td className="py-2.5 px-3 font-mono text-stone-600 dark:text-stone-300">{w.username}</td>
+                        <td className="py-2.5 px-3 font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                          KES {w.balance.toLocaleString()}
+                        </td>
+                        <td className="py-2.5 px-3 font-mono text-amber-600">KES {w.holdBalance.toLocaleString()}</td>
+                        <td className="py-2.5 px-3 font-mono font-bold text-stone-900 dark:text-white">
+                          KES {w.available.toLocaleString()}
+                        </td>
+                        <td className="py-2.5 px-3 font-mono text-stone-500">KES {w.lifetimeSpent.toLocaleString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* SECTION 2: HOST WALLET & DEPOSITS */}
+          <div className="p-5 bg-white dark:bg-[#15171e] rounded-3xl border border-stone-200 dark:border-stone-800 space-y-4">
+            <div className="flex items-center justify-between">
+              <h4 className="text-sm font-extrabold text-stone-900 dark:text-white flex items-center gap-2">
+                <span className="px-2 py-0.5 rounded-full bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300 text-[10px] font-black uppercase">
+                  Host Wallet
+                </span>
+                <span>Host Till 943210 Deposits &amp; Balances</span>
+              </h4>
+            </div>
+
+            {adminWalletsData.hostDeposits.length === 0 ? (
+              <div className="p-5 rounded-2xl bg-stone-50 dark:bg-stone-900/60 border border-dashed border-stone-200 dark:border-stone-800 text-xs text-stone-400 text-center">
+                No Host wallet deposits recorded yet.
+              </div>
+            ) : (
+              <div className="space-y-2.5">
+                {adminWalletsData.hostDeposits.map(dep => (
+                  <div
+                    key={dep.id}
+                    className={`p-4 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                      dep.status === 'pending'
+                        ? 'bg-amber-50/50 dark:bg-amber-950/20 border-amber-300 dark:border-amber-800/70'
+                        : 'bg-stone-50 dark:bg-stone-900/60 border-stone-200 dark:border-stone-800'
+                    }`}
+                  >
+                    <div className="space-y-1 text-xs">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span
+                          className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full ${
+                            dep.status === 'pending'
+                              ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                              : dep.status === 'approved'
+                              ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                              : 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
+                          }`}
+                        >
+                          {dep.status}
+                        </span>
+                        <span className="font-black text-stone-900 dark:text-white font-mono">
+                          KES {(dep.claimedAmount || dep.amount).toLocaleString()}
+                        </span>
+                        {dep.mpesaCode && (
+                          <span className="font-mono text-[11px] font-bold px-2 py-0.5 rounded bg-stone-200 dark:bg-stone-800 text-stone-800 dark:text-stone-200">
+                            Till Receipt: {dep.mpesaCode}
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-stone-600 dark:text-stone-300">
+                        Host: <strong className="text-stone-900 dark:text-white">{dep.userName || dep.userId || dep.hostEmail}</strong>{' '}
+                        <span className="text-stone-400 font-mono">({dep.userId || dep.hostEmail})</span>
+                      </div>
+                      <div className="text-[11px] text-stone-400">
+                        Submitted: {new Date(dep.createdAt).toLocaleString()}
+                      </div>
+                    </div>
+
+                    {dep.status === 'pending' && (
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPaymentModalError(null);
+                            setApproveModalPayment(dep);
+                            setConfirmedAmountInput(dep.claimedAmount || dep.amount || 0);
+                          }}
+                          className="px-3.5 py-2 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1 cursor-pointer shadow-xs"
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span>Approve &amp; Credit</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPaymentModalError(null);
+                            setRejectModalPayment(dep);
+                            setRejectReason('Unverified M-Pesa Till 943210 deposit code.');
+                          }}
+                          className="px-3.5 py-2 rounded-full bg-stone-200 dark:bg-stone-800 hover:bg-rose-100 text-rose-600 text-xs font-bold flex items-center gap-1 cursor-pointer"
+                        >
+                          <XCircle className="w-3.5 h-3.5" />
+                          <span>Decline</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {adminWalletsData.hostWallets.length > 0 && (
+              <div className="overflow-x-auto pt-2">
+                <table className="w-full text-left text-xs min-w-[540px]">
+                  <thead className="border-b border-stone-200 dark:border-stone-800 text-[10px] uppercase font-bold text-stone-400">
+                    <tr>
+                      <th className="py-2 px-3">Host Account</th>
+                      <th className="py-2 px-3">Username</th>
+                      <th className="py-2 px-3">Balance</th>
+                      <th className="py-2 px-3">On Hold</th>
+                      <th className="py-2 px-3">Available</th>
+                      <th className="py-2 px-3">Lifetime Earnings</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-stone-100 dark:divide-stone-800">
+                    {adminWalletsData.hostWallets.map(w => (
+                      <tr key={w.email}>
+                        <td className="py-2.5 px-3">
+                          <div className="font-bold text-stone-900 dark:text-white">{w.name}</div>
+                          <div className="text-[11px] text-stone-400 font-mono">{w.email}</div>
+                        </td>
+                        <td className="py-2.5 px-3 font-mono text-stone-600 dark:text-stone-300">{w.username}</td>
+                        <td className="py-2.5 px-3 font-mono font-bold text-purple-600 dark:text-purple-400">
+                          KES {w.balance.toLocaleString()}
+                        </td>
+                        <td className="py-2.5 px-3 font-mono text-amber-600">KES {w.holdBalance.toLocaleString()}</td>
+                        <td className="py-2.5 px-3 font-mono font-bold text-stone-900 dark:text-white">
+                          KES {w.available.toLocaleString()}
+                        </td>
+                        <td className="py-2.5 px-3 font-mono text-stone-500">KES {w.lifetimeEarnings.toLocaleString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -3785,6 +4006,171 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition shadow-sm disabled:opacity-50 cursor-pointer"
               >
                 {subActionLoading ? 'Saving...' : `Add +${extendDaysCount} Days`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SHARED APPROVE PAYMENT MODAL (Queue & Wallets tabs) */}
+      {approveModalPayment && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-[#15171e] text-stone-900 dark:text-stone-100 rounded-3xl p-6 max-w-md w-full shadow-2xl border border-stone-200 dark:border-stone-800 space-y-4">
+            <div className="flex items-center gap-2 text-emerald-600">
+              <CheckCircle2 className="w-6 h-6" />
+              <h4 className="text-base font-extrabold text-stone-900 dark:text-white">
+                Confirm Payment Approval
+              </h4>
+            </div>
+
+            <div className="p-3 bg-stone-50 dark:bg-stone-900 rounded-2xl text-xs space-y-2 text-stone-600 dark:text-stone-300">
+              <div>User: <strong className="text-stone-900 dark:text-white">{approveModalPayment.userName || approveModalPayment.userId || approveModalPayment.hostEmail}</strong></div>
+              <div>Type: <strong className="capitalize">{approveModalPayment.type || approveModalPayment.kind}</strong></div>
+              <div>Claimed Amount: <strong className="font-mono text-emerald-600">{approveModalPayment.claimedAmount || approveModalPayment.amountSc || approveModalPayment.amount} KES</strong></div>
+              {approveModalPayment.mpesaCode && <div>Receipt: <strong className="font-mono">{approveModalPayment.mpesaCode}</strong></div>}
+
+              <div className="pt-2 border-t border-stone-200 dark:border-stone-800">
+                <label className="block text-[11px] font-bold text-stone-700 dark:text-stone-200 mb-1">
+                  Confirmed / Approved Amount (KES) *
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  value={confirmedAmountInput}
+                  onChange={e => setConfirmedAmountInput(Number(e.target.value) || 0)}
+                  className="w-full px-3 py-1.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-xs font-mono font-bold text-stone-900 dark:text-white outline-none focus:border-emerald-500"
+                />
+                <span className="text-[10px] text-stone-400 mt-0.5 block">
+                  Edit this amount if the actual Till SMS receipt differs from what the user claimed.
+                </span>
+              </div>
+            </div>
+
+            <p className="text-xs text-stone-500 leading-relaxed">
+              Approving this payment will immediately activate the item (wallet credit, advert slot, or host subscription) and send a real-time SSE update to the user.
+            </p>
+
+            {paymentModalError && (
+              <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                <span>{paymentModalError}</span>
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                disabled={processingPayment}
+                onClick={() => {
+                  setPaymentModalError(null);
+                  setApproveModalPayment(null);
+                }}
+                className="px-4 py-2 rounded-full border border-stone-200 dark:border-stone-700 text-xs font-bold text-stone-600 hover:bg-stone-100 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={processingPayment}
+                onClick={async () => {
+                  setProcessingPayment(true);
+                  setPaymentModalError(null);
+                  try {
+                    await api.approvePayment(approveModalPayment.id, confirmedAmountInput > 0 ? confirmedAmountInput : undefined);
+                    showToast?.('Payment approved and credited successfully.');
+                    setApproveModalPayment(null);
+                    loadAdminData();
+                  } catch (err: any) {
+                    setPaymentModalError(err.message || 'Approval failed.');
+                  } finally {
+                    setProcessingPayment(false);
+                  }
+                }}
+                className="px-5 py-2 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md cursor-pointer disabled:opacity-50"
+              >
+                {processingPayment ? 'Activating...' : 'Yes, Approve & Activate'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SHARED REJECT & REFUND MODAL (Queue & Wallets tabs) */}
+      {rejectModalPayment && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-[#15171e] text-stone-900 dark:text-stone-100 rounded-3xl p-6 max-w-md w-full shadow-2xl border border-stone-200 dark:border-stone-800 space-y-4">
+            <div className="flex items-center gap-2 text-rose-600">
+              <XCircle className="w-6 h-6" />
+              <h4 className="text-base font-extrabold text-stone-900 dark:text-white">
+                Decline Payment Submission
+              </h4>
+            </div>
+
+            <div className="p-3 bg-stone-50 dark:bg-stone-900 rounded-2xl text-xs space-y-1 text-stone-600 dark:text-stone-300">
+              <div>User: <strong className="text-stone-900 dark:text-white">{rejectModalPayment.userName || rejectModalPayment.userId || rejectModalPayment.hostEmail}</strong></div>
+              <div>Method: <strong className="uppercase">{rejectModalPayment.method || 'M-Pesa'}</strong></div>
+              <div>Amount: <strong className="font-mono text-rose-600">KES {(rejectModalPayment.claimedAmount || rejectModalPayment.amountSc || rejectModalPayment.amount).toLocaleString()}</strong></div>
+            </div>
+
+            {rejectModalPayment.method === 'wallet' && (
+              <div className="p-3 rounded-2xl bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800 text-[11px] text-purple-900 dark:text-purple-200">
+                <strong>Atomic Reversal: </strong>Since this payment was deducted from the user's wallet, declining will automatically credit {rejectModalPayment.amountSc || rejectModalPayment.amount} back to their wallet with reversal ledger rows.
+              </div>
+            )}
+
+            <div>
+              <label className="text-xs font-bold text-stone-700 dark:text-stone-300 block mb-1">
+                Reason for Rejection *
+              </label>
+              <textarea
+                rows={3}
+                value={rejectReason}
+                onChange={e => setRejectReason(e.target.value)}
+                placeholder="Enter specific reason (e.g. M-Pesa receipt could not be verified on statement)..."
+                className="w-full px-3 py-2 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-xs outline-none focus:border-rose-500"
+                required
+              />
+            </div>
+
+            {paymentModalError && (
+              <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                <span>{paymentModalError}</span>
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                disabled={processingPayment}
+                onClick={() => {
+                  setPaymentModalError(null);
+                  setRejectModalPayment(null);
+                }}
+                className="px-4 py-2 rounded-full border border-stone-200 dark:border-stone-700 text-xs font-bold text-stone-600 hover:bg-stone-100 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={processingPayment || !rejectReason.trim()}
+                onClick={async () => {
+                  setProcessingPayment(true);
+                  setPaymentModalError(null);
+                  try {
+                    await api.rejectPayment(rejectModalPayment.id, rejectReason.trim());
+                    showToast?.('Payment declined and ledger updated.');
+                    setRejectModalPayment(null);
+                    loadAdminData();
+                  } catch (err: any) {
+                    setPaymentModalError(err.message || 'Decline failed.');
+                  } finally {
+                    setProcessingPayment(false);
+                  }
+                }}
+                className="px-5 py-2 rounded-full bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow-md cursor-pointer disabled:opacity-50"
+              >
+                {processingPayment ? 'Processing...' : 'Confirm Decline & Notify'}
               </button>
             </div>
           </div>

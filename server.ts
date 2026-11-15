@@ -60,13 +60,22 @@ if (process.env.GEMINI_API_KEY) {
   }
 }
 
-// Simple auth helper from header
-function getAuthUser(req: express.Request): User | null {
+// Auth helper from Bearer header or query token (for EventSource SSE)
+function extractAuthToken(req: express.Request): string {
   const authHeader = req.headers.authorization;
-  if (!authHeader) return null;
-  const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+  if (authHeader) {
+    return authHeader.replace(/^Bearer\s+/i, '').trim();
+  }
+  if (typeof req.query.token === 'string' && req.query.token.trim()) {
+    return req.query.token.trim();
+  }
+  return '';
+}
+
+function getAuthUser(req: express.Request): User | null {
+  const token = extractAuthToken(req);
   if (!token) return null;
-  return db.findUserByEmail(token) || null;
+  return db.getUserByAuthToken(token) || null;
 }
 
 // In-Memory Rate Limiting Store
@@ -168,10 +177,11 @@ app.post('/api/admin-portal/setup', (req, res) => {
     });
 
     const { passwordHash, ...safeUser } = newAdmin as any;
+    const session = db.createAuthSession(newAdmin, 'admin');
     return res.status(201).json({
       message: 'Sole administrator account successfully created.',
       user: safeUser,
-      token: safeUser.email,
+      token: session.token,
     });
   } catch (err: any) {
     return res.status(400).json({ error: err.message || 'Failed to setup admin account.' });
@@ -206,10 +216,11 @@ app.post('/api/admin/change-credentials', (req, res) => {
     );
 
     const { passwordHash, ...safeUser } = updated as any;
+    const session = db.createAuthSession(updated, 'admin');
     return res.json({
       message: 'Admin credentials successfully updated.',
       user: safeUser,
-      token: safeUser.email,
+      token: session.token,
     });
   } catch (err: any) {
     return res.status(400).json({ error: err.message || 'Failed to update admin credentials.' });
@@ -245,90 +256,156 @@ app.post('/api/admin-portal/reset-password', (req, res) => {
     const updated = db.resetAdminPassword(cleanEmail, hashPassword(String(newPassword)));
 
     const { passwordHash, ...safeUser } = updated as any;
+    const session = db.createAuthSession(updated, 'admin');
     return res.json({
       message: 'Admin password reset successfully.',
       user: safeUser,
-      token: safeUser.email,
+      token: session.token,
     });
   } catch (err: any) {
     return res.status(400).json({ error: err.message || 'Failed to reset admin password.' });
   }
 });
 
-// Public Authentication (Never allows admin registration)
+// Public Authentication (Isolated Guest & Host Portals; Never allows admin registration)
 app.post('/api/auth/register', (req, res) => {
   try {
-    const { name, email, password, role, phone, location } = req.body;
-    if (!name || !email || !password) {
-      return res.status(400).json({ error: 'Name, email, and password are required.' });
-    }
+    const { portal, role, username, name, password, phone, location, referredByCode } = req.body || {};
 
     // Strict security: Public registration CANNOT create admin accounts!
-    if (role === 'admin') {
+    if (role === 'admin' || portal === 'admin') {
       return res.status(403).json({ error: 'Admin registration is not permitted through public sign-up.' });
     }
 
-    const cleanEmail = String(email).trim().toLowerCase();
-    if (db.findUserByEmail(cleanEmail)) {
-      return res.status(409).json({ error: 'An account with that email already exists.' });
+    const chosenPortal = portal === 'owner' || role === 'owner' ? 'owner' : 'guest';
+    const rawUsername = typeof username === 'string' ? username : typeof name === 'string' ? name : '';
+    const rawPassword = typeof password === 'string' ? password : '';
+
+    if (!rawUsername.trim() || !rawPassword) {
+      return res.status(400).json({ error: 'Username and password are required.' });
     }
-    if (password.length < 6) {
+    if (rawPassword.length < 6) {
       return res.status(400).json({ error: 'Password must be at least 6 characters.' });
     }
 
-    const assignedRole = role === 'owner' ? 'owner' : 'guest';
-    const newUser: User = {
-      id: 'u_' + Date.now(),
-      name: name.trim(),
-      email: cleanEmail,
-      role: assignedRole,
-      passwordHash: hashPassword(password),
-      phone: phone || '',
-      location: location || 'Nairobi, Kenya',
-      idVerified: false,
-      createdAt: Date.now(),
-    } as any;
+    const { user, token } = db.registerPortalUser({
+      portal: chosenPortal,
+      username: rawUsername,
+      password: rawPassword,
+      phone,
+      location,
+      referredByCode,
+    });
 
-    db.createUser(newUser);
-
-    if (req.body.referredByCode) {
-      db.recordReferralSignup(req.body.referredByCode, cleanEmail);
-    }
-
-    const { passwordHash, ...safeUser } = newUser as any;
-    return res.status(201).json({ user: safeUser, token: safeUser.email });
+    const { passwordHash, ...safeUser } = user as any;
+    return res.status(201).json({ user: safeUser, token });
   } catch (err: any) {
-    return res.status(500).json({ error: err.message || 'Server error' });
+    const msg = err?.message || 'Registration failed.';
+    const status = msg.toLowerCase().includes('already') || msg.toLowerCase().includes('similar') || msg.toLowerCase().includes('taken')
+      ? 409
+      : 400;
+    return res.status(status).json({ error: msg });
   }
 });
 
 app.post('/api/auth/login', (req, res) => {
   try {
     const clientIp = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || 'unknown';
-    const rateCheck = checkRateLimit(loginRateLimitMap, `login_${clientIp}`, 10, 15 * 60 * 1000);
+    const rateCheck = checkRateLimit(loginRateLimitMap, `login_${clientIp}`, 30, 15 * 60 * 1000);
     if (!rateCheck.allowed) {
       return res.status(429).json({
         error: `Too many login attempts. Please try again in ${rateCheck.retryAfterSeconds} seconds.`,
       });
     }
 
-    const { email, password } = req.body;
+    const { portal, username, email, password } = req.body || {};
+
+    // Isolated Guest or Host portal login (strictly exact case- and punctuation-sensitive username + password)
+    if (portal === 'guest' || portal === 'owner' || (username !== undefined && !email)) {
+      if (portal !== 'guest' && portal !== 'owner') {
+        return res.status(400).json({ error: 'Please choose Login to Guest or Login to Host first.' });
+      }
+      if (!username || !password) {
+        return res.status(400).json({ error: 'Username and password are required.' });
+      }
+
+      try {
+        const { user, token } = db.loginPortalUser({
+          portal,
+          username: String(username),
+          password: String(password),
+        });
+        loginRateLimitMap.delete(`login_${clientIp}`);
+        const { passwordHash, ...safeUser } = user as any;
+        return res.json({ user: safeUser, token });
+      } catch (err: any) {
+        return res.status(401).json({
+          error: err.message || 'Invalid credentials.',
+          failedAttempts: err.failedAttempts || 1,
+          showRecovery: Boolean(err.showRecovery),
+        });
+      }
+    }
+
+    // Admin portal login (via email + password ONLY for administrator accounts)
     if (!email || !password) {
-      return res.status(400).json({ error: 'Email and password are required.' });
+      return res.status(400).json({ error: 'Please choose Login to Guest or Login to Host.' });
     }
     const cleanEmail = String(email).trim().toLowerCase();
     const user = db.findUserByEmail(cleanEmail) as any;
-    if (!user || user.passwordHash !== hashPassword(password)) {
-      return res.status(401).json({ error: 'Invalid email or password.' });
+    if (!user || user.role !== 'admin' || user.passwordHash !== hashPassword(String(password))) {
+      return res.status(401).json({ error: 'Invalid administrator email or password.' });
     }
 
-    // Reset rate limiter on successful login
     loginRateLimitMap.delete(`login_${clientIp}`);
-
+    const session = db.createAuthSession(user, 'admin');
     const { passwordHash, ...safeUser } = user;
-    return res.json({ user: safeUser, token: safeUser.email });
+    return res.json({ user: safeUser, token: session.token });
   } catch (err: any) {
     return res.status(500).json({ error: err.message || 'Server error' });
+  }
+});
+
+app.post('/api/auth/logout', (req, res) => {
+  const token = extractAuthToken(req);
+  if (token) {
+    db.invalidateSession(token);
+  }
+  return res.json({ success: true });
+});
+
+app.post('/api/auth/recovery', (req, res) => {
+  try {
+    const { portal, mode, currentUsername, newPassword, currentPassword, newUsername } = req.body || {};
+    if (portal !== 'guest' && portal !== 'owner') {
+      return res.status(400).json({ error: 'Please choose Guest or Host portal for recovery.' });
+    }
+    if (mode !== 'password' && mode !== 'username') {
+      return res.status(400).json({ error: 'Recovery mode must be password or username.' });
+    }
+    if (mode === 'password' && (!currentUsername || !newPassword || String(newPassword).length < 6)) {
+      return res.status(400).json({ error: 'Exact current username and a new password (6+ characters) are required.' });
+    }
+    if (mode === 'username' && (!currentPassword || !newUsername || !String(newUsername).trim())) {
+      return res.status(400).json({ error: 'Current password and a new username are required.' });
+    }
+
+    const result = db.recoverPortalCredential({
+      portal,
+      mode,
+      currentUsername,
+      newPassword,
+      currentPassword,
+      newUsername,
+    });
+    const { passwordHash, ...safeUser } = result.user as any;
+    return res.json({ user: safeUser, token: result.token, message: result.message });
+  } catch (err: any) {
+    const msg = err?.message || 'Credential recovery failed.';
+    const status = msg.toLowerCase().includes('similar') || msg.toLowerCase().includes('taken') || msg.toLowerCase().includes('already')
+      ? 409
+      : 400;
+    return res.status(status).json({ error: msg });
   }
 });
 
@@ -379,8 +456,11 @@ app.post('/api/auth/change-password', (req, res) => {
     return res.status(400).json({ error: 'New password must be different from current password.' });
   }
 
-  const newHash = hashPassword(newPassword);
-  db.updateUser(user.email, { passwordHash: newHash } as any);
+  try {
+    db.updatePortalPassword(user, newPassword);
+  } catch (err: any) {
+    return res.status(409).json({ error: err.message });
+  }
   db.createAuditLog({
     id: 'aud_' + Date.now(),
     action: 'change_password',
@@ -779,6 +859,13 @@ app.patch('/api/stays/:id', (req, res) => {
   if (user.role !== 'admin' && stay.ownerEmail?.toLowerCase() !== user.email.toLowerCase()) {
     return res.status(403).json({ error: 'Permission denied. You can only edit your own stays.' });
   }
+  if (user.role === 'owner') {
+    try {
+      db.assertHostSubscriptionActive(user.email);
+    } catch (err: any) {
+      return res.status(403).json({ error: err.message });
+    }
+  }
 
   const allowedUpdates = [
     'title',
@@ -871,6 +958,13 @@ app.patch('/api/stays/:id', (req, res) => {
 app.post('/api/promotions/purchase', (req, res) => {
   const user = getAuthUser(req);
   if (!user) return res.status(401).json({ error: 'Please sign in to boost listings.' });
+  if (user.role === 'owner') {
+    try {
+      db.assertHostSubscriptionActive(user.email);
+    } catch (err: any) {
+      return res.status(403).json({ error: err.message });
+    }
+  }
 
   const { listingId, days, paymentMethod, mpesaCode } = req.body;
   if (!listingId) return res.status(400).json({ error: 'Listing ID is required.' });
@@ -893,6 +987,13 @@ app.post('/api/promotions/purchase', (req, res) => {
 app.post('/api/listings/:id/promote', (req, res) => {
   const user = getAuthUser(req);
   if (!user) return res.status(401).json({ error: 'Not authenticated' });
+  if (user.role === 'owner') {
+    try {
+      db.assertHostSubscriptionActive(user.email);
+    } catch (err: any) {
+      return res.status(403).json({ error: err.message });
+    }
+  }
 
   const { days, paymentMethod, mpesaCode } = req.body;
   try {
@@ -918,12 +1019,22 @@ app.get('/api/promotions/campaigns', (req, res) => {
   return res.json({ campaigns: boosts, boosts });
 });
 
-// Dynamic Listing Sponsor Slots (1 to 10 Slots)
+// Dynamic Listing Sponsor Slots (1 to 10 Slots - Wallet Only)
 app.post('/api/listings/:id/sponsors', (req, res) => {
   const user = getAuthUser(req);
   if (!user) return res.status(401).json({ error: 'Please sign in to reserve sponsor slots.' });
+  if (user.role === 'owner') {
+    try {
+      db.assertHostSubscriptionActive(user.email);
+    } catch (err: any) {
+      return res.status(403).json({ error: err.message });
+    }
+  }
 
-  const { title, description, linkUrl, thumbnailUrl, durationDays, paymentMethod, mpesaCode } = req.body;
+  const { title, description, linkUrl, thumbnailUrl, durationDays, paymentMethod } = req.body;
+  if (paymentMethod && paymentMethod !== 'wallet') {
+    return res.status(400).json({ error: 'Adverts can only be paid from your private AirBus Wallet.' });
+  }
   if (!title || !linkUrl) {
     return res.status(400).json({ error: 'Headline title and target link are required.' });
   }
@@ -937,8 +1048,7 @@ app.post('/api/listings/:id/sponsors', (req, res) => {
       linkUrl,
       thumbnailUrl: thumbnailUrl || '',
       durationDays: Number(durationDays) || 30,
-      paymentMethod: paymentMethod === 'mpesa' ? 'mpesa' : 'wallet',
-      mpesaCode,
+      paymentMethod: 'wallet',
     });
     return res.status(201).json(result);
   } catch (err: any) {
@@ -1021,6 +1131,13 @@ app.put('/api/stays/:id/audio', (req, res) => {
   const user = getAuthUser(req);
   if (!user || (user.role !== 'owner' && user.role !== 'admin')) {
     return res.status(403).json({ error: 'Only registered hosts can configure listing audio.' });
+  }
+  if (user.role === 'owner') {
+    try {
+      db.assertHostSubscriptionActive(user.email);
+    } catch (err: any) {
+      return res.status(403).json({ error: err.message });
+    }
   }
   try {
     const config = db.saveListingAudio(req.params.id, user.email, user.role === 'admin', req.body || {});
@@ -1546,6 +1663,13 @@ app.post('/api/subscriptions/purchase', (req, res) => {
 app.post('/api/ads/slots', (req, res) => {
   const user = getAuthUser(req);
   if (!user) return res.status(401).json({ error: 'Please sign in to advertise on AirBus.' });
+  if (user.role === 'owner') {
+    try {
+      db.assertHostSubscriptionActive(user.email);
+    } catch (err: any) {
+      return res.status(403).json({ error: err.message });
+    }
+  }
 
   const {
     title,
@@ -1555,8 +1679,11 @@ app.post('/api/ads/slots', (req, res) => {
     videoUrl,
     durationDays,
     paymentMethod,
-    mpesaCode,
   } = req.body;
+
+  if (paymentMethod && paymentMethod !== 'wallet') {
+    return res.status(400).json({ error: 'Adverts can only be paid strictly from your private AirBus Wallet.' });
+  }
 
   if (!title || !description || !linkUrl) {
     return res.status(400).json({ error: 'Title, description, and link URL are required.' });
@@ -1570,7 +1697,6 @@ app.post('/api/ads/slots', (req, res) => {
   }
 
   const days = Math.min(90, Math.max(1, Math.floor(Number(durationDays) || 7)));
-  const method = paymentMethod === 'wallet' ? 'wallet' : 'mpesa';
 
   try {
     const result = db.createAdSlot({
@@ -1581,8 +1707,7 @@ app.post('/api/ads/slots', (req, res) => {
       thumbnailUrl: thumbnailUrl || '',
       videoUrl: videoUrl || undefined,
       durationDays: days,
-      paymentMethod: method,
-      mpesaCode,
+      paymentMethod: 'wallet',
     });
     return res.status(201).json(result);
   } catch (err: any) {
@@ -1868,6 +1993,14 @@ app.get('/api/admin/wallet/income-report', (req, res) => {
   return res.json(result);
 });
 
+app.get('/api/admin/wallets', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required.' });
+  }
+  return res.json(db.getAdminWalletsBreakdown());
+});
+
 app.get('/api/geocode', (req, res) => {
   const query = typeof req.query.q === 'string' ? req.query.q : '';
   const result = db.geocodeKenyanLocation(query);
@@ -1886,6 +2019,13 @@ app.get('/api/music/tracks', (req, res) => {
 app.post('/api/music/upload', (req, res) => {
   const user = getAuthUser(req);
   if (!user) return res.status(401).json({ error: 'Not authenticated' });
+  if (user.role === 'owner') {
+    try {
+      db.assertHostSubscriptionActive(user.email);
+    } catch (err: any) {
+      return res.status(403).json({ error: err.message });
+    }
+  }
   try {
     const { title, artist, genre, audioUrl, duration, licenceDeclaration } = req.body;
     if (!audioUrl) return res.status(400).json({ error: 'Audio file or URL is required.' });
@@ -1908,6 +2048,13 @@ app.post('/api/stays/:id/ai-short', (req, res) => {
   const user = getAuthUser(req);
   if (!user || (user.role !== 'owner' && user.role !== 'admin')) {
     return res.status(403).json({ error: 'Only owners or admins can generate shorts.' });
+  }
+  if (user.role === 'owner') {
+    try {
+      db.assertHostSubscriptionActive(user.email);
+    } catch (err: any) {
+      return res.status(403).json({ error: err.message });
+    }
   }
   try {
     const result = db.generateStayAiShort(req.params.id);
@@ -2389,6 +2536,43 @@ app.get('/api/wallet', (req, res) => {
   return res.json({ wallet, ledger });
 });
 
+app.get('/api/wallet/stream', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ error: 'Not authenticated' });
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders?.();
+
+  const targetEmail = user.email.toLowerCase();
+  const initialWallet = db.getWalletRecord(targetEmail);
+  res.write(
+    `event: wallet_update\ndata: ${JSON.stringify({
+      email: targetEmail,
+      balance: initialWallet.balance || 0,
+      holdBalance: initialWallet.holdBalance || 0,
+      available: Math.max(0, (initialWallet.balance || 0) - (initialWallet.holdBalance || 0)),
+      updatedAt: Date.now(),
+    })}\n\n`
+  );
+
+  const unsubscribe = db.subscribeWalletUpdates(payload => {
+    if (payload.email === targetEmail) {
+      res.write(`event: wallet_update\ndata: ${JSON.stringify(payload)}\n\n`);
+    }
+  });
+
+  const keepalive = setInterval(() => {
+    res.write(': keepalive\n\n');
+  }, 25000);
+
+  req.on('close', () => {
+    clearInterval(keepalive);
+    unsubscribe();
+  });
+});
+
 app.post('/api/wallet/topup', (req, res) => {
   const user = getAuthUser(req);
   if (!user) return res.status(401).json({ error: 'Not authenticated' });
@@ -2411,6 +2595,8 @@ app.post('/api/wallet/topup', (req, res) => {
     userId: user.email,
     user_id: user.email,
     hostEmail: user.email,
+    userRole: user.role,
+    userName: user.username || user.name,
     kind: 'deposit',
     type: 'deposit',
     method: 'mpesa_manual',
@@ -2453,6 +2639,8 @@ app.post('/api/wallet/deposit', (req, res) => {
     userId: user.email,
     user_id: user.email,
     hostEmail: user.email,
+    userRole: user.role,
+    userName: user.username || user.name,
     kind: 'deposit',
     type: 'deposit',
     method: 'mpesa_manual',
@@ -2566,11 +2754,12 @@ app.post('/api/posts', (req, res) => {
   const user = getAuthUser(req);
   if (!user) return res.status(401).json({ error: 'Please sign in to publish content.' });
 
-  // Verify host has paid active subscription before publishing
+  // Verify host has paid active non-expired subscription before publishing
   if (user.role === 'owner') {
-    const plan = db.getHostPlan(user.email);
-    if (plan.status !== 'active') {
-      return res.status(403).json({ error: 'An active 30-day host subscription is required to post stays and video tours.' });
+    try {
+      db.assertHostSubscriptionActive(user.email);
+    } catch (err: any) {
+      return res.status(403).json({ error: err.message });
     }
   }
 
@@ -2752,6 +2941,13 @@ app.post('/api/shorts/tts', async (req, res) => {
   if (user.role !== 'owner' && user.role !== 'admin') {
     return res.status(403).json({ error: 'Only Diamond or Gold hosts can generate voice-over audio.' });
   }
+  if (user.role === 'owner') {
+    try {
+      db.assertHostSubscriptionActive(user.email);
+    } catch (err: any) {
+      return res.status(403).json({ error: err.message });
+    }
+  }
   const { script, voice, language, purpose } = req.body || {};
   const tierInfo = db.getHostEffectiveTier(user.email);
   if (purpose === 'listing') {
@@ -2781,6 +2977,13 @@ app.post('/api/shorts/upload-media', (req, res) => {
   if (!user) return res.status(401).json({ error: 'Please sign in to upload media.' });
   if (user.role !== 'owner' && user.role !== 'admin') {
     return res.status(403).json({ error: 'Only hosts can upload Short & Listing audio media.' });
+  }
+  if (user.role === 'owner') {
+    try {
+      db.assertHostSubscriptionActive(user.email);
+    } catch (err: any) {
+      return res.status(403).json({ error: err.message });
+    }
   }
 
   const { files, kind, purpose } = req.body || {};
@@ -2981,8 +3184,18 @@ app.get('/api/ads', (req, res) => {
 app.post('/api/ads', (req, res) => {
   const user = getAuthUser(req);
   if (!user) return res.status(401).json({ error: 'Please sign in to place an advert.' });
+  if (user.role === 'owner') {
+    try {
+      db.assertHostSubscriptionActive(user.email);
+    } catch (err: any) {
+      return res.status(403).json({ error: err.message });
+    }
+  }
 
-  const { stayId, title, description, imageUrl, targetUrl, contactPhone, tag, days } = req.body;
+  const { stayId, title, description, imageUrl, targetUrl, contactPhone, tag, days, paymentMethod } = req.body;
+  if (paymentMethod && paymentMethod !== 'wallet') {
+    return res.status(400).json({ error: 'Adverts can only be paid strictly from your private AirBus Wallet.' });
+  }
   if (!stayId || !title || !imageUrl || !targetUrl) {
     return res.status(400).json({ error: 'Stay ID, headline title, banner image, and destination link/phone are required.' });
   }
@@ -3050,8 +3263,14 @@ app.get('/api/ads/snappadd', (req, res) => {
 app.post('/api/ads/snappadd', (req, res) => {
   try {
     const user = getAuthUser(req);
+    if (!user) {
+      return res.status(401).json({ error: 'Please sign in to run an advert campaign from your wallet.' });
+    }
+    if (user.role === 'owner') {
+      db.assertHostSubscriptionActive(user.email);
+    }
+
     const {
-      userEmail,
       title,
       description,
       websiteUrl,
@@ -3059,15 +3278,19 @@ app.post('/api/ads/snappadd', (req, res) => {
       videoUrl,
       durationDays,
       coinsPaid,
+      paymentMethod,
     } = req.body;
 
-    const email = user?.email || userEmail || 'host@airbus.ke';
+    if (paymentMethod && paymentMethod !== 'wallet') {
+      return res.status(400).json({ error: 'Adverts can only be paid strictly from your private AirBus Wallet.' });
+    }
+
     if (!title || !websiteUrl) {
       return res.status(400).json({ error: 'Title and website URL are required.' });
     }
 
     const result = db.createSnappAddCampaign({
-      userEmail: email,
+      userEmail: user.email,
       title,
       description: description || '',
       websiteUrl,
@@ -3079,7 +3302,8 @@ app.post('/api/ads/snappadd', (req, res) => {
 
     return res.status(201).json(result);
   } catch (err: any) {
-    return res.status(400).json({ error: err.message || 'Payment processing failed.' });
+    const msg = err.message || 'Payment processing failed.';
+    return res.status(msg.toLowerCase().includes('subscription') ? 403 : 400).json({ error: msg });
   }
 });
 
@@ -3515,16 +3739,29 @@ app.post('/api/collections/local/request-guide', (req, res) => {
 // -----------------------------------------------------------------------------
 async function startServer() {
   if (!isProduction) {
-    const { createServer: createViteServer } = await import('vite');
-    const vite = await createViteServer({
-      server: { middlewareMode: true, hmr: false, ws: false },
-      appType: 'spa',
+    let viteMiddleware: express.RequestHandler | null = null;
+    const viteReady = import('vite').then(async ({ createServer: createViteServer }) => {
+      const vite = await createViteServer({
+        server: { middlewareMode: true, hmr: false, ws: false },
+        appType: 'spa',
+      });
+      viteMiddleware = vite.middlewares;
     });
+
     // Redirect legacy /AirbusGlobal paths to root
     app.get('/AirbusGlobal*', (req, res) => {
       res.redirect(req.url.replace(/^\/AirbusGlobal\/?/, '/') || '/');
     });
-    app.use(vite.middlewares);
+
+    app.use((req, res, next) => {
+      if (viteMiddleware) return viteMiddleware(req, res, next);
+      viteReady
+        .then(() => {
+          if (viteMiddleware) return viteMiddleware(req, res, next);
+          return next();
+        })
+        .catch(next);
+    });
   } else {
     const distPath = path.resolve(__dirname, 'dist');
     app.use(express.static(distPath));
@@ -3536,6 +3773,10 @@ async function startServer() {
 
   const httpServer = app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 AirBus full-stack server running on http://0.0.0.0:${PORT}`);
+    // Warm local audio tracks only after server is listening & Vite has settled
+    setTimeout(() => {
+      audioLibraryService.ensureLocalAudioAssets().catch(() => {});
+    }, 5000);
   });
   httpServer.on('error', (err: NodeJS.ErrnoException) => {
     console.error(`Failed to bind server on port ${PORT}:`, err.message);

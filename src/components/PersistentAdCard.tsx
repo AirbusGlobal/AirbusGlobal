@@ -21,13 +21,17 @@ interface PersistentAdCardProps {
   onSelectStay?: (stayId: string) => void;
   userWalletBalance?: number;
   userEmail?: string;
+  userRole?: string;
+  onOpenWalletDeposit?: () => void;
   showToast?: (msg: string) => void;
 }
 
 export const PersistentAdCard: React.FC<PersistentAdCardProps> = ({
   onSelectStay,
-  userWalletBalance = 8290,
+  userWalletBalance = 0,
   userEmail,
+  userRole,
+  onOpenWalletDeposit,
   showToast,
 }) => {
   const [ads, setAds] = useState<AdSlot[]>([]);
@@ -38,19 +42,23 @@ export const PersistentAdCard: React.FC<PersistentAdCardProps> = ({
   const [showModal, setShowModal] = useState(false);
   const [isDismissed, setIsDismissed] = useState(false);
 
-  // Form Fields
+  // Form Fields (Wallet-Only for both Guest & Host)
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [linkUrl, setLinkUrl] = useState('');
   const [thumbnailUrl, setThumbnailUrl] = useState('');
   const [videoUrl, setVideoUrl] = useState('');
   const [durationDays, setDurationDays] = useState<number>(7);
-  const [paymentMethod, setPaymentMethod] = useState<'wallet' | 'mpesa'>('wallet');
-  const [mpesaCode, setMpesaCode] = useState('');
 
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [formSuccess, setFormSuccess] = useState<string | null>(null);
+
+  React.useEffect(() => {
+    const handler = () => setShowModal(true);
+    window.addEventListener('airbus:open-advert-modal', handler);
+    return () => window.removeEventListener('airbus:open-advert-modal', handler);
+  }, []);
 
   // Dynamic cost calculation: 10 SC / day
   const costSc = Math.max(1, durationDays) * 10;
@@ -140,24 +148,26 @@ export const PersistentAdCard: React.FC<PersistentAdCardProps> = ({
       return;
     }
 
-    if (paymentMethod === 'wallet' && !hasEnoughCoins) {
+    if (!userEmail) {
+      setFormError('Please log in to your Guest or Host account first to place an advert from your wallet.');
+      return;
+    }
+
+    if (currentBalance <= 0) {
+      setFormError('Your AirBus Wallet is empty (KES 0). Please deposit funds via M-Pesa Till 943210 before advertising.');
+      return;
+    }
+
+    if (!hasEnoughCoins) {
       setFormError(
-        `Insufficient SnappCoins. You need ${costSc} SC, but your wallet has ${currentBalance} SC. Top up the shortfall of ${shortfall} SC via M-Pesa.`
+        `Insufficient wallet balance. You need ${costSc} SC (KES ${costSc}), but your wallet has ${currentBalance} SC. Please deposit at least KES ${shortfall}.`
       );
       return;
     }
 
-    if (paymentMethod === 'mpesa') {
-      const cleaned = mpesaCode.trim().toUpperCase();
-      if (!cleaned || cleaned.length !== 10) {
-        setFormError('M-Pesa transaction code must be exactly 10 alphanumeric characters (e.g. QHX78PL92D).');
-        return;
-      }
-    }
-
     setSubmitting(true);
     try {
-      const res = await api.createAdSlot({
+      await api.createAdSlot({
         title: title.trim(),
         description: description.trim(),
         linkUrl: linkUrl.startsWith('http') ? linkUrl.trim() : `https://${linkUrl.trim()}`,
@@ -166,17 +176,11 @@ export const PersistentAdCard: React.FC<PersistentAdCardProps> = ({
           'https://images.unsplash.com/photo-1540555700478-4be289fbecef?auto=format&fit=crop&w=800&q=80',
         videoUrl: videoUrl.trim() || undefined,
         durationDays,
-        paymentMethod,
-        mpesaCode: paymentMethod === 'mpesa' ? mpesaCode.trim().toUpperCase() : undefined,
+        paymentMethod: 'wallet',
       });
 
-      if (paymentMethod === 'wallet') {
-        setFormSuccess(`🎉 Advert submitted! ${costSc} SC debited from your wallet. Live upon admin approval.`);
-        showToast?.(`Success! Paid ${costSc} SC for ${durationDays} days advert slot.`);
-      } else {
-        setFormSuccess(`🎉 M-Pesa payment submitted (${mpesaCode.toUpperCase()})! Admin will verify and activate.`);
-        showToast?.(`M-Pesa payment code submitted. Pending admin approval.`);
-      }
+      setFormSuccess(`🎉 Advert submitted! ${costSc} SC debited from your AirBus Wallet. Live upon admin approval.`);
+      showToast?.(`Success! Paid ${costSc} SC from wallet for ${durationDays} days advert slot.`);
 
       await loadActiveAds();
 
@@ -187,7 +191,6 @@ export const PersistentAdCard: React.FC<PersistentAdCardProps> = ({
         setLinkUrl('');
         setThumbnailUrl('');
         setVideoUrl('');
-        setMpesaCode('');
         setFormSuccess(null);
       }, 2500);
     } catch (err: any) {
@@ -513,86 +516,58 @@ export const PersistentAdCard: React.FC<PersistentAdCardProps> = ({
                 />
               </div>
 
-              {/* Payment Method Selector */}
-              <div>
-                <label className="block text-[11px] font-bold text-stone-300 mb-1.5">
-                  Select Payment Method:
-                </label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setPaymentMethod('wallet')}
-                    className={`p-2.5 rounded-xl border flex items-center gap-2 cursor-pointer transition-all ${
-                      paymentMethod === 'wallet'
-                        ? 'bg-[#e4002b]/15 border-[#e4002b] text-white'
-                        : 'bg-stone-950 border-stone-800 text-stone-400 hover:border-stone-700'
-                    }`}
-                  >
-                    <Wallet className="w-4 h-4 text-amber-400 shrink-0" />
-                    <div className="text-left">
-                      <div className="text-xs font-bold">SnappCoin Wallet</div>
-                      <div className="text-[10px] font-mono text-stone-400">
-                        Bal: {currentBalance.toLocaleString()} SC
-                      </div>
+              {/* Strict Wallet-Only Payment Card */}
+              <div className="p-3 rounded-xl border border-[#e4002b]/50 bg-[#e4002b]/10 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                  <Wallet className="w-5 h-5 text-amber-400 shrink-0" />
+                  <div>
+                    <div className="text-xs font-bold text-white">
+                      {userRole === 'owner' ? 'Host Wallet Payment Only' : userRole === 'guest' ? 'Guest Wallet Payment Only' : 'AirBus Wallet Payment Only'}
                     </div>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setPaymentMethod('mpesa')}
-                    className={`p-2.5 rounded-xl border flex items-center gap-2 cursor-pointer transition-all ${
-                      paymentMethod === 'mpesa'
-                        ? 'bg-emerald-950/40 border-emerald-500 text-white'
-                        : 'bg-stone-950 border-stone-800 text-stone-400 hover:border-stone-700'
-                    }`}
-                  >
-                    <CreditCard className="w-4 h-4 text-emerald-400 shrink-0" />
-                    <div className="text-left">
-                      <div className="text-xs font-bold">M-Pesa Direct</div>
-                      <div className="text-[10px] text-stone-400">Paybill / Till</div>
+                    <div className="text-[10px] font-mono text-stone-300">
+                      Available Balance: {currentBalance.toLocaleString()} SC (KES {currentBalance.toLocaleString()})
                     </div>
-                  </button>
+                  </div>
                 </div>
+                <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-amber-400/20 text-amber-300 border border-amber-400/30">
+                  Wallet Only
+                </span>
               </div>
 
-              {/* Wallet Shortfall Notice if Wallet is chosen and insufficient */}
-              {paymentMethod === 'wallet' && !hasEnoughCoins && (
-                <div className="p-3 rounded-xl bg-amber-950/50 border border-amber-800 text-amber-200 text-xs">
+              {/* Empty or Insufficient Wallet Prompt with Direct Deposit Button */}
+              {(!userEmail || currentBalance <= 0 || !hasEnoughCoins) && (
+                <div className="p-3 rounded-xl bg-amber-950/60 border border-amber-700 text-amber-200 text-xs space-y-2">
                   <div className="flex items-start gap-2">
                     <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
                     <div>
-                      <p className="font-bold">Insufficient SnappCoins</p>
-                      <p className="text-[11px] text-amber-300/90 mt-0.5">
-                        You have {currentBalance} SC, but this campaign requires {costSc} SC.
-                        Please top up the difference of <strong className="text-white font-mono">{shortfall} SC</strong> via M-Pesa to use your wallet, or choose M-Pesa Direct below.
+                      <p className="font-bold">
+                        {!userEmail
+                          ? 'Sign In Required'
+                          : currentBalance <= 0
+                          ? 'Wallet Balance Empty (KES 0)'
+                          : 'Insufficient Wallet Balance'}
+                      </p>
+                      <p className="text-[11px] text-amber-200/90 mt-0.5">
+                        {!userEmail
+                          ? 'Please log in as a Guest or Host to fund your private AirBus Wallet and run adverts.'
+                          : currentBalance <= 0
+                          ? 'Adverts are paid strictly from your private AirBus Wallet. Please deposit funds via M-Pesa Till 943210 first.'
+                          : `You have ${currentBalance} SC, but this campaign requires ${costSc} SC. Please deposit at least KES ${shortfall} to your wallet.`}
                       </p>
                     </div>
                   </div>
-                </div>
-              )}
-
-              {/* M-Pesa instructions & code input */}
-              {paymentMethod === 'mpesa' && (
-                <div className="p-3 rounded-xl bg-stone-950 border border-stone-800 space-y-2">
-                  <div className="text-[11px] text-stone-300">
-                    Pay <strong className="text-emerald-400 font-mono">KES {costSc}</strong> to Paybill{' '}
-                    <strong className="text-white font-mono">522522</strong>, Account{' '}
-                    <strong className="text-white font-mono">AIRBUS-AD</strong>.
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-stone-400 uppercase tracking-wider mb-1">
-                      10-Character M-Pesa Code <span className="text-rose-500">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      maxLength={10}
-                      placeholder="e.g. QHX78PL92D"
-                      value={mpesaCode}
-                      onChange={e => setMpesaCode(e.target.value.toUpperCase())}
-                      className="w-full bg-stone-900 border border-stone-700 focus:border-emerald-500 rounded-xl px-3 py-1.5 text-xs text-white font-mono tracking-widest uppercase outline-none"
-                    />
-                  </div>
+                  {onOpenWalletDeposit && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowModal(false);
+                        onOpenWalletDeposit();
+                      }}
+                      className="w-full py-1.5 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] cursor-pointer transition-colors"
+                    >
+                      {!userEmail ? 'Sign In to Deposit Funds' : 'Deposit Funds via M-Pesa Till 943210'}
+                    </button>
+                  )}
                 </div>
               )}
 
@@ -615,16 +590,14 @@ export const PersistentAdCard: React.FC<PersistentAdCardProps> = ({
               <div className="pt-2">
                 <button
                   type="submit"
-                  disabled={submitting || (paymentMethod === 'wallet' && !hasEnoughCoins)}
+                  disabled={submitting || !userEmail || currentBalance <= 0 || !hasEnoughCoins}
                   className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-[#e4002b] via-[#ff2e93] to-[#8b5cf6] hover:opacity-95 text-white font-black text-xs flex items-center justify-center gap-2 shadow-lg cursor-pointer transition-all active:scale-98 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   <Coins className="w-4 h-4 text-amber-300" />
                   <span>
                     {submitting
-                      ? 'Processing...'
-                      : paymentMethod === 'wallet'
-                      ? `Pay ${costSc} SC & Submit Advert`
-                      : `Submit M-Pesa Payment (${costSc} KES)`}
+                      ? 'Processing Wallet Payment...'
+                      : `Pay ${costSc} SC from Wallet & Submit Advert`}
                   </span>
                 </button>
               </div>

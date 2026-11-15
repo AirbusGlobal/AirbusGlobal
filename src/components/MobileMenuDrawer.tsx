@@ -158,8 +158,8 @@ export const MobileMenuDrawer: React.FC<MobileMenuDrawerProps> = ({
                   <div className="text-[11px] text-stone-400 truncate font-mono">
                     {user.email}
                   </div>
-                  <span className="inline-block px-1.5 py-0.2 mt-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-stone-200 dark:bg-stone-800 text-stone-700 dark:text-stone-300">
-                    {user.role} mode
+                  <span className="inline-block px-1.5 py-0.5 mt-0.5 rounded text-[9px] font-black tracking-wider bg-stone-200 dark:bg-stone-800 text-stone-700 dark:text-stone-300">
+                    {user.role === 'owner' ? 'Host Mode' : user.role === 'admin' ? 'Admin' : 'Guest Mode'}
                   </span>
                 </div>
               </div>
@@ -278,23 +278,25 @@ export const MobileMenuDrawer: React.FC<MobileMenuDrawerProps> = ({
               </span>
             </button>
 
-            <button
-              onClick={() => {
-                if (!user) onOpenAuth('register');
-                else handleNav('owner');
-              }}
-              className={`w-full flex items-center justify-between p-2.5 rounded-2xl text-xs font-bold transition cursor-pointer ${
-                currentTab === 'owner'
-                  ? 'bg-stone-900 text-white dark:bg-stone-100 dark:text-stone-900 shadow-sm'
-                  : 'hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-800 dark:text-stone-200'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <PlusCircle className="w-4 h-4 text-[#e4002b]" />
-                <span>{user?.role === 'owner' ? 'Owner & Host Hub' : 'AirBus Your Home (Host)'}</span>
-              </div>
-              <ChevronRight className="w-4 h-4 opacity-50" />
-            </button>
+            {(!user || user.role === 'owner') && (
+              <button
+                onClick={() => {
+                  if (!user) onOpenAuth('login');
+                  else handleNav('owner');
+                }}
+                className={`w-full flex items-center justify-between p-2.5 rounded-2xl text-xs font-bold transition cursor-pointer ${
+                  currentTab === 'owner'
+                    ? 'bg-stone-900 text-white dark:bg-stone-100 dark:text-stone-900 shadow-sm'
+                    : 'hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-800 dark:text-stone-200'
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <PlusCircle className="w-4 h-4 text-[#e4002b]" />
+                  <span>{user?.role === 'owner' ? 'Host Dashboard' : 'Host Portal Login'}</span>
+                </div>
+                <ChevronRight className="w-4 h-4 opacity-50" />
+              </button>
+            )}
 
             <button
               onClick={() => handleNav('earn')}

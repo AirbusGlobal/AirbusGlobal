@@ -235,39 +235,48 @@ const SEED_TRACKS_META: SeedTrackMeta[] = [
 
 export class AudioLibraryService {
   private generated = false;
+  private generatingPromise: Promise<void> | null = null;
 
   public async ensureLocalAudioAssets(): Promise<void> {
     if (this.generated) return;
-    ensureAudioDir();
+    if (this.generatingPromise) return this.generatingPromise;
 
-    for (const track of SEED_TRACKS_META) {
-      const outPath = path.join(AUDIO_UPLOADS_DIR, `${track.id}.mp3`);
-      if (!fs.existsSync(outPath) || fs.statSync(outPath).size < 1024) {
-        try {
-          await execFileAsync('ffmpeg', [
-            '-y',
-            '-f', 'lavfi',
-            '-i', `aevalsrc=${track.chordExpr}:s=44100:d=${track.duration}`,
-            '-af', 'afade=t=in:st=0:d=1.2,afade=t=out:st=' + Math.max(1, track.duration - 1.5) + ':d=1.5',
-            '-c:a', 'libmp3lame',
-            '-b:a', '96k',
-            outPath,
-          ]);
-        } catch (err) {
-          // Fallback to PCM wav -> mp3 or aac if libmp3lame unavailable
+    this.generatingPromise = (async () => {
+      ensureAudioDir();
+
+      for (const track of SEED_TRACKS_META) {
+        const outPath = path.join(AUDIO_UPLOADS_DIR, `${track.id}.mp3`);
+        if (!fs.existsSync(outPath) || fs.statSync(outPath).size < 1024) {
           try {
-            const wavPath = path.join(AUDIO_UPLOADS_DIR, `${track.id}.wav`);
             await execFileAsync('ffmpeg', [
               '-y',
               '-f', 'lavfi',
               '-i', `aevalsrc=${track.chordExpr}:s=44100:d=${track.duration}`,
-              wavPath,
+              '-af', 'afade=t=in:st=0:d=1.2,afade=t=out:st=' + Math.max(1, track.duration - 1.5) + ':d=1.5',
+              '-c:a', 'libmp3lame',
+              '-b:a', '96k',
+              outPath,
             ]);
-          } catch {}
+          } catch (err) {
+            // Fallback to PCM wav -> mp3 or aac if libmp3lame unavailable
+            try {
+              const wavPath = path.join(AUDIO_UPLOADS_DIR, `${track.id}.wav`);
+              await execFileAsync('ffmpeg', [
+                '-y',
+                '-f', 'lavfi',
+                '-i', `aevalsrc=${track.chordExpr}:s=44100:d=${track.duration}`,
+                wavPath,
+              ]);
+            } catch {}
+          }
         }
       }
-    }
-    this.generated = true;
+      this.generated = true;
+    })().finally(() => {
+      this.generatingPromise = null;
+    });
+
+    return this.generatingPromise;
   }
 
   public getTrackFilePath(trackId: string): string | null {
