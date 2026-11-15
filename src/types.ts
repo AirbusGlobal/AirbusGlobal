@@ -18,6 +18,13 @@ export interface User {
   videos?: string[];
   idVerified: boolean;
   isVVVIP?: boolean;
+  vvvipSubscription?: {
+    planName: string;
+    billing: 'monthly' | 'annual';
+    status: 'active' | 'expired';
+    startsAt: number;
+    expiresAt: number;
+  };
   isSuspended?: boolean;
   suspendedReason?: string;
   createdAt: number;
@@ -53,6 +60,8 @@ export interface AuthSession {
   portal: AuthPortal | 'admin';
   role: UserRole;
   createdAt: number;
+  lastActiveAt: number;
+  idleTimeoutMs?: number;
   expiresAt: number;
 }
 
@@ -336,6 +345,7 @@ export interface ChatThread {
 export interface HostPlanStatus {
   tier: StayCategory;
   status: 'active' | 'expired' | 'pending';
+  startsAt?: number;
   expiresAt: number;
   graceExpiresAt?: number;
   hasPaidSubscription?: boolean;

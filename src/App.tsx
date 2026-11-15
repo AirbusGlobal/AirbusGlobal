@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   User,
   Stay,
@@ -37,13 +37,16 @@ import { SettingsModal } from './components/SettingsModal';
 import { TripDatingPage } from './components/trip-dating/TripDatingPage';
 import { Footer } from './components/Footer';
 import { CollectionsPage, CollectionSlug } from './components/CollectionsPage';
-import { Lock } from 'lucide-react';
+import { Lock, Clock, ShieldAlert } from 'lucide-react';
 import {
   trigger24HourCheckinAlert,
   isNotificationSupported,
   getNotificationPermission,
   requestNotificationPermission,
 } from './utils/notifications';
+
+const DEFAULT_IDLE_TIMEOUT_MS = 20 * 60 * 1000;
+const IDLE_WARNING_BEFORE_MS = 60 * 1000;
 
 export default function App() {
   // Navigation & View
@@ -55,20 +58,34 @@ export default function App() {
 
   // Core Data
   const [user, setUser] = useState<User | null>(null);
+  const [sessionHydrating, setSessionHydrating] = useState<boolean>(true);
   const [stays, setStays] = useState<Stay[]>([]);
+  const [ownerStays, setOwnerStays] = useState<Stay[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [threads, setThreads] = useState<ChatThread[]>([]);
   const [wishlistIds, setWishlistIds] = useState<string[]>([]);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [unreadNotifsCount, setUnreadNotifsCount] = useState(0);
 
-  // Host Data
+  // Host Data (hydrated strictly from backend; never assumes active before verification)
   const [hostPlan, setHostPlan] = useState<HostPlanStatus>({
-    tier: 'Diamond',
-    status: 'active',
-    expiresAt: Date.now() + 30 * 864e5,
+    tier: 'Silver',
+    status: 'pending',
+    expiresAt: 0,
+    hasPaidSubscription: false,
   });
   const [walletBalance, setWalletBalance] = useState(0);
+
+  // 20-Minute Idle Timeout & Countdown Modal State
+  const [idleTimeoutMs, setIdleTimeoutMs] = useState<number>(DEFAULT_IDLE_TIMEOUT_MS);
+  const [idleWarningOpen, setIdleWarningOpen] = useState<boolean>(false);
+  const [idleSecondsLeft, setIdleSecondsLeft] = useState<number>(60);
+  const lastActivityAtRef = useRef<number>(Date.now());
+  const lastPingSentAtRef = useRef<number>(0);
+  const idleWarningOpenRef = useRef<boolean>(false);
+  useEffect(() => {
+    idleWarningOpenRef.current = idleWarningOpen;
+  }, [idleWarningOpen]);
 
   // Admin Data
   const [adminOverview, setAdminOverview] = useState<any>({
@@ -113,30 +130,7 @@ export default function App() {
     setTimeout(() => setToastMessage(null), 3000);
   };
 
-  // Initial Load
-  const loadInitialData = useCallback(async () => {
-    try {
-      // Fetch public stays
-      const staysRes = await api.getStays();
-      setStays(staysRes.stays);
-
-      // Check user session
-      const token = api.getToken();
-      if (token) {
-        try {
-          const meRes = await api.getMe();
-          setUser(meRes.user);
-          await loadUserData(meRes.user);
-        } catch {
-          api.logout();
-        }
-      }
-    } catch (err) {
-      console.warn('Initial data load warning:', err);
-    }
-  }, []);
-
-  const loadUserData = async (currentUser: User) => {
+  const loadUserData = useCallback(async (currentUser: User) => {
     try {
       // Bookings
       const bRes = await api.getBookings();
@@ -155,38 +149,247 @@ export default function App() {
       setNotifications(nRes.notifications);
       setUnreadNotifsCount(nRes.unreadCount);
 
-      // Real wallet balance from unified ledger
+      // Real wallet balance from unified backend ledger
       try {
-        const wRes = await api.getWallet();
-        if (wRes?.wallet?.balance !== undefined) {
-          setWalletBalance(wRes.wallet.balance);
+        const walRes = await api.getWallet();
+        if (walRes?.wallet?.balance !== undefined) {
+          setWalletBalance(walRes.wallet.balance);
         }
-      } catch (_) {}
+      } catch {}
 
-      // Host plan & wallet
-      if (currentUser.role === 'owner' || currentUser.role === 'admin') {
-        const pRes = await api.getHostPlan();
-        setHostPlan(pRes.plan);
-        if (pRes.wallet !== undefined) setWalletBalance(pRes.wallet);
+      // Host plan, owner listings (including hidden/expired stays), & wallet
+      if (currentUser.role === 'owner') {
+        const [pRes, myStaysRes] = await Promise.all([
+          api.getHostPlan(),
+          api.getStays({ ownerEmail: currentUser.email }),
+        ]);
+        if (pRes?.plan) setHostPlan(pRes.plan);
+        if (pRes?.wallet !== undefined) setWalletBalance(pRes.wallet);
+        setOwnerStays(myStaysRes?.stays || []);
       }
 
       // Admin metrics
       if (currentUser.role === 'admin') {
-        const aRes = await api.getAdminOverview();
+        const [pRes, aRes] = await Promise.all([
+          api.getHostPlan(),
+          api.getAdminOverview(),
+        ]);
+        if (pRes?.plan) setHostPlan(pRes.plan);
+        if (pRes?.wallet !== undefined) setWalletBalance(pRes.wallet);
         setAdminOverview(aRes);
       }
     } catch (err) {
       console.warn('Error loading user-specific data:', err);
     }
-  };
+  }, []);
+
+  // Initial Load (survives page refresh cleanly; restores dashboard state)
+  const loadInitialData = useCallback(async () => {
+    setSessionHydrating(true);
+    try {
+      // Fetch public stays
+      const staysRes = await api.getStays();
+      setStays(staysRes.stays);
+
+      // Validate active portal session cleanly
+      const slot = isAdminRoute(window.location.pathname) ? 'admin' : api.getActivePortalSlot();
+      const token = api.getToken(slot);
+      if (token) {
+        try {
+          const meRes = await api.getMe();
+          setUser(meRes.user);
+          if (typeof meRes.walletBalance === 'number') {
+            setWalletBalance(meRes.walletBalance);
+          }
+          if (meRes.hostPlan) {
+            setHostPlan(meRes.hostPlan);
+          }
+          if (meRes.session?.idleTimeoutMs) {
+            setIdleTimeoutMs(meRes.session.idleTimeoutMs);
+          }
+          lastActivityAtRef.current = Date.now();
+          lastPingSentAtRef.current = Date.now();
+          await loadUserData(meRes.user);
+
+          if (!isAdminRoute(window.location.pathname)) {
+            const hash = window.location.hash.slice(1);
+            if (!hash) {
+              const savedTab = localStorage.getItem(`airbus_last_tab_${meRes.user.role}`);
+              if (
+                (savedTab === 'owner' && (meRes.user.role === 'owner' || meRes.user.role === 'admin')) ||
+                (savedTab === 'guest' && meRes.user.role === 'guest')
+              ) {
+                setCurrentTab(savedTab);
+                window.location.hash = savedTab;
+              }
+            }
+          }
+        } catch (err: any) {
+          if (err?.status === 401) {
+            api.logout(slot);
+            setUser(null);
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('Initial data load warning:', err);
+    } finally {
+      setSessionHydrating(false);
+    }
+  }, [loadUserData]);
 
   useEffect(() => {
     loadInitialData();
   }, [loadInitialData]);
 
+  const handleLogout = useCallback(async (customReason?: string) => {
+    const slot = isOnAdminRoute
+      ? 'admin'
+      : user?.role === 'owner'
+      ? 'owner'
+      : 'guest';
+    try {
+      if (user?.role) {
+        localStorage.removeItem(`airbus_last_tab_${user.role}`);
+      }
+      localStorage.removeItem(`airbus_last_tab_${slot}`);
+    } catch {}
+    setIdleWarningOpen(false);
+    await api.logoutSession(slot);
+    setUser(null);
+    setOwnerStays([]);
+    setWalletBalance(0);
+    setBookings([]);
+    setWishlistIds([]);
+    setThreads([]);
+    setHostPlan({
+      tier: 'Silver',
+      status: 'pending',
+      expiresAt: 0,
+      hasPaidSubscription: false,
+    });
+    if (!isOnAdminRoute) {
+      setCurrentTab('home');
+      if (window.location.pathname.startsWith('/listing/')) {
+        window.history.pushState({}, '', '/');
+      } else {
+        window.location.hash = '';
+      }
+    }
+    showToast(customReason || 'Signed out successfully.');
+  }, [isOnAdminRoute, user]);
+
+  // Activity reset + periodic backend ping + 20-minute idle countdown
+  const resetIdleTimer = useCallback(
+    (forcePing = false) => {
+      if (!user) return;
+      const now = Date.now();
+      lastActivityAtRef.current = now;
+      if (idleWarningOpenRef.current) {
+        setIdleWarningOpen(false);
+      }
+      const slot = isOnAdminRoute
+        ? 'admin'
+        : user.role === 'owner'
+        ? 'owner'
+        : 'guest';
+      if (forcePing || now - lastPingSentAtRef.current >= 30000) {
+        lastPingSentAtRef.current = now;
+        api.pingSession(slot).catch(() => {});
+      }
+    },
+    [user, isOnAdminRoute]
+  );
+
+  useEffect(() => {
+    if (!user) {
+      api.setActivityListener(null);
+      api.setSessionExpiredListener(null);
+      setIdleWarningOpen(false);
+      return;
+    }
+
+    lastActivityAtRef.current = Date.now();
+    api.setActivityListener(() => {
+      const now = Date.now();
+      lastActivityAtRef.current = now;
+      if (idleWarningOpenRef.current) {
+        setIdleWarningOpen(false);
+      }
+    });
+
+    api.setSessionExpiredListener((expiredSlot, message) => {
+      const activeSlot = isOnAdminRoute
+        ? 'admin'
+        : user.role === 'owner'
+        ? 'owner'
+        : 'guest';
+      if (expiredSlot === activeSlot) {
+        handleLogout(message || 'Session expired after 20 minutes of inactivity.');
+      }
+    });
+
+    let lastEventHandled = 0;
+    const handleDeliberateActivity = () => {
+      const now = Date.now();
+      if (now - lastEventHandled < 1000) return;
+      lastEventHandled = now;
+      resetIdleTimer(idleWarningOpenRef.current);
+    };
+    const handlePassiveMouseMove = () => {
+      // Ignore tiny cursor drift during the final warning countdown so user sees disclaimer
+      if (idleWarningOpenRef.current) return;
+      const now = Date.now();
+      if (now - lastEventHandled < 2000) return;
+      lastEventHandled = now;
+      resetIdleTimer(false);
+    };
+
+    window.addEventListener('mousemove', handlePassiveMouseMove, { passive: true });
+    window.addEventListener('mousedown', handleDeliberateActivity, { passive: true });
+    window.addEventListener('keydown', handleDeliberateActivity);
+    window.addEventListener('touchstart', handleDeliberateActivity, { passive: true });
+    window.addEventListener('scroll', handleDeliberateActivity, { passive: true });
+    window.addEventListener('hashchange', handleDeliberateActivity);
+
+    const idleInterval = window.setInterval(() => {
+      const now = Date.now();
+      const elapsed = now - lastActivityAtRef.current;
+      const remainingMs = idleTimeoutMs - elapsed;
+
+      if (remainingMs <= 0) {
+        window.clearInterval(idleInterval);
+        handleLogout('Logged out due to 20 minutes of inactivity. Your wallet & subscription data remain safely saved.');
+        return;
+      }
+
+      if (remainingMs <= IDLE_WARNING_BEFORE_MS) {
+        setIdleSecondsLeft(Math.max(1, Math.ceil(remainingMs / 1000)));
+        if (!idleWarningOpenRef.current) {
+          setIdleWarningOpen(true);
+        }
+      } else if (idleWarningOpenRef.current) {
+        setIdleWarningOpen(false);
+      }
+    }, 1000);
+
+    return () => {
+      api.setActivityListener(null);
+      api.setSessionExpiredListener(null);
+      window.removeEventListener('mousemove', handlePassiveMouseMove);
+      window.removeEventListener('mousedown', handleDeliberateActivity);
+      window.removeEventListener('keydown', handleDeliberateActivity);
+      window.removeEventListener('touchstart', handleDeliberateActivity);
+      window.removeEventListener('scroll', handleDeliberateActivity);
+      window.removeEventListener('hashchange', handleDeliberateActivity);
+      window.clearInterval(idleInterval);
+    };
+  }, [user, isOnAdminRoute, idleTimeoutMs, resetIdleTimer, handleLogout]);
+
   // Real-Time Wallet Balance SSE Stream (Updates Guest & Host wallets immediately on Admin approval)
   useEffect(() => {
-    const token = api.getToken();
+    const slot = isOnAdminRoute ? 'admin' : user?.role === 'owner' ? 'owner' : 'guest';
+    const token = api.getToken(slot);
     if (!user || !token || typeof EventSource === 'undefined') return;
 
     const es = new EventSource(api.getWalletStreamUrl());
@@ -203,6 +406,10 @@ export default function App() {
           if (user.role === 'owner' || user.role === 'admin') {
             api.getHostPlan().then(p => setHostPlan(p.plan)).catch(() => {});
           }
+          if (user.role === 'owner') {
+            api.getStays().then(r => setStays(r.stays)).catch(() => {});
+            api.getStays({ ownerEmail: user.email }).then(r => setOwnerStays(r.stays || [])).catch(() => {});
+          }
           api
             .getNotifications()
             .then(n => {
@@ -216,12 +423,23 @@ export default function App() {
       }
     };
 
+    const handleSessionExpiredEvent = (event: MessageEvent) => {
+      try {
+        const payload = JSON.parse(event.data || '{}');
+        handleLogout(payload.error || 'Session expired after 20 minutes of inactivity.');
+      } catch {
+        handleLogout('Session expired due to inactivity.');
+      }
+    };
+
     es.addEventListener('wallet_update', handleWalletEvent as EventListener);
+    es.addEventListener('session_expired', handleSessionExpiredEvent as EventListener);
     return () => {
       es.removeEventListener('wallet_update', handleWalletEvent as EventListener);
+      es.removeEventListener('session_expired', handleSessionExpiredEvent as EventListener);
       es.close();
     };
-  }, [user]);
+  }, [user, isOnAdminRoute, handleLogout]);
 
   // Capture ?ref=CODE from URL and track referral click
   useEffect(() => {
@@ -264,7 +482,9 @@ export default function App() {
         setCurrentTab('owner');
       } else if (hash === 'inbox') {
         if (!user) {
-          setAuthModalOpen(true);
+          if (!sessionHydrating && !api.getToken(api.getActivePortalSlot())) {
+            setAuthModalOpen(true);
+          }
         } else if (user.role === 'guest') {
           setCurrentTab('guest');
         } else {
@@ -286,7 +506,7 @@ export default function App() {
     handleHashChange();
     window.addEventListener('hashchange', handleHashChange);
     return () => window.removeEventListener('hashchange', handleHashChange);
-  }, [user]);
+  }, [user, sessionHydrating]);
 
   // Private Admin Portal & Deep-Linked Listing (/listing/:id?intent=...&source=short) Route Sync
   useEffect(() => {
@@ -411,6 +631,11 @@ export default function App() {
   // Handlers
   const handleNavigate = (tab: string) => {
     setCurrentTab(tab);
+    if (user && !isOnAdminRoute) {
+      try {
+        localStorage.setItem(`airbus_last_tab_${user.role}`, tab);
+      } catch {}
+    }
     if (window.location.pathname.startsWith('/listing/')) {
       window.history.pushState({}, '', tab === 'home' ? '/' : `/#${tab}`);
     } else {
@@ -453,28 +678,22 @@ export default function App() {
   };
 
   const handleLoginSuccess = async (loggedInUser: User) => {
+    if (!isOnAdminRoute && (loggedInUser.role === 'owner' || loggedInUser.role === 'guest')) {
+      api.setActivePublicPortal(loggedInUser.role);
+    }
+    lastActivityAtRef.current = Date.now();
+    lastPingSentAtRef.current = Date.now();
+    setIdleWarningOpen(false);
     setUser(loggedInUser);
     showToast(`Welcome back, ${loggedInUser.name}!`);
     await loadUserData(loggedInUser);
 
     // Route to dedicated dashboard on public site (Admin is handled strictly via private portal)
     if (isOnAdminRoute) {
-      // Stay on admin portal route
       return;
     }
     if (loggedInUser.role === 'owner') handleNavigate('owner');
     else handleNavigate('guest');
-  };
-
-  const handleLogout = async () => {
-    await api.logoutSession();
-    setUser(null);
-    setWalletBalance(0);
-    setBookings([]);
-    setWishlistIds([]);
-    setThreads([]);
-    handleNavigate('home');
-    showToast('Signed out successfully.');
   };
 
   const handleToggleWishlist = async (stayId: string) => {
@@ -526,6 +745,7 @@ export default function App() {
     }
     const res = await api.createStay(stayData);
     setStays(prev => [res.stay, ...prev]);
+    setOwnerStays(prev => [res.stay, ...prev]);
     showToast('Stay published live successfully!');
     return res.stay;
   };
@@ -539,12 +759,14 @@ export default function App() {
     }
     const res = await api.updateStay(id, updates);
     setStays(prev => prev.map(s => (s.id === id ? res.stay : s)));
+    setOwnerStays(prev => prev.map(s => (s.id === id ? res.stay : s)));
     showToast('Listing updated.');
   };
 
   const handleDeleteStay = async (id: string) => {
     await api.deleteStay(id);
     setStays(prev => prev.filter(s => s.id !== id));
+    setOwnerStays(prev => prev.filter(s => s.id !== id));
     showToast('Listing deleted.');
   };
 
@@ -622,11 +844,59 @@ export default function App() {
     const res = await api.payPlanFromWallet(tier, period);
     setHostPlan(res.plan);
     setWalletBalance(res.walletBalance);
+    // Refresh public stays & ownerStays so reactivated listings return live immediately
+    api.getStays().then(r => setStays(r.stays)).catch(() => {});
+    if (user?.email) {
+      api.getStays({ ownerEmail: user.email }).then(r => setOwnerStays(r.stays || [])).catch(() => {});
+    }
     if (res.plan.scheduledTier) {
       showToast(`${tier} Plan scheduled to activate when current period completes!`);
     } else {
       showToast(`${period === 'annual' ? 'Annual' : '30-Day'} ${tier} Plan activated instantly from wallet!`);
     }
+  };
+
+  const renderIdleWarningModal = () => {
+    if (!user || !idleWarningOpen) return null;
+    return (
+      <div className="fixed inset-0 z-[100] bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150">
+        <div className="w-full max-w-md bg-white dark:bg-[#15171e] border border-amber-500/50 rounded-3xl p-6 shadow-2xl space-y-4 text-stone-900 dark:text-stone-100">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-2xl bg-amber-500/15 text-amber-500 flex items-center justify-center shrink-0">
+              <Clock className="w-6 h-6 animate-pulse" />
+            </div>
+            <div>
+              <span className="text-[10px] font-black uppercase tracking-wider text-amber-600 dark:text-amber-400">
+                Inactivity Timeout Warning
+              </span>
+              <h3 className="text-base font-extrabold">Session Expiring Soon</h3>
+            </div>
+          </div>
+
+          <p className="text-xs text-stone-600 dark:text-stone-300 leading-relaxed">
+            You have been inactive for nearly 20 minutes. For your account security, your session will automatically log out in{' '}
+            <strong className="font-mono text-sm text-[#e4002b]">{idleSecondsLeft}s</strong>. Dismiss this notice or keep using the app to stay logged in.
+          </p>
+
+          <div className="flex items-center justify-between gap-2 pt-2">
+            <button
+              type="button"
+              onClick={() => handleLogout('Signed out successfully.')}
+              className="px-4 py-2 rounded-full border border-stone-300 dark:border-stone-700 text-xs font-bold text-stone-600 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800 cursor-pointer"
+            >
+              Log Out Now
+            </button>
+            <button
+              type="button"
+              onClick={() => resetIdleTimer(true)}
+              className="px-5 py-2.5 rounded-full bg-[#e4002b] hover:bg-[#c90026] text-white text-xs font-extrabold shadow cursor-pointer"
+            >
+              Keep Using App / Dismiss
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   };
 
   // Active stay helper
@@ -643,6 +913,9 @@ export default function App() {
       return (
         <AdminPortalLanding
           onAdminAuthenticated={adminUser => {
+            lastActivityAtRef.current = Date.now();
+            lastPingSentAtRef.current = Date.now();
+            setIdleWarningOpen(false);
             setUser(adminUser);
             showToast(`Welcome Administrator, ${adminUser.name}`);
             loadUserData(adminUser);
@@ -712,10 +985,11 @@ export default function App() {
               setCurrentTab('home');
             }}
             showToast={showToast}
-            onLogout={handleLogout}
+            onLogout={() => handleLogout()}
             onUpdateAdminUser={updated => setUser(updated)}
           />
         </React.Suspense>
+        {renderIdleWarningModal()}
       </div>
     );
   }
@@ -882,6 +1156,7 @@ export default function App() {
               currency={currency}
               onBackToFeed={() => handleNavigate('home')}
               onNavigateToShorts={() => handleNavigate('shorts')}
+              onNavigateToCollections={() => handleNavigate('collection-plus')}
               showToast={showToast}
             />
           )
@@ -941,7 +1216,7 @@ export default function App() {
           ) : (
             <OwnerDashboard
               user={user}
-              myStays={stays.filter(s => s.ownerEmail === user.email)}
+              myStays={ownerStays.length > 0 ? ownerStays : stays.filter(s => s.ownerEmail === user.email)}
               bookings={bookings}
               plan={hostPlan}
               walletBalance={walletBalance}
@@ -1226,6 +1501,9 @@ export default function App() {
         }}
         showToast={showToast}
       />
+
+      {/* 10. 20-Minute Inactivity Countdown Disclaimer Modal */}
+      {renderIdleWarningModal()}
     </div>
   );
 }

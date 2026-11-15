@@ -103,6 +103,12 @@ export const DEFAULT_SETTINGS: PlatformSettings = {
 const DATA_DIR = path.resolve(process.cwd(), 'data');
 const DB_FILE = path.join(DATA_DIR, 'airbus-db.json');
 
+// Strict 20-minute inactivity timeout (configurable via env for verification tests)
+export const SESSION_IDLE_TIMEOUT_MS = Math.max(
+  5000,
+  Number(process.env.SESSION_IDLE_TIMEOUT_MS) || 20 * 60 * 1000
+);
+
 export { PLANS, AMENITY_GROUPS };
 
 export function hashPassword(password: string): string {
@@ -1758,6 +1764,7 @@ export const SEED_TRIP_DATING_PROFILES: TripDatingProfile[] = [
 
 class DatabaseStore {
   private data: DatabaseSchema;
+  private lastSessionTouchSavedAt = 0;
   private walletListeners = new Set<(payload: {
     email: string;
     balance: number;
@@ -1769,7 +1776,7 @@ class DatabaseStore {
   constructor() {
     this.data = this.load();
     this.ensurePortalCredentialSeeds();
-    this.checkSubscriptionExpirations();
+    this.checkAllExpirations();
     this.checkUpcomingCheckinReminders();
     this.initShortServices();
   }
@@ -2143,6 +2150,55 @@ class DatabaseStore {
             });
           }
 
+          // Canonicalize walletRecords & wallets keys to lowercase without losing persisted balances
+          if (!parsed.wallets) parsed.wallets = {};
+          const normalizedWalletRecords: Record<string, WalletRecord> = {};
+          for (const [k, rec] of Object.entries(parsed.walletRecords || {})) {
+            const clean = k.toLowerCase().trim();
+            if (!clean) continue;
+            const wr = rec as WalletRecord;
+            normalizedWalletRecords[clean] = {
+              email: clean,
+              balance: Math.max(0, Number(wr?.balance ?? parsed.wallets[k] ?? 0) || 0),
+              holdBalance: Math.max(0, Number(wr?.holdBalance ?? 0) || 0),
+              lifetimeEarnings: Math.max(0, Number(wr?.lifetimeEarnings ?? wr?.balance ?? 0) || 0),
+              lifetimeSpent: Math.max(0, Number(wr?.lifetimeSpent ?? 0) || 0),
+              updatedAt: Number(wr?.updatedAt || Date.now()),
+            };
+            parsed.wallets[clean] = normalizedWalletRecords[clean].balance;
+          }
+          for (const [k, bal] of Object.entries(parsed.wallets)) {
+            const clean = k.toLowerCase().trim();
+            if (!clean) continue;
+            if (!normalizedWalletRecords[clean]) {
+              const num = Math.max(0, Number(bal) || 0);
+              normalizedWalletRecords[clean] = {
+                email: clean,
+                balance: num,
+                holdBalance: 0,
+                lifetimeEarnings: num,
+                lifetimeSpent: 0,
+                updatedAt: Date.now(),
+              };
+            }
+            parsed.wallets[clean] = normalizedWalletRecords[clean].balance;
+          }
+          parsed.walletRecords = normalizedWalletRecords;
+
+          // Normalize hostPlans keys to lowercase cleanly
+          if (!parsed.hostPlans) parsed.hostPlans = {};
+          const normalizedPlans: Record<string, HostPlanStatus> = {};
+          for (const [k, p] of Object.entries(parsed.hostPlans)) {
+            const clean = k.toLowerCase().trim();
+            if (!clean) continue;
+            const existing = normalizedPlans[clean];
+            const candidate = p as HostPlanStatus;
+            if (!existing || (candidate.expiresAt || 0) >= (existing.expiresAt || 0)) {
+              normalizedPlans[clean] = candidate;
+            }
+          }
+          parsed.hostPlans = normalizedPlans;
+
           return parsed;
         }
       }
@@ -2448,50 +2504,99 @@ class DatabaseStore {
     return this.data;
   }
 
-  // --- Automatic 30-Day Subscription Expiration & 2-day Grace Period Pipeline ---
+  // --- Automatic Subscription Expiration (Monthly=30d, Annual=365d) & Immediate Public Hiding ---
   public checkSubscriptionExpirations() {
     const now = Date.now();
     let changed = false;
 
+    if (!this.data.hostPlans) this.data.hostPlans = {};
+    if (!this.data.subscriptions) this.data.subscriptions = [];
+
     for (const [email, plan] of Object.entries(this.data.hostPlans)) {
-      const gracePeriod = plan.graceExpiresAt || plan.expiresAt + 2 * 864e5;
-
-      if (plan.status === 'active' && now > plan.expiresAt) {
-        if (now > gracePeriod) {
-          // Grace period passed -> Mark plan expired and hide stays from public
-          plan.status = 'expired';
-          this.data.stays.forEach(s => {
-            if (s.ownerEmail?.toLowerCase() === email.toLowerCase() && s.status === 'live') {
-              s.status = 'expired'; // Remains in owner dashboard, hidden from public!
-            }
-          });
-
-          this.createNotification({
-            id: 'notif_' + Date.now() + Math.random(),
-            userEmail: email,
-            title: 'Subscription Expired - Stays Hidden',
-            message: 'Your 30-day hosting plan and 2-day grace period have passed. Your video stays are temporarily hidden from the public feed. Please renew your plan via M-Pesa to restore them.',
-            read: false,
-            link: '/#owner',
-            type: 'subscription',
-            createdAt: now,
-          });
+      const cleanEmail = email.toLowerCase().trim();
+      if (plan.status === 'active' && plan.expiresAt > 0 && now >= plan.expiresAt) {
+        // Check if a scheduled tier switch was queued first
+        if (plan.scheduledTier) {
+          const isAnnual = plan.scheduledPeriod === 'annual';
+          const durationMs = isAnnual ? 365 * 864e5 : 30 * 864e5;
+          plan.tier = plan.scheduledTier;
+          plan.period = plan.scheduledPeriod || 'monthly';
+          plan.startsAt = plan.expiresAt;
+          plan.expiresAt = plan.expiresAt + durationMs;
+          plan.graceExpiresAt = plan.expiresAt;
+          plan.status = 'active';
+          delete plan.scheduledTier;
+          delete plan.scheduledStartsAt;
+          delete plan.scheduledPeriod;
           changed = true;
-        } else {
-          // Inside 2-day grace period alert
-          const hoursLeft = Math.max(1, Math.ceil((gracePeriod - now) / 3600e3));
-          this.createNotification({
-            id: 'notif_' + Date.now() + Math.random(),
-            userEmail: email,
-            title: 'Subscription Grace Period Alert',
-            message: `Your 30-day subscription has expired. You have ${hoursLeft} hours of grace period remaining before your listings disappear from search. Renew now via M-Pesa.`,
-            read: false,
-            link: '/#owner',
-            type: 'subscription',
-            createdAt: now,
-          });
-          changed = true;
+          continue;
         }
+
+        // Strict expiry: mark expired immediately & hide host listings from public feeds
+        plan.status = 'expired';
+        changed = true;
+
+        for (const sub of this.data.subscriptions) {
+          if (
+            (sub.ownerId || sub.owner_id || '').toLowerCase().trim() === cleanEmail &&
+            sub.status === 'active' &&
+            (!sub.endsAt || sub.endsAt <= now)
+          ) {
+            sub.status = 'expired';
+            sub.updatedAt = now;
+          }
+        }
+
+        this.data.stays.forEach(s => {
+          if (s.ownerEmail?.toLowerCase().trim() === cleanEmail && s.status === 'live') {
+            s.status = 'expired'; // Remains visible in Owner Dashboard, hidden from public feeds!
+          }
+        });
+
+        this.createNotification({
+          id: 'notif_exp_' + now + '_' + Math.random().toString(36).slice(2, 6),
+          userEmail: cleanEmail,
+          title: 'Subscription Expired — Listings Hidden',
+          message:
+            'Your hosting subscription has expired. Your listings are temporarily hidden from public feeds until you activate or renew a subscription.',
+          read: false,
+          link: '/#owner',
+          type: 'subscription',
+          createdAt: now,
+        });
+      }
+    }
+
+    // Also reconcile any standalone active SubscriptionRecord past endsAt
+    for (const sub of this.data.subscriptions) {
+      if (sub.status === 'active' && sub.endsAt && sub.endsAt <= now) {
+        sub.status = 'expired';
+        sub.updatedAt = now;
+        changed = true;
+      }
+    }
+
+    // Expire Guest VVVIP subscriptions once past expiresAt
+    for (const u of this.data.users || []) {
+      if (
+        u.vvvipSubscription &&
+        u.vvvipSubscription.status === 'active' &&
+        u.vvvipSubscription.expiresAt > 0 &&
+        now >= u.vvvipSubscription.expiresAt
+      ) {
+        u.vvvipSubscription.status = 'expired';
+        u.isVVVIP = false;
+        changed = true;
+        this.createNotification({
+          id: 'notif_vvvip_exp_' + now + '_' + Math.random().toString(36).slice(2, 6),
+          userEmail: u.email,
+          title: 'AirBus Plus VVVIP Subscription Expired',
+          message: 'Your VVVIP concierge membership has expired. Renew anytime to restore access to AirBus Plus estates.',
+          read: false,
+          link: '/#collection-plus',
+          type: 'subscription',
+          createdAt: now,
+        });
       }
     }
 
@@ -2711,6 +2816,7 @@ class DatabaseStore {
   public createAuthSession(user: User, portal: AuthPortal | 'admin'): AuthSession {
     if (!this.data.authSessions) this.data.authSessions = {};
     const token = `sess_${portal}_${crypto.randomUUID()}`;
+    const now = Date.now();
     const session: AuthSession = {
       token,
       userId: user.id,
@@ -2718,29 +2824,76 @@ class DatabaseStore {
       username: user.username || user.name,
       portal,
       role: user.role,
-      createdAt: Date.now(),
-      expiresAt: Date.now() + 30 * 864e5,
+      createdAt: now,
+      lastActiveAt: now,
+      idleTimeoutMs: SESSION_IDLE_TIMEOUT_MS,
+      expiresAt: now + 30 * 864e5,
     };
     this.data.authSessions[token] = session;
     this.save();
     return session;
   }
 
-  public getUserByAuthToken(token: string): User | null {
+  public getSessionState(
+    token: string,
+    options?: { touch?: boolean; forceSave?: boolean }
+  ): { user: User | null; session: AuthSession | null; idleExpired: boolean } {
     const clean = (token || '').trim();
-    if (!clean) return null;
+    if (!clean) return { user: null, session: null, idleExpired: false };
     const sess = this.data.authSessions?.[clean];
-    if (sess) {
-      if (sess.expiresAt > Date.now()) {
-        const u = this.findUserByEmail(sess.userEmail);
-        if (u && u.role === sess.role) return u;
-      }
-      return null;
+    if (!sess) {
+      return { user: null, session: null, idleExpired: false };
     }
-    // Backwards-compatible fallback for admin API calls still sending admin email
-    const u = this.findUserByEmail(clean);
-    if (u && u.role === 'admin') return u;
-    return null;
+
+    const now = Date.now();
+    const idleLimit = sess.idleTimeoutMs || SESSION_IDLE_TIMEOUT_MS;
+    const lastAct = sess.lastActiveAt || sess.createdAt || now;
+
+    if (sess.expiresAt <= now) {
+      delete this.data.authSessions![clean];
+      this.save();
+      return { user: null, session: null, idleExpired: true };
+    }
+
+    if (now - lastAct > idleLimit) {
+      delete this.data.authSessions![clean];
+      this.save();
+      return { user: null, session: null, idleExpired: true };
+    }
+
+    const u = this.findUserByEmail(sess.userEmail);
+    if (!u || u.role !== sess.role) {
+      return { user: null, session: null, idleExpired: false };
+    }
+
+    if (options?.touch !== false) {
+      sess.lastActiveAt = now;
+      if (options?.forceSave || now - this.lastSessionTouchSavedAt >= 15000) {
+        this.lastSessionTouchSavedAt = now;
+        this.save();
+      }
+    }
+
+    return { user: u, session: sess, idleExpired: false };
+  }
+
+  public touchAuthSession(token: string): {
+    session: AuthSession;
+    idleTimeoutMs: number;
+    idleRemainingMs: number;
+  } | null {
+    const state = this.getSessionState(token, { touch: true, forceSave: true });
+    if (!state.user || !state.session) return null;
+    const idleTimeoutMs = state.session.idleTimeoutMs || SESSION_IDLE_TIMEOUT_MS;
+    return {
+      session: state.session,
+      idleTimeoutMs,
+      idleRemainingMs: idleTimeoutMs,
+    };
+  }
+
+  public getUserByAuthToken(token: string, options?: { touch?: boolean }): User | null {
+    return this.getSessionState(token, options).user;
   }
 
   public invalidateSession(token: string) {
@@ -3042,12 +3195,14 @@ class DatabaseStore {
   }
 
   public createUser(user: User): User {
+    const cleanEmail = user.email.toLowerCase().trim();
+    user.email = cleanEmail;
     this.data.users.push(user);
-    this.ensureWallet(user.email);
-    if (user.role === 'owner') {
-      this.data.wallets[user.email] = 0;
-      // Host must pay 30-day subscription before uploading videos!
-      this.data.hostPlans[user.email] = {
+    // Ensure wallet without overwriting existing persisted balance
+    this.ensureWallet(cleanEmail);
+    if (user.role === 'owner' && !this.data.hostPlans[cleanEmail]) {
+      // Host must pay subscription (30d Monthly / 365d Annual) before publishing stays publicly
+      this.data.hostPlans[cleanEmail] = {
         tier: 'Silver',
         status: 'pending',
         expiresAt: 0,
@@ -3056,9 +3211,9 @@ class DatabaseStore {
       };
       this.createNotification({
         id: 'notif_' + Date.now(),
-        userEmail: user.email,
-        title: 'Welcome Host! Please Select a 30-Day Plan',
-        message: 'To upload and publish short-stay videos, please select a hosting plan (Silver, Diamond, or Gold) and complete M-Pesa payment.',
+        userEmail: cleanEmail,
+        title: 'Welcome Host! Please Select a Hosting Plan',
+        message: 'To publish short stays publicly, please select a hosting plan (Silver, Diamond, or Gold) and activate via Wallet or M-Pesa.',
         read: false,
         link: '/#owner',
         type: 'subscription',
@@ -3234,7 +3389,7 @@ class DatabaseStore {
         // Verify host subscription is active
         if (s.ownerEmail) {
           const plan = this.getHostPlan(s.ownerEmail);
-          if (plan.status !== 'active' || (plan.expiresAt > 0 && plan.expiresAt < Date.now())) return false;
+          if (plan.status !== 'active' || (plan.expiresAt > 0 && plan.expiresAt <= Date.now())) return false;
         }
         return true;
       });
@@ -3754,10 +3909,22 @@ class DatabaseStore {
     return review;
   }
 
-  // --- Plans & Wallet ---
+  // --- Plans & Wallet (Normalized Single Source of Truth) ---
   public getHostPlan(email: string): HostPlanStatus {
-    const now = Date.now();
-    const plan = this.data.hostPlans[email];
+    const cleanEmail = (email || '').toLowerCase().trim();
+    if (!cleanEmail) {
+      return {
+        tier: 'Silver',
+        status: 'pending',
+        expiresAt: 0,
+        graceExpiresAt: 0,
+        hasPaidSubscription: false,
+      };
+    }
+    this.checkSubscriptionExpirations();
+    const plan =
+      this.data.hostPlans[cleanEmail] ||
+      Object.entries(this.data.hostPlans).find(([k]) => k.toLowerCase().trim() === cleanEmail)?.[1];
     if (!plan) {
       return {
         tier: 'Silver',
@@ -3767,47 +3934,22 @@ class DatabaseStore {
         hasPaidSubscription: false,
       };
     }
-    // Check if scheduled tier upgrade/downgrade transition is due
-    if (plan.scheduledTier && plan.expiresAt > 0 && now >= plan.expiresAt) {
-      const isAnnual = plan.scheduledPeriod === 'annual';
-      const durationMs = isAnnual ? 365 * 864e5 : 30 * 864e5;
-      plan.tier = plan.scheduledTier;
-      plan.period = plan.scheduledPeriod || 'monthly';
-      plan.expiresAt = plan.expiresAt + durationMs;
-      plan.graceExpiresAt = plan.expiresAt + 2 * 864e5;
-      plan.status = 'active';
-      delete plan.scheduledTier;
-      delete plan.scheduledStartsAt;
-      delete plan.scheduledPeriod;
-      this.save();
-    }
     return plan;
   }
 
   public setHostPlan(email: string, plan: HostPlanStatus) {
-    this.data.hostPlans[email] = plan;
+    const cleanEmail = (email || '').toLowerCase().trim();
+    if (!cleanEmail) return;
+    if (!this.data.hostPlans) this.data.hostPlans = {};
+    this.data.hostPlans[cleanEmail] = plan;
     this.save();
   }
 
   public getWalletBalance(email: string): number {
     const cleanEmail = (email || '').toLowerCase().trim();
     if (!cleanEmail) return 0;
-    if (!this.data.walletTransactions || this.data.walletTransactions.length === 0) {
-      return this.data.wallets?.[cleanEmail] || 0;
-    }
-    let balance = 0;
-    for (const t of this.data.walletTransactions) {
-      const wId = (t.walletId || t.wallet_id || '').toLowerCase().trim();
-      if (wId === cleanEmail) {
-        const amt = Number(t.amount !== undefined ? t.amount : ((t.amountSc || t.amount_sc || 0) * 10)) || 0;
-        if (t.direction === 'credit') {
-          balance += amt;
-        } else if (t.direction === 'debit') {
-          balance -= amt;
-        }
-      }
-    }
-    return Math.max(0, balance);
+    const wr = this.ensureWallet(cleanEmail);
+    return Math.max(0, Number(wr.balance) || 0);
   }
 
   public getWallet(email: string): number {
@@ -3829,7 +3971,8 @@ class DatabaseStore {
       throw new Error('Transaction amount must be greater than zero.');
     }
 
-    const currentBalance = this.getWalletBalance(cleanWallet);
+    const wr = this.ensureWallet(cleanWallet);
+    const currentBalance = Math.max(0, Number(wr.balance) || 0);
     if (tx.direction === 'debit' && currentBalance < intAmount) {
       throw new Error(
         'Your wallet balance is not enough for this payment. Please top up your wallet, or enter the amount you have paid (or want to pay) to the Till 943210 in the custom amount field.'
@@ -3853,11 +3996,10 @@ class DatabaseStore {
     if (!this.data.walletTransactions) this.data.walletTransactions = [];
     this.data.walletTransactions.unshift(newTx);
 
-    // Sync wallet balance
-    const newBal = this.getWalletBalance(cleanWallet);
+    // Atomic balance update preserving existing wallet balance (never recomputed from partial wtx)
+    const newBal = tx.direction === 'credit' ? currentBalance + intAmount : currentBalance - intAmount;
     if (!this.data.wallets) this.data.wallets = {};
     this.data.wallets[cleanWallet] = newBal;
-    const wr = this.ensureWallet(cleanWallet);
     wr.balance = newBal;
     if (tx.direction === 'credit') {
       wr.lifetimeEarnings = (wr.lifetimeEarnings || 0) + intAmount;
@@ -3865,6 +4007,21 @@ class DatabaseStore {
       wr.lifetimeSpent = (wr.lifetimeSpent || 0) + intAmount;
     }
     wr.updatedAt = Date.now();
+
+    // Mirror deposit/topup to ledgerEntries so Guest & Host wallet ledgers stay unified
+    if (tx.type === 'wallet_topup' || tx.type === 'deposit') {
+      if (!this.data.ledgerEntries) this.data.ledgerEntries = [];
+      this.data.ledgerEntries.unshift({
+        id: 'ledg_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+        fromWallet: 'external_mpesa',
+        toWallet: cleanWallet,
+        amount: intAmount,
+        type: 'topup',
+        referenceId: tx.relatedPaymentId || tx.reference,
+        description: tx.note,
+        createdAt: Date.now(),
+      });
+    }
 
     this.save();
     this.emitWalletUpdate(cleanWallet);
@@ -4397,8 +4554,9 @@ class DatabaseStore {
       this.setHostPlan(hostEmail, {
         tier: (p.planTier as StayCategory) || p.tier || 'Diamond',
         status: 'active',
+        startsAt: now,
         expiresAt: endsAt,
-        graceExpiresAt: endsAt + 2 * 864e5,
+        graceExpiresAt: endsAt,
         hasPaidSubscription: true,
         period: isAnnual ? 'annual' : 'monthly',
       });
@@ -5559,8 +5717,9 @@ class DatabaseStore {
     // Referral commission check
     this.distributeReferralCommission(email, cost, 'subscription');
 
+    const cleanEmail = email.toLowerCase().trim();
     const now = Date.now();
-    const cur = this.getHostPlan(email);
+    const cur = this.getHostPlan(cleanEmail);
     const durationMs = isAnnual ? 365 * 864e5 : 30 * 864e5;
 
     let targetPlan: HostPlanStatus;
@@ -5570,25 +5729,46 @@ class DatabaseStore {
       cur.scheduledStartsAt = cur.expiresAt;
       cur.scheduledPeriod = period;
       targetPlan = cur;
-      this.setHostPlan(email, cur);
+      this.setHostPlan(cleanEmail, cur);
     } else {
       const baseStart = cur.status === 'active' && cur.expiresAt > now ? cur.expiresAt : now;
       const newEnd = baseStart + durationMs;
-      const graceEnd = newEnd + 2 * 864e5;
 
       targetPlan = {
         tier,
         status: 'active',
+        startsAt: cur.status === 'active' && cur.expiresAt > now && cur.startsAt ? cur.startsAt : now,
         expiresAt: newEnd,
-        graceExpiresAt: graceEnd,
+        graceExpiresAt: newEnd,
         hasPaidSubscription: true,
         period,
       };
-      this.setHostPlan(email, targetPlan);
+      this.setHostPlan(cleanEmail, targetPlan);
+
+      if (!this.data.subscriptions) this.data.subscriptions = [];
+      for (const s of this.data.subscriptions) {
+        if ((s.ownerId || s.owner_id || '').toLowerCase().trim() === cleanEmail && s.status === 'active') {
+          s.status = 'expired';
+          s.updatedAt = now;
+        }
+      }
+      this.data.subscriptions.unshift({
+        id: 'sub_wallet_' + now,
+        ownerId: cleanEmail,
+        owner_id: cleanEmail,
+        tier,
+        billing: period,
+        status: 'active',
+        startsAt: targetPlan.startsAt,
+        endsAt: newEnd,
+        paymentId: ledger.id,
+        createdAt: now,
+        updatedAt: now,
+      });
     }
 
     this.data.stays.forEach(s => {
-      if (s.ownerEmail?.toLowerCase() === email.toLowerCase()) {
+      if (s.ownerEmail?.toLowerCase() === cleanEmail) {
         if (s.status === 'expired' || s.status === 'delisted' || s.isDelisted) {
           s.status = 'live';
           s.isDelisted = false;
@@ -6016,11 +6196,23 @@ class DatabaseStore {
     this.data.wallets[cleanEmail] = wallet.balance;
 
     // Credit treasury
-    if (this.data.walletRecords?.['treasury']) {
-      this.data.walletRecords['treasury'].balance += coins;
-      this.data.walletRecords['treasury'].lifetimeEarnings += coins;
-      this.data.walletRecords['treasury'].updatedAt = Date.now();
-    }
+    const treasuryWallet = this.ensureWallet('treasury');
+    treasuryWallet.balance += coins;
+    treasuryWallet.lifetimeEarnings += coins;
+    treasuryWallet.updatedAt = Date.now();
+    this.data.wallets['treasury'] = treasuryWallet.balance;
+
+    if (!this.data.ledgerEntries) this.data.ledgerEntries = [];
+    this.data.ledgerEntries.unshift({
+      id: 'ledg_snappadd_' + Date.now(),
+      fromWallet: cleanEmail,
+      toWallet: 'treasury',
+      amount: coins,
+      type: 'ad_payment',
+      referenceId: 'snappadd_' + Date.now(),
+      description: `SnappAdd Campaign "${data.title.trim()}" (${data.durationDays} days)`,
+      createdAt: Date.now(),
+    });
 
     const campaignId = 'snappadd_' + Date.now();
     const campaign: SnappAddCampaign = {
@@ -7672,11 +7864,14 @@ class DatabaseStore {
         sub.updatedAt = now;
       }
       const plan = this.getHostPlan(ownerEmail);
+      const nextExpiry = Math.max(now, plan.expiresAt || now) + addedMs;
       this.setHostPlan(ownerEmail, {
         ...plan,
         status: 'active',
-        expiresAt: Math.max(now, plan.expiresAt || now) + addedMs,
-        graceExpiresAt: Math.max(now, plan.expiresAt || now) + addedMs + 2 * 864e5,
+        startsAt: plan.startsAt || now,
+        expiresAt: nextExpiry,
+        graceExpiresAt: nextExpiry,
+        hasPaidSubscription: true,
       });
 
       // Restore any expired stays
@@ -7704,16 +7899,27 @@ class DatabaseStore {
         }
       });
     } else if (action === 'approve') {
+      const durationMs = sub?.billing === 'annual' ? 365 * 864e5 : 30 * 864e5;
       if (sub) {
         sub.status = 'active';
         sub.startsAt = now;
-        sub.endsAt = now + (sub.billing === 'annual' ? 365 * 864e5 : 30 * 864e5);
+        sub.endsAt = now + durationMs;
         sub.updatedAt = now;
       }
       this.setHostPlan(ownerEmail, {
         tier: sub?.tier || 'Diamond',
         status: 'active',
-        expiresAt: now + (sub?.billing === 'annual' ? 365 * 864e5 : 30 * 864e5),
+        startsAt: now,
+        expiresAt: now + durationMs,
+        graceExpiresAt: now + durationMs,
+        hasPaidSubscription: true,
+        period: sub?.billing || 'monthly',
+      });
+      this.data.stays.forEach(s => {
+        if (s.ownerEmail?.toLowerCase() === ownerEmail && (s.status === 'expired' || s.isDelisted)) {
+          s.status = 'live';
+          s.isDelisted = false;
+        }
       });
     } else if (action === 'reject') {
       if (sub) {
@@ -8371,27 +8577,84 @@ class DatabaseStore {
     return { subscribed: true, alreadySubscribed: false };
   }
 
-  public upgradeUserToVVVIP(email: string, mpesaCode?: string): User {
+  public upgradeUserToVVVIP(
+    email: string,
+    mpesaCode?: string,
+    options?: { billing?: 'monthly' | 'annual'; method?: 'wallet' | 'mpesa' }
+  ): User {
     const user = this.findUserByEmail(email);
     if (!user) throw new Error('User account not found.');
 
+    const billing: 'monthly' | 'annual' = options?.billing === 'annual' ? 'annual' : 'monthly';
+    const durationMs = billing === 'annual' ? 365 * 864e5 : 30 * 864e5;
+    const cost = billing === 'annual' ? 50000 : 5000;
+    const now = Date.now();
+
+    if (options?.method === 'wallet') {
+      this.transfer(
+        user.email,
+        'treasury',
+        cost,
+        'subscription',
+        'vvvip',
+        `AirBus Plus VVVIP (${billing === 'annual' ? '365-Day Annual' : '30-Day Monthly'}) membership`
+      );
+    }
+
+    const baseStart =
+      user.vvvipSubscription &&
+      user.vvvipSubscription.status === 'active' &&
+      user.vvvipSubscription.expiresAt > now
+        ? user.vvvipSubscription.expiresAt
+        : now;
+
     user.isVVVIP = true;
+    user.vvvipSubscription = {
+      planName: 'AirBus Plus VVVIP',
+      billing,
+      status: 'active',
+      startsAt:
+        user.vvvipSubscription &&
+        user.vvvipSubscription.status === 'active' &&
+        user.vvvipSubscription.expiresAt > now
+          ? user.vvvipSubscription.startsAt
+          : now,
+      expiresAt: baseStart + durationMs,
+    };
+
+    if (!this.data.subscriptions) this.data.subscriptions = [];
+    this.data.subscriptions.unshift({
+      id: 'sub_vvvip_' + now,
+      ownerId: user.email.toLowerCase(),
+      owner_id: user.email.toLowerCase(),
+      tier: 'Gold',
+      billing,
+      status: 'active',
+      startsAt: user.vvvipSubscription.startsAt,
+      endsAt: user.vvvipSubscription.expiresAt,
+      paymentId: mpesaCode || 'vvvip_wallet_' + now,
+      createdAt: now,
+      updatedAt: now,
+    });
+
     this.createNotification({
-      id: 'notif_vvvip_' + Date.now(),
+      id: 'notif_vvvip_' + now,
       userEmail: user.email,
       title: 'Welcome to AirBus Plus (VVVIP)',
-      message: 'Your VVVIP concierge membership is now active! You now have full access to verified diplomatic & luxury estates with hotel-style services.',
+      message: `Your ${billing === 'annual' ? '365-day annual' : '30-day monthly'} VVVIP concierge membership is active until ${new Date(
+        user.vvvipSubscription.expiresAt
+      ).toLocaleDateString()}!`,
       read: false,
       link: '/#collection-plus',
-      type: 'system',
-      createdAt: Date.now(),
+      type: 'subscription',
+      createdAt: now,
     });
     this.createAuditLog({
-      id: 'aud_vvvip_' + Date.now(),
+      id: 'aud_vvvip_' + now,
       action: 'vvvip_upgraded',
       actorEmail: user.email,
-      details: `User ${user.email} unlocked AirBus Plus VVVIP status${mpesaCode ? ` (Ref: ${mpesaCode})` : ''}.`,
-      createdAt: Date.now(),
+      details: `User ${user.email} unlocked AirBus Plus VVVIP (${billing})${mpesaCode ? ` (Ref: ${mpesaCode})` : ''}.`,
+      createdAt: now,
     });
     this.save();
     return user;
@@ -8819,7 +9082,7 @@ class DatabaseStore {
         listingUnavailable = true;
       } else if (stay.ownerEmail) {
         const plan = this.getHostPlan(stay.ownerEmail);
-        if (plan.status !== 'active' || (plan.expiresAt > 0 && plan.expiresAt < now)) {
+        if (plan.status !== 'active' || (plan.expiresAt > 0 && plan.expiresAt <= now)) {
           listingUnavailable = true;
         }
       }

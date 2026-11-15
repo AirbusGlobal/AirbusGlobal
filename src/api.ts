@@ -48,9 +48,21 @@ import {
   ShortIntentType,
   ShortAnalyticsRecord,
 } from './types';
+import { isAdminRoute } from './config/adminRoute';
 
+type PortalSlot = 'guest' | 'owner' | 'admin';
 
-const TOKEN_KEY = 'airbus_auth_token';
+const TOKEN_KEYS: Record<PortalSlot, string> = {
+  guest: 'airbus_token_guest',
+  owner: 'airbus_token_owner',
+  admin: 'airbus_token_admin',
+};
+const ACTIVE_PUBLIC_PORTAL_KEY = 'airbus_active_portal';
+const LEGACY_TOKEN_KEY = 'airbus_auth_token';
+
+let apiActivityListener: (() => void) | null = null;
+let sessionExpiredListener: ((slot: PortalSlot, message?: string) => void) | null = null;
+
 const API_BASE_URL = (
   (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_BASE_URL) || ''
 ).replace(/\/$/, '');
@@ -284,16 +296,79 @@ const STATIC_FALLBACK_ADS: AdRequest[] = [
 ];
 
 export const api = {
-  getToken(): string | null {
-    return localStorage.getItem(TOKEN_KEY);
+  setActivityListener(cb: (() => void) | null) {
+    apiActivityListener = cb;
   },
 
-  setToken(token: string | null) {
-    if (token) {
-      localStorage.setItem(TOKEN_KEY, token);
-    } else {
-      localStorage.removeItem(TOKEN_KEY);
+  setSessionExpiredListener(cb: ((slot: PortalSlot, message?: string) => void) | null) {
+    sessionExpiredListener = cb;
+  },
+
+  getActivePortalSlot(endpoint?: string): PortalSlot {
+    if (
+      endpoint &&
+      (endpoint.startsWith('/api/admin') || endpoint.startsWith('/api/admin-portal'))
+    ) {
+      return 'admin';
     }
+    if (typeof window !== 'undefined' && isAdminRoute(window.location.pathname)) {
+      return 'admin';
+    }
+    try {
+      const saved = localStorage.getItem(ACTIVE_PUBLIC_PORTAL_KEY);
+      if (saved === 'owner' || saved === 'guest') return saved;
+    } catch {}
+    if (typeof window !== 'undefined') {
+      const h = window.location.hash.slice(1);
+      if (h === 'owner' || h === 'host') return 'owner';
+      if (h === 'guest') return 'guest';
+    }
+    // Fallback if only one public role token exists cleanly
+    try {
+      if (localStorage.getItem(TOKEN_KEYS.owner) && !localStorage.getItem(TOKEN_KEYS.guest)) {
+        return 'owner';
+      }
+    } catch {}
+    return 'guest';
+  },
+
+  setActivePublicPortal(portal: 'guest' | 'owner') {
+    try {
+      localStorage.setItem(ACTIVE_PUBLIC_PORTAL_KEY, portal);
+    } catch {}
+  },
+
+  getToken(slot?: PortalSlot, endpoint?: string): string | null {
+    const resolvedSlot = slot || this.getActivePortalSlot(endpoint);
+    try {
+      const scoped = localStorage.getItem(TOKEN_KEYS[resolvedSlot]);
+      if (scoped) return scoped;
+      // Non-destructive legacy fallback only if prefix matches role
+      const legacy = localStorage.getItem(LEGACY_TOKEN_KEY);
+      if (legacy && legacy.startsWith(`sess_${resolvedSlot}_`)) {
+        localStorage.setItem(TOKEN_KEYS[resolvedSlot], legacy);
+        return legacy;
+      }
+    } catch {}
+    return null;
+  },
+
+  setToken(token: string | null, slot?: PortalSlot) {
+    const resolvedSlot = slot || this.getActivePortalSlot();
+    try {
+      if (token) {
+        localStorage.setItem(TOKEN_KEYS[resolvedSlot], token);
+        if (resolvedSlot === 'guest' || resolvedSlot === 'owner') {
+          localStorage.setItem(ACTIVE_PUBLIC_PORTAL_KEY, resolvedSlot);
+        }
+      } else {
+        localStorage.removeItem(TOKEN_KEYS[resolvedSlot]);
+        const legacy = localStorage.getItem(LEGACY_TOKEN_KEY);
+        if (legacy && legacy.startsWith(`sess_${resolvedSlot}_`)) {
+          localStorage.removeItem(LEGACY_TOKEN_KEY);
+        }
+      }
+    } catch {}
   },
 
   async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
@@ -302,9 +377,21 @@ export const api = {
       ...(options.headers as Record<string, string>),
     };
 
-    const token = this.getToken();
+    const slot = this.getActivePortalSlot(endpoint);
+    const token = this.getToken(slot, endpoint);
     if (token) {
       headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    const isBackgroundCall =
+      endpoint.includes('/api/auth/ping') ||
+      endpoint.includes('/api/live/updates') ||
+      endpoint.includes('silent=1');
+
+    if (!isBackgroundCall && token && apiActivityListener) {
+      try {
+        apiActivityListener();
+      } catch {}
     }
 
     const targetUrl = API_BASE_URL ? `${API_BASE_URL}${endpoint}` : endpoint;
@@ -316,6 +403,19 @@ export const api = {
         headers,
       });
     } catch (err: any) {
+      // Never fake auth/session/wallet success on transient network loss
+      if (
+        endpoint.startsWith('/api/auth/') ||
+        endpoint.startsWith('/api/wallet') ||
+        endpoint.startsWith('/api/subscriptions') ||
+        endpoint.startsWith('/api/host/plan') ||
+        endpoint.startsWith('/api/admin')
+      ) {
+        const netErr: any = new Error('Network connection interrupted. Please try again.');
+        netErr.status = 0;
+        netErr.isNetworkError = true;
+        throw netErr;
+      }
       console.warn(`Network call failed for ${endpoint}, using resilient fallback:`, err);
       return this.getStaticFallback<T>(endpoint);
     }
@@ -328,8 +428,15 @@ export const api = {
 
     const data = await res.json();
     if (!res.ok) {
+      if (res.status === 401 && data?.code === 'SESSION_IDLE_EXPIRED' && token) {
+        this.setToken(null, slot);
+        try {
+          sessionExpiredListener?.(slot, data.error);
+        } catch {}
+      }
       const apiErr: any = new Error(data.error || `HTTP error ${res.status}`);
       apiErr.status = res.status;
+      if (data.code) apiErr.code = data.code;
       if (data.failedAttempts !== undefined) apiErr.failedAttempts = data.failedAttempts;
       if (data.showRecovery !== undefined) apiErr.showRecovery = data.showRecovery;
       throw apiErr;
@@ -436,7 +543,8 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ email, password }),
     });
-    this.setToken(data.token);
+    const slot: PortalSlot = data.user.role === 'admin' ? 'admin' : data.user.role === 'owner' ? 'owner' : 'guest';
+    this.setToken(data.token, slot);
     return data;
   },
 
@@ -449,7 +557,7 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ portal, username, password }),
     });
-    this.setToken(data.token);
+    this.setToken(data.token, portal);
     return data;
   },
 
@@ -458,7 +566,8 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(userData),
     });
-    this.setToken(data.token);
+    const slot: PortalSlot = data.user.role === 'admin' ? 'admin' : data.user.role === 'owner' ? 'owner' : 'guest';
+    this.setToken(data.token, slot);
     return data;
   },
 
@@ -472,7 +581,7 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data),
     });
-    this.setToken(res.token);
+    this.setToken(res.token, data.portal);
     return res;
   },
 
@@ -488,21 +597,75 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data),
     });
-    this.setToken(res.token);
+    this.setToken(res.token, data.portal);
     return res;
   },
 
-  async logoutSession(): Promise<void> {
-    try {
-      await this.request('/api/auth/logout', { method: 'POST' });
-    } catch {
-      // Ignore logout network error
+  async logoutSession(slot?: PortalSlot): Promise<void> {
+    const targetSlot = slot || this.getActivePortalSlot();
+    const token = this.getToken(targetSlot);
+    if (token) {
+      try {
+        const targetUrl = API_BASE_URL ? `${API_BASE_URL}/api/auth/logout` : '/api/auth/logout';
+        await fetch(targetUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+        });
+      } catch {
+        // Ignore logout network error
+      }
     }
-    this.logout();
+    this.logout(targetSlot);
   },
 
-  async getMe(): Promise<{ user: User }> {
-    return this.request<{ user: User }>('/api/auth/me');
+  async getMe(silent = false): Promise<{
+    user: User;
+    session?: {
+      portal: string;
+      role: string;
+      lastActiveAt: number;
+      idleTimeoutMs: number;
+      idleRemainingMs: number;
+    };
+    walletBalance?: number;
+    hostPlan?: HostPlanStatus;
+  }> {
+    return this.request(`/api/auth/me${silent ? '?silent=1' : ''}`);
+  },
+
+  async pingSession(slot?: PortalSlot): Promise<{
+    ok: boolean;
+    lastActiveAt: number;
+    idleTimeoutMs: number;
+    idleRemainingMs: number;
+  }> {
+    const resolvedSlot = slot || this.getActivePortalSlot();
+    const token = this.getToken(resolvedSlot);
+    const targetUrl = API_BASE_URL ? `${API_BASE_URL}/api/auth/ping` : '/api/auth/ping';
+    const res = await fetch(targetUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      if (res.status === 401 && data?.code === 'SESSION_IDLE_EXPIRED' && token) {
+        this.setToken(null, resolvedSlot);
+        try {
+          sessionExpiredListener?.(resolvedSlot, data.error);
+        } catch {}
+      }
+      const err: any = new Error(data.error || 'Session ping failed.');
+      err.status = res.status;
+      err.code = data.code;
+      throw err;
+    }
+    return data;
   },
 
   async updateProfile(profileData: any): Promise<{ user: User }> {
@@ -536,7 +699,7 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data),
     });
-    this.setToken(res.token);
+    this.setToken(res.token, 'admin');
     return res;
   },
 
@@ -551,7 +714,7 @@ export const api = {
       body: JSON.stringify(data),
     });
     if (res.token) {
-      this.setToken(res.token);
+      this.setToken(res.token, 'admin');
     }
     return res;
   },
@@ -566,13 +729,13 @@ export const api = {
       body: JSON.stringify(data),
     });
     if (res.token) {
-      this.setToken(res.token);
+      this.setToken(res.token, 'admin');
     }
     return res;
   },
 
-  logout() {
-    this.setToken(null);
+  logout(slot?: PortalSlot) {
+    this.setToken(null, slot);
   },
 
   // Stays
@@ -1607,7 +1770,11 @@ export const api = {
     });
   },
 
-  async upgradeToVVVIP(data: { method?: 'wallet' | 'mpesa'; mpesaCode?: string }): Promise<{ user: User; message: string }> {
+  async upgradeToVVVIP(data: {
+    method?: 'wallet' | 'mpesa';
+    mpesaCode?: string;
+    billing?: 'monthly' | 'annual';
+  }): Promise<{ user: User; walletBalance?: number; message: string }> {
     return this.request('/api/collections/vvvip/upgrade', {
       method: 'POST',
       body: JSON.stringify(data),

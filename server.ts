@@ -4,7 +4,7 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { GoogleGenAI } from '@google/genai';
-import { db, hashPassword, PLANS } from './src/server/db';
+import { db, hashPassword, PLANS, SESSION_IDLE_TIMEOUT_MS } from './src/server/db';
 import { User, Stay, Booking, ChatThread, ChatMessage, PaymentRecordType, PaymentRecordMethod, ShortIntentType } from './src/types';
 import { audioLibraryService } from './src/server/services/audioLibraryService';
 import { mediaProcessingService } from './src/server/services/mediaProcessingService';
@@ -72,10 +72,10 @@ function extractAuthToken(req: express.Request): string {
   return '';
 }
 
-function getAuthUser(req: express.Request): User | null {
+function getAuthUser(req: express.Request, options?: { touch?: boolean }): User | null {
   const token = extractAuthToken(req);
   if (!token) return null;
-  return db.getUserByAuthToken(token) || null;
+  return db.getUserByAuthToken(token, options) || null;
 }
 
 // In-Memory Rate Limiting Store
@@ -409,13 +409,57 @@ app.post('/api/auth/recovery', (req, res) => {
   }
 });
 
-app.get('/api/auth/me', (req, res) => {
-  const user = getAuthUser(req) as any;
-  if (!user) {
-    return res.status(401).json({ error: 'Not authenticated' });
+app.post('/api/auth/ping', (req, res) => {
+  const token = extractAuthToken(req);
+  if (!token) {
+    return res.status(401).json({ error: 'Not authenticated', code: 'UNAUTHENTICATED' });
   }
+  const touched = db.touchAuthSession(token);
+  if (!touched) {
+    return res.status(401).json({
+      error: 'Session expired due to 20 minutes of inactivity. Please log in again.',
+      code: 'SESSION_IDLE_EXPIRED',
+    });
+  }
+  return res.json({
+    ok: true,
+    lastActiveAt: touched.session.lastActiveAt,
+    idleTimeoutMs: touched.idleTimeoutMs,
+    idleRemainingMs: touched.idleRemainingMs,
+  });
+});
+
+app.get('/api/auth/me', (req, res) => {
+  const token = extractAuthToken(req);
+  if (!token) {
+    return res.status(401).json({ error: 'Not authenticated', code: 'UNAUTHENTICATED' });
+  }
+  const touch = req.query.silent !== '1';
+  const state = db.getSessionState(token, { touch });
+  if (!state.user || !state.session) {
+    return res.status(401).json({
+      error: state.idleExpired
+        ? 'Session expired due to 20 minutes of inactivity. Please log in again.'
+        : 'Not authenticated',
+      code: state.idleExpired ? 'SESSION_IDLE_EXPIRED' : 'UNAUTHENTICATED',
+    });
+  }
+  const user = state.user as any;
   const { passwordHash, ...safeUser } = user;
-  return res.json({ user: safeUser });
+  const idleTimeoutMs = state.session.idleTimeoutMs || SESSION_IDLE_TIMEOUT_MS;
+  const idleRemainingMs = Math.max(0, idleTimeoutMs - (Date.now() - (state.session.lastActiveAt || state.session.createdAt)));
+  return res.json({
+    user: safeUser,
+    session: {
+      portal: state.session.portal,
+      role: state.session.role,
+      lastActiveAt: state.session.lastActiveAt,
+      idleTimeoutMs,
+      idleRemainingMs,
+    },
+    walletBalance: db.getWalletBalance(user.email),
+    hostPlan: user.role === 'owner' ? db.getHostPlan(user.email) : undefined,
+  });
 });
 
 app.patch('/api/auth/profile', (req, res) => {
@@ -538,6 +582,16 @@ app.get('/api/stays/:id', (req, res) => {
   const stay = db.getStayById(req.params.id, viewerUser);
   if (!stay) {
     return res.status(404).json({ error: 'Stay not found' });
+  }
+  const isOwnerOrAdmin = Boolean(
+    viewerUser &&
+      (viewerUser.role === 'admin' ||
+        (stay.ownerEmail && viewerUser.email.toLowerCase() === stay.ownerEmail.toLowerCase()))
+  );
+  if (!isOwnerOrAdmin) {
+    if (stay.status !== 'live' || stay.isDelisted || stay.ownerSubscriptionExpired) {
+      return res.status(404).json({ error: 'This listing is currently unavailable.' });
+    }
   }
   db.incrementStayViews(req.params.id);
   return res.json({ stay });
@@ -2537,15 +2591,16 @@ app.get('/api/wallet', (req, res) => {
 });
 
 app.get('/api/wallet/stream', (req, res) => {
-  const user = getAuthUser(req);
-  if (!user) return res.status(401).json({ error: 'Not authenticated' });
+  const token = extractAuthToken(req);
+  const state = db.getSessionState(token, { touch: false });
+  if (!state.user) return res.status(401).json({ error: 'Not authenticated' });
 
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
   res.flushHeaders?.();
 
-  const targetEmail = user.email.toLowerCase();
+  const targetEmail = state.user.email.toLowerCase();
   const initialWallet = db.getWalletRecord(targetEmail);
   res.write(
     `event: wallet_update\ndata: ${JSON.stringify({
@@ -2564,6 +2619,14 @@ app.get('/api/wallet/stream', (req, res) => {
   });
 
   const keepalive = setInterval(() => {
+    const check = db.getSessionState(token, { touch: false });
+    if (!check.user) {
+      res.write(`event: session_expired\ndata: ${JSON.stringify({ reason: 'idle_timeout' })}\n\n`);
+      clearInterval(keepalive);
+      unsubscribe();
+      res.end();
+      return;
+    }
     res.write(': keepalive\n\n');
   }, 25000);
 
@@ -3688,17 +3751,23 @@ app.post('/api/collections/vvvip/upgrade', (req, res) => {
   if (!user) {
     return res.status(401).json({ error: 'Please sign in first to become a VVVIP member.' });
   }
-  const { mpesaCode, method } = req.body || {};
+  const { mpesaCode, method, billing } = req.body || {};
   try {
-    // Allow wallet or Till 943210 activation (for manual payment, record transaction & grant/verify)
-    if (method === 'mpesa' && (!mpesaCode || String(mpesaCode).trim().length < 6)) {
+    const cleanBilling: 'monthly' | 'annual' = billing === 'annual' ? 'annual' : 'monthly';
+    const cleanMethod: 'wallet' | 'mpesa' = method === 'wallet' ? 'wallet' : 'mpesa';
+    if (cleanMethod === 'mpesa' && (!mpesaCode || String(mpesaCode).trim().length < 6)) {
       return res.status(400).json({ error: 'Please provide a valid M-Pesa transaction code for Till 943210.' });
     }
-    const updatedUser = db.upgradeUserToVVVIP(user.email, mpesaCode ? String(mpesaCode).trim().toUpperCase() : undefined);
+    const updatedUser = db.upgradeUserToVVVIP(
+      user.email,
+      mpesaCode ? String(mpesaCode).trim().toUpperCase() : undefined,
+      { billing: cleanBilling, method: cleanMethod }
+    );
     const { passwordHash, ...safeUser } = updatedUser as any;
     return res.json({
       user: safeUser,
-      message: 'Congratulations! Your AirBus Plus VVVIP membership is now active.',
+      walletBalance: db.getWalletBalance(user.email),
+      message: `Congratulations! Your ${cleanBilling === 'annual' ? '365-Day Annual' : '30-Day Monthly'} AirBus Plus VVVIP membership is now active.`,
     });
   } catch (err: any) {
     return res.status(400).json({ error: err.message || 'VVVIP upgrade failed.' });
@@ -3773,6 +3842,17 @@ async function startServer() {
 
   const httpServer = app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 AirBus full-stack server running on http://0.0.0.0:${PORT}`);
+    // Run subscription/boost/ad expiration checks on startup and every 60 seconds
+    db.checkAllExpirations();
+    const expiryScheduler = setInterval(() => {
+      try {
+        db.checkAllExpirations();
+      } catch (err) {
+        console.warn('Scheduled expiration check warning:', err);
+      }
+    }, 60 * 1000);
+    expiryScheduler.unref();
+
     // Warm local audio tracks only after server is listening & Vite has settled
     setTimeout(() => {
       audioLibraryService.ensureLocalAudioAssets().catch(() => {});
