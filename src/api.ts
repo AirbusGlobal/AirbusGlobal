@@ -1265,8 +1265,8 @@ export const api = {
     return this.request('/api/wallet');
   },
 
-  getWalletStreamUrl(): string {
-    const token = this.getToken() || '';
+  getWalletStreamUrl(slot?: PortalSlot): string {
+    const token = this.getToken(slot) || '';
     const base = API_BASE_URL ? `${API_BASE_URL}/api/wallet/stream` : '/api/wallet/stream';
     return `${base}?token=${encodeURIComponent(token)}`;
   },

@@ -112,6 +112,8 @@ export const CollectionsPage: React.FC<CollectionsPageProps> = ({
 
   // AirBus Plus VVVIP Upgrade Modal
   const [showVvvipModal, setShowVvvipModal] = useState(false);
+  const [vvvipBilling, setVvvipBilling] = useState<'monthly' | 'annual'>('monthly');
+  const [vvvipMethod, setVvvipMethod] = useState<'wallet' | 'mpesa'>('wallet');
   const [vvvipMpesaCode, setVvvipMpesaCode] = useState('');
   const [vvvipLoading, setVvvipLoading] = useState(false);
 
@@ -276,14 +278,20 @@ export const CollectionsPage: React.FC<CollectionsPageProps> = ({
       onOpenAuth();
       return;
     }
+    if (vvvipMethod === 'mpesa' && !vvvipMpesaCode.trim()) {
+      showToast?.('Enter your M-Pesa transaction code for Till 943210.');
+      return;
+    }
     setVvvipLoading(true);
     try {
       const res = await api.upgradeToVVVIP({
-        method: vvvipMpesaCode.trim() ? 'mpesa' : 'wallet',
-        mpesaCode: vvvipMpesaCode.trim() || undefined,
+        billing: vvvipBilling,
+        method: vvvipMethod,
+        mpesaCode: vvvipMethod === 'mpesa' ? vvvipMpesaCode.trim() : undefined,
       });
       onUserUpgraded?.(res.user);
       setShowVvvipModal(false);
+      setVvvipMpesaCode('');
       showToast?.(res.message);
       await loadCollection();
     } catch (err: any) {
@@ -965,28 +973,89 @@ export const CollectionsPage: React.FC<CollectionsPageProps> = ({
             </div>
 
             <p className="text-xs text-stone-300 leading-relaxed">
-              Pay KES 5,000 VVVIP Concierge Access via M-Pesa Till <strong className="text-amber-300">943210 (Buy Goods)</strong> or activate instantly via your verified AirBus profile to unlock diplomatic &amp; hotel-service residences.
+              Choose Monthly (30 days) or Annual (365 days) access to diplomatic &amp; hotel-service residences. Pay instantly from your AirBus Wallet or submit M-Pesa Till <strong className="text-amber-300">943210</strong>.
             </p>
 
+            {/* Billing Cycle Selector */}
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setVvvipBilling('monthly')}
+                className={`p-3 rounded-2xl border text-left transition cursor-pointer ${
+                  vvvipBilling === 'monthly'
+                    ? 'border-amber-400 bg-amber-500/15'
+                    : 'border-stone-700 bg-black/40 hover:border-stone-500'
+                }`}
+              >
+                <div className="text-xs font-extrabold text-amber-300">Monthly (30 Days)</div>
+                <div className="text-sm font-black font-mono mt-0.5">KES 5,000</div>
+              </button>
+              <button
+                type="button"
+                onClick={() => setVvvipBilling('annual')}
+                className={`p-3 rounded-2xl border text-left transition cursor-pointer ${
+                  vvvipBilling === 'annual'
+                    ? 'border-amber-400 bg-amber-500/15'
+                    : 'border-stone-700 bg-black/40 hover:border-stone-500'
+                }`}
+              >
+                <div className="text-xs font-extrabold text-amber-300">Annual (365 Days)</div>
+                <div className="text-sm font-black font-mono mt-0.5">KES 50,000</div>
+              </button>
+            </div>
+
+            {/* Payment Method Selector */}
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setVvvipMethod('wallet')}
+                className={`py-2 px-3 rounded-xl border text-xs font-bold cursor-pointer ${
+                  vvvipMethod === 'wallet'
+                    ? 'border-emerald-400 bg-emerald-500/15 text-emerald-300'
+                    : 'border-stone-700 text-stone-400'
+                }`}
+              >
+                AirBus Wallet
+              </button>
+              <button
+                type="button"
+                onClick={() => setVvvipMethod('mpesa')}
+                className={`py-2 px-3 rounded-xl border text-xs font-bold cursor-pointer ${
+                  vvvipMethod === 'mpesa'
+                    ? 'border-emerald-400 bg-emerald-500/15 text-emerald-300'
+                    : 'border-stone-700 text-stone-400'
+                }`}
+              >
+                M-Pesa Till 943210
+              </button>
+            </div>
+
             <form onSubmit={handleUpgradeVVVIP} className="space-y-3">
-              <div>
-                <label className="text-xs font-semibold text-stone-300 block mb-1">
-                  M-Pesa Transaction Code (Till 943210) — Optional for Wallet
-                </label>
-                <input
-                  type="text"
-                  value={vvvipMpesaCode}
-                  onChange={e => setVvvipMpesaCode(e.target.value)}
-                  placeholder="e.g. TILL943210XYZ"
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-black/60 border border-stone-700 text-xs text-white outline-none focus:border-amber-400 font-mono uppercase"
-                />
-              </div>
+              {vvvipMethod === 'mpesa' && (
+                <div>
+                  <label className="text-xs font-semibold text-stone-300 block mb-1">
+                    M-Pesa Transaction Code (Till 943210) *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={vvvipMpesaCode}
+                    onChange={e => setVvvipMpesaCode(e.target.value)}
+                    placeholder="e.g. TILL943210XYZ"
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-black/60 border border-stone-700 text-xs text-white outline-none focus:border-amber-400 font-mono uppercase"
+                  />
+                </div>
+              )}
               <button
                 type="submit"
                 disabled={vvvipLoading}
                 className="w-full py-3 rounded-xl bg-gradient-to-r from-amber-400 to-yellow-500 text-black font-black text-xs cursor-pointer hover:brightness-110 disabled:opacity-50"
               >
-                {vvvipLoading ? 'Activating VVVIP...' : 'Activate VVVIP Membership Now'}
+                {vvvipLoading
+                  ? 'Activating VVVIP...'
+                  : vvvipMethod === 'wallet'
+                  ? `Pay KES ${(vvvipBilling === 'annual' ? 50000 : 5000).toLocaleString()} from Wallet`
+                  : 'Activate VVVIP Membership Now'}
               </button>
             </form>
           </div>

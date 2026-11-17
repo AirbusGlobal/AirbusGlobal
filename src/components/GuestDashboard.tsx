@@ -31,6 +31,7 @@ import {
   Coins,
   Check,
   AlertCircle,
+  Crown,
 } from 'lucide-react';
 import { StayCard } from './StayCard';
 import { BookingCalendarView } from './BookingCalendarView';
@@ -57,6 +58,7 @@ interface GuestDashboardProps {
   currency: Currency;
   onBackToFeed?: () => void;
   onNavigateToShorts?: () => void;
+  onNavigateToCollections?: () => void;
   showToast?: (msg: string) => void;
 }
 
@@ -80,6 +82,7 @@ export const GuestDashboard: React.FC<GuestDashboardProps> = ({
   currency,
   onBackToFeed,
   onNavigateToShorts,
+  onNavigateToCollections,
   showToast,
 }) => {
   const [activeTab, setActiveTab] = useState<'trips' | 'wallet' | 'wishlist' | 'messages' | 'recommended' | 'profile'>('trips');
@@ -336,6 +339,68 @@ export const GuestDashboard: React.FC<GuestDashboardProps> = ({
             </div>
           </div>
         )}
+
+        {/* Guest VVVIP / AirBus Plus Membership Status */}
+        {(() => {
+          const vvvip = user.vvvipSubscription;
+          const isVvvipActive = Boolean(
+            user.isVVVIP &&
+              (!vvvip || (vvvip.status === 'active' && vvvip.expiresAt > Date.now()))
+          );
+          const isVvvipExpired = Boolean(
+            vvvip && (vvvip.status === 'expired' || vvvip.expiresAt <= Date.now())
+          );
+          const vvvipDaysLeft = vvvip?.expiresAt
+            ? Math.max(0, Math.ceil((vvvip.expiresAt - Date.now()) / 864e5))
+            : 0;
+
+          return (
+            <div className="mt-4 pt-4 border-t border-white/10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-amber-500/20 text-amber-300 flex items-center justify-center shrink-0">
+                  <Crown className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs font-extrabold text-white">
+                      {vvvip?.planName || 'AirBus Plus (VVVIP)'}
+                    </span>
+                    <span
+                      className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full ${
+                        isVvvipActive
+                          ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                          : isVvvipExpired
+                          ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                          : 'bg-white/10 text-stone-300'
+                      }`}
+                    >
+                      {isVvvipActive
+                        ? `Active (${vvvip?.billing === 'annual' ? 'Annual' : 'Monthly'} · ${vvvipDaysLeft}d left)`
+                        : isVvvipExpired
+                        ? 'Expired'
+                        : 'Standard Free'}
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-stone-400 mt-0.5">
+                    {vvvip
+                      ? `Period: ${new Date(vvvip.startsAt).toLocaleDateString()} → ${new Date(vvvip.expiresAt).toLocaleDateString()}`
+                      : 'Unlock luxury butler & diplomatic residences with a Monthly (30-Day) or Annual (365-Day) VVVIP pass.'}
+                  </div>
+                </div>
+              </div>
+
+              {onNavigateToCollections && (
+                <button
+                  type="button"
+                  onClick={onNavigateToCollections}
+                  className="px-3.5 py-1.5 rounded-full bg-gradient-to-r from-amber-400 to-yellow-500 hover:brightness-105 text-black font-extrabold text-xs cursor-pointer shrink-0"
+                >
+                  {isVvvipActive ? 'View AirBus Plus' : isVvvipExpired ? 'Renew VVVIP' : 'Upgrade to VVVIP'}
+                </button>
+              )}
+            </div>
+          );
+        })()}
       </div>
 
       {/* 24-Hour Stay Check-in Alert Banner */}

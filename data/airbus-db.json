@@ -87,7 +87,8 @@
       "phone": "",
       "location": "Nairobi, Kenya",
       "idVerified": false,
-      "createdAt": 1794732376355
+      "createdAt": 1794732376355,
+      "isVVVIP": false
     },
     {
       "id": "u_1794732376412_j8y",
@@ -100,7 +101,8 @@
       "phone": "",
       "location": "Nairobi, Kenya",
       "idVerified": false,
-      "createdAt": 1794732376412
+      "createdAt": 1794732376412,
+      "isVVVIP": false
     },
     {
       "id": "u_1794732418094_xn2",
@@ -113,7 +115,8 @@
       "phone": "",
       "location": "Nairobi, Kenya",
       "idVerified": false,
-      "createdAt": 1794732418094
+      "createdAt": 1794732418094,
+      "isVVVIP": false
     },
     {
       "id": "u_1794732418136_4uk",
@@ -126,7 +129,8 @@
       "phone": "",
       "location": "Nairobi, Kenya",
       "idVerified": false,
-      "createdAt": 1794732418136
+      "createdAt": 1794732418136,
+      "isVVVIP": false
     },
     {
       "id": "u_1794732432027_r8t",
@@ -139,7 +143,8 @@
       "phone": "",
       "location": "Nairobi, Kenya",
       "idVerified": false,
-      "createdAt": 1794732432027
+      "createdAt": 1794732432027,
+      "isVVVIP": false
     },
     {
       "id": "u_1794732432066_k8m",
@@ -152,7 +157,8 @@
       "phone": "",
       "location": "Nairobi, Kenya",
       "idVerified": false,
-      "createdAt": 1794732432066
+      "createdAt": 1794732432066,
+      "isVVVIP": false
     },
     {
       "id": "u_1794732452431_a0i",
@@ -165,7 +171,8 @@
       "phone": "",
       "location": "Nairobi, Kenya",
       "idVerified": false,
-      "createdAt": 1794732452431
+      "createdAt": 1794732452431,
+      "isVVVIP": false
     },
     {
       "id": "u_1794732452479_cuj",
@@ -178,7 +185,8 @@
       "phone": "",
       "location": "Nairobi, Kenya",
       "idVerified": false,
-      "createdAt": 1794732452479
+      "createdAt": 1794732452479,
+      "isVVVIP": false
     },
     {
       "id": "u_1794732480360_aw1",
@@ -191,7 +199,8 @@
       "phone": "",
       "location": "Nairobi, Kenya",
       "idVerified": false,
-      "createdAt": 1794732480360
+      "createdAt": 1794732480360,
+      "isVVVIP": false
     },
     {
       "id": "u_1794732480424_rt0",
@@ -204,7 +213,8 @@
       "phone": "",
       "location": "Nairobi, Kenya",
       "idVerified": false,
-      "createdAt": 1794732480424
+      "createdAt": 1794732480424,
+      "isVVVIP": false
     },
     {
       "id": "u_1794732498366_psx",
@@ -217,7 +227,8 @@
       "phone": "",
       "location": "Nairobi, Kenya",
       "idVerified": false,
-      "createdAt": 1794732498366
+      "createdAt": 1794732498366,
+      "isVVVIP": false
     },
     {
       "id": "u_1794732513485_avs",
@@ -230,7 +241,8 @@
       "phone": "",
       "location": "Nairobi, Kenya",
       "idVerified": false,
-      "createdAt": 1794732513485
+      "createdAt": 1794732513485,
+      "isVVVIP": false
     },
     {
       "id": "u_1794732513528_0jr",
@@ -243,7 +255,8 @@
       "phone": "",
       "location": "Nairobi, Kenya",
       "idVerified": false,
-      "createdAt": 1794732513528
+      "createdAt": 1794732513528,
+      "isVVVIP": false
     }
   ],
   "stays": [
@@ -315,7 +328,8 @@
       ],
       "createdAt": 1794732514224,
       "hasVideo": false,
-      "hasPhotos": true
+      "hasPhotos": true,
+      "isVerified": true
     },
     {
       "id": "s1",
@@ -2567,7 +2581,7 @@
     },
     "hostalphaf2c5ae_mwhleebc53k@owner.airbus.ke": {
       "tier": "Silver",
-      "status": "active",
+      "status": "expired",
       "expiresAt": 1794559714237,
       "graceExpiresAt": 1794732514237,
       "hasPaidSubscription": true
@@ -2606,6 +2620,16 @@
     }
   ],
   "notifications": [
+    {
+      "id": "notif_exp_1794900029759_psvg",
+      "userEmail": "hostalphaf2c5ae_mwhleebc53k@owner.airbus.ke",
+      "title": "Subscription Expired — Listings Hidden",
+      "message": "Your hosting subscription has expired. Your listings are temporarily hidden from public feeds until you activate or renew a subscription.",
+      "read": false,
+      "link": "/#owner",
+      "type": "subscription",
+      "createdAt": 1794900029759
+    },
     {
       "id": "notif_17947325142290.1803260706254297",
       "userEmail": "kamalahari93@gmail.com",

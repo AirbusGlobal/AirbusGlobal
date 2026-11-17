@@ -1144,12 +1144,11 @@ app.post('/api/admin/stays/:id/approve', (req, res) => {
     return res.status(403).json({ error: 'Admin access required.' });
   }
 
-  const stay = db.getStayById(req.params.id);
+  const stay = db.updateStay(req.params.id, {
+    isApprovedByAdmin: true,
+    status: 'live',
+  });
   if (!stay) return res.status(404).json({ error: 'Stay not found' });
-
-  stay.isApprovedByAdmin = true;
-  stay.status = 'live';
-  db.save();
 
   if (stay.ownerEmail) {
     db.createNotification({

@@ -7738,7 +7738,7 @@ class DatabaseStore {
     adminEmail: string,
     reason?: string
   ): Stay | null {
-    const stay = this.getStayById(id);
+    const stay = this.data.stays.find(s => s.id === id);
     if (!stay && action !== 'delete') throw new Error('Listing not found.');
 
     const now = Date.now();
@@ -7807,7 +7807,7 @@ class DatabaseStore {
     }
 
     this.save();
-    return stay;
+    return this.hydrateStayAudio(stay);
   }
 
   // --- Subscriptions Moderation Queue (Section 3) ---

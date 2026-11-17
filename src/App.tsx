@@ -37,7 +37,7 @@ import { SettingsModal } from './components/SettingsModal';
 import { TripDatingPage } from './components/trip-dating/TripDatingPage';
 import { Footer } from './components/Footer';
 import { CollectionsPage, CollectionSlug } from './components/CollectionsPage';
-import { Lock, Clock, ShieldAlert } from 'lucide-react';
+import { Lock, Clock } from 'lucide-react';
 import {
   trigger24HourCheckinAlert,
   isNotificationSupported,
@@ -392,7 +392,7 @@ export default function App() {
     const token = api.getToken(slot);
     if (!user || !token || typeof EventSource === 'undefined') return;
 
-    const es = new EventSource(api.getWalletStreamUrl());
+    const es = new EventSource(api.getWalletStreamUrl(slot));
     const handleWalletEvent = (event: MessageEvent) => {
       try {
         const payload = JSON.parse(event.data);
@@ -633,7 +633,11 @@ export default function App() {
     setCurrentTab(tab);
     if (user && !isOnAdminRoute) {
       try {
-        localStorage.setItem(`airbus_last_tab_${user.role}`, tab);
+        if (tab === 'guest' || tab === 'owner') {
+          localStorage.setItem(`airbus_last_tab_${user.role}`, tab);
+        } else if (tab === 'home') {
+          localStorage.removeItem(`airbus_last_tab_${user.role}`);
+        }
       } catch {}
     }
     if (window.location.pathname.startsWith('/listing/')) {
@@ -975,6 +979,12 @@ export default function App() {
             onDeleteStay={handleDeleteStay}
             onAdjustHostPlan={async (hostEmail, tier, days) => {
               await api.adjustHostPlan(hostEmail, tier, days);
+              const [updated, sRes] = await Promise.all([
+                api.getAdminOverview(),
+                api.getStays(),
+              ]);
+              setAdminOverview(updated);
+              setStays(sRes.stays);
               showToast(`Plan updated for ${hostEmail}.`);
             }}
             currency={currency}
@@ -1216,7 +1226,7 @@ export default function App() {
           ) : (
             <OwnerDashboard
               user={user}
-              myStays={ownerStays.length > 0 ? ownerStays : stays.filter(s => s.ownerEmail === user.email)}
+              myStays={user.role === 'owner' ? ownerStays : stays.filter(s => s.ownerEmail === user.email)}
               bookings={bookings}
               plan={hostPlan}
               walletBalance={walletBalance}
@@ -1291,6 +1301,9 @@ export default function App() {
             onUserUpgraded={updatedUser => {
               setUser(updatedUser);
               api.getStays().then(r => setStays(r.stays)).catch(() => {});
+              api.getWallet().then(w => {
+                if (w?.wallet?.balance !== undefined) setWalletBalance(w.wallet.balance);
+              }).catch(() => {});
             }}
             showToast={showToast}
           />

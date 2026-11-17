@@ -104,10 +104,10 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'listings' | 'reservations' | 'promotions' | 'shorts' | 'new-stay' | 'insights'>('listings');
 
-  // Check if subscription is active
+  // Check if subscription is active (strict backend-synced expiry; no grace-period masking)
   const isPlanActive = plan.status === 'active' && plan.expiresAt > Date.now();
-  const daysRemaining = Math.max(0, Math.ceil((plan.expiresAt - Date.now()) / 864e5));
-  const isGracePeriod = !isPlanActive && Date.now() <= plan.expiresAt + 2 * 864e5;
+  const daysRemaining = isPlanActive ? Math.max(1, Math.ceil((plan.expiresAt - Date.now()) / 864e5)) : 0;
+  const liveListingsCount = myStays.filter(s => s.status === 'live').length;
 
   // Promoted Listings & Visibility Boost State
   const [promotions, setPromotions] = useState<ListingPromotion[]>([]);
@@ -939,12 +939,9 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
           {isPlanActive ? (
             <span className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 text-xs font-bold px-3 py-1 rounded-full flex items-center gap-1.5">
               <CheckCircle2 className="w-3.5 h-3.5" />
-              <span>30-Day Plan Active: {daysRemaining} days left</span>
-            </span>
-          ) : isGracePeriod ? (
-            <span className="bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 text-xs font-bold px-3 py-1 rounded-full flex items-center gap-1.5">
-              <AlertCircle className="w-3.5 h-3.5" />
-              <span>2-Day Grace Period: Renew now</span>
+              <span>
+                {plan.period === 'annual' ? 'Annual' : '30-Day'} Plan Active: {daysRemaining} days left
+              </span>
             </span>
           ) : (
             <span className="bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/30 text-xs font-bold px-3 py-1 rounded-full flex items-center gap-1.5">
@@ -955,7 +952,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
         </div>
       </div>
 
-      {/* Mandatory Subscription Warning Banner if Inactive */}
+      {/* Mandatory Subscription Warning Banner if Inactive or Expired */}
       {!isPlanActive && (
         <div className="mb-6 p-4 rounded-3xl bg-gradient-to-r from-rose-950/40 via-stone-900 to-amber-950/40 border border-rose-500/40 text-white flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xl">
           <div className="flex items-center gap-3">
@@ -964,10 +961,12 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
             </div>
             <div>
               <h3 className="text-sm font-extrabold text-white">
-                Mandatory Host Subscription Required
+                {plan.hasPaidSubscription
+                  ? 'Host Subscription Expired — Public Listings Hidden'
+                  : 'Activate Host Subscription to Publish Live'}
               </h3>
               <p className="text-xs text-stone-300">
-                To add listings and keep short stays visible in search, an active subscription (Silver KES 1,000, Diamond KES 2,500, or Gold KES 5,000) is required.
+                Your listings remain saved in your Host Dashboard, but are hidden from public search and bookings until you activate a subscription (Silver KES 1,000, Diamond KES 2,500, or Gold KES 5,000).
               </p>
             </div>
           </div>
@@ -976,7 +975,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
             onClick={onOpenPlanModal}
             className="px-5 py-2.5 rounded-full bg-gradient-to-r from-[#ff2e93] to-[#8b5cf6] text-white font-extrabold text-xs shadow-lg hover:opacity-95 transition-all cursor-pointer whitespace-nowrap shrink-0"
           >
-            Pay &amp; Activate Plan
+            {plan.hasPaidSubscription ? 'Renew & Restore Listings' : 'Pay & Activate Plan'}
           </button>
         </div>
       )}
@@ -1025,8 +1024,11 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
               </div>
               <div>
                 <div className="text-[11px] text-stone-400 uppercase font-semibold">Subscription Status</div>
-                <div className="text-sm font-extrabold text-white flex items-center gap-2">
+                <div className="text-sm font-extrabold text-white flex flex-wrap items-center gap-2">
                   <span>{plan.tier} Plan</span>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/10 text-stone-200 font-semibold">
+                    {plan.period === 'annual' ? 'Annual (365d)' : 'Monthly (30d)'}
+                  </span>
                   <span
                     className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-bold ${
                       isPlanActive
@@ -1037,8 +1039,13 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                     {isPlanActive ? `${daysRemaining} days left` : 'Expired'}
                   </span>
                 </div>
-                <div className="text-[10px] text-stone-400 mt-0.5">
-                  Limit: {PLANS[plan.tier]?.l || 3} listings ({myStays.length} active)
+                <div className="text-[10px] text-stone-400 mt-0.5 space-x-2">
+                  <span>Limit: {PLANS[plan.tier]?.l || 3} listings ({liveListingsCount} live / {myStays.length} saved)</span>
+                  {plan.startsAt && plan.expiresAt > 0 && (
+                    <span>
+                      · {new Date(plan.startsAt).toLocaleDateString()} → {new Date(plan.expiresAt).toLocaleDateString()}
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
@@ -1178,7 +1185,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                 const requestsCount = bookings.filter(b => b.stayId === s.id).length;
                 const conversionRate = s.views ? Math.round((requestsCount / s.views) * 100) : 0;
                 const isBlockedFormOpen = blockStayId === s.id;
-                const isExpired = s.status === 'expired' || (!isPlanActive && !isGracePeriod);
+                const isExpired = s.status === 'expired' || !isPlanActive;
 
                 return (
                   <div
