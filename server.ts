@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { GoogleGenAI } from '@google/genai';
 import { db, hashPassword, PLANS, SESSION_IDLE_TIMEOUT_MS } from './src/server/db';
-import { User, Stay, Booking, ChatThread, ChatMessage, PaymentRecordType, PaymentRecordMethod, ShortIntentType } from './src/types';
+import { User, Stay, StayCategory, Booking, ChatThread, ChatMessage, PaymentRecordType, PaymentRecordMethod, ShortIntentType } from './src/types';
 import { audioLibraryService } from './src/server/services/audioLibraryService';
 import { mediaProcessingService } from './src/server/services/mediaProcessingService';
 import { shortJobQueue } from './src/server/services/shortJobQueue';
@@ -573,12 +573,6 @@ app.get('/api/stays/:id', (req, res) => {
   if (!rawStay) {
     return res.status(404).json({ error: 'Stay not found' });
   }
-  if (rawStay.isPlusVVVIP && !viewerUser?.isVVVIP && viewerUser?.role !== 'admin') {
-    return res.status(403).json({
-      error: 'VVVIP membership required to access AirBus Plus properties.',
-      requiresVVVIP: true,
-    });
-  }
   const stay = db.getStayById(req.params.id, viewerUser);
   if (!stay) {
     return res.status(404).json({ error: 'Stay not found' });
@@ -778,10 +772,21 @@ app.post('/api/stays', (req, res) => {
     minNights,
     media,
     images,
+    blackFridayOptIn,
+    isAirbusWork,
+    isLocalGuideExperience,
+    isWorldWide,
+    country,
+    isEscapeOffer,
+    isPlusVVVIP,
   } = req.body;
 
   if (!title || !location || !price) {
     return res.status(400).json({ error: 'Title, location, and price are required.' });
+  }
+
+  if (Boolean(isWorldWide) && !String(country || '').trim()) {
+    return res.status(400).json({ error: 'Please indicate which country this AirBus World Wide listing is based in.' });
   }
 
   const cleanedWhatsapp = typeof whatsapp === 'string' ? whatsapp.trim().replace(/\s+/g, '') : '';
@@ -873,6 +878,19 @@ app.post('/api/stays', (req, res) => {
     hostFollowerCount: 0,
     gradientHue: [Math.floor(Math.random() * 360), Math.floor(Math.random() * 360)],
     createdAt: Date.now(),
+    blackFridayOptIn: Boolean(blackFridayOptIn),
+    blackFridayDiscountPercent: Boolean(blackFridayOptIn) ? 50 : undefined,
+    isAirbusWork: Boolean(isAirbusWork),
+    monthlyPrice: Boolean(isAirbusWork) ? Math.round(Number(price) * 24) : undefined,
+    isLocalGuideExperience: Boolean(isLocalGuideExperience),
+    isWorldWide: Boolean(isWorldWide),
+    country: String(country || '').trim() || undefined,
+    isEscapeOffer: Boolean(isEscapeOffer),
+    escapeOfferTitle: Boolean(isEscapeOffer) ? 'AirBus Escapes Special Offer' : undefined,
+    isPlusVVVIP: Boolean(isPlusVVVIP),
+    plusServices: Boolean(isPlusVVVIP)
+      ? ['24/7 Butler or Chef', 'Airport Transfer', 'Hotel-Grade Hygiene']
+      : undefined,
   };
 
   try {
@@ -1594,9 +1612,9 @@ app.post('/api/payments/mpesa', (req, res) => {
     return res.status(400).json({ error: 'Amount must be greater than 0.' });
   }
 
-  if (!mpesaCode || !/^[A-Z0-9]{10}$/i.test(String(mpesaCode).trim())) {
+  if (!mpesaCode || !/^[A-Z0-9]{8,15}$/i.test(String(mpesaCode).trim())) {
     return res.status(400).json({
-      error: 'M-Pesa receipt code must be exactly 10 alphanumeric characters (e.g. QGH7X2K9LM).',
+      error: 'M-Pesa receipt code must be 8-15 alphanumeric characters (e.g. QGH7X2K9LM).',
     });
   }
 
@@ -1623,9 +1641,9 @@ app.post('/api/payments', (req, res) => {
   if (!user) return res.status(401).json({ error: 'Not authenticated' });
   const { kind, tier, amount, mpesaCode, period, referenceId } = req.body;
 
-  if (!mpesaCode || !/^[A-Z0-9]{10}$/i.test(String(mpesaCode).trim())) {
+  if (!mpesaCode || !/^[A-Z0-9]{8,15}$/i.test(String(mpesaCode).trim())) {
     return res.status(400).json({
-      error: 'M-Pesa reference code must be exactly 10 alphanumeric characters (e.g. QGH7X2K9LM).',
+      error: 'M-Pesa reference code must be 8-15 alphanumeric characters (e.g. QGH7X2K9LM).',
     });
   }
 
@@ -1636,11 +1654,26 @@ app.post('/api/payments', (req, res) => {
       ? 'advert'
       : rawType === 'wallet' || rawType === 'wallet_topup' || rawType === 'deposit'
       ? 'wallet'
+      : rawType === 'vvvip'
+      ? 'vvvip'
       : rawType === 'trip_dating'
       ? 'trip_dating'
       : 'subscription';
 
   try {
+    if (paymentType === 'subscription') {
+      const cleanTier: StayCategory = ['Silver', 'Diamond', 'Gold'].includes(tier) ? tier : 'Silver';
+      const cleanBilling: 'monthly' | 'annual' = period === 'annual' ? 'annual' : 'monthly';
+      const result = db.purchaseSubscription({
+        ownerId: user.email,
+        tier: cleanTier,
+        billing: cleanBilling,
+        method: 'mpesa',
+        mpesaCode: cleanCode,
+      });
+      return res.status(201).json({ payment: result.payment, subscription: result.subscription });
+    }
+
     const payment = db.createMpesaPayment({
       userId: user.email,
       type: paymentType,
@@ -2011,10 +2044,14 @@ app.post('/api/admin/payments/:id/approve', (req, res) => {
   if (!user || user.role !== 'admin') {
     return res.status(403).json({ error: 'Admin access required.' });
   }
-  const confirmedAmount = req.body && req.body.confirmedAmount ? Number(req.body.confirmedAmount) : undefined;
-  const result = db.approvePayment(req.params.id, user.email, confirmedAmount);
-  if (!result) return res.status(404).json({ error: 'Payment not found or already processed.' });
-  return res.json({ payment: result });
+  try {
+    const confirmedAmount = req.body && req.body.confirmedAmount ? Number(req.body.confirmedAmount) : undefined;
+    const result = db.approvePayment(req.params.id, user.email, confirmedAmount);
+    if (!result) return res.status(404).json({ error: 'Payment not found or already processed.' });
+    return res.json({ payment: result });
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'Could not approve payment.' });
+  }
 });
 
 app.post('/api/admin/payments/:id/reject', (req, res) => {
@@ -3748,28 +3785,114 @@ app.post('/api/collections/black-friday/notify', (req, res) => {
 app.post('/api/collections/vvvip/upgrade', (req, res) => {
   const user = getAuthUser(req);
   if (!user) {
-    return res.status(401).json({ error: 'Please sign in first to become a VVVIP member.' });
+    return res.status(401).json({ error: 'Please sign in first to access AirBus Plus.' });
   }
-  const { mpesaCode, method, billing } = req.body || {};
+  const { mpesaCode, method } = req.body || {};
   try {
-    const cleanBilling: 'monthly' | 'annual' = billing === 'annual' ? 'annual' : 'monthly';
     const cleanMethod: 'wallet' | 'mpesa' = method === 'wallet' ? 'wallet' : 'mpesa';
-    if (cleanMethod === 'mpesa' && (!mpesaCode || String(mpesaCode).trim().length < 6)) {
-      return res.status(400).json({ error: 'Please provide a valid M-Pesa transaction code for Till 943210.' });
+    if (cleanMethod === 'mpesa' && (!mpesaCode || !/^[A-Z0-9]{8,15}$/i.test(String(mpesaCode).trim()))) {
+      return res.status(400).json({ error: 'Please provide a valid 8-15 character M-Pesa transaction code for Till 943210.' });
     }
-    const updatedUser = db.upgradeUserToVVVIP(
+    const result = db.upgradeUserToVVVIP(
       user.email,
       mpesaCode ? String(mpesaCode).trim().toUpperCase() : undefined,
-      { billing: cleanBilling, method: cleanMethod }
+      { billing: 'monthly', method: cleanMethod }
     );
-    const { passwordHash, ...safeUser } = updatedUser as any;
+    const { passwordHash, ...safeUser } = result.user as any;
     return res.json({
       user: safeUser,
-      walletBalance: db.getWalletBalance(user.email),
-      message: `Congratulations! Your ${cleanBilling === 'annual' ? '365-Day Annual' : '30-Day Monthly'} AirBus Plus VVVIP membership is now active.`,
+      pending: result.pending,
+      payment: result.payment,
+      walletBalance: result.walletBalance,
+      message: result.message,
     });
   } catch (err: any) {
-    return res.status(400).json({ error: err.message || 'VVVIP upgrade failed.' });
+    return res.status(400).json({ error: err.message || 'AirBus Plus upgrade failed.' });
+  }
+});
+
+// Private AirBus Plus "Other services, ask." endpoints (Strictly private to the member & Admin)
+app.get('/api/collections/plus/service-requests', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ error: 'Authentication required.' });
+  const dbUser = db.findUserByEmail(user.email) || user;
+  if (dbUser.role !== 'admin' && !db.isActivePlusMember(dbUser)) {
+    return res.status(403).json({ error: 'AirBus Plus is Reserved VIP to VVVIP Guests.' });
+  }
+  const requests = db.getPlusServiceRequests(dbUser);
+  return res.json({ requests });
+});
+
+app.post('/api/collections/plus/service-requests', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ error: 'Please sign in first.' });
+  const dbUser = db.findUserByEmail(user.email) || user;
+  if (dbUser.role !== 'admin' && !db.isActivePlusMember(dbUser)) {
+    return res.status(403).json({ error: 'AirBus Plus is Reserved VIP to VVVIP Guests.' });
+  }
+  try {
+    const request = db.createPlusServiceRequest(user.email, req.body?.requestText);
+    return res.status(201).json({
+      request,
+      message: 'Your extra service request has been sent to Admin to link you with a reliable provider.',
+    });
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'Could not submit service request.' });
+  }
+});
+
+app.post('/api/admin/plus/service-requests/:id/link', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required.' });
+  }
+  try {
+    const request = db.linkPlusServiceRequest(req.params.id, user.email, req.body || {});
+    return res.json({ request });
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'Could not link provider.' });
+  }
+});
+
+// AirBus Local Free Provider Registration & Admin Moderation
+app.get('/api/collections/local/providers', (_req, res) => {
+  return res.json({ providers: db.getLocalProviders(false) });
+});
+
+app.post('/api/collections/local/providers', (req, res) => {
+  const user = getAuthUser(req);
+  try {
+    const provider = db.registerLocalProvider({
+      ...(req.body || {}),
+      ownerEmail: user?.email,
+    });
+    return res.status(201).json({
+      provider,
+      message: 'Your AirBus Local profile is live! Remember: No drugs or illegal activities. Any such provider profile will be pulled down.',
+    });
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'Could not register AirBus Local profile.' });
+  }
+});
+
+app.get('/api/admin/local-providers', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required.' });
+  }
+  return res.json({ providers: db.getLocalProviders(true) });
+});
+
+app.post('/api/admin/local-providers/:id/pull-down', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required.' });
+  }
+  try {
+    const provider = db.pullDownLocalProvider(req.params.id, user.email, req.body?.reason);
+    return res.json({ provider });
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'Could not pull down provider profile.' });
   }
 });
 

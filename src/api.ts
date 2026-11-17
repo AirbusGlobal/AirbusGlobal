@@ -1755,10 +1755,20 @@ export const api = {
     collection: string;
     locked: boolean;
     requiresVVVIP?: boolean;
+    pendingApproval?: boolean;
+    membership?: {
+      isActive: boolean;
+      status: string;
+      startsAt?: number;
+      expiresAt: number | null;
+      daysRemaining: number;
+    } | null;
     message?: string;
     stays: Stay[];
     guides?: LocalGuideProfile[];
     articles?: NeighborhoodArticle[];
+    providers?: import('./types').LocalServiceProvider[];
+    serviceRequests?: import('./types').PlusServiceRequest[];
   }> {
     return this.request(`/api/collections/${encodeURIComponent(slug)}`);
   },
@@ -1774,10 +1784,69 @@ export const api = {
     method?: 'wallet' | 'mpesa';
     mpesaCode?: string;
     billing?: 'monthly' | 'annual';
-  }): Promise<{ user: User; walletBalance?: number; message: string }> {
+  }): Promise<{
+    user: User;
+    pending?: boolean;
+    payment?: PaymentRecord;
+    walletBalance?: number;
+    message: string;
+  }> {
     return this.request('/api/collections/vvvip/upgrade', {
       method: 'POST',
       body: JSON.stringify(data),
+    });
+  },
+
+  async getPlusServiceRequests(): Promise<{ requests: import('./types').PlusServiceRequest[] }> {
+    return this.request('/api/collections/plus/service-requests');
+  },
+
+  async createPlusServiceRequest(
+    requestText: string
+  ): Promise<{ request: import('./types').PlusServiceRequest; message: string }> {
+    return this.request('/api/collections/plus/service-requests', {
+      method: 'POST',
+      body: JSON.stringify({ requestText }),
+    });
+  },
+
+  async linkPlusServiceRequest(
+    id: string,
+    payload: { providerName: string; providerContact: string; adminNote?: string }
+  ): Promise<{ request: import('./types').PlusServiceRequest }> {
+    return this.request(`/api/admin/plus/service-requests/${encodeURIComponent(id)}/link`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async registerLocalProvider(payload: {
+    fullName: string;
+    locationTown: string;
+    category: import('./types').LocalProviderCategory;
+    trainerDiscipline?: string;
+    customServiceDescription?: string;
+    description: string;
+    contact: string;
+    photoUrl: string;
+  }): Promise<{ provider: import('./types').LocalServiceProvider; message: string }> {
+    return this.request('/api/collections/local/providers', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async getAdminLocalProviders(): Promise<{ providers: import('./types').LocalServiceProvider[] }> {
+    return this.request('/api/admin/local-providers');
+  },
+
+  async pullDownLocalProvider(
+    id: string,
+    reason?: string
+  ): Promise<{ provider: import('./types').LocalServiceProvider }> {
+    return this.request(`/api/admin/local-providers/${encodeURIComponent(id)}/pull-down`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
     });
   },
 

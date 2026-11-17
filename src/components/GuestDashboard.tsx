@@ -363,7 +363,7 @@ export const GuestDashboard: React.FC<GuestDashboardProps> = ({
                 <div>
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-xs font-extrabold text-white">
-                      {vvvip?.planName || 'AirBus Plus (VVVIP)'}
+                      {vvvip?.planName === 'AirBus Plus (VVVIP)' ? 'AirBus Plus' : (vvvip?.planName || 'AirBus Plus')}
                     </span>
                     <span
                       className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full ${
@@ -375,16 +375,16 @@ export const GuestDashboard: React.FC<GuestDashboardProps> = ({
                       }`}
                     >
                       {isVvvipActive
-                        ? `Active (${vvvip?.billing === 'annual' ? 'Annual' : 'Monthly'} · ${vvvipDaysLeft}d left)`
+                        ? `Active (30-Day Pass · ${vvvipDaysLeft}d left)`
                         : isVvvipExpired
-                        ? 'Expired'
+                        ? 'Expired · Renew Ksh 3,500'
                         : 'Standard Free'}
                     </span>
                   </div>
                   <div className="text-[11px] text-stone-400 mt-0.5">
                     {vvvip
-                      ? `Period: ${new Date(vvvip.startsAt).toLocaleDateString()} → ${new Date(vvvip.expiresAt).toLocaleDateString()}`
-                      : 'Unlock luxury butler & diplomatic residences with a Monthly (30-Day) or Annual (365-Day) VVVIP pass.'}
+                      ? `Private Membership Period: ${new Date(vvvip.startsAt).toLocaleDateString()} → ${new Date(vvvip.expiresAt).toLocaleDateString()}`
+                      : 'Unlock exclusive VIP to VVVIP stays and extra concierge services for Ksh 3,500 per 30 days.'}
                   </div>
                 </div>
               </div>
@@ -395,7 +395,7 @@ export const GuestDashboard: React.FC<GuestDashboardProps> = ({
                   onClick={onNavigateToCollections}
                   className="px-3.5 py-1.5 rounded-full bg-gradient-to-r from-amber-400 to-yellow-500 hover:brightness-105 text-black font-extrabold text-xs cursor-pointer shrink-0"
                 >
-                  {isVvvipActive ? 'View AirBus Plus' : isVvvipExpired ? 'Renew VVVIP' : 'Upgrade to VVVIP'}
+                  {isVvvipActive ? 'View AirBus Plus' : isVvvipExpired ? 'Renew AirBus Plus (Ksh 3,500)' : 'Join AirBus Plus (Ksh 3,500)'}
                 </button>
               )}
             </div>

@@ -58,7 +58,7 @@ export const Footer: React.FC<FooterProps> = ({
     {
       tab: 'collection-plus',
       title: 'AirBus Plus',
-      subtitle: 'VVVIP luxury homes & hotel concierge',
+      subtitle: 'AirBus Plus luxury homes & exclusive services',
       icon: Crown,
       accent: 'text-amber-500',
     },
@@ -209,7 +209,7 @@ export const Footer: React.FC<FooterProps> = ({
               AirBus Collections
             </h3>
             <span className="text-[11px] text-stone-500">
-              Curated stays, quarterly Black Friday deals, VVVIP homes &amp; local guides
+              Curated stays, quarterly Black Friday deals, AirBus Plus homes &amp; local guides
             </span>
           </div>
 

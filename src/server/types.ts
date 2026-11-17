@@ -70,6 +70,8 @@ export interface DatabaseSchema {
   localGuides?: import('../types').LocalGuideProfile[];
   neighborhoodArticles?: import('../types').NeighborhoodArticle[];
   blackFridaySubscribers?: import('../types').BlackFridaySubscriber[];
+  plusServiceRequests?: import('../types').PlusServiceRequest[];
+  localProviders?: import('../types').LocalServiceProvider[];
   guideRequests?: Array<{
     id: string;
     guideId: string;

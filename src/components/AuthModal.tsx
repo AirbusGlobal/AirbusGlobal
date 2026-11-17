@@ -11,6 +11,8 @@ import {
   Building2,
   ArrowLeft,
   AlertTriangle,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { User } from '../types';
 import { api } from '../api';
@@ -81,6 +83,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [registerName, setRegisterName] = useState('');
   const [registerEmail, setRegisterEmail] = useState('');
   const [registerPassword, setRegisterPassword] = useState('');
+  const [registerConfirmPassword, setRegisterConfirmPassword] = useState('');
+  const [showRegisterPassword, setShowRegisterPassword] = useState(false);
+  const [showRegisterConfirmPassword, setShowRegisterConfirmPassword] = useState(false);
   const [adminSetupKey, setAdminSetupKey] = useState('');
   const [referralCode, setReferralCode] = useState(() => {
     try {
@@ -124,6 +129,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       setRecNewUsername('');
       setError(null);
       setResetSuccess(null);
+      setRegisterConfirmPassword('');
+      setShowRegisterPassword(false);
+      setShowRegisterConfirmPassword(false);
     }
   }, [isOpen, initialMode, initialPortal, adminPortalMode, canRegisterAdmin]);
 
@@ -274,6 +282,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         setError('Password must be at least 6 characters.');
         return;
       }
+      if (registerPassword !== registerConfirmPassword) {
+        setError('Passwords do not match.');
+        return;
+      }
       if (!canRegisterAdmin) {
         setError('Admin registration is closed.');
         return;
@@ -315,6 +327,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     }
     if (registerPassword.length < 6) {
       setError('Password must be at least 6 characters.');
+      return;
+    }
+    if (registerPassword !== registerConfirmPassword) {
+      setError('Passwords do not match.');
       return;
     }
 
@@ -1006,15 +1022,50 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 <label className="text-[11px] font-bold uppercase tracking-wider text-stone-300 block mb-0.5">
                   Password (Unique · 6+ chars)
                 </label>
-                <input
-                  type="password"
-                  value={registerPassword}
-                  onChange={e => setRegisterPassword(e.target.value)}
-                  placeholder="••••••••"
-                  className="neon-input text-xs"
-                  autoComplete="new-password"
-                  required
-                />
+                <div className="relative">
+                  <input
+                    type={showRegisterPassword ? 'text' : 'password'}
+                    value={registerPassword}
+                    onChange={e => setRegisterPassword(e.target.value)}
+                    placeholder="••••••••"
+                    className="neon-input text-xs pr-10"
+                    autoComplete="new-password"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowRegisterPassword(prev => !prev)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-200 cursor-pointer"
+                    aria-label={showRegisterPassword ? 'Hide password' : 'Show password'}
+                  >
+                    {showRegisterPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[11px] font-bold uppercase tracking-wider text-stone-300 block mb-0.5">
+                  Repeat Password
+                </label>
+                <div className="relative">
+                  <input
+                    type={showRegisterConfirmPassword ? 'text' : 'password'}
+                    value={registerConfirmPassword}
+                    onChange={e => setRegisterConfirmPassword(e.target.value)}
+                    placeholder="••••••••"
+                    className="neon-input text-xs pr-10"
+                    autoComplete="new-password"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowRegisterConfirmPassword(prev => !prev)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-200 cursor-pointer"
+                    aria-label={showRegisterConfirmPassword ? 'Hide repeat password' : 'Show repeat password'}
+                  >
+                    {showRegisterConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
               </div>
 
               {adminPortalMode ? (

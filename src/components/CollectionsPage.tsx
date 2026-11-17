@@ -24,6 +24,10 @@ import {
   PhoneCall,
   Send,
   X,
+  Wallet,
+  Upload,
+  Heart,
+  AlertCircle,
 } from 'lucide-react';
 import {
   Stay,
@@ -32,6 +36,9 @@ import {
   CURRENCY_RATES,
   LocalGuideProfile,
   NeighborhoodArticle,
+  LocalServiceProvider,
+  LocalProviderCategory,
+  PlusServiceRequest,
 } from '../types';
 import { api } from '../api';
 import { StayCard } from './StayCard';
@@ -44,6 +51,38 @@ export type CollectionSlug =
   | 'plus'
   | 'local'
   | 'worldwide';
+
+const LOCAL_PROVIDER_CATEGORIES: LocalProviderCategory[] = [
+  'Personal Chef',
+  'Driver',
+  'Mechanic',
+  'Lawyer',
+  'Translator',
+  'Tour Guide',
+  'Trainer',
+  'Vehicle trackers and vehicle alarm installer',
+  'Companionship',
+  'Others',
+];
+
+const AIRBUS_PLUS_SERVICES = [
+  {
+    title: '24/7 Butler or Chef',
+    desc: 'In-residence culinary menus and personal concierge. Pay separately.',
+  },
+  {
+    title: 'Airport Transfer',
+    desc: 'Seamless tarmac or VIP arrivals chauffeur pickup. Pay separately.',
+  },
+  {
+    title: 'Hotel-Grade Hygiene',
+    desc: 'Daily linen turn-down service and private spa. Pay separately.',
+  },
+  {
+    title: 'Other services, ask.',
+    desc: 'Other extra services when you need them. Pay separately.',
+  },
+];
 
 interface CollectionsPageProps {
   slug: CollectionSlug;
@@ -59,6 +98,8 @@ interface CollectionsPageProps {
   onNegotiate: (stayId: string) => void;
   onBackToFeed: () => void;
   onNavigateCollection: (slug: CollectionSlug) => void;
+  onNavigateTripDating?: () => void;
+  userWalletBalance?: number;
   onOpenAuth: () => void;
   onUserUpgraded?: (updatedUser: User) => void;
   showToast?: (msg: string) => void;
@@ -87,6 +128,8 @@ export const CollectionsPage: React.FC<CollectionsPageProps> = ({
   onNegotiate,
   onBackToFeed,
   onNavigateCollection,
+  onNavigateTripDating,
+  userWalletBalance = 0,
   onOpenAuth,
   onUserUpgraded,
   showToast,
@@ -94,6 +137,16 @@ export const CollectionsPage: React.FC<CollectionsPageProps> = ({
   const [stays, setStays] = useState<Stay[]>([]);
   const [guides, setGuides] = useState<LocalGuideProfile[]>([]);
   const [articles, setArticles] = useState<NeighborhoodArticle[]>([]);
+  const [localProviders, setLocalProviders] = useState<LocalServiceProvider[]>([]);
+  const [serviceRequests, setServiceRequests] = useState<PlusServiceRequest[]>([]);
+  const [plusMembership, setPlusMembership] = useState<{
+    isActive: boolean;
+    status: string;
+    startsAt?: number;
+    expiresAt: number | null;
+    daysRemaining: number;
+  } | null>(null);
+  const [plusPendingApproval, setPlusPendingApproval] = useState<boolean>(false);
   const [lockedPlus, setLockedPlus] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -110,12 +163,29 @@ export const CollectionsPage: React.FC<CollectionsPageProps> = ({
   const [workDedicatedDesk, setWorkDedicatedDesk] = useState<boolean>(false);
   const [workCorpInvoice, setWorkCorpInvoice] = useState<boolean>(false);
 
-  // AirBus Plus VVVIP Upgrade Modal
+  // AirBus Plus Membership Modal (Ksh 3,500 / 30 Days)
   const [showVvvipModal, setShowVvvipModal] = useState(false);
-  const [vvvipBilling, setVvvipBilling] = useState<'monthly' | 'annual'>('monthly');
-  const [vvvipMethod, setVvvipMethod] = useState<'wallet' | 'mpesa'>('wallet');
+  const [vvvipMethod, setVvvipMethod] = useState<'wallet' | 'mpesa'>('mpesa');
   const [vvvipMpesaCode, setVvvipMpesaCode] = useState('');
+  const [vvvipModalError, setVvvipModalError] = useState<string | null>(null);
   const [vvvipLoading, setVvvipLoading] = useState(false);
+
+  // AirBus Plus Item 4 ("Other services, ask.")
+  const [customPlusRequestText, setCustomPlusRequestText] = useState('');
+  const [customPlusRequestLoading, setCustomPlusRequestLoading] = useState(false);
+
+  // AirBus Local Registration State ("Register as an AirBus Local" - Free)
+  const [localRegFullName, setLocalRegFullName] = useState('');
+  const [localRegTown, setLocalRegTown] = useState('');
+  const [localRegCategory, setLocalRegCategory] = useState<LocalProviderCategory>('Personal Chef');
+  const [localRegDiscipline, setLocalRegDiscipline] = useState('');
+  const [localRegCustomService, setLocalRegCustomService] = useState('');
+  const [localRegDescription, setLocalRegDescription] = useState('');
+  const [localRegContact, setLocalRegContact] = useState('');
+  const [localRegPhotoUrl, setLocalRegPhotoUrl] = useState('');
+  const [localRegSubmitting, setLocalRegSubmitting] = useState(false);
+  const [localRegError, setLocalRegError] = useState<string | null>(null);
+  const [localRegSuccess, setLocalRegSuccess] = useState<string | null>(null);
 
   // AirBus Local Guide Request & Article Reader
   const [selectedGuide, setSelectedGuide] = useState<LocalGuideProfile | null>(null);
@@ -151,8 +221,13 @@ export const CollectionsPage: React.FC<CollectionsPageProps> = ({
       const res = await api.getCollection(slug);
       setStays(res.stays || []);
       setLockedPlus(Boolean(res.locked));
+      setPlusPendingApproval(Boolean(res.pendingApproval));
+      setPlusMembership(res.membership || null);
       if (res.guides) setGuides(res.guides);
       if (res.articles) setArticles(res.articles);
+      if (res.providers) setLocalProviders(res.providers);
+      if (res.serviceRequests) setServiceRequests(res.serviceRequests);
+      else setServiceRequests([]);
     } catch (err: any) {
       setError(err.message || 'Could not load collection.');
     } finally {
@@ -192,9 +267,9 @@ export const CollectionsPage: React.FC<CollectionsPageProps> = ({
     },
     plus: {
       title: 'AirBus Plus',
-      subtitle: 'VVVIP-Only Residences with Five-Star Hotel Services',
+      subtitle: 'VIP to VVVIP Exclusive Stays & Concierge Services',
       intro:
-        'An exclusive portfolio of vetted sanctuaries featuring 24/7 concierge, private chefs, daily housekeeping, and chauffeur airport transfers.',
+        'Ksh 3,500 monthly membership used to source top-notch exclusive extra services attached to VIP-to-VVVIP listings. Access, membership records, and service requests remain private to you and the administrator.',
       accent: 'from-amber-400 via-yellow-500 to-amber-600',
       icon: Crown,
     },
@@ -274,30 +349,126 @@ export const CollectionsPage: React.FC<CollectionsPageProps> = ({
 
   const handleUpgradeVVVIP = async (e: React.FormEvent) => {
     e.preventDefault();
+    setVvvipModalError(null);
     if (!user) {
       onOpenAuth();
       return;
     }
-    if (vvvipMethod === 'mpesa' && !vvvipMpesaCode.trim()) {
-      showToast?.('Enter your M-Pesa transaction code for Till 943210.');
+    if (vvvipMethod === 'wallet' && userWalletBalance < 3500) {
+      setVvvipModalError(
+        `Insufficient wallet balance (KES ${userWalletBalance.toLocaleString()}). Ksh 3,500 is required. Switch to Pay with M-Pesa (Till 943210) or top up your wallet.`
+      );
       return;
+    }
+    if (vvvipMethod === 'mpesa') {
+      const cleanCode = vvvipMpesaCode.trim().toUpperCase();
+      if (!cleanCode || !/^[A-Z0-9]{8,15}$/.test(cleanCode)) {
+        setVvvipModalError('Enter a valid 8-15 character M-Pesa code paid to Till 943210.');
+        return;
+      }
     }
     setVvvipLoading(true);
     try {
       const res = await api.upgradeToVVVIP({
-        billing: vvvipBilling,
+        billing: 'monthly',
         method: vvvipMethod,
-        mpesaCode: vvvipMethod === 'mpesa' ? vvvipMpesaCode.trim() : undefined,
+        mpesaCode: vvvipMethod === 'mpesa' ? vvvipMpesaCode.trim().toUpperCase() : undefined,
       });
       onUserUpgraded?.(res.user);
       setShowVvvipModal(false);
       setVvvipMpesaCode('');
+      setVvvipModalError(null);
       showToast?.(res.message);
       await loadCollection();
     } catch (err: any) {
-      showToast?.(err.message || 'Upgrade failed.');
+      setVvvipModalError(err.message || 'Payment submission failed.');
     } finally {
       setVvvipLoading(false);
+    }
+  };
+
+  const handleSubmitPlusServiceRequest = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!customPlusRequestText.trim()) return;
+    setCustomPlusRequestLoading(true);
+    try {
+      const res = await api.createPlusServiceRequest(customPlusRequestText.trim());
+      setCustomPlusRequestText('');
+      setServiceRequests(prev => [res.request, ...prev]);
+      showToast?.(res.message);
+    } catch (err: any) {
+      showToast?.(err.message || 'Could not submit service request.');
+    } finally {
+      setCustomPlusRequestLoading(false);
+    }
+  };
+
+  const handleLocalPhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 4 * 1024 * 1024) {
+      setLocalRegError('Profile photo must be under 4MB.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        setLocalRegPhotoUrl(reader.result);
+        setLocalRegError(null);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleRegisterLocalProvider = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLocalRegError(null);
+    setLocalRegSuccess(null);
+
+    if (!localRegFullName.trim() || !localRegTown.trim() || !localRegDescription.trim() || !localRegContact.trim() || !localRegPhotoUrl.trim()) {
+      setLocalRegError('All fields including Full personal name, Location (town), Short description, Contact, and Profile photo are required.');
+      return;
+    }
+    if (localRegCategory === 'Trainer' && !localRegDiscipline.trim()) {
+      setLocalRegError('Trainers must indicate what they train.');
+      return;
+    }
+    if (localRegCategory === 'Others' && !localRegCustomService.trim()) {
+      setLocalRegError('Please state the services you offer under Others.');
+      return;
+    }
+    const lowerCombined = `${localRegCustomService} ${localRegDescription}`.toLowerCase();
+    if (localRegCategory === 'Others' && /\b(companionship|dating|escort|date|romantic)\b/i.test(lowerCombined)) {
+      setLocalRegError('Companionship and dating are not allowed under Others. Please choose Companionship -> Trip Dating.');
+      return;
+    }
+
+    setLocalRegSubmitting(true);
+    try {
+      const res = await api.registerLocalProvider({
+        fullName: localRegFullName.trim(),
+        locationTown: localRegTown.trim(),
+        category: localRegCategory,
+        trainerDiscipline: localRegCategory === 'Trainer' ? localRegDiscipline.trim() : undefined,
+        customServiceDescription: localRegCategory === 'Others' ? localRegCustomService.trim() : undefined,
+        description: localRegDescription.trim(),
+        contact: localRegContact.trim(),
+        photoUrl: localRegPhotoUrl,
+      });
+      setLocalProviders(prev => [res.provider, ...prev]);
+      setLocalRegFullName('');
+      setLocalRegTown('');
+      setLocalRegDiscipline('');
+      setLocalRegCustomService('');
+      setLocalRegDescription('');
+      setLocalRegContact('');
+      setLocalRegPhotoUrl('');
+      setLocalRegSuccess(res.message);
+      showToast?.(res.message);
+    } catch (err: any) {
+      setLocalRegError(err.message || 'Could not post AirBus Local profile.');
+    } finally {
+      setLocalRegSubmitting(false);
     }
   };
 
@@ -330,7 +501,7 @@ export const CollectionsPage: React.FC<CollectionsPageProps> = ({
     { id: 'black-friday', label: 'Black Friday' },
     { id: 'work', label: 'Work' },
     { id: 'escapes', label: 'Escapes' },
-    { id: 'plus', label: 'Plus (VVVIP)' },
+    { id: 'plus', label: 'AirBus Plus' },
     { id: 'local', label: 'Local' },
     { id: 'worldwide', label: 'World Wide' },
   ];
@@ -638,9 +809,9 @@ export const CollectionsPage: React.FC<CollectionsPageProps> = ({
           </div>
         ) : slug === 'plus' && lockedPlus ? (
           /* ========================================================== */
-          /* 4. AIRBUS PLUS (LOCKED NON-VVVIP TEASER - ZERO DATA LEAK)  */
+          /* 4. AIRBUS PLUS (LOCKED NON-MEMBER GATE - STRICT PRIVACY)   */
           /* ========================================================== */
-          <div className="max-w-3xl mx-auto my-6 p-8 sm:p-12 rounded-3xl bg-gradient-to-b from-neutral-900 via-neutral-900 to-black border border-amber-500/40 shadow-2xl text-center space-y-6 relative overflow-hidden">
+          <div className="max-w-4xl mx-auto my-6 p-8 sm:p-12 rounded-3xl bg-gradient-to-b from-neutral-900 via-neutral-900 to-black border border-amber-500/40 shadow-2xl text-center space-y-6 relative overflow-hidden">
             <div className="absolute -top-24 left-1/2 -translate-x-1/2 w-80 h-80 bg-amber-500/10 blur-3xl rounded-full pointer-events-none" />
 
             <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-amber-400 to-yellow-600 text-black flex items-center justify-center mx-auto shadow-lg shadow-amber-500/20">
@@ -649,22 +820,24 @@ export const CollectionsPage: React.FC<CollectionsPageProps> = ({
 
             <div className="space-y-2">
               <div className="text-xs font-black uppercase tracking-[0.2em] text-amber-400">
-                Members-Only Luxury Portfolio
+                Members-Only Luxury Portfolio · Ksh 3,500 / 30 Days
               </div>
               <h2 className="text-2xl sm:text-3xl font-black text-white">
-                AirBus Plus is Reserved for VVVIP Guests
+                AirBus Plus is Reserved VIP to VVVIP Guests.
               </h2>
-              <p className="text-sm text-stone-300 max-w-xl mx-auto leading-relaxed">
-                Access verified diplomatic villas, private islands, resident executive chefs, 24/7 concierge butlers, daily hotel-grade housekeeping, and chauffeur airport transfers.
+              <p className="text-sm text-stone-300 max-w-2xl mx-auto leading-relaxed">
+                Pay the monthly membership fee of <strong className="text-amber-300">Ksh 3,500</strong> (30 days from admin approval) to unlock AirBus Plus. The fee is used to source top-notch exclusive extra services attached to VIP-to-VVVIP listings. Paid via M-Pesa (admin approves into your wallet first) or AirBus Wallet.
               </p>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-left pt-2">
-              {[
-                { title: '24/7 Butler & Chef', desc: 'In-residence culinary menus and personal concierge.' },
-                { title: 'Airport Limo Transfer', desc: 'Seamless tarmac or VIP arrivals chauffeur pickup.' },
-                { title: 'Hotel-Grade Hygiene', desc: 'Daily linen turn-down service and private spa.' },
-              ].map(perk => (
+            {plusPendingApproval && (
+              <div className="max-w-xl mx-auto p-3.5 rounded-2xl bg-blue-500/15 border border-blue-400/40 text-xs text-blue-200 font-semibold">
+                Your Ksh 3,500 AirBus Plus M-Pesa payment is currently awaiting Admin approval into your wallet. Access will unlock automatically for 30 days once approved.
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-left pt-2">
+              {AIRBUS_PLUS_SERVICES.map(perk => (
                 <div
                   key={perk.title}
                   className="p-4 rounded-2xl bg-black/60 border border-amber-500/20 space-y-1"
@@ -683,13 +856,20 @@ export const CollectionsPage: React.FC<CollectionsPageProps> = ({
                   if (!user) {
                     onOpenAuth();
                   } else {
+                    setVvvipModalError(null);
                     setShowVvvipModal(true);
                   }
                 }}
                 className="px-7 py-3 rounded-full bg-gradient-to-r from-amber-400 via-yellow-500 to-amber-500 hover:brightness-110 text-black font-black text-sm shadow-xl shadow-amber-500/20 cursor-pointer transition active:scale-95 flex items-center gap-2"
               >
                 <Crown className="w-4 h-4" />
-                <span>{user ? 'Become VVVIP' : 'Sign In & Become VVVIP'}</span>
+                <span>
+                  {!user
+                    ? 'Sign In to Join AirBus Plus'
+                    : plusPendingApproval
+                    ? 'Pending Approval · View Payment'
+                    : 'Join / Renew AirBus Plus (Ksh 3,500)'}
+                </span>
               </button>
               <button
                 type="button"
@@ -702,9 +882,125 @@ export const CollectionsPage: React.FC<CollectionsPageProps> = ({
           </div>
         ) : (
           /* ========================================================== */
-          /* STAYS FEED + LOCAL GUIDES / ARTICLES / WORLD WIDE          */
+          /* STAYS FEED + PLUS PRIVATE MEMBER CONSOLE + LOCAL REGISTER  */
           /* ========================================================== */
           <>
+            {/* Private AirBus Plus Member Dashboard & Services */}
+            {slug === 'plus' && (
+              <div className="space-y-6">
+                {/* Private Membership Status & Renewal Bar */}
+                <div className="p-6 rounded-3xl bg-neutral-900 border border-amber-500/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Crown className="w-5 h-5 text-amber-400" />
+                      <h2 className="text-lg font-black text-white">AirBus Plus Private Membership</h2>
+                      <span className="text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                        Active · Private to You &amp; Admin
+                      </span>
+                      {plusPendingApproval && (
+                        <span className="text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                          Renewal Pending Approval
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-stone-300">
+                      {plusMembership?.expiresAt
+                        ? `Valid through ${new Date(plusMembership.expiresAt).toLocaleDateString()} (${plusMembership.daysRemaining} days remaining). Each renewal adds 30 days (Ksh 3,500).`
+                        : 'Monthly membership is Ksh 3,500 per 30 days counted from admin approval.'}
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setVvvipModalError(null);
+                      setShowVvvipModal(true);
+                    }}
+                    className="px-5 py-2.5 rounded-full bg-gradient-to-r from-amber-400 to-yellow-500 hover:brightness-110 text-black font-black text-xs shadow-lg cursor-pointer shrink-0"
+                  >
+                    Renew (+30 Days · Ksh 3,500)
+                  </button>
+                </div>
+
+                {/* 4 Exact AirBus Plus Services + Item 4 Request Form */}
+                <div className="p-6 rounded-3xl bg-neutral-900/80 border border-amber-500/25 space-y-5">
+                  <div>
+                    <h3 className="text-base font-black text-amber-300">AirBus Plus Services</h3>
+                    <p className="text-xs text-stone-400 mt-0.5">
+                      Top-notch exclusive extra services attached to VIP-to-VVVIP listings.
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                    {AIRBUS_PLUS_SERVICES.map(srv => (
+                      <div
+                        key={srv.title}
+                        className="p-4 rounded-2xl bg-black/60 border border-amber-500/20 space-y-1.5"
+                      >
+                        <div className="text-xs font-extrabold text-amber-200">{srv.title}</div>
+                        <p className="text-[11px] text-stone-400 leading-relaxed">{srv.desc}</p>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Interactive "Other services, ask." request box for unlocked member */}
+                  <div className="pt-4 border-t border-amber-500/20 space-y-3">
+                    <h4 className="text-xs font-extrabold uppercase tracking-wider text-amber-300">
+                      4. Other services, ask. — Submit a Private Request
+                    </h4>
+                    <form onSubmit={handleSubmitPlusServiceRequest} className="flex flex-col sm:flex-row gap-2">
+                      <input
+                        type="text"
+                        required
+                        value={customPlusRequestText}
+                        onChange={e => setCustomPlusRequestText(e.target.value)}
+                        placeholder="Describe any other extra service you need (admin will link you with reliable providers)..."
+                        className="flex-1 px-4 py-2.5 rounded-xl bg-black/60 border border-stone-700 text-xs text-white outline-none focus:border-amber-400"
+                      />
+                      <button
+                        type="submit"
+                        disabled={customPlusRequestLoading}
+                        className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs cursor-pointer shrink-0 disabled:opacity-50"
+                      >
+                        {customPlusRequestLoading ? 'Submitting...' : 'Submit Request'}
+                      </button>
+                    </form>
+
+                    {serviceRequests.length > 0 && (
+                      <div className="space-y-2 pt-2">
+                        <div className="text-[11px] font-bold text-stone-400">Your Private Service Requests</div>
+                        {serviceRequests.map(reqItem => (
+                          <div
+                            key={reqItem.id}
+                            className="p-3 rounded-xl bg-black/50 border border-stone-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
+                          >
+                            <div className="space-y-0.5">
+                              <div className="text-white font-semibold">{reqItem.requestText}</div>
+                              {reqItem.assignedProviderName && (
+                                <div className="text-[11px] text-emerald-300 font-semibold">
+                                  Linked Provider: {reqItem.assignedProviderName} ({reqItem.assignedProviderContact})
+                                  {reqItem.adminNote ? ` · ${reqItem.adminNote}` : ''}
+                                </div>
+                              )}
+                            </div>
+                            <span
+                              className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full shrink-0 self-start sm:self-center ${
+                                reqItem.status === 'linked'
+                                  ? 'bg-emerald-500/20 text-emerald-300'
+                                  : 'bg-amber-500/20 text-amber-300'
+                              }`}
+                            >
+                              {reqItem.status}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Black Friday Info Strip */}
             {slug === 'black-friday' && (
               <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-stone-200 dark:border-stone-800">
@@ -723,9 +1019,272 @@ export const CollectionsPage: React.FC<CollectionsPageProps> = ({
               </div>
             )}
 
-            {/* AirBus Local: Guide Directory & Neighborhood Articles */}
+            {/* AirBus Local: Free Service Provider Registration + Directory + Guides */}
             {slug === 'local' && (
               <div className="space-y-10">
+                {/* "Register as an AirBus Local" Free Form */}
+                <section className="p-6 sm:p-8 rounded-3xl bg-white dark:bg-[#15171e] border border-emerald-200 dark:border-emerald-900/50 shadow-sm space-y-5">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-stone-100 dark:border-stone-800">
+                    <div>
+                      <span className="inline-block px-2.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 text-[10px] font-black uppercase tracking-wider mb-1">
+                        Free Service Registration
+                      </span>
+                      <h2 className="text-lg sm:text-xl font-black text-stone-900 dark:text-white">
+                        Register as an AirBus Local
+                      </h2>
+                      <p className="text-xs text-stone-500 dark:text-stone-400">
+                        Offer your local services for free to travellers and residents in your town.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Mandatory Policy Warning */}
+                  <div className="p-3.5 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-xs font-bold text-rose-700 dark:text-rose-300 flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0" />
+                    <span>No drugs or illegal activities. Any such provider profile will be pulled down.</span>
+                  </div>
+
+                  <form onSubmit={handleRegisterLocalProvider} className="space-y-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                      <div>
+                        <label className="text-xs font-bold block mb-1">Service Category *</label>
+                        <select
+                          value={localRegCategory}
+                          onChange={e => setLocalRegCategory(e.target.value as LocalProviderCategory)}
+                          className="w-full px-3.5 py-2.5 rounded-xl bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 text-xs font-semibold outline-none"
+                        >
+                          {LOCAL_PROVIDER_CATEGORIES.map(cat => (
+                            <option key={cat} value={cat}>
+                              {cat}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="text-xs font-bold block mb-1">Full Personal Name *</label>
+                        <input
+                          type="text"
+                          required
+                          value={localRegFullName}
+                          onChange={e => setLocalRegFullName(e.target.value)}
+                          placeholder="e.g. Jane Wanjiku"
+                          className="w-full px-3.5 py-2.5 rounded-xl bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 text-xs outline-none"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-xs font-bold block mb-1">Location (Town) *</label>
+                        <input
+                          type="text"
+                          required
+                          value={localRegTown}
+                          onChange={e => setLocalRegTown(e.target.value)}
+                          placeholder="e.g. Diani, Kilimani, Mombasa"
+                          className="w-full px-3.5 py-2.5 rounded-xl bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 text-xs outline-none"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Conditional Category Controls */}
+                    {localRegCategory === 'Trainer' && (
+                      <div>
+                        <label className="text-xs font-bold block mb-1 text-emerald-700 dark:text-emerald-400">
+                          What do you train? *
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          value={localRegDiscipline}
+                          onChange={e => setLocalRegDiscipline(e.target.value)}
+                          placeholder="e.g. Personal Fitness, Swimming, Boxing, Yoga, Dog Training"
+                          className="w-full px-3.5 py-2.5 rounded-xl bg-stone-50 dark:bg-stone-900 border border-emerald-300 dark:border-emerald-800 text-xs outline-none"
+                        />
+                      </div>
+                    )}
+
+                    {localRegCategory === 'Companionship' && (
+                      <div className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div className="space-y-0.5">
+                          <div className="text-xs font-extrabold text-rose-700 dark:text-rose-300 flex items-center gap-1.5">
+                            <Heart className="w-4 h-4 fill-rose-500 text-rose-500" />
+                            <span>Companionship &amp; Dating Connects Directly to Trip Dating</span>
+                          </div>
+                          <p className="text-[11px] text-stone-600 dark:text-stone-300">
+                            Looking for dating or companionship profiles? Visit Trip Dating directly, or post your companionship profile below.
+                          </p>
+                        </div>
+                        {onNavigateTripDating && (
+                          <button
+                            type="button"
+                            onClick={onNavigateTripDating}
+                            className="px-4 py-2 rounded-full bg-rose-600 hover:bg-rose-500 text-white text-xs font-extrabold cursor-pointer shrink-0"
+                          >
+                            Trip Dating
+                          </button>
+                        )}
+                      </div>
+                    )}
+
+                    {localRegCategory === 'Others' && (
+                      <div>
+                        <label className="text-xs font-bold block mb-1 text-amber-700 dark:text-amber-400">
+                          State the services you offer (companionship and dating are not allowed under Others) *
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          value={localRegCustomService}
+                          onChange={e => setLocalRegCustomService(e.target.value)}
+                          placeholder="e.g. Private Photography, Babysitting, Laundry & Dry Cleaning"
+                          className="w-full px-3.5 py-2.5 rounded-xl bg-stone-50 dark:bg-stone-900 border border-amber-300 dark:border-amber-800 text-xs outline-none"
+                        />
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="text-xs font-bold block mb-1">Contact (Phone or Email) *</label>
+                        <input
+                          type="text"
+                          required
+                          value={localRegContact}
+                          onChange={e => setLocalRegContact(e.target.value)}
+                          placeholder="e.g. +254 712 345 678"
+                          className="w-full px-3.5 py-2.5 rounded-xl bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 text-xs outline-none"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-xs font-bold block mb-1">Profile Photo Upload *</label>
+                        <div className="flex items-center gap-3">
+                          <label className="flex-1 px-3.5 py-2 rounded-xl bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 text-xs font-semibold cursor-pointer flex items-center gap-2 hover:border-emerald-500">
+                            <Upload className="w-4 h-4 text-emerald-600 shrink-0" />
+                            <span>{localRegPhotoUrl ? 'Photo Selected (Change)' : 'Upload Profile Photo'}</span>
+                            <input
+                              type="file"
+                              accept="image/*"
+                              onChange={handleLocalPhotoUpload}
+                              className="hidden"
+                            />
+                          </label>
+                          {localRegPhotoUrl && (
+                            <img
+                              src={localRegPhotoUrl}
+                              alt="Preview"
+                              className="w-10 h-10 rounded-xl object-cover border border-stone-300 dark:border-stone-700 shrink-0"
+                            />
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-bold block mb-1">Short Description of What You Do *</label>
+                      <textarea
+                        rows={3}
+                        required
+                        value={localRegDescription}
+                        onChange={e => setLocalRegDescription(e.target.value)}
+                        placeholder="Describe your experience, availability, and how you serve guests..."
+                        className="w-full px-3.5 py-2.5 rounded-xl bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 text-xs outline-none"
+                      />
+                    </div>
+
+                    {localRegError && (
+                      <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/50 border border-rose-300 dark:border-rose-800 text-xs text-rose-700 dark:text-rose-200">
+                        {localRegError}
+                      </div>
+                    )}
+
+                    {localRegSuccess && (
+                      <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-300 dark:border-emerald-800 text-xs text-emerald-700 dark:text-emerald-200">
+                        {localRegSuccess}
+                      </div>
+                    )}
+
+                    <div className="flex justify-end">
+                      <button
+                        type="submit"
+                        disabled={localRegSubmitting}
+                        className="px-7 py-2.5 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs shadow cursor-pointer disabled:opacity-50"
+                      >
+                        {localRegSubmitting ? 'Posting...' : 'Post'}
+                      </button>
+                    </div>
+                  </form>
+                </section>
+
+                {/* Registered AirBus Local Providers Directory */}
+                {localProviders.length > 0 && (
+                  <section className="space-y-4">
+                    <div>
+                      <h2 className="text-lg sm:text-xl font-black">
+                        AirBus Local Service Providers ({localProviders.length})
+                      </h2>
+                      <p className="text-xs text-stone-500 dark:text-stone-400">
+                        Independent local professionals ready to help in your destination town.
+                      </p>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                      {localProviders.map(prov => (
+                        <div
+                          key={prov.id}
+                          className="p-5 rounded-3xl bg-white dark:bg-[#15171e] border border-stone-200 dark:border-stone-800 shadow-sm flex flex-col justify-between gap-3"
+                        >
+                          <div className="space-y-3">
+                            <div className="flex items-center gap-3">
+                              <img
+                                src={prov.photoUrl}
+                                alt={prov.fullName}
+                                className="w-14 h-14 rounded-2xl object-cover border border-stone-200 dark:border-stone-700 shrink-0"
+                              />
+                              <div className="min-w-0">
+                                <h3 className="text-sm font-black text-stone-900 dark:text-white truncate">
+                                  {prov.fullName}
+                                </h3>
+                                <div className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
+                                  {prov.category}
+                                  {prov.trainerDiscipline ? ` · ${prov.trainerDiscipline}` : ''}
+                                </div>
+                                <div className="text-[11px] text-stone-500 truncate">
+                                  📍 {prov.locationTown}
+                                </div>
+                              </div>
+                            </div>
+
+                            {prov.customServiceDescription && (
+                              <div className="text-[11px] font-bold text-amber-600 dark:text-amber-400">
+                                Services: {prov.customServiceDescription}
+                              </div>
+                            )}
+
+                            <p className="text-xs text-stone-600 dark:text-stone-400 leading-relaxed">
+                              {prov.description}
+                            </p>
+                          </div>
+
+                          <div className="pt-2 border-t border-stone-100 dark:border-stone-800 flex items-center justify-between gap-2 text-xs">
+                            <span className="font-mono font-bold text-stone-800 dark:text-stone-200 truncate">
+                              {prov.contact}
+                            </span>
+                            {prov.category === 'Companionship' && onNavigateTripDating && (
+                              <button
+                                type="button"
+                                onClick={onNavigateTripDating}
+                                className="px-3 py-1 rounded-full bg-rose-600 hover:bg-rose-500 text-white text-[11px] font-bold cursor-pointer shrink-0"
+                              >
+                                Trip Dating
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                )}
+
                 {/* Guide Directory */}
                 <section className="space-y-4">
                   <div className="flex items-center justify-between">
@@ -955,7 +1514,7 @@ export const CollectionsPage: React.FC<CollectionsPageProps> = ({
         )}
       </div>
 
-      {/* VVVIP Upgrade Modal */}
+      {/* AirBus Plus Membership Payment / Renewal Modal (Ksh 3,500 / 30 Days) */}
       {showVvvipModal && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="w-full max-w-md bg-neutral-900 border border-amber-500/40 rounded-3xl p-6 space-y-4 text-white shadow-2xl relative">
@@ -969,93 +1528,99 @@ export const CollectionsPage: React.FC<CollectionsPageProps> = ({
 
             <div className="flex items-center gap-2 text-amber-400 font-black text-base">
               <Crown className="w-5 h-5" />
-              <span>Unlock AirBus Plus VVVIP</span>
+              <span>Join or Renew AirBus Plus</span>
             </div>
 
-            <p className="text-xs text-stone-300 leading-relaxed">
-              Choose Monthly (30 days) or Annual (365 days) access to diplomatic &amp; hotel-service residences. Pay instantly from your AirBus Wallet or submit M-Pesa Till <strong className="text-amber-300">943210</strong>.
-            </p>
-
-            {/* Billing Cycle Selector */}
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => setVvvipBilling('monthly')}
-                className={`p-3 rounded-2xl border text-left transition cursor-pointer ${
-                  vvvipBilling === 'monthly'
-                    ? 'border-amber-400 bg-amber-500/15'
-                    : 'border-stone-700 bg-black/40 hover:border-stone-500'
-                }`}
-              >
-                <div className="text-xs font-extrabold text-amber-300">Monthly (30 Days)</div>
-                <div className="text-sm font-black font-mono mt-0.5">KES 5,000</div>
-              </button>
-              <button
-                type="button"
-                onClick={() => setVvvipBilling('annual')}
-                className={`p-3 rounded-2xl border text-left transition cursor-pointer ${
-                  vvvipBilling === 'annual'
-                    ? 'border-amber-400 bg-amber-500/15'
-                    : 'border-stone-700 bg-black/40 hover:border-stone-500'
-                }`}
-              >
-                <div className="text-xs font-extrabold text-amber-300">Annual (365 Days)</div>
-                <div className="text-sm font-black font-mono mt-0.5">KES 50,000</div>
-              </button>
+            <div className="p-3.5 rounded-2xl border border-amber-400 bg-amber-500/15 space-y-1">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-extrabold text-amber-300">Monthly Membership (30 Days)</span>
+                <span className="text-base font-black font-mono text-white">Ksh 3,500</span>
+              </div>
+              <p className="text-[11px] text-stone-300 leading-relaxed">
+                Lasts 30 days from admin approval. Renewing adds another 30 days. M-Pesa payments must be approved into your wallet by the admin before access unlocks.
+              </p>
             </div>
 
             {/* Payment Method Selector */}
             <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
-                onClick={() => setVvvipMethod('wallet')}
-                className={`py-2 px-3 rounded-xl border text-xs font-bold cursor-pointer ${
-                  vvvipMethod === 'wallet'
-                    ? 'border-emerald-400 bg-emerald-500/15 text-emerald-300'
-                    : 'border-stone-700 text-stone-400'
-                }`}
-              >
-                AirBus Wallet
-              </button>
-              <button
-                type="button"
-                onClick={() => setVvvipMethod('mpesa')}
-                className={`py-2 px-3 rounded-xl border text-xs font-bold cursor-pointer ${
+                onClick={() => {
+                  setVvvipMethod('mpesa');
+                  setVvvipModalError(null);
+                }}
+                className={`py-2.5 px-3 rounded-xl border text-xs font-bold cursor-pointer ${
                   vvvipMethod === 'mpesa'
                     ? 'border-emerald-400 bg-emerald-500/15 text-emerald-300'
                     : 'border-stone-700 text-stone-400'
                 }`}
               >
-                M-Pesa Till 943210
+                Pay with M-Pesa (Till 943210)
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setVvvipMethod('wallet');
+                  setVvvipModalError(null);
+                }}
+                className={`py-2.5 px-3 rounded-xl border text-xs font-bold cursor-pointer flex items-center justify-center gap-1.5 ${
+                  vvvipMethod === 'wallet'
+                    ? 'border-emerald-400 bg-emerald-500/15 text-emerald-300'
+                    : 'border-stone-700 text-stone-400'
+                }`}
+              >
+                <Wallet className="w-3.5 h-3.5" />
+                <span>Pay from Wallet (KES {userWalletBalance.toLocaleString()})</span>
               </button>
             </div>
 
             <form onSubmit={handleUpgradeVVVIP} className="space-y-3">
-              {vvvipMethod === 'mpesa' && (
-                <div>
-                  <label className="text-xs font-semibold text-stone-300 block mb-1">
-                    M-Pesa Transaction Code (Till 943210) *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={vvvipMpesaCode}
-                    onChange={e => setVvvipMpesaCode(e.target.value)}
-                    placeholder="e.g. TILL943210XYZ"
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-black/60 border border-stone-700 text-xs text-white outline-none focus:border-amber-400 font-mono uppercase"
-                  />
+              {vvvipMethod === 'mpesa' ? (
+                <div className="space-y-2">
+                  <div className="p-3 rounded-xl bg-black/50 border border-stone-800 text-[11px] text-stone-300 font-mono space-y-0.5">
+                    <div>Lipa na M-Pesa Buy Goods Till: <strong className="text-amber-300">943210</strong></div>
+                    <div>Amount: <strong className="text-emerald-300">Ksh 3,500</strong></div>
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-stone-300 block mb-1">
+                      M-Pesa Transaction Code (8-15 characters) *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      maxLength={15}
+                      value={vvvipMpesaCode}
+                      onChange={e => setVvvipMpesaCode(e.target.value.toUpperCase())}
+                      placeholder="e.g. QGH7X2K9LM"
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-black/60 border border-stone-700 text-xs text-white outline-none focus:border-amber-400 font-mono uppercase"
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div className="p-3 rounded-xl bg-black/50 border border-stone-800 text-xs text-stone-300">
+                  Your AirBus Wallet Balance: <strong className="font-mono text-white">KES {userWalletBalance.toLocaleString()}</strong>.{' '}
+                  {userWalletBalance < 3500
+                    ? `Shortfall: KES ${(3500 - userWalletBalance).toLocaleString()}.`
+                    : 'Sufficient balance for instant activation / 30-day renewal.'}
                 </div>
               )}
+
+              {vvvipModalError && (
+                <div className="p-2.5 rounded-xl bg-rose-950/70 border border-rose-500/40 text-xs text-rose-200">
+                  {vvvipModalError}
+                </div>
+              )}
+
               <button
                 type="submit"
                 disabled={vvvipLoading}
                 className="w-full py-3 rounded-xl bg-gradient-to-r from-amber-400 to-yellow-500 text-black font-black text-xs cursor-pointer hover:brightness-110 disabled:opacity-50"
               >
                 {vvvipLoading
-                  ? 'Activating VVVIP...'
+                  ? 'Processing...'
                   : vvvipMethod === 'wallet'
-                  ? `Pay KES ${(vvvipBilling === 'annual' ? 50000 : 5000).toLocaleString()} from Wallet`
-                  : 'Activate VVVIP Membership Now'}
+                  ? 'Pay Ksh 3,500 from Wallet'
+                  : 'Submit Ksh 3,500 M-Pesa Payment for Approval'}
               </button>
             </form>
           </div>

@@ -364,7 +364,7 @@ export const StayCard: React.FC<StayCardProps> = ({
 
           {stay.isPlusVVVIP && stay.plusServices && stay.plusServices.length > 0 && (
             <div className="text-[11px] text-amber-500 font-semibold mt-1 line-clamp-1">
-              VVVIP Services: {stay.plusServices.slice(0, 3).join(' · ')}
+              AirBus Plus Services: {stay.plusServices.slice(0, 3).join(' · ')}
             </div>
           )}
 

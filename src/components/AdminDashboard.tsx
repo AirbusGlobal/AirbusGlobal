@@ -19,6 +19,8 @@ import {
   TripDatingStats,
   ListingReport,
   Review,
+  PlusServiceRequest,
+  LocalServiceProvider,
 } from '../types';
 import {
   ShieldCheck,
@@ -61,6 +63,8 @@ import {
   ShieldAlert,
   Search,
   Filter,
+  Crown,
+  MapPin,
 } from 'lucide-react';
 import { api } from '../api';
 import { ListingMediaViewer } from './ListingMediaViewer';
@@ -115,7 +119,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onUpdateAdminUser,
 }) => {
   const [tab, setTab] = useState<
-    'queue' | 'wallets' | 'ads' | 'plans' | 'listings' | 'media' | 'users' | 'reports' | 'reviews' | 'audit' | 'posts' | 'withdrawals' | 'settings' | 'treasury' | 'dormant' | 'negotiations' | 'trip-dating'
+    'queue' | 'wallets' | 'ads' | 'plans' | 'listings' | 'media' | 'users' | 'reports' | 'reviews' | 'audit' | 'posts' | 'withdrawals' | 'settings' | 'treasury' | 'dormant' | 'negotiations' | 'trip-dating' | 'plus-local'
   >('queue');
 
   // Plan adjustment form state
@@ -186,13 +190,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [datingRequests, setDatingRequests] = useState<TripDatingPaymentRequest[]>([]);
   const [datingProfiles, setDatingProfiles] = useState<TripDatingProfile[]>([]);
   const [datingStats, setDatingStats] = useState<TripDatingStats | null>(null);
+  const [plusRequests, setPlusRequests] = useState<PlusServiceRequest[]>([]);
+  const [plusLinkInputs, setPlusLinkInputs] = useState<Record<string, { providerName: string; providerContact: string; adminNote: string }>>({});
+  const [localProvidersAdmin, setLocalProvidersAdmin] = useState<LocalServiceProvider[]>([]);
   const [actionLoading, setActionLoading] = useState(false);
   const [feedbackMsg, setFeedbackMsg] = useState<string | null>(null);
 
   // Payments Tab State
   const [allPayments, setAllPayments] = useState<PaymentRecord[]>(payments || []);
   const [paymentStatusFilter, setPaymentStatusFilter] = useState<'all' | 'pending' | 'approved' | 'rejected' | 'refunded'>('all');
-  const [paymentTypeFilter, setPaymentTypeFilter] = useState<'all' | 'advert' | 'boost' | 'subscription' | 'booking_fee'>('all');
+  const [paymentTypeFilter, setPaymentTypeFilter] = useState<'all' | 'advert' | 'boost' | 'subscription' | 'vvvip' | 'booking_fee'>('all');
   const [paymentMethodFilter, setPaymentMethodFilter] = useState<'all' | 'wallet' | 'mpesa'>('all');
   const [paymentSearch, setPaymentSearch] = useState('');
   const [rejectModalPayment, setRejectModalPayment] = useState<PaymentRecord | null>(null);
@@ -354,6 +361,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }).catch(() => {});
     api.getAdminWallets().then(res => {
       if (res) setAdminWalletsData(res);
+    }).catch(() => {});
+    api.getPlusServiceRequests().then(res => {
+      if (res?.requests) setPlusRequests(res.requests);
+    }).catch(() => {});
+    api.getAdminLocalProviders().then(res => {
+      if (res?.providers) setLocalProvidersAdmin(res.providers);
     }).catch(() => {});
   };
 
@@ -641,6 +654,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </button>
 
         <button
+          onClick={() => setTab('plus-local')}
+          className={`px-3.5 py-2 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ${
+            tab === 'plus-local'
+              ? 'bg-amber-500 text-stone-950 font-extrabold shadow-sm'
+              : 'text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800'
+          }`}
+        >
+          <Crown className="w-4 h-4 text-amber-500" />
+          <span>AirBus Plus &amp; Local ({plusRequests.filter(r => r.status === 'pending').length})</span>
+        </button>
+
+        <button
           onClick={() => setTab('posts')}
           className={`px-3.5 py-2 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ${
             tab === 'posts'
@@ -775,7 +800,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               {/* Type Filter */}
               <div className="flex items-center gap-1 bg-white dark:bg-[#12141a] px-2 py-1 rounded-xl border border-stone-200 dark:border-stone-700">
                 <span className="text-[10px] text-stone-400 font-bold uppercase">Type:</span>
-                {(['all', 'boost', 'advert', 'subscription', 'booking_fee'] as const).map(t => (
+                {(['all', 'boost', 'advert', 'subscription', 'vvvip', 'booking_fee'] as const).map(t => (
                   <button
                     key={t}
                     type="button"
@@ -786,7 +811,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         : 'text-stone-500 hover:text-stone-900 dark:hover:text-stone-200'
                     }`}
                   >
-                    {t === 'booking_fee' ? 'Booking' : t}
+                    {t === 'booking_fee' ? 'Booking' : t === 'vvvip' ? 'AirBus Plus' : t}
                   </button>
                 ))}
               </div>
@@ -817,7 +842,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             const filtered = currentPaymentsList.filter(p => {
               if (paymentStatusFilter !== 'all' && p.status !== paymentStatusFilter) return false;
               if (paymentTypeFilter !== 'all') {
-                const matchType = p.type === paymentTypeFilter || 
+                const matchType =
+                  p.type === paymentTypeFilter ||
+                  p.kind === paymentTypeFilter ||
                   (paymentTypeFilter === 'subscription' && p.kind === 'plan') ||
                   (paymentTypeFilter === 'boost' && (p.kind === 'boost' || p.referenceId?.startsWith('boost_')));
                 if (!matchType) return false;
@@ -3826,6 +3853,245 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </tbody>
               </table>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB: AIRBUS PLUS & LOCAL MODERATION */}
+      {tab === 'plus-local' && (
+        <div className="space-y-8">
+          {/* 1. AirBus Plus Custom Service Requests ("Other services, ask.") */}
+          <div className="p-6 bg-white dark:bg-[#15171e] rounded-3xl border border-stone-200 dark:border-stone-800 space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h3 className="text-base font-extrabold text-stone-900 dark:text-white flex items-center gap-2">
+                  <Crown className="w-4 h-4 text-amber-500" />
+                  <span>AirBus Plus — &ldquo;Other services, ask.&rdquo; Requests ({plusRequests.length})</span>
+                </h3>
+                <p className="text-xs text-stone-500 mt-0.5">
+                  View requests from active AirBus Plus members and link them with reliable service providers.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={loadAdminData}
+                className="px-3 py-1.5 rounded-xl border border-stone-200 dark:border-stone-800 text-xs font-bold flex items-center gap-1.5 cursor-pointer hover:bg-stone-100 dark:hover:bg-stone-800"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>Refresh</span>
+              </button>
+            </div>
+
+            {plusRequests.length === 0 ? (
+              <p className="text-xs text-stone-400 italic py-4">No AirBus Plus custom service requests yet.</p>
+            ) : (
+              <div className="space-y-3">
+                {plusRequests.map(reqItem => {
+                  const draft = plusLinkInputs[reqItem.id] || {
+                    providerName: reqItem.assignedProviderName || '',
+                    providerContact: reqItem.assignedProviderContact || '',
+                    adminNote: reqItem.adminNote || '',
+                  };
+                  return (
+                    <div
+                      key={reqItem.id}
+                      className="p-4 rounded-2xl bg-stone-50 dark:bg-stone-900/70 border border-stone-200 dark:border-stone-800 space-y-3"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="text-xs">
+                          <strong className="text-stone-900 dark:text-white">{reqItem.userName}</strong>{' '}
+                          <span className="text-stone-500">({reqItem.userEmail})</span>
+                        </div>
+                        <span
+                          className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full ${
+                            reqItem.status === 'linked'
+                              ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300'
+                              : 'bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300'
+                          }`}
+                        >
+                          {reqItem.status}
+                        </span>
+                      </div>
+
+                      <p className="text-xs text-stone-700 dark:text-stone-300 bg-white dark:bg-[#15171e] p-3 rounded-xl border border-stone-200 dark:border-stone-800">
+                        {reqItem.requestText}
+                      </p>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                        <input
+                          type="text"
+                          placeholder="Reliable Provider Name *"
+                          value={draft.providerName}
+                          onChange={e =>
+                            setPlusLinkInputs(prev => ({
+                              ...prev,
+                              [reqItem.id]: { ...draft, providerName: e.target.value },
+                            }))
+                          }
+                          className="px-3 py-2 rounded-xl bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 text-xs outline-none"
+                        />
+                        <input
+                          type="text"
+                          placeholder="Provider Contact (Phone/Email) *"
+                          value={draft.providerContact}
+                          onChange={e =>
+                            setPlusLinkInputs(prev => ({
+                              ...prev,
+                              [reqItem.id]: { ...draft, providerContact: e.target.value },
+                            }))
+                          }
+                          className="px-3 py-2 rounded-xl bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 text-xs outline-none"
+                        />
+                        <input
+                          type="text"
+                          placeholder="Admin note (optional)"
+                          value={draft.adminNote}
+                          onChange={e =>
+                            setPlusLinkInputs(prev => ({
+                              ...prev,
+                              [reqItem.id]: { ...draft, adminNote: e.target.value },
+                            }))
+                          }
+                          className="px-3 py-2 rounded-xl bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 text-xs outline-none"
+                        />
+                      </div>
+
+                      <div className="flex justify-end">
+                        <button
+                          type="button"
+                          disabled={actionLoading}
+                          onClick={async () => {
+                            if (!draft.providerName.trim() || !draft.providerContact.trim()) {
+                              showToast?.('Enter reliable provider name and contact.');
+                              return;
+                            }
+                            try {
+                              setActionLoading(true);
+                              await api.linkPlusServiceRequest(reqItem.id, {
+                                providerName: draft.providerName.trim(),
+                                providerContact: draft.providerContact.trim(),
+                                adminNote: draft.adminNote.trim() || undefined,
+                              });
+                              showToast?.(`Linked ${reqItem.userName} with ${draft.providerName.trim()}.`);
+                              loadAdminData();
+                            } catch (err: any) {
+                              showToast?.(err.message || 'Could not link provider.');
+                            } finally {
+                              setActionLoading(false);
+                            }
+                          }}
+                          className="px-4 py-1.5 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold cursor-pointer disabled:opacity-50"
+                        >
+                          {reqItem.status === 'linked' ? 'Update Linked Provider' : 'Link Reliable Provider'}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* 2. AirBus Local Providers Moderation */}
+          <div className="p-6 bg-white dark:bg-[#15171e] rounded-3xl border border-stone-200 dark:border-stone-800 space-y-4">
+            <div>
+              <h3 className="text-base font-extrabold text-stone-900 dark:text-white flex items-center gap-2">
+                <MapPin className="w-4 h-4 text-emerald-500" />
+                <span>AirBus Local Registered Providers ({localProvidersAdmin.length})</span>
+              </h3>
+              <p className="text-xs text-stone-500 mt-0.5">
+                No drugs or illegal activities. Any such provider profile will be pulled down.
+              </p>
+            </div>
+
+            {localProvidersAdmin.length === 0 ? (
+              <p className="text-xs text-stone-400 italic py-4">No AirBus Local provider registrations submitted yet.</p>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {localProvidersAdmin.map(prov => (
+                  <div
+                    key={prov.id}
+                    className={`p-4 rounded-2xl border flex gap-3 ${
+                      prov.status === 'pulled_down'
+                        ? 'bg-rose-50/50 dark:bg-rose-950/20 border-rose-300 dark:border-rose-900 opacity-75'
+                        : 'bg-stone-50 dark:bg-stone-900/60 border-stone-200 dark:border-stone-800'
+                    }`}
+                  >
+                    <img
+                      src={prov.photoUrl}
+                      alt={prov.fullName}
+                      className="w-16 h-16 rounded-2xl object-cover border border-stone-200 dark:border-stone-700 shrink-0"
+                    />
+                    <div className="flex-1 min-w-0 space-y-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="text-xs font-extrabold text-stone-900 dark:text-white truncate">
+                          {prov.fullName}
+                        </div>
+                        <span
+                          className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full shrink-0 ${
+                            prov.status === 'active'
+                              ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
+                              : 'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300'
+                          }`}
+                        >
+                          {prov.status === 'active' ? 'Active' : 'Pulled Down'}
+                        </span>
+                      </div>
+
+                      <div className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
+                        {prov.category}
+                        {prov.trainerDiscipline ? ` (${prov.trainerDiscipline})` : ''}
+                        {prov.customServiceDescription ? ` — ${prov.customServiceDescription}` : ''}
+                      </div>
+
+                      <div className="text-[11px] text-stone-500">
+                        📍 {prov.locationTown} · 📞 {prov.contact}
+                      </div>
+
+                      <p className="text-xs text-stone-600 dark:text-stone-300 line-clamp-2">
+                        {prov.description}
+                      </p>
+
+                      {prov.pulledDownReason && (
+                        <div className="text-[11px] text-rose-600 font-semibold">
+                          Reason: {prov.pulledDownReason}
+                        </div>
+                      )}
+
+                      {prov.status === 'active' && (
+                        <div className="pt-2">
+                          <button
+                            type="button"
+                            disabled={actionLoading}
+                            onClick={async () => {
+                              const reason =
+                                prompt(
+                                  `Pull down ${prov.fullName}'s profile? Reason:`,
+                                  'Violation: Drugs or illegal activities policy.'
+                                ) ?? '';
+                              if (!reason.trim()) return;
+                              try {
+                                setActionLoading(true);
+                                await api.pullDownLocalProvider(prov.id, reason.trim());
+                                showToast?.(`Profile for ${prov.fullName} has been pulled down.`);
+                                loadAdminData();
+                              } catch (err: any) {
+                                showToast?.(err.message || 'Pull down failed.');
+                              } finally {
+                                setActionLoading(false);
+                              }
+                            }}
+                            className="px-3 py-1 rounded-full bg-rose-600 hover:bg-rose-500 text-white text-[11px] font-bold cursor-pointer disabled:opacity-50"
+                          >
+                            Pull Down Profile
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}

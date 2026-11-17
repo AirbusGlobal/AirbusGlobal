@@ -81,6 +81,7 @@ interface OwnerDashboardProps {
   currency: Currency;
   onBackToFeed?: () => void;
   onNavigateToShorts?: () => void;
+  onRefreshWallet?: () => void;
   showToast?: (msg: string) => void;
 }
 
@@ -100,6 +101,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
   currency,
   onBackToFeed,
   onNavigateToShorts,
+  onRefreshWallet,
   showToast,
 }) => {
   const [activeTab, setActiveTab] = useState<'listings' | 'reservations' | 'promotions' | 'shorts' | 'new-stay' | 'insights'>('listings');
@@ -348,6 +350,13 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
   const [price, setPrice] = useState(7500);
   const [desc, setDesc] = useState('');
   const [selectedFeatures, setSelectedFeatures] = useState<string[]>(['WiFi', 'Parking', 'Kitchen']);
+  const [blackFridayOptIn, setBlackFridayOptIn] = useState(false);
+  const [isAirbusWork, setIsAirbusWork] = useState(false);
+  const [isLocalGuideExperience, setIsLocalGuideExperience] = useState(false);
+  const [isWorldWide, setIsWorldWide] = useState(false);
+  const [worldWideCountry, setWorldWideCountry] = useState('');
+  const [isEscapeOffer, setIsEscapeOffer] = useState(false);
+  const [isPlusVVVIP, setIsPlusVVVIP] = useState(false);
 
   // Geocoding & AI Short Prompt State
   const [geocoding, setGeocoding] = useState<boolean>(false);
@@ -589,6 +598,11 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
       return;
     }
 
+    if (isWorldWide && !worldWideCountry.trim()) {
+      setWizardError('Please enter the Country for an AirBus World Wide listing.');
+      return;
+    }
+
     setCreatingStay(true);
     try {
       const coverPhoto = wizardPhotos.find(p => p.isCover) || wizardPhotos[0];
@@ -646,6 +660,14 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
         depositAmount: depositRequired ? Number(depositAmount) : undefined,
         depositReason: depositRequired ? depositReason : undefined,
         depositRefundTerms: depositRequired ? depositRefundTerms : undefined,
+        blackFridayOptIn,
+        blackFridayDiscountPercent: blackFridayOptIn ? 50 : undefined,
+        isAirbusWork,
+        isLocalGuideExperience,
+        isWorldWide,
+        country: isWorldWide ? worldWideCountry.trim() : undefined,
+        isEscapeOffer,
+        isPlusVVVIP,
       });
 
       if (createdStay && createdStay.id) {
@@ -714,6 +736,13 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
       setDepositAmount(5000);
       setDepositReason('Security against property damage or lost keys');
       setDepositRefundTerms('Inspected and refunded directly to guest via M-Pesa within 2 hours of checkout');
+      setBlackFridayOptIn(false);
+      setIsAirbusWork(false);
+      setIsLocalGuideExperience(false);
+      setIsWorldWide(false);
+      setWorldWideCountry('');
+      setIsEscapeOffer(false);
+      setIsPlusVVVIP(false);
       setStep(1);
       setActiveTab('listings');
     } catch (err: any) {
@@ -849,10 +878,10 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
 
     if (promoPaymentMethod === 'mpesa') {
       const cleanCode = promoMpesaCode.trim().toUpperCase();
-      if (!/^[A-Z0-9]{10}$/.test(cleanCode)) {
+      if (!/^[A-Z0-9]{8,15}$/.test(cleanCode)) {
         setPromoFeedback({
           type: 'error',
-          msg: 'Please enter a valid 10-character M-Pesa transaction receipt code (e.g. QGH7X2K9LM).',
+          msg: 'Please enter a valid 8-15 character M-Pesa transaction receipt code (e.g. QGH7X2K9LM).',
         });
         return;
       }
@@ -873,6 +902,9 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
       });
       setPromoMpesaCode('');
       fetchPromotions();
+      if (promoPaymentMethod === 'wallet') {
+        onRefreshWallet?.();
+      }
     } catch (err: any) {
       setPromoFeedback({ type: 'error', msg: err.message || 'Boost submission failed.' });
     } finally {
@@ -2045,11 +2077,11 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                   </div>
                   <div>
                     <label className="text-[11px] font-bold text-stone-700 dark:text-stone-300 block mb-1">
-                      M-Pesa 10-Character Receipt Code *
+                      M-Pesa Receipt Code (8-15 characters) *
                     </label>
                     <input
                       type="text"
-                      maxLength={10}
+                      maxLength={15}
                       value={promoMpesaCode}
                       onChange={e => setPromoMpesaCode(e.target.value.toUpperCase())}
                       placeholder="e.g. QGH7X2K9LM"
@@ -2692,6 +2724,96 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                   </div>
                 </div>
 
+                {/* AirBus Collections Placement Checkboxes */}
+                <div className="p-4 rounded-2xl bg-stone-50 dark:bg-stone-900/60 border border-stone-200 dark:border-stone-800 space-y-3">
+                  <div>
+                    <label className="text-xs font-bold text-stone-800 dark:text-stone-200 block">
+                      AirBus Collections (Mark all that apply)
+                    </label>
+                    <p className="text-[11px] text-stone-500 mt-0.5">
+                      Once approved live, your listing appears on the main feed and in each selected collection section.
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
+                    <label className="flex items-center gap-2.5 p-2.5 rounded-xl bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={blackFridayOptIn}
+                        onChange={e => setBlackFridayOptIn(e.target.checked)}
+                        className="accent-[#e4002b] w-4 h-4 shrink-0"
+                      />
+                      <span className="font-semibold text-stone-800 dark:text-stone-200">Offers AirBus Black Friday</span>
+                    </label>
+
+                    <label className="flex items-center gap-2.5 p-2.5 rounded-xl bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={isAirbusWork}
+                        onChange={e => setIsAirbusWork(e.target.checked)}
+                        className="accent-[#e4002b] w-4 h-4 shrink-0"
+                      />
+                      <span className="font-semibold text-stone-800 dark:text-stone-200">Is an AirBus Work listing</span>
+                    </label>
+
+                    <label className="flex items-center gap-2.5 p-2.5 rounded-xl bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={isLocalGuideExperience}
+                        onChange={e => setIsLocalGuideExperience(e.target.checked)}
+                        className="accent-[#e4002b] w-4 h-4 shrink-0"
+                      />
+                      <span className="font-semibold text-stone-800 dark:text-stone-200">Is an AirBus Local listing</span>
+                    </label>
+
+                    <label className="flex items-center gap-2.5 p-2.5 rounded-xl bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={isWorldWide}
+                        onChange={e => setIsWorldWide(e.target.checked)}
+                        className="accent-[#e4002b] w-4 h-4 shrink-0"
+                      />
+                      <span className="font-semibold text-stone-800 dark:text-stone-200">Is an AirBus World Wide listing</span>
+                    </label>
+
+                    <label className="flex items-center gap-2.5 p-2.5 rounded-xl bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={isEscapeOffer}
+                        onChange={e => setIsEscapeOffer(e.target.checked)}
+                        className="accent-[#e4002b] w-4 h-4 shrink-0"
+                      />
+                      <span className="font-semibold text-stone-800 dark:text-stone-200">Offers AirBus Escapes</span>
+                    </label>
+
+                    <label className="flex items-center gap-2.5 p-2.5 rounded-xl bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={isPlusVVVIP}
+                        onChange={e => setIsPlusVVVIP(e.target.checked)}
+                        className="accent-[#e4002b] w-4 h-4 shrink-0"
+                      />
+                      <span className="font-semibold text-stone-800 dark:text-stone-200">Is an AirBus Plus listing</span>
+                    </label>
+                  </div>
+
+                  {isWorldWide && (
+                    <div className="pt-1">
+                      <label className="text-xs font-bold text-stone-700 dark:text-stone-300 block mb-1">
+                        Country (Required for AirBus World Wide listing) *
+                      </label>
+                      <input
+                        type="text"
+                        value={worldWideCountry}
+                        onChange={e => setWorldWideCountry(e.target.value)}
+                        placeholder="e.g. United Arab Emirates, South Africa, United Kingdom"
+                        className="w-full px-3.5 py-2.5 bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 rounded-xl text-xs outline-none focus:border-[#e4002b]"
+                        required={isWorldWide}
+                      />
+                    </div>
+                  )}
+                </div>
+
                 <div className="pt-4 flex justify-end">
                   <button
                     type="button"
@@ -2699,6 +2821,11 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                       if (!title || !area) {
                         setWizardError('Please fill in title and area.');
                         showToast?.('Please fill in title and area.');
+                        return;
+                      }
+                      if (isWorldWide && !worldWideCountry.trim()) {
+                        setWizardError('Please indicate the Country for an AirBus World Wide listing.');
+                        showToast?.('Please indicate the Country for an AirBus World Wide listing.');
                         return;
                       }
                       setWizardError(null);

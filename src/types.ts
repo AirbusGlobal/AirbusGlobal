@@ -271,6 +271,48 @@ export interface BlackFridaySubscriber {
   createdAt: number;
 }
 
+export interface PlusServiceRequest {
+  id: string;
+  userEmail: string;
+  userName: string;
+  requestText: string;
+  status: 'pending' | 'linked' | 'completed';
+  assignedProviderName?: string;
+  assignedProviderContact?: string;
+  adminNote?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export type LocalProviderCategory =
+  | 'Personal Chef'
+  | 'Driver'
+  | 'Mechanic'
+  | 'Lawyer'
+  | 'Translator'
+  | 'Tour Guide'
+  | 'Trainer'
+  | 'Vehicle trackers and vehicle alarm installer'
+  | 'Companionship'
+  | 'Others';
+
+export interface LocalServiceProvider {
+  id: string;
+  fullName: string;
+  locationTown: string;
+  category: LocalProviderCategory;
+  trainerDiscipline?: string;
+  customServiceDescription?: string;
+  description: string;
+  contact: string;
+  photoUrl: string;
+  ownerEmail?: string;
+  status: 'active' | 'pulled_down';
+  pulledDownReason?: string;
+  pulledDownBy?: string;
+  createdAt: number;
+}
+
 export interface BookingInstalment {
   number: number;
   amount: number;
@@ -357,7 +399,7 @@ export interface HostPlanStatus {
   scheduledPeriod?: 'monthly' | 'annual';
 }
 
-export type PaymentRecordType = 'boost' | 'advert' | 'subscription' | 'booking_fee' | 'wallet_topup' | 'wallet' | 'deposit' | 'mpesa_deposit' | 'trip_dating';
+export type PaymentRecordType = 'boost' | 'advert' | 'subscription' | 'booking_fee' | 'wallet_topup' | 'wallet' | 'deposit' | 'mpesa_deposit' | 'trip_dating' | 'vvvip';
 export type PaymentRecordMethod = 'wallet' | 'mpesa' | 'mpesa_manual' | 'other';
 export type PaymentRecordStatus = 'pending' | 'approved' | 'rejected' | 'refunded';
 
@@ -421,7 +463,7 @@ export interface PaymentRecord {
   userRole?: UserRole;
   userName?: string;
   hostEmail?: string;
-  kind?: 'plan' | 'wallet' | 'advert' | 'boost' | 'deposit' | 'trip_dating';
+  kind?: 'plan' | 'wallet' | 'advert' | 'boost' | 'deposit' | 'trip_dating' | 'vvvip';
   type: PaymentRecordType;
   method: PaymentRecordMethod;
   amountSc: number;

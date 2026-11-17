@@ -59,6 +59,9 @@ import {
   AutoShortRecord,
   LocalGuideProfile,
   NeighborhoodArticle,
+  PlusServiceRequest,
+  LocalServiceProvider,
+  LocalProviderCategory,
   AudioTrack,
   AudioLicense,
   ShortAudioConfig,
@@ -2576,7 +2579,7 @@ class DatabaseStore {
       }
     }
 
-    // Expire Guest VVVIP subscriptions once past expiresAt
+    // Expire Guest AirBus Plus memberships once past expiresAt
     for (const u of this.data.users || []) {
       if (
         u.vvvipSubscription &&
@@ -2590,8 +2593,8 @@ class DatabaseStore {
         this.createNotification({
           id: 'notif_vvvip_exp_' + now + '_' + Math.random().toString(36).slice(2, 6),
           userEmail: u.email,
-          title: 'AirBus Plus VVVIP Subscription Expired',
-          message: 'Your VVVIP concierge membership has expired. Renew anytime to restore access to AirBus Plus estates.',
+          title: 'AirBus Plus Membership Expired',
+          message: 'Your AirBus Plus membership has expired. Renew with Ksh 3,500 (30 days) once approved by Admin to restore access.',
           read: false,
           link: '/#collection-plus',
           type: 'subscription',
@@ -2801,14 +2804,14 @@ class DatabaseStore {
     for (const c of allCreds) {
       if (excludeUserId && (c.userId === excludeUserId || c.id === excludeUserId)) continue;
       if (c.passwordHash === candidateFp.exactHash || passwordsTooSimilar(candidateFp, c.passwordFingerprint)) {
-        throw new Error('This password matches or is too similar to an existing password. Please choose a completely different password.');
+        throw new Error('Password Rejected choose a stronger password.');
       }
     }
 
     for (const u of this.data.users) {
       if (excludeUserId && u.id === excludeUserId) continue;
       if (u.passwordHash && u.passwordHash === candidateFp.exactHash) {
-        throw new Error('This password matches or is too similar to an existing password. Please choose a completely different password.');
+        throw new Error('Password Rejected choose a stronger password.');
       }
     }
   }
@@ -3372,15 +3375,8 @@ class DatabaseStore {
 
     let list = this.data.stays;
 
-    // Server-side VVVIP gating: AirBus Plus (isPlusVVVIP) listings are NEVER exposed to non-VVVIP guests
-    const canSeeVVVIP = Boolean(
-      filter?.includeVVVIP ||
-      filter?.viewerUser?.isVVVIP ||
-      filter?.viewerUser?.role === 'admin'
-    );
-    if (!canSeeVVVIP) {
-      list = list.filter(s => !s.isPlusVVVIP);
-    }
+    // All approved live stays (including those opted into collections like Black Friday, Work, Escapes, Plus, Local, World Wide)
+    // appear on the main feed so guests can discover and book them directly.
 
     // By default, public feed only shows live, admin-approved stays whose owner subscription is active
     if (!filter?.status) {
@@ -3475,12 +3471,9 @@ class DatabaseStore {
       });
   }
 
-  public getStayById(id: string, viewerUser?: User | null, bypassVVVIP?: boolean): Stay | undefined {
+  public getStayById(id: string, viewerUser?: User | null, _bypassVVVIP?: boolean): Stay | undefined {
     const s = this.data.stays.find(stay => stay.id === id);
     if (!s) return undefined;
-    if (s.isPlusVVVIP && !bypassVVVIP && !viewerUser?.isVVVIP && viewerUser?.role !== 'admin') {
-      return undefined;
-    }
     if (s.ownerEmail) {
       const plan = this.getHostPlan(s.ownerEmail);
       const isExpired = plan.status !== 'active' || (plan.expiresAt > 0 && plan.expiresAt < Date.now());
@@ -4300,8 +4293,8 @@ class DatabaseStore {
     period?: 'monthly' | 'annual';
   }): PaymentRecord {
     const cleanCode = opts.mpesaCode.trim().toUpperCase();
-    if (!cleanCode || !/^[A-Z0-9]{10}$/.test(cleanCode)) {
-      throw new Error('M-Pesa reference code must be exactly 10 alphanumeric characters (e.g. QGH7X2K9LM).');
+    if (!cleanCode || !/^[A-Z0-9]{8,15}$/.test(cleanCode)) {
+      throw new Error('M-Pesa reference code must be 8-15 alphanumeric characters (e.g. QGH7X2K9LM).');
     }
 
     const cleanUserId = opts.userId.toLowerCase().trim();
@@ -4314,20 +4307,37 @@ class DatabaseStore {
       throw new Error('This M-Pesa transaction code has already been submitted and is in verification.');
     }
 
+    const payer = this.findUserByEmail(cleanUserId);
+    const resolvedKind: PaymentRecord['kind'] =
+      opts.type === 'subscription'
+        ? 'plan'
+        : opts.type === 'vvvip'
+        ? 'vvvip'
+        : opts.type === 'wallet' || opts.type === 'wallet_topup' || opts.type === 'deposit'
+        ? 'wallet'
+        : opts.type === 'boost'
+        ? 'boost'
+        : opts.type === 'trip_dating'
+        ? 'trip_dating'
+        : 'advert';
+
     const paymentId = 'pay_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
     const payment: PaymentRecord = {
       id: paymentId,
       userId: cleanUserId,
       user_id: cleanUserId,
+      userRole: payer?.role || 'guest',
+      userName: payer?.username || payer?.name || cleanUserId,
       hostEmail: cleanUserId,
       type: opts.type,
-      kind: opts.type === 'subscription' ? 'plan' : 'advert',
+      kind: resolvedKind,
       method: 'mpesa',
       amountSc: intAmount,
       amount_sc: intAmount,
       amountKes: intAmount,
       amount_kes: intAmount,
       amount: intAmount,
+      claimedAmount: intAmount,
       status: 'pending',
       referenceId: opts.referenceId,
       reference_id: opts.referenceId,
@@ -4585,6 +4595,75 @@ class DatabaseStore {
       });
     }
 
+    // 4b. If AirBus Plus Membership Payment (Ksh 3,500 -> 30 days from admin approval date)
+    if (p.type === 'vvvip' || p.kind === 'vvvip') {
+      const plusUser = this.findUserByEmail(hostEmail);
+      // Record deposit into wallet and immediate deduction for AirBus Plus membership
+      this.recordWalletTransaction({
+        walletId: hostEmail,
+        direction: 'credit',
+        amount: finalApprovedAmount,
+        type: 'wallet_topup',
+        reference: p.mpesaCode || p.id,
+        note: `AirBus Plus M-Pesa deposit approved into wallet (Code: ${p.mpesaCode || p.id})`,
+        relatedPaymentId: p.id,
+      });
+      this.recordWalletTransaction({
+        walletId: hostEmail,
+        direction: 'debit',
+        amount: finalApprovedAmount,
+        type: 'subscription',
+        reference: p.id,
+        note: `AirBus Plus 30-day membership fee (Ksh ${finalApprovedAmount.toLocaleString()})`,
+        relatedPaymentId: p.id,
+      });
+      this.recordWalletTransaction({
+        walletId: 'admin@airbus.ke',
+        direction: 'credit',
+        amount: finalApprovedAmount,
+        type: 'subscription_income',
+        reference: p.id,
+        note: `AirBus Plus 30-day membership approved for ${hostEmail}`,
+        relatedPaymentId: p.id,
+      });
+
+      if (plusUser) {
+        const curSub = plusUser.vvvipSubscription;
+        const isCurrentlyActive = Boolean(
+          plusUser.isVVVIP &&
+          curSub &&
+          curSub.status === 'active' &&
+          curSub.expiresAt > now
+        );
+        const startFrom = isCurrentlyActive && curSub?.expiresAt ? curSub.expiresAt : now;
+        const newExpiresAt = startFrom + 30 * 864e5;
+        plusUser.isVVVIP = true;
+        plusUser.vvvipSubscription = {
+          planName: 'AirBus Plus',
+          billing: 'monthly',
+          status: 'active',
+          startsAt: isCurrentlyActive && curSub?.startsAt ? curSub.startsAt : now,
+          expiresAt: newExpiresAt,
+        };
+        if (!this.data.subscriptions) this.data.subscriptions = [];
+        this.data.subscriptions.unshift({
+          id: 'sub_plus_' + now,
+          ownerId: plusUser.email.toLowerCase(),
+          owner_id: plusUser.email.toLowerCase(),
+          tier: 'Gold',
+          billing: 'monthly',
+          status: 'active',
+          startsAt: plusUser.vvvipSubscription.startsAt,
+          endsAt: newExpiresAt,
+          paymentId: p.id,
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+      this.emitWalletUpdate(hostEmail);
+      this.emitWalletUpdate('admin@airbus.ke');
+    }
+
     // 5. If standard wallet top-up / deposit: credit exact approved amount (no * 10!)
     if (p.kind === 'wallet' || p.type === 'wallet' || p.type === 'wallet_topup' || p.type === 'deposit') {
       this.recordWalletTransaction({
@@ -4608,15 +4687,26 @@ class DatabaseStore {
 
     const payerUser = this.findUserByEmail(hostEmail);
     const isGuest = payerUser?.role === 'guest';
-    const itemLabel = p.type === 'boost' ? 'Visibility Boost' : p.type === 'advert' ? 'Advert Campaign' : p.type === 'subscription' ? 'Hosting Subscription' : (p.kind === 'deposit' || p.type === 'deposit' || p.kind === 'wallet' ? 'Wallet Deposit' : 'Payment');
+    const itemLabel =
+      p.type === 'boost'
+        ? 'Visibility Boost'
+        : p.type === 'advert'
+        ? 'Advert Campaign'
+        : p.type === 'subscription'
+        ? 'Hosting Subscription'
+        : p.type === 'vvvip' || p.kind === 'vvvip'
+        ? 'AirBus Plus Membership'
+        : p.kind === 'deposit' || p.type === 'deposit' || p.kind === 'wallet'
+        ? 'Wallet Deposit'
+        : 'Payment';
     this.createNotification({
       id: 'notif_' + Date.now(),
       userEmail: hostEmail,
       title: `${itemLabel} Approved! ✓`,
       message: `Your payment of KES ${finalApprovedAmount.toLocaleString()} (${p.method.toUpperCase()}) was verified! Your ${itemLabel.toLowerCase()} is now active.`,
       read: false,
-      link: isGuest ? '/#guest' : p.type === 'advert' ? '/#ads' : '/#owner',
-      type: p.type === 'subscription' ? 'subscription' : 'payment',
+      link: p.type === 'vvvip' || p.kind === 'vvvip' ? '/#collection-plus' : isGuest ? '/#guest' : p.type === 'advert' ? '/#ads' : '/#owner',
+      type: p.type === 'subscription' || p.type === 'vvvip' || p.kind === 'vvvip' ? 'subscription' : 'payment',
       createdAt: now,
     });
 
@@ -6491,8 +6581,8 @@ class DatabaseStore {
       this.data.walletTransactions.unshift(userTx, adminTx);
     } else {
       const cleanCode = (opts.mpesaCode || '').trim().toUpperCase();
-      if (!/^[A-Z0-9]{10}$/.test(cleanCode)) {
-        throw new Error('Please enter a valid 10-character alphanumeric M-Pesa receipt code (e.g. QGH7X2K9LM).');
+      if (!/^[A-Z0-9]{8,15}$/.test(cleanCode)) {
+        throw new Error('Please enter a valid 8-15 character alphanumeric M-Pesa receipt code (e.g. QGH7X2K9LM).');
       }
       const duplicate = (this.data.paymentRecords || []).some(
         p => (p.mpesaCode?.toUpperCase() === cleanCode || p.mpesa_code?.toUpperCase() === cleanCode)
@@ -8486,27 +8576,79 @@ class DatabaseStore {
     return { stay, shortStatus: 'ready' };
   }
 
-  // --- AIRBUS COLLECTIONS (Server-Side Logic & VVVIP Gating) ---
+  // --- AIRBUS COLLECTIONS (Server-Side Logic & AirBus Plus Privacy) ---
+  public isActivePlusMember(user?: User | null): boolean {
+    if (!user) return false;
+    if (user.role === 'admin') return true;
+    const dbUser = this.findUserByEmail(user.email) || user;
+    if (!dbUser.isVVVIP) return false;
+    const sub = dbUser.vvvipSubscription;
+    if (sub) {
+      if (sub.status === 'expired' || sub.expiresAt <= Date.now()) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   public getCollectionData(slug: string, viewerUser?: User | null) {
-    const isVVVIPUser = Boolean(viewerUser?.isVVVIP || viewerUser?.role === 'admin');
-    const allLive = this.getStays({ viewerUser, includeVVVIP: isVVVIPUser });
+    this.checkAllExpirations();
+    const dbViewer = viewerUser ? this.findUserByEmail(viewerUser.email) || viewerUser : null;
+    const isActivePlus = this.isActivePlusMember(dbViewer);
+    const allLive = this.getStays({ viewerUser: dbViewer, includeVVVIP: true });
 
     if (slug === 'plus') {
-      // Strictly enforce VVVIP on the server/data-access layer!
-      if (!isVVVIPUser) {
+      // Strictly enforce active AirBus Plus membership on the server/data-access layer!
+      // Private membership status, expiry, payments & service requests are visible ONLY to the member themselves & Admin.
+      const pendingPlusPayment = dbViewer
+        ? (this.data.paymentRecords || []).find(
+            p =>
+              (p.userId || p.hostEmail || '').toLowerCase() === dbViewer.email.toLowerCase() &&
+              (p.type === 'vvvip' || p.kind === 'vvvip') &&
+              p.status === 'pending'
+          ) || null
+        : null;
+
+      if (!isActivePlus) {
         return {
           collection: 'plus',
           locked: true,
           requiresVVVIP: true,
           stays: [],
-          message: 'AirBus Plus is an exclusive sanctuary reserved for VVVIP members only.',
+          pendingApproval: Boolean(pendingPlusPayment),
+          membership: dbViewer
+            ? {
+                isActive: false,
+                status: dbViewer.vvvipSubscription?.status || 'none',
+                expiresAt: dbViewer.vvvipSubscription?.expiresAt || null,
+                daysRemaining: 0,
+              }
+            : null,
+          message: 'AirBus Plus is Reserved VIP to VVVIP Guests.',
         };
       }
+
+      const sub = dbViewer?.vvvipSubscription;
+      const daysRemaining = sub?.expiresAt
+        ? Math.max(0, Math.ceil((sub.expiresAt - Date.now()) / 864e5))
+        : 30;
+
       return {
         collection: 'plus',
         locked: false,
         requiresVVVIP: true,
         stays: allLive.filter(s => Boolean(s.isPlusVVVIP)),
+        pendingApproval: Boolean(pendingPlusPayment),
+        membership: dbViewer
+          ? {
+              isActive: true,
+              status: 'active',
+              startsAt: sub?.startsAt || Date.now(),
+              expiresAt: sub?.expiresAt || Date.now() + 30 * 864e5,
+              daysRemaining,
+            }
+          : null,
+        serviceRequests: this.getPlusServiceRequests(dbViewer),
       };
     }
 
@@ -8543,6 +8685,7 @@ class DatabaseStore {
         stays: allLive.filter(s => Boolean(s.isLocalGuideExperience || s.price <= 5000)),
         guides: this.data.localGuides || SEED_LOCAL_GUIDES,
         articles: this.data.neighborhoodArticles || SEED_NEIGHBORHOOD_ARTICLES,
+        providers: this.getLocalProviders(false),
       };
     }
 
@@ -8581,83 +8724,338 @@ class DatabaseStore {
     email: string,
     mpesaCode?: string,
     options?: { billing?: 'monthly' | 'annual'; method?: 'wallet' | 'mpesa' }
-  ): User {
+  ): { user: User; pending: boolean; payment?: PaymentRecord; walletBalance: number; message: string } {
     const user = this.findUserByEmail(email);
     if (!user) throw new Error('User account not found.');
 
-    const billing: 'monthly' | 'annual' = options?.billing === 'annual' ? 'annual' : 'monthly';
-    const durationMs = billing === 'annual' ? 365 * 864e5 : 30 * 864e5;
-    const cost = billing === 'annual' ? 50000 : 5000;
+    const feeKes = 3500;
+    const durationMs = 30 * 864e5;
     const now = Date.now();
+    const method: 'wallet' | 'mpesa' = options?.method === 'wallet' ? 'wallet' : 'mpesa';
 
-    if (options?.method === 'wallet') {
+    if (method === 'wallet') {
+      const rec = this.ensureWallet(user.email);
+      const available = rec.balance - (rec.holdBalance || 0);
+      if (available < feeKes) {
+        const diff = feeKes - available;
+        throw new Error(
+          `Insufficient wallet balance. AirBus Plus costs Ksh 3,500 (30 days), you have KES ${available.toLocaleString()}. Please deposit KES ${diff.toLocaleString()} via M-Pesa or pay directly with M-Pesa.`
+        );
+      }
+
       this.transfer(
         user.email,
         'treasury',
-        cost,
+        feeKes,
         'subscription',
         'vvvip',
-        `AirBus Plus VVVIP (${billing === 'annual' ? '365-Day Annual' : '30-Day Monthly'}) membership`
+        'AirBus Plus (30-Day Monthly) membership'
       );
-    }
 
-    const baseStart =
-      user.vvvipSubscription &&
-      user.vvvipSubscription.status === 'active' &&
-      user.vvvipSubscription.expiresAt > now
-        ? user.vvvipSubscription.expiresAt
-        : now;
-
-    user.isVVVIP = true;
-    user.vvvipSubscription = {
-      planName: 'AirBus Plus VVVIP',
-      billing,
-      status: 'active',
-      startsAt:
+      const baseStart =
         user.vvvipSubscription &&
         user.vvvipSubscription.status === 'active' &&
         user.vvvipSubscription.expiresAt > now
-          ? user.vvvipSubscription.startsAt
-          : now,
-      expiresAt: baseStart + durationMs,
-    };
+          ? user.vvvipSubscription.expiresAt
+          : now;
 
-    if (!this.data.subscriptions) this.data.subscriptions = [];
-    this.data.subscriptions.unshift({
-      id: 'sub_vvvip_' + now,
-      ownerId: user.email.toLowerCase(),
-      owner_id: user.email.toLowerCase(),
-      tier: 'Gold',
-      billing,
-      status: 'active',
-      startsAt: user.vvvipSubscription.startsAt,
-      endsAt: user.vvvipSubscription.expiresAt,
-      paymentId: mpesaCode || 'vvvip_wallet_' + now,
-      createdAt: now,
-      updatedAt: now,
+      user.isVVVIP = true;
+      user.vvvipSubscription = {
+        planName: 'AirBus Plus',
+        billing: 'monthly',
+        status: 'active',
+        startsAt:
+          user.vvvipSubscription &&
+          user.vvvipSubscription.status === 'active' &&
+          user.vvvipSubscription.expiresAt > now
+            ? user.vvvipSubscription.startsAt
+            : now,
+        expiresAt: baseStart + durationMs,
+      };
+
+      if (!this.data.subscriptions) this.data.subscriptions = [];
+      this.data.subscriptions.unshift({
+        id: 'sub_plus_' + now,
+        ownerId: user.email.toLowerCase(),
+        owner_id: user.email.toLowerCase(),
+        tier: 'Gold',
+        billing: 'monthly',
+        status: 'active',
+        startsAt: user.vvvipSubscription.startsAt,
+        endsAt: user.vvvipSubscription.expiresAt,
+        paymentId: 'plus_wallet_' + now,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      this.createNotification({
+        id: 'notif_plus_' + now,
+        userEmail: user.email,
+        title: 'Welcome to AirBus Plus',
+        message: `Your 30-day AirBus Plus membership is active until ${new Date(
+          user.vvvipSubscription.expiresAt
+        ).toLocaleDateString()}!`,
+        read: false,
+        link: '/#collection-plus',
+        type: 'subscription',
+        createdAt: now,
+      });
+      this.createAuditLog({
+        id: 'aud_plus_' + now,
+        action: 'airbus_plus_wallet_activated',
+        actorEmail: user.email,
+        details: `User ${user.email} paid Ksh 3,500 from wallet for 30-day AirBus Plus membership.`,
+        createdAt: now,
+      });
+      this.save();
+      this.emitWalletUpdate(user.email);
+      return {
+        user,
+        pending: false,
+        walletBalance: this.getWalletBalance(user.email),
+        message: `AirBus Plus is now active for 30 days until ${new Date(user.vvvipSubscription.expiresAt).toLocaleDateString()}.`,
+      };
+    }
+
+    // M-Pesa payment ALWAYS requires Admin approval into the wallet before unlocking access
+    const cleanCode = (mpesaCode || '').trim().toUpperCase();
+    if (!cleanCode || !/^[A-Z0-9]{8,15}$/.test(cleanCode)) {
+      throw new Error('Please enter a valid 8-15 character M-Pesa transaction code for Till 943210.');
+    }
+    if (this.isMpesaCodeUsed(cleanCode)) {
+      throw new Error('This M-Pesa transaction code has already been submitted.');
+    }
+
+    const payment = this.createMpesaPayment({
+      userId: user.email,
+      type: 'vvvip',
+      amountKes: feeKes,
+      mpesaCode: cleanCode,
+      referenceId: 'plus_' + now,
+      durationDays: 30,
+      period: 'monthly',
     });
 
     this.createNotification({
-      id: 'notif_vvvip_' + now,
+      id: 'notif_plus_pending_' + now,
       userEmail: user.email,
-      title: 'Welcome to AirBus Plus (VVVIP)',
-      message: `Your ${billing === 'annual' ? '365-day annual' : '30-day monthly'} VVVIP concierge membership is active until ${new Date(
-        user.vvvipSubscription.expiresAt
-      ).toLocaleDateString()}!`,
+      title: 'AirBus Plus M-Pesa Payment Received',
+      message: `Your Ksh 3,500 M-Pesa payment (${cleanCode}) is pending Admin verification. Your 30-day access will unlock immediately upon approval.`,
       read: false,
       link: '/#collection-plus',
-      type: 'subscription',
+      type: 'payment',
+      createdAt: now,
+    });
+
+    return {
+      user,
+      pending: true,
+      payment,
+      walletBalance: this.getWalletBalance(user.email),
+      message: 'M-Pesa payment submitted (Ksh 3,500). Access unlocks for 30 days once Admin approves the payment into your wallet.',
+    };
+  }
+
+  public getPlusServiceRequests(viewerUser?: User | null): PlusServiceRequest[] {
+    if (!this.data.plusServiceRequests) this.data.plusServiceRequests = [];
+    if (!viewerUser) return [];
+    if (viewerUser.role === 'admin') {
+      return this.data.plusServiceRequests.slice().sort((a, b) => b.createdAt - a.createdAt);
+    }
+    if (!this.isActivePlusMember(viewerUser)) return [];
+    const clean = viewerUser.email.toLowerCase();
+    return this.data.plusServiceRequests
+      .filter(r => r.userEmail.toLowerCase() === clean)
+      .sort((a, b) => b.createdAt - a.createdAt);
+  }
+
+  public createPlusServiceRequest(userEmail: string, requestText: string): PlusServiceRequest {
+    const user = this.findUserByEmail(userEmail);
+    if (!user) throw new Error('User not found.');
+    if (!this.isActivePlusMember(user)) {
+      throw new Error('Active AirBus Plus membership is required to request concierge services.');
+    }
+    const cleanText = String(requestText || '').trim();
+    if (cleanText.length < 4) {
+      throw new Error('Please describe the extra service you need.');
+    }
+    if (!this.data.plusServiceRequests) this.data.plusServiceRequests = [];
+    const now = Date.now();
+    const req: PlusServiceRequest = {
+      id: 'plus_req_' + now + '_' + Math.random().toString(36).slice(2, 6),
+      userEmail: user.email.toLowerCase(),
+      userName: user.name || user.username || user.email,
+      requestText: cleanText,
+      status: 'pending',
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.data.plusServiceRequests.unshift(req);
+
+    this.data.users
+      .filter(u => u.role === 'admin')
+      .forEach(admin => {
+        this.createNotification({
+          id: 'notif_plus_req_' + now + '_' + Math.random().toString(36).slice(2, 5),
+          userEmail: admin.email,
+          title: 'New AirBus Plus Extra Service Request',
+          message: `${req.userName} (${req.userEmail}) asked: "${cleanText.slice(0, 80)}"`,
+          read: false,
+          link: '/#admin',
+          type: 'system',
+          createdAt: now,
+        });
+      });
+
+    this.save();
+    return req;
+  }
+
+  public linkPlusServiceRequest(
+    requestId: string,
+    adminEmail: string,
+    payload: { providerName: string; providerContact: string; adminNote?: string; status?: 'linked' | 'completed' }
+  ): PlusServiceRequest {
+    if (!this.data.plusServiceRequests) this.data.plusServiceRequests = [];
+    const req = this.data.plusServiceRequests.find(r => r.id === requestId);
+    if (!req) throw new Error('Service request not found.');
+    const providerName = String(payload.providerName || '').trim();
+    const providerContact = String(payload.providerContact || '').trim();
+    if (!providerName || !providerContact) {
+      throw new Error('Provider name and contact details are required to link the guest.');
+    }
+    const now = Date.now();
+    req.status = payload.status || 'linked';
+    req.assignedProviderName = providerName;
+    req.assignedProviderContact = providerContact;
+    req.adminNote = payload.adminNote ? String(payload.adminNote).trim() : undefined;
+    req.updatedAt = now;
+
+    this.createNotification({
+      id: 'notif_plus_link_' + now,
+      userEmail: req.userEmail,
+      title: 'AirBus Plus Service Provider Linked',
+      message: `Your extra service request has been linked with ${providerName} (${providerContact}).`,
+      read: false,
+      link: '/#collection-plus',
+      type: 'system',
       createdAt: now,
     });
     this.createAuditLog({
-      id: 'aud_vvvip_' + now,
-      action: 'vvvip_upgraded',
-      actorEmail: user.email,
-      details: `User ${user.email} unlocked AirBus Plus VVVIP (${billing})${mpesaCode ? ` (Ref: ${mpesaCode})` : ''}.`,
+      id: 'aud_plus_link_' + now,
+      action: 'plus_service_linked',
+      actorEmail: adminEmail,
+      details: `Linked ${req.userEmail}'s AirBus Plus request ${req.id} to ${providerName}.`,
       createdAt: now,
     });
     this.save();
-    return user;
+    return req;
+  }
+
+  public getLocalProviders(includePulledDown = false): LocalServiceProvider[] {
+    if (!this.data.localProviders) this.data.localProviders = [];
+    return this.data.localProviders
+      .filter(p => includePulledDown || p.status === 'active')
+      .slice()
+      .sort((a, b) => b.createdAt - a.createdAt);
+  }
+
+  public registerLocalProvider(input: {
+    fullName: string;
+    locationTown: string;
+    category: LocalProviderCategory;
+    trainerDiscipline?: string;
+    customServiceDescription?: string;
+    description: string;
+    contact: string;
+    photoUrl: string;
+    ownerEmail?: string;
+  }): LocalServiceProvider {
+    const allowedCategories: LocalProviderCategory[] = [
+      'Personal Chef',
+      'Driver',
+      'Mechanic',
+      'Lawyer',
+      'Translator',
+      'Tour Guide',
+      'Trainer',
+      'Vehicle trackers and vehicle alarm installer',
+      'Companionship',
+      'Others',
+    ];
+    if (!allowedCategories.includes(input.category)) {
+      throw new Error('Please choose a valid AirBus Local service category.');
+    }
+
+    const fullName = String(input.fullName || '').trim();
+    const locationTown = String(input.locationTown || '').trim();
+    const description = String(input.description || '').trim();
+    const contact = String(input.contact || '').trim();
+    const photoUrl = String(input.photoUrl || '').trim();
+    const trainerDiscipline = String(input.trainerDiscipline || '').trim();
+    const customServiceDescription = String(input.customServiceDescription || '').trim();
+
+    if (!fullName || !locationTown || !description || !contact || !photoUrl) {
+      throw new Error('Full personal name, location (town), short description, contact, and profile photo are all required.');
+    }
+
+    if (input.category === 'Trainer' && !trainerDiscipline) {
+      throw new Error('Please indicate what you train.');
+    }
+
+    if (input.category === 'Others') {
+      if (!customServiceDescription) {
+        throw new Error('Please state the services you offer under Others.');
+      }
+      const combinedOther = `${customServiceDescription} ${description}`.toLowerCase();
+      if (/\b(companionship|companion|dating|date|escort|hookup|romantic|girlfriend|boyfriend)\b/i.test(combinedOther)) {
+        throw new Error('Companionship and dating are not allowed under Others. Please choose Companionship or Trip Dating instead.');
+      }
+    }
+
+    const combinedText = `${fullName} ${description} ${trainerDiscipline} ${customServiceDescription}`.toLowerCase();
+    if (/\b(cocaine|heroin|meth|bhang|weed|marijuana|cannabis|opioid|ecstasy|lsd|illegal drugs|trafficking|contraband|stolen|weapon|firearm|prostitution)\b/i.test(combinedText)) {
+      throw new Error('No drugs or illegal activities. Any such provider profile will be pulled down.');
+    }
+
+    if (!this.data.localProviders) this.data.localProviders = [];
+    const now = Date.now();
+    const provider: LocalServiceProvider = {
+      id: 'locp_' + now + '_' + Math.random().toString(36).slice(2, 6),
+      fullName,
+      locationTown,
+      category: input.category,
+      trainerDiscipline: input.category === 'Trainer' ? trainerDiscipline : undefined,
+      customServiceDescription: input.category === 'Others' ? customServiceDescription : undefined,
+      description,
+      contact,
+      photoUrl,
+      ownerEmail: input.ownerEmail ? input.ownerEmail.toLowerCase() : undefined,
+      status: 'active',
+      createdAt: now,
+    };
+
+    this.data.localProviders.unshift(provider);
+    this.save();
+    return provider;
+  }
+
+  public pullDownLocalProvider(providerId: string, adminEmail: string, reason?: string): LocalServiceProvider {
+    if (!this.data.localProviders) this.data.localProviders = [];
+    const p = this.data.localProviders.find(item => item.id === providerId);
+    if (!p) throw new Error('Provider profile not found.');
+    p.status = 'pulled_down';
+    p.pulledDownReason = reason?.trim() || 'Violated platform rules (no drugs or illegal activities).';
+    p.pulledDownBy = adminEmail;
+    this.createAuditLog({
+      id: 'aud_locp_' + Date.now(),
+      action: 'local_provider_pulled_down',
+      actorEmail: adminEmail,
+      details: `Pulled down AirBus Local provider ${p.fullName} (${p.id}): ${p.pulledDownReason}`,
+      createdAt: Date.now(),
+    });
+    this.save();
+    return p;
   }
 
   public requestLocalGuide(req: {

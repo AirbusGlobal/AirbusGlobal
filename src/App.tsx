@@ -1246,6 +1246,14 @@ export default function App() {
               currency={currency}
               onBackToFeed={() => handleNavigate('home')}
               onNavigateToShorts={() => handleNavigate('shorts')}
+              onRefreshWallet={() =>
+                api
+                  .getWallet()
+                  .then(w => {
+                    if (w?.wallet?.balance !== undefined) setWalletBalance(w.wallet.balance);
+                  })
+                  .catch(() => {})
+              }
               showToast={showToast}
             />
           )
@@ -1294,6 +1302,8 @@ export default function App() {
             onNegotiate={id => setNegotiateStayId(id)}
             onBackToFeed={() => handleNavigate('home')}
             onNavigateCollection={slug => handleNavigate(`collection-${slug}`)}
+            onNavigateTripDating={() => handleNavigate('trip-dating')}
+            userWalletBalance={walletBalance}
             onOpenAuth={() => {
               setAuthInitialMode('login');
               setAuthModalOpen(true);
