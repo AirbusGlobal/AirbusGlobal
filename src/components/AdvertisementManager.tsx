@@ -166,7 +166,6 @@ export const AdvertisementManager: React.FC<AdvertisementManagerProps> = ({ onSe
               src={currentAd.imageUrl}
               alt={currentAd.title}
               className="w-full h-full object-cover"
-              loading="lazy"
             />
             {currentAd.tag && (
               <span className="absolute bottom-0 left-0 right-0 bg-black/80 text-[8px] font-bold text-center py-0.2 truncate px-1 text-amber-300">

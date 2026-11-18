@@ -145,7 +145,6 @@ export const StayCard: React.FC<StayCardProps> = ({
             className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-500 ${
               isVideoPlaying ? 'opacity-0' : 'opacity-85 group-hover:scale-105 transition-transform duration-700'
             }`}
-            loading="lazy"
           />
         )}
 

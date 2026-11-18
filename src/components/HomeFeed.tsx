@@ -30,6 +30,9 @@ interface HomeFeedProps {
   currency: Currency;
   searchQuery: string;
   guestCount: number;
+  hasMore?: boolean;
+  loadingMore?: boolean;
+  onLoadMore?: () => void;
 }
 
 const CATEGORY_TABS = [
@@ -55,6 +58,9 @@ export const HomeFeed: React.FC<HomeFeedProps> = ({
   currency,
   searchQuery,
   guestCount,
+  hasMore,
+  loadingMore,
+  onLoadMore,
 }) => {
   const [hoveredStayId, setHoveredStayId] = useState<string | null>(null);
 
@@ -68,7 +74,7 @@ export const HomeFeed: React.FC<HomeFeedProps> = ({
   const [entireHomeOnly, setEntireHomeOnly] = useState<boolean>(false);
   const [checkIn, setCheckIn] = useState<string>('');
   const [checkOut, setCheckOut] = useState<string>('');
-  const [sortBy, setSortBy] = useState<string>('rec');
+  const [sortBy, setSortBy] = useState<string>('new');
   const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
   const [selectedAmenities, setSelectedAmenities] = useState<string[]>([]);
   const [instantBookOnly, setInstantBookOnly] = useState<boolean>(false);
@@ -512,6 +518,19 @@ export const HomeFeed: React.FC<HomeFeedProps> = ({
               </div>
             )}
 
+            {hasMore && onLoadMore && (
+              <div className="flex justify-center pt-2">
+                <button
+                  type="button"
+                  onClick={onLoadMore}
+                  disabled={loadingMore}
+                  className="px-6 py-2.5 rounded-full bg-stone-900 dark:bg-white text-white dark:text-stone-900 text-xs font-extrabold hover:opacity-90 transition-all shadow cursor-pointer disabled:opacity-50"
+                >
+                  {loadingMore ? 'Loading more stays...' : 'Load More Stays'}
+                </button>
+              </div>
+            )}
+
             {/* Recommended for You Section */}
             {recommendedStays.length > 0 && (
               <div className="pt-6 border-t border-stone-200 dark:border-stone-800">
@@ -606,6 +625,19 @@ export const HomeFeed: React.FC<HomeFeedProps> = ({
                   currency={currency}
                 />
               ))}
+            </div>
+          )}
+
+          {hasMore && onLoadMore && (
+            <div className="flex justify-center pt-3">
+              <button
+                type="button"
+                onClick={onLoadMore}
+                disabled={loadingMore}
+                className="px-6 py-2.5 rounded-full bg-stone-900 dark:bg-white text-white dark:text-stone-900 text-xs font-extrabold hover:opacity-90 transition-all shadow cursor-pointer disabled:opacity-50"
+              >
+                {loadingMore ? 'Loading more stays...' : 'Load More Stays'}
+              </button>
             </div>
           )}
         </div>

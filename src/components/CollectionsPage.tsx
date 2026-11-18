@@ -100,6 +100,7 @@ interface CollectionsPageProps {
   onNavigateCollection: (slug: CollectionSlug) => void;
   onNavigateTripDating?: () => void;
   userWalletBalance?: number;
+  onOpenWalletDeposit?: () => void;
   onOpenAuth: () => void;
   onUserUpgraded?: (updatedUser: User) => void;
   showToast?: (msg: string) => void;
@@ -130,6 +131,7 @@ export const CollectionsPage: React.FC<CollectionsPageProps> = ({
   onNavigateCollection,
   onNavigateTripDating,
   userWalletBalance = 0,
+  onOpenWalletDeposit,
   onOpenAuth,
   onUserUpgraded,
   showToast,
@@ -163,10 +165,8 @@ export const CollectionsPage: React.FC<CollectionsPageProps> = ({
   const [workDedicatedDesk, setWorkDedicatedDesk] = useState<boolean>(false);
   const [workCorpInvoice, setWorkCorpInvoice] = useState<boolean>(false);
 
-  // AirBus Plus Membership Modal (Ksh 3,500 / 30 Days)
+  // AirBus Plus Membership Modal (Ksh 3,500 / 30 Days - Guest Wallet Only)
   const [showVvvipModal, setShowVvvipModal] = useState(false);
-  const [vvvipMethod, setVvvipMethod] = useState<'wallet' | 'mpesa'>('mpesa');
-  const [vvvipMpesaCode, setVvvipMpesaCode] = useState('');
   const [vvvipModalError, setVvvipModalError] = useState<string | null>(null);
   const [vvvipLoading, setVvvipLoading] = useState(false);
 
@@ -237,6 +237,17 @@ export const CollectionsPage: React.FC<CollectionsPageProps> = ({
 
   useEffect(() => {
     loadCollection();
+  }, [slug, user?.isVVVIP, user?.email]);
+
+  useEffect(() => {
+    const onRealtime = (e: Event) => {
+      const evt = (e as CustomEvent).detail;
+      if (evt?.type === 'stay') {
+        loadCollection();
+      }
+    };
+    window.addEventListener('airbus:realtime-feed', onRealtime);
+    return () => window.removeEventListener('airbus:realtime-feed', onRealtime);
   }, [slug, user?.isVVVIP, user?.email]);
 
   // Collection Header Copy
@@ -354,34 +365,29 @@ export const CollectionsPage: React.FC<CollectionsPageProps> = ({
       onOpenAuth();
       return;
     }
-    if (vvvipMethod === 'wallet' && userWalletBalance < 3500) {
-      setVvvipModalError(
-        `Insufficient wallet balance (KES ${userWalletBalance.toLocaleString()}). Ksh 3,500 is required. Switch to Pay with M-Pesa (Till 943210) or top up your wallet.`
-      );
+    if (user.role !== 'guest') {
+      setVvvipModalError('AirBus Plus is for Guests only and never uses a Host wallet.');
       return;
     }
-    if (vvvipMethod === 'mpesa') {
-      const cleanCode = vvvipMpesaCode.trim().toUpperCase();
-      if (!cleanCode || !/^[A-Z0-9]{8,15}$/.test(cleanCode)) {
-        setVvvipModalError('Enter a valid 8-15 character M-Pesa code paid to Till 943210.');
-        return;
-      }
+    if (userWalletBalance < 3500) {
+      setVvvipModalError(
+        `Insufficient Guest wallet balance (KES ${userWalletBalance.toLocaleString()}). Ksh 3,500 is required. Use Deposit (M-Pesa) to fund your wallet first.`
+      );
+      return;
     }
     setVvvipLoading(true);
     try {
       const res = await api.upgradeToVVVIP({
         billing: 'monthly',
-        method: vvvipMethod,
-        mpesaCode: vvvipMethod === 'mpesa' ? vvvipMpesaCode.trim().toUpperCase() : undefined,
+        method: 'wallet',
       });
       onUserUpgraded?.(res.user);
       setShowVvvipModal(false);
-      setVvvipMpesaCode('');
       setVvvipModalError(null);
       showToast?.(res.message);
       await loadCollection();
     } catch (err: any) {
-      setVvvipModalError(err.message || 'Payment submission failed.');
+      setVvvipModalError(err.message || 'Payment from Guest wallet failed.');
     } finally {
       setVvvipLoading(false);
     }
@@ -403,21 +409,20 @@ export const CollectionsPage: React.FC<CollectionsPageProps> = ({
     }
   };
 
-  const handleLocalPhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleLocalPhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     if (file.size > 4 * 1024 * 1024) {
       setLocalRegError('Profile photo must be under 4MB.');
       return;
     }
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === 'string') {
-        setLocalRegPhotoUrl(reader.result);
-        setLocalRegError(null);
-      }
-    };
-    reader.readAsDataURL(file);
+    try {
+      const uploaded = await api.uploadMediaWithProgress(file, 'photo', file.name);
+      setLocalRegPhotoUrl(uploaded.url);
+      setLocalRegError(null);
+    } catch (err: any) {
+      setLocalRegError(err?.message || 'Failed to upload profile photo. Please retry.');
+    }
   };
 
   const handleRegisterLocalProvider = async (e: React.FormEvent) => {
@@ -826,7 +831,7 @@ export const CollectionsPage: React.FC<CollectionsPageProps> = ({
                 AirBus Plus is Reserved VIP to VVVIP Guests.
               </h2>
               <p className="text-sm text-stone-300 max-w-2xl mx-auto leading-relaxed">
-                Pay the monthly membership fee of <strong className="text-amber-300">Ksh 3,500</strong> (30 days from admin approval) to unlock AirBus Plus. The fee is used to source top-notch exclusive extra services attached to VIP-to-VVVIP listings. Paid via M-Pesa (admin approves into your wallet first) or AirBus Wallet.
+                Pay the monthly membership fee of <strong className="text-amber-300">Ksh 3,500</strong> (30 days from payment) from your <strong className="text-white">Guest Wallet</strong> to unlock AirBus Plus. The fee is used to source top-notch exclusive extra services attached to VIP-to-VVVIP listings. Need funds? Use <strong className="text-emerald-300">Deposit (M-Pesa)</strong> to top up your Guest Wallet first.
               </p>
             </div>
 
@@ -905,8 +910,8 @@ export const CollectionsPage: React.FC<CollectionsPageProps> = ({
                     </div>
                     <p className="text-xs text-stone-300">
                       {plusMembership?.expiresAt
-                        ? `Valid through ${new Date(plusMembership.expiresAt).toLocaleDateString()} (${plusMembership.daysRemaining} days remaining). Each renewal adds 30 days (Ksh 3,500).`
-                        : 'Monthly membership is Ksh 3,500 per 30 days counted from admin approval.'}
+                        ? `Expires: ${new Date(plusMembership.expiresAt).toLocaleDateString()} · ${plusMembership.daysRemaining} days remaining. Renewing from your Guest Wallet adds 30 days (Ksh 3,500).`
+                        : 'Monthly membership is Ksh 3,500 per 30 days paid from your Guest Wallet.'}
                     </p>
                   </div>
 
@@ -1514,7 +1519,7 @@ export const CollectionsPage: React.FC<CollectionsPageProps> = ({
         )}
       </div>
 
-      {/* AirBus Plus Membership Payment / Renewal Modal (Ksh 3,500 / 30 Days) */}
+      {/* AirBus Plus Membership Payment / Renewal Modal (Ksh 3,500 / 30 Days - Guest Wallet Only) */}
       {showVvvipModal && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="w-full max-w-md bg-neutral-900 border border-amber-500/40 rounded-3xl p-6 space-y-4 text-white shadow-2xl relative">
@@ -1537,92 +1542,59 @@ export const CollectionsPage: React.FC<CollectionsPageProps> = ({
                 <span className="text-base font-black font-mono text-white">Ksh 3,500</span>
               </div>
               <p className="text-[11px] text-stone-300 leading-relaxed">
-                Lasts 30 days from admin approval. Renewing adds another 30 days. M-Pesa payments must be approved into your wallet by the admin before access unlocks.
+                Paid strictly from your Guest Wallet. Lasts 30 days from payment and unlocks AirBus Plus immediately. Renewing adds another 30 days.
               </p>
             </div>
 
-            {/* Payment Method Selector */}
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setVvvipMethod('mpesa');
-                  setVvvipModalError(null);
-                }}
-                className={`py-2.5 px-3 rounded-xl border text-xs font-bold cursor-pointer ${
-                  vvvipMethod === 'mpesa'
-                    ? 'border-emerald-400 bg-emerald-500/15 text-emerald-300'
-                    : 'border-stone-700 text-stone-400'
-                }`}
-              >
-                Pay with M-Pesa (Till 943210)
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setVvvipMethod('wallet');
-                  setVvvipModalError(null);
-                }}
-                className={`py-2.5 px-3 rounded-xl border text-xs font-bold cursor-pointer flex items-center justify-center gap-1.5 ${
-                  vvvipMethod === 'wallet'
-                    ? 'border-emerald-400 bg-emerald-500/15 text-emerald-300'
-                    : 'border-stone-700 text-stone-400'
-                }`}
-              >
-                <Wallet className="w-3.5 h-3.5" />
-                <span>Pay from Wallet (KES {userWalletBalance.toLocaleString()})</span>
-              </button>
-            </div>
-
-            <form onSubmit={handleUpgradeVVVIP} className="space-y-3">
-              {vvvipMethod === 'mpesa' ? (
-                <div className="space-y-2">
-                  <div className="p-3 rounded-xl bg-black/50 border border-stone-800 text-[11px] text-stone-300 font-mono space-y-0.5">
-                    <div>Lipa na M-Pesa Buy Goods Till: <strong className="text-amber-300">943210</strong></div>
-                    <div>Amount: <strong className="text-emerald-300">Ksh 3,500</strong></div>
+            {user?.role !== 'guest' ? (
+              <div className="p-3.5 rounded-xl bg-rose-950/70 border border-rose-500/40 text-xs text-rose-200 leading-relaxed">
+                AirBus Plus is for Guests only and never uses a Host wallet. Sign in with a Guest account to subscribe.
+              </div>
+            ) : (
+              <form onSubmit={handleUpgradeVVVIP} className="space-y-3">
+                <div className="p-3.5 rounded-xl bg-black/50 border border-stone-800 text-xs text-stone-300 space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="flex items-center gap-1.5 font-semibold text-stone-300">
+                      <Wallet className="w-3.5 h-3.5 text-emerald-400" />
+                      Guest Wallet Balance
+                    </span>
+                    <strong className="font-mono text-white">KES {userWalletBalance.toLocaleString()}</strong>
                   </div>
-                  <div>
-                    <label className="text-xs font-semibold text-stone-300 block mb-1">
-                      M-Pesa Transaction Code (8-15 characters) *
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      maxLength={15}
-                      value={vvvipMpesaCode}
-                      onChange={e => setVvvipMpesaCode(e.target.value.toUpperCase())}
-                      placeholder="e.g. QGH7X2K9LM"
-                      className="w-full px-3.5 py-2.5 rounded-xl bg-black/60 border border-stone-700 text-xs text-white outline-none focus:border-amber-400 font-mono uppercase"
-                    />
+                  <div className={userWalletBalance < 3500 ? 'text-rose-300 font-semibold' : 'text-emerald-300 font-semibold'}>
+                    {userWalletBalance < 3500
+                      ? `Insufficient balance. Shortfall: KES ${(3500 - userWalletBalance).toLocaleString()}. Deposit via M-Pesa first.`
+                      : 'Sufficient Guest wallet balance for instant 30-day activation / renewal.'}
                   </div>
                 </div>
-              ) : (
-                <div className="p-3 rounded-xl bg-black/50 border border-stone-800 text-xs text-stone-300">
-                  Your AirBus Wallet Balance: <strong className="font-mono text-white">KES {userWalletBalance.toLocaleString()}</strong>.{' '}
-                  {userWalletBalance < 3500
-                    ? `Shortfall: KES ${(3500 - userWalletBalance).toLocaleString()}.`
-                    : 'Sufficient balance for instant activation / 30-day renewal.'}
-                </div>
-              )}
 
-              {vvvipModalError && (
-                <div className="p-2.5 rounded-xl bg-rose-950/70 border border-rose-500/40 text-xs text-rose-200">
-                  {vvvipModalError}
-                </div>
-              )}
+                {vvvipModalError && (
+                  <div className="p-2.5 rounded-xl bg-rose-950/70 border border-rose-500/40 text-xs text-rose-200">
+                    {vvvipModalError}
+                  </div>
+                )}
 
-              <button
-                type="submit"
-                disabled={vvvipLoading}
-                className="w-full py-3 rounded-xl bg-gradient-to-r from-amber-400 to-yellow-500 text-black font-black text-xs cursor-pointer hover:brightness-110 disabled:opacity-50"
-              >
-                {vvvipLoading
-                  ? 'Processing...'
-                  : vvvipMethod === 'wallet'
-                  ? 'Pay Ksh 3,500 from Wallet'
-                  : 'Submit Ksh 3,500 M-Pesa Payment for Approval'}
-              </button>
-            </form>
+                {userWalletBalance < 3500 ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowVvvipModal(false);
+                      onOpenWalletDeposit?.();
+                    }}
+                    className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs cursor-pointer transition-colors"
+                  >
+                    Deposit (M-Pesa)
+                  </button>
+                ) : (
+                  <button
+                    type="submit"
+                    disabled={vvvipLoading}
+                    className="w-full py-3 rounded-xl bg-gradient-to-r from-amber-400 to-yellow-500 text-black font-black text-xs cursor-pointer hover:brightness-110 disabled:opacity-50"
+                  >
+                    {vvvipLoading ? 'Activating from Wallet...' : 'Pay Ksh 3,500 from Wallet'}
+                  </button>
+                )}
+              </form>
+            )}
           </div>
         </div>
       )}

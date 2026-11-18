@@ -122,7 +122,7 @@ export const PlanModal: React.FC<PlanModalProps> = ({
 
   const hasPendingApproval = pendingSub !== null && pendingSub.status === 'pending';
 
-  // Block new host plan purchase if active/pending, unless topping up wallet
+  // Block new host plan purchase if active/pending, unless depositing to wallet
   const isPlanPurchaseBlocked = !isDepositFlow && (isCurrentlyActive || hasPendingApproval);
 
   const handlePaySubmit = async (e: React.FormEvent) => {
@@ -130,17 +130,8 @@ export const PlanModal: React.FC<PlanModalProps> = ({
     setError(null);
     setSuccessMsg(null);
 
-    if (isPlanPurchaseBlocked) {
-      if (hasPendingApproval) {
-        setError('You already have a subscription payment pending admin approval.');
-      } else {
-        setError(`You have an active subscription expiring on ${activeExpiryDate}. Upgrades or new subscriptions can only be purchased after the current period ends.`);
-      }
-      return;
-    }
-
-    if (isDepositFlow && (!Number.isFinite(walletAmount) || walletAmount < 10)) {
-      setError('Minimum wallet deposit amount is KES 10.');
+    if (!Number.isInteger(Number(walletAmount)) || Number(walletAmount) < 10) {
+      setError('Minimum wallet deposit amount is KES 10 (whole integer Ksh).');
       return;
     }
 
@@ -152,24 +143,13 @@ export const PlanModal: React.FC<PlanModalProps> = ({
 
     setSubmitting(true);
     try {
-      if (isDepositFlow) {
-        await api.topupWallet(walletAmount, cleanCode);
-        setSuccessMsg('Wallet deposit submitted! Admin will approve and credit your wallet shortly.');
-      } else {
-        await onSubmitPayment(
-          'plan',
-          selectedTier,
-          amountToPay,
-          cleanCode,
-          billingCycle
-        );
-        setSuccessMsg('Receipt submitted successfully! Admin will verify and activate your plan.');
-      }
+      await api.topupWallet(Number(walletAmount), cleanCode);
+      setSuccessMsg('Deposit (M-Pesa) submitted as Pending! Your Host wallet will be credited with this exact amount upon Admin approval.');
       setTimeout(() => {
         onClose();
       }, 2200);
     } catch (err: any) {
-      setError(err.message || 'Payment submission failed.');
+      setError(err.message || 'Deposit submission failed.');
     } finally {
       setSubmitting(false);
     }
@@ -321,9 +301,7 @@ export const PlanModal: React.FC<PlanModalProps> = ({
                       disabled={isPlanPurchaseBlocked}
                       onClick={() => {
                         setSelectedTier(t);
-                        setIsDepositFlow(false);
                         setError(null);
-                        setInPayStep(true);
                       }}
                       className={`w-full py-2 rounded-xl text-xs font-bold mt-4 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
                         isSelected
@@ -335,6 +313,8 @@ export const PlanModal: React.FC<PlanModalProps> = ({
                         ? `Active until ${activeExpiryDate}`
                         : hasPendingApproval
                         ? 'Approval Pending'
+                        : isSelected
+                        ? `Selected: ${t}`
                         : `Select ${t}`}
                     </button>
                   </div>
@@ -342,33 +322,33 @@ export const PlanModal: React.FC<PlanModalProps> = ({
               })}
             </div>
 
-            {/* Wallet Coin & Insufficient Coins Banner */}
+            {/* Wallet Balance & Insufficient Balance Banner */}
             {userWalletBalance < (billingCycle === 'annual' ? selectedDetails.annualPrice : selectedDetails.monthlyPrice) && (
               <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/30 border border-amber-300 dark:border-amber-800/60 mb-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
                 <div className="space-y-1">
                   <div className="flex items-center gap-1.5 font-bold text-amber-900 dark:text-amber-200">
                     <Wallet className="w-4 h-4 text-amber-600" />
-                    <span>Insufficient Wallet Coins (1 Coin = 1 KES)</span>
+                    <span>Insufficient Host Wallet Balance</span>
                   </div>
                   <p className="text-[11px] text-amber-800 dark:text-amber-300 leading-snug">
-                    Current wallet: <strong>{userWalletBalance.toLocaleString()} Coins</strong> (KES {userWalletBalance.toLocaleString()}).
-                    Required: <strong>{(billingCycle === 'annual' ? selectedDetails.annualPrice : selectedDetails.monthlyPrice).toLocaleString()} Coins</strong>.
+                    Current wallet: <strong>KES {userWalletBalance.toLocaleString()}</strong>.
+                    Required: <strong>KES {(billingCycle === 'annual' ? selectedDetails.annualPrice : selectedDetails.monthlyPrice).toLocaleString()}</strong>.
                     <span className="block font-black text-rose-600 dark:text-rose-400 mt-0.5">
-                      Shortfall: {((billingCycle === 'annual' ? selectedDetails.annualPrice : selectedDetails.monthlyPrice) - userWalletBalance).toLocaleString()} Coins (KES {((billingCycle === 'annual' ? selectedDetails.annualPrice : selectedDetails.monthlyPrice) - userWalletBalance).toLocaleString()})
+                      Shortfall: KES {((billingCycle === 'annual' ? selectedDetails.annualPrice : selectedDetails.monthlyPrice) - userWalletBalance).toLocaleString()}
                     </span>
                   </p>
                 </div>
                 <button
                   type="button"
                   onClick={() => {
-                    setWalletAmount((billingCycle === 'annual' ? selectedDetails.annualPrice : selectedDetails.monthlyPrice) - userWalletBalance);
+                    setWalletAmount(Math.max(10, (billingCycle === 'annual' ? selectedDetails.annualPrice : selectedDetails.monthlyPrice) - userWalletBalance));
                     setIsDepositFlow(true);
                     setError(null);
                     setInPayStep(true);
                   }}
-                  className="px-3.5 py-1.5 rounded-full bg-amber-600 hover:bg-amber-500 text-white font-extrabold text-[11px] shrink-0 shadow-sm cursor-pointer"
+                  className="px-3.5 py-1.5 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-[11px] shrink-0 shadow-sm cursor-pointer"
                 >
-                  Top Up Difference ({((billingCycle === 'annual' ? selectedDetails.annualPrice : selectedDetails.monthlyPrice) - userWalletBalance).toLocaleString()} Coins)
+                  Deposit (M-Pesa)
                 </button>
               </div>
             )}
@@ -376,7 +356,7 @@ export const PlanModal: React.FC<PlanModalProps> = ({
             {/* Required Disclaimer */}
             <div className="p-3 rounded-2xl bg-stone-100 dark:bg-stone-900 border border-stone-200 dark:border-stone-800 text-[11px] text-stone-600 dark:text-stone-400 leading-relaxed mb-4">
               <span className="font-bold text-stone-800 dark:text-stone-200">Subscription Terms &amp; Policy: </span>
-              Subscription is valid for 30 days (or 365 days for annual) from the day of admin payment approval. If your subscription expires, your contact details will be hidden and guests will not be able to book your short stays until you renew. If your subscription stays inactive for 3 consecutive months, your listings will be delisted from the platform.
+              Paid exclusively from your Host Wallet. Subscription is valid for 30 days (or 365 days for annual) immediately upon payment. If your subscription expires, your contact details will be hidden and guests will not be able to book your short stays until you renew. If your subscription stays inactive for 3 consecutive months, your listings will be delisted from the platform.
             </div>
 
             {error && (
@@ -396,62 +376,70 @@ export const PlanModal: React.FC<PlanModalProps> = ({
               <div className="flex items-center gap-2">
                 <Wallet className="w-4 h-4 text-stone-400" />
                 <span>
-                  Wallet: <strong className="text-stone-900 dark:text-white font-mono">{userWalletBalance.toLocaleString()} Coins</strong> (KES {userWalletBalance.toLocaleString()})
+                  Host Wallet: <strong className="text-stone-900 dark:text-white font-mono">KES {userWalletBalance.toLocaleString()}</strong>
                 </span>
               </div>
               <div className="flex items-center gap-2 w-full sm:w-auto">
-                {onPayFromWallet && (
+                {userWalletBalance < (billingCycle === 'annual' ? selectedDetails.annualPrice : selectedDetails.monthlyPrice) ? (
                   <button
                     type="button"
-                    onClick={async () => {
-                      if (isPlanPurchaseBlocked) {
-                        setError(`Active subscription ongoing until ${activeExpiryDate}. Please finish the current period first.`);
-                        return;
-                      }
-                      const cost = billingCycle === 'annual' ? selectedDetails.annualPrice : selectedDetails.monthlyPrice;
-                      if (userWalletBalance < cost) {
-                        const diff = cost - userWalletBalance;
-                        setError(`Your wallet balance (KES ${userWalletBalance.toLocaleString()}) is not enough for KES ${cost.toLocaleString()}. Top up the KES ${diff.toLocaleString()} difference or Pay with M-Pesa.`);
-                        setWalletAmount(diff);
-                        return;
-                      }
+                    onClick={() => {
+                      const diff = (billingCycle === 'annual' ? selectedDetails.annualPrice : selectedDetails.monthlyPrice) - userWalletBalance;
+                      setWalletAmount(Math.max(10, diff));
+                      setIsDepositFlow(true);
                       setError(null);
-                      setWalletPaying(true);
-                      try {
-                        await onPayFromWallet(selectedTier, billingCycle);
-                        setSuccessMsg(`Plan activated instantly from wallet!`);
-                        setTimeout(() => onClose(), 1800);
-                      } catch (err: any) {
-                        setError(err.message || 'Payment from wallet failed.');
-                      } finally {
-                        setWalletPaying(false);
-                      }
+                      setInPayStep(true);
                     }}
-                    disabled={isPlanPurchaseBlocked || walletPaying}
-                    className="flex-1 sm:flex-initial px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:opacity-95 text-white rounded-full font-extrabold flex items-center justify-center gap-1.5 cursor-pointer shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="flex-1 sm:flex-initial px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-full font-extrabold flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
                   >
-                    <Zap className="w-3.5 h-3.5" />
-                    <span>{walletPaying ? 'Activating...' : 'Pay from Wallet'}</span>
+                    <span>Deposit (M-Pesa)</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
                   </button>
+                ) : (
+                  onPayFromWallet && (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (isPlanPurchaseBlocked) {
+                          setError(`Active subscription ongoing until ${activeExpiryDate}. Please finish the current period first.`);
+                          return;
+                        }
+                        const cost = billingCycle === 'annual' ? selectedDetails.annualPrice : selectedDetails.monthlyPrice;
+                        if (userWalletBalance < cost) {
+                          const diff = cost - userWalletBalance;
+                          setError(`Insufficient wallet balance (KES ${userWalletBalance.toLocaleString()}). Required: KES ${cost.toLocaleString()}. Use Deposit (M-Pesa) first.`);
+                          setWalletAmount(Math.max(10, diff));
+                          return;
+                        }
+                        setError(null);
+                        setWalletPaying(true);
+                        try {
+                          await onPayFromWallet(selectedTier, billingCycle);
+                          setSuccessMsg('Plan activated instantly from wallet!');
+                          setTimeout(() => onClose(), 1800);
+                        } catch (err: any) {
+                          setError(err.message || 'Payment from wallet failed.');
+                        } finally {
+                          setWalletPaying(false);
+                        }
+                      }}
+                      disabled={isPlanPurchaseBlocked || walletPaying}
+                      className="flex-1 sm:flex-initial px-5 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:opacity-95 text-white rounded-full font-extrabold flex items-center justify-center gap-1.5 cursor-pointer shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      <Zap className="w-3.5 h-3.5" />
+                      <span>
+                        {walletPaying
+                          ? 'Activating...'
+                          : `Pay KES ${(billingCycle === 'annual' ? selectedDetails.annualPrice : selectedDetails.monthlyPrice).toLocaleString()} from Wallet`}
+                      </span>
+                    </button>
+                  )
                 )}
-                <button
-                  type="button"
-                  disabled={isPlanPurchaseBlocked}
-                  onClick={() => {
-                    setIsDepositFlow(false);
-                    setError(null);
-                    setInPayStep(true);
-                  }}
-                  className="flex-1 sm:flex-initial px-5 py-2 bg-gradient-to-r from-[#ff2e93] to-[#8b5cf6] text-white rounded-full font-bold flex items-center justify-center gap-1.5 cursor-pointer shadow hover:opacity-95 disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  <span>Pay with M-Pesa</span>
-                  <ArrowRight className="w-3.5 h-3.5" />
-                </button>
               </div>
             </div>
           </div>
         ) : (
-          /* STEP 2: M-PESA PAYMENT SCREEN */
+          /* STEP 2: DEPOSIT (M-PESA) SCREEN */
           <div>
             <div className="flex items-center gap-2 mb-4">
               {!walletMode && (
@@ -468,43 +456,39 @@ export const PlanModal: React.FC<PlanModalProps> = ({
                 </button>
               )}
               <h2 className="text-xl font-extrabold font-heading">
-                {isDepositFlow
-                  ? 'Deposit to AirBus Wallet'
-                  : `Pay for ${selectedTier} Plan (${billingCycle === 'annual' ? '365 Days' : '30 Days'})`}
+                Deposit (M-Pesa) to AirBus Wallet
               </h2>
             </div>
 
             {/* M-PESA INSTRUCTIONS TICKET */}
             <div className="p-4 bg-stone-900 text-emerald-400 font-mono text-xs rounded-2xl shadow-inner border border-emerald-500/30 mb-5 space-y-1">
-              <div className="text-white font-bold tracking-wider mb-1">LIPA NA M-PESA</div>
-              <div>Paybill Number: <span className="text-white font-bold text-sm">222111</span></div>
-              <div>Account Number: <span className="text-white font-bold text-sm">ff1314</span></div>
+              <div className="text-white font-bold tracking-wider mb-1">DEPOSIT (M-PESA) — LIPA NA M-PESA</div>
+              <div>Paybill Number: <span className="text-white font-bold text-sm">222111</span> · Account: <span className="text-white font-bold text-sm">ff1314</span></div>
               <div>Till Option: <span className="text-white font-bold text-sm">943210</span></div>
-              <div>Amount to Pay: <span className="text-emerald-300 font-bold text-sm">KES {amountToPay.toLocaleString()}</span></div>
-              {!isDepositFlow && (
-                <div className="text-stone-400 text-[10px] pt-1">
-                  Plan Duration: {billingCycle === 'annual' ? '365 days' : '30 days'} from date of admin approval.
-                </div>
-              )}
+              <div>Deposit Amount: <span className="text-emerald-300 font-bold text-sm">KES {Number(walletAmount || 0).toLocaleString()}</span></div>
+              <div className="text-stone-400 text-[10px] pt-1">
+                Submit exact integer Ksh sent via M-Pesa. Admin will approve this exact amount into your wallet.
+              </div>
             </div>
 
             <form onSubmit={handlePaySubmit} className="space-y-4">
-              {isDepositFlow && (
-                <div>
-                  <label className="text-xs font-bold text-stone-700 dark:text-stone-300 block mb-1">
-                    Deposit Amount (KES)
-                  </label>
-                  <input
-                    type="number"
-                    min="10"
-                    step="10"
-                    value={walletAmount}
-                    onChange={e => setWalletAmount(Math.max(10, Number(e.target.value) || 0))}
-                    className="w-full px-3.5 py-2 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-xs font-bold outline-none"
-                    required
-                  />
-                </div>
-              )}
+              <div>
+                <label className="text-xs font-bold text-stone-700 dark:text-stone-300 block mb-1">
+                  Deposit Amount (KES)
+                </label>
+                <input
+                  type="number"
+                  min="10"
+                  step="1"
+                  value={walletAmount}
+                  onChange={e => {
+                    const v = Number(e.target.value);
+                    setWalletAmount(Number.isFinite(v) ? Math.floor(v) : 0);
+                  }}
+                  className="w-full px-3.5 py-2 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-xs font-bold outline-none"
+                  required
+                />
+              </div>
 
               <div>
                 <label className="text-xs font-bold text-stone-700 dark:text-stone-300 block mb-1">
@@ -520,7 +504,7 @@ export const PlanModal: React.FC<PlanModalProps> = ({
                   required
                 />
                 <span className="text-[11px] text-stone-400 mt-1 block">
-                  Check your M-Pesa SMS confirmation message for the 10-letter reference code.
+                  Check your M-Pesa SMS confirmation message for the transaction code. Duplicate codes are rejected.
                 </span>
               </div>
 
@@ -541,7 +525,7 @@ export const PlanModal: React.FC<PlanModalProps> = ({
                 disabled={submitting}
                 className="w-full py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-full text-xs font-extrabold shadow-md hover:shadow-lg transition-all cursor-pointer disabled:opacity-50"
               >
-                {submitting ? 'Submitting Receipt...' : 'I Have Paid — Submit for Verification'}
+                {submitting ? 'Submitting Deposit...' : 'Submit Deposit (M-Pesa) for Approval'}
               </button>
             </form>
           </div>

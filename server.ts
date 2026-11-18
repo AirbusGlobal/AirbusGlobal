@@ -1,6 +1,7 @@
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
+import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { GoogleGenAI } from '@google/genai';
@@ -10,6 +11,7 @@ import { audioLibraryService } from './src/server/services/audioLibraryService';
 import { mediaProcessingService } from './src/server/services/mediaProcessingService';
 import { shortJobQueue } from './src/server/services/shortJobQueue';
 import { SHORTS_TIER_CONFIG, AUDIO_UPLOAD_CONFIG } from './src/config/shortsTierConfig';
+import { apiRateLimiter, logger, opsMetrics, requestIdMiddleware, walletMutex } from './src/server/services/ops';
 
 dotenv.config();
 
@@ -35,10 +37,13 @@ const PORT = !Number.isNaN(cliPort)
     : defaultAppPort;
 
 app.use(express.json({ limit: '65mb' }));
+app.use(requestIdMiddleware);
 
 // Serve generated Shorts, thumbnails, raw media, and free-source audio assets
 const uploadsRoot = path.resolve(process.cwd(), 'uploads');
+const RAW_UPLOADS_DIR = path.resolve(uploadsRoot, 'raw');
 if (!fs.existsSync(uploadsRoot)) fs.mkdirSync(uploadsRoot, { recursive: true });
+if (!fs.existsSync(RAW_UPLOADS_DIR)) fs.mkdirSync(RAW_UPLOADS_DIR, { recursive: true });
 app.use('/uploads', express.static(uploadsRoot));
 app.use('/AirbusGlobal/uploads', express.static(uploadsRoot));
 
@@ -113,9 +118,159 @@ function checkRateLimit(
 // REST API ENDPOINTS
 // -----------------------------------------------------------------------------
 
-// Health check
+// Health check & operational metrics
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', service: 'AirBus Backend', time: new Date().toISOString() });
+  const raw = db.getRaw();
+  res.json({
+    status: 'ok',
+    service: 'AirBus Backend',
+    time: new Date().toISOString(),
+    uptimeSec: Math.round((Date.now() - opsMetrics.startedAt) / 1000),
+    totalRequests: opsMetrics.totalRequests,
+    totalErrors: opsMetrics.totalErrors,
+    recentErrors: opsMetrics.recentErrors.slice(0, 10),
+    dbOk: Boolean(raw && Array.isArray(raw.stays)),
+  });
+});
+
+// -----------------------------------------------------------------------------
+// CONFIRMED PERSISTENT MEDIA UPLOAD & CLEANUP (No blob: URLs)
+// -----------------------------------------------------------------------------
+const rawMediaUploadParser = express.raw({
+  type: ['video/*', 'image/*', 'application/octet-stream'],
+  limit: '52mb',
+});
+
+app.post('/api/uploads/media', rawMediaUploadParser, (req, res) => {
+  const user = getAuthUser(req);
+  const clientSessionId = (req.headers['x-client-session'] as string) || '';
+  const rlKey = `upload:${user?.email || clientSessionId || req.ip || 'anon'}`;
+  const rl = apiRateLimiter.check(rlKey, 60, 60_000);
+  if (!rl.allowed) {
+    return res.status(429).json({
+      error: `Too many media uploads. Please retry in ${rl.retryAfterSec}s.`,
+    });
+  }
+
+  try {
+    if (!fs.existsSync(RAW_UPLOADS_DIR)) {
+      fs.mkdirSync(RAW_UPLOADS_DIR, { recursive: true });
+    }
+
+    const reqId = (req as any).requestId;
+    const isBinaryBuffer = Buffer.isBuffer(req.body);
+    let buffer: Buffer;
+    let mime = '';
+    let kind: 'photo' | 'video' = 'photo';
+
+    if (isBinaryBuffer) {
+      buffer = req.body;
+      mime = String(req.headers['x-file-mime'] || req.headers['content-type'] || '').toLowerCase();
+      const origName = String(req.query.filename || req.headers['x-file-name'] || '').toLowerCase();
+      const reqKind = String(req.query.kind || req.headers['x-media-kind'] || '').toLowerCase();
+      if (reqKind === 'video' || mime.startsWith('video/') || /\.(mp4|mov|webm)$/i.test(origName)) {
+        kind = 'video';
+      } else {
+        kind = 'photo';
+      }
+      if (!mime || mime === 'application/octet-stream') {
+        if (origName.endsWith('.mp4')) mime = 'video/mp4';
+        else if (origName.endsWith('.webm')) mime = 'video/webm';
+        else if (origName.endsWith('.mov')) mime = 'video/quicktime';
+        else if (origName.endsWith('.png')) mime = 'image/png';
+        else if (origName.endsWith('.webp')) mime = 'image/webp';
+        else mime = kind === 'video' ? 'video/mp4' : 'image/jpeg';
+      }
+    } else {
+      const { dataUrl, filename, kind: bodyKind } = req.body || {};
+      if (!dataUrl || typeof dataUrl !== 'string') {
+        return res.status(400).json({ error: 'Media payload is required (binary body or dataUrl).' });
+      }
+      const match = dataUrl.match(/^data:([^;]+);base64,([\s\S]+)$/);
+      if (!match) {
+        return res.status(400).json({ error: 'Invalid media dataUrl format.' });
+      }
+      mime = match[1].toLowerCase();
+      buffer = Buffer.from(match[2], 'base64');
+      kind = bodyKind === 'video' || mime.startsWith('video/') || /\.(mp4|mov|webm)$/i.test(String(filename || ''))
+        ? 'video'
+        : 'photo';
+    }
+
+    if (!buffer || buffer.length === 0) {
+      return res.status(400).json({ error: 'Uploaded media file is empty.' });
+    }
+
+    const maxBytes = kind === 'video' ? 50 * 1024 * 1024 : 5 * 1024 * 1024;
+    if (buffer.length > maxBytes) {
+      return res.status(400).json({
+        error: `${kind === 'video' ? 'Video' : 'Photo'} exceeds maximum allowed size (${kind === 'video' ? '50MB' : '5MB'}).`,
+      });
+    }
+
+    if (kind === 'photo' && !['image/jpeg', 'image/jpg', 'image/png', 'image/webp'].includes(mime)) {
+      return res.status(400).json({ error: 'Only JPG, PNG, and WebP images are permitted.' });
+    }
+    if (kind === 'video' && !['video/mp4', 'video/webm', 'video/quicktime', 'video/x-m4v'].includes(mime)) {
+      return res.status(400).json({ error: 'Only MP4, WebM, and MOV videos are permitted.' });
+    }
+
+    const ext =
+      mime === 'image/png' ? 'png'
+      : mime === 'image/webp' ? 'webp'
+      : mime === 'video/webm' ? 'webm'
+      : mime === 'video/quicktime' ? 'mov'
+      : kind === 'video' ? 'mp4'
+      : 'jpg';
+
+    const prefix = kind === 'video' ? 'vid' : 'img';
+    const fileName = `${prefix}_${Date.now()}_${crypto.randomBytes(5).toString('hex')}.${ext}`;
+    const fullPath = path.join(RAW_UPLOADS_DIR, fileName);
+    fs.writeFileSync(fullPath, buffer);
+
+    const url = `/uploads/raw/${fileName}`;
+    logger.info('media_upload_saved', {
+      requestId: reqId,
+      kind,
+      mime,
+      bytes: buffer.length,
+      url,
+      actor: user?.email || clientSessionId || 'anon',
+    });
+
+    return res.status(201).json({
+      url,
+      kind,
+      bytes: buffer.length,
+      mime,
+    });
+  } catch (err: any) {
+    logger.error('media_upload_failed', { error: err?.message });
+    return res.status(400).json({ error: err?.message || 'Media upload failed.' });
+  }
+});
+
+app.post('/api/uploads/cleanup', (req, res) => {
+  const { urls } = req.body || {};
+  if (!Array.isArray(urls)) {
+    return res.status(400).json({ error: 'urls array is required.' });
+  }
+  let removed = 0;
+  for (const rawUrl of urls.slice(0, 30)) {
+    if (typeof rawUrl !== 'string' || !rawUrl.startsWith('/uploads/raw/')) continue;
+    const base = path.basename(rawUrl);
+    if (!/^[a-zA-Z0-9_.-]+$/.test(base)) continue;
+    const target = path.join(RAW_UPLOADS_DIR, base);
+    if (fs.existsSync(target)) {
+      try {
+        fs.unlinkSync(target);
+        removed += 1;
+      } catch {
+        // ignore cleanup error
+      }
+    }
+  }
+  return res.json({ removed });
 });
 
 // Serve robots.txt directly
@@ -515,7 +670,7 @@ app.post('/api/auth/change-password', (req, res) => {
   return res.json({ success: true, message: 'Password updated successfully!' });
 });
 
-// Stays / Listings with Full Search
+// Stays / Listings with Full Search & Keyset Cursor Pagination (Newest-First)
 app.get('/api/stays', (req, res) => {
   try {
     const {
@@ -533,11 +688,23 @@ app.get('/api/stays', (req, res) => {
       beds,
       status,
       ownerEmail,
+      cursor,
+      limit,
+      sort,
     } = req.query;
 
     const viewerUser = getAuthUser(req);
 
-    let stays = db.getStays({
+    if (ownerEmail) {
+      const cleanOwner = String(ownerEmail).trim().toLowerCase();
+      if (!viewerUser || (viewerUser.role !== 'admin' && viewerUser.email.toLowerCase() !== cleanOwner)) {
+        return res.status(403).json({ error: 'Unauthorized to view another host\'s unapproved listings.' });
+      }
+      const stays = db.getMyStays(cleanOwner);
+      return res.json({ stays, nextCursor: null, hasMore: false, totalCount: stays.length });
+    }
+
+    const result = db.queryStaysFeed({
       query: q as string,
       guests: guests ? parseInt(guests as string, 10) : undefined,
       minPrice: minPrice ? parseInt(minPrice as string, 10) : undefined,
@@ -552,19 +719,23 @@ app.get('/api/stays', (req, res) => {
       beds: beds ? parseInt(beds as string, 10) : undefined,
       status: (status as any) || undefined,
       viewerUser,
+      cursor: typeof cursor === 'string' ? cursor : undefined,
+      limit: limit ? parseInt(limit as string, 10) : 20,
+      sort: sort === 'featured' ? 'featured' : 'new',
     });
 
-    if (ownerEmail) {
-      // Owner dashboard sees all their stays (live, review, paused, expired) hydrated with listing audio state
-      stays = db.getRaw().stays
-        .filter(s => s.ownerEmail?.toLowerCase() === String(ownerEmail).toLowerCase())
-        .map(s => db.hydrateStayAudio(s, viewerUser));
-    }
-
-    return res.json({ stays });
+    return res.json(result);
   } catch (err: any) {
     return res.status(500).json({ error: err.message || 'Server error' });
   }
+});
+
+// Host's own submissions (PENDING / APPROVED / DECLINED with exact admin_feedback)
+app.get('/api/stays/my-submissions', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ error: 'Authentication required.' });
+  const stays = db.getMyStays(user.email);
+  return res.json({ stays });
 });
 
 app.get('/api/stays/:id', (req, res) => {
@@ -583,7 +754,11 @@ app.get('/api/stays/:id', (req, res) => {
         (stay.ownerEmail && viewerUser.email.toLowerCase() === stay.ownerEmail.toLowerCase()))
   );
   if (!isOwnerOrAdmin) {
-    if (stay.status !== 'live' || stay.isDelisted || stay.ownerSubscriptionExpired) {
+    const isApproved =
+      stay.moderationState
+        ? stay.moderationState === 'APPROVED' && stay.status === 'live'
+        : stay.status === 'live' && stay.isApprovedByAdmin !== false;
+    if (!isApproved || stay.isDelisted || stay.ownerSubscriptionExpired) {
       return res.status(404).json({ error: 'This listing is currently unavailable.' });
     }
   }
@@ -718,11 +893,16 @@ Provide a friendly, direct, and benevolent response in 2 to 4 concise sentences.
   }
 });
 
-// Listing Creation with MANDATORY Subscription Enforcement
+// Listing Creation with MANDATORY Subscription Enforcement & PENDING Moderation
 app.post('/api/stays', (req, res) => {
   const user = getAuthUser(req);
   if (!user || (user.role !== 'owner' && user.role !== 'admin')) {
     return res.status(403).json({ error: 'Only registered owners and admins can create listings.' });
+  }
+
+  const rl = apiRateLimiter.check(`stays:${user.email.toLowerCase()}`, 20, 60_000);
+  if (!rl.allowed) {
+    return res.status(429).json({ error: `Rate limit exceeded. Try again in ${rl.retryAfterSec}s.` });
   }
 
   // MANDATORY 30-Day Subscription Check: Owner must have an active, non-expired subscription!
@@ -730,14 +910,14 @@ app.post('/api/stays', (req, res) => {
   if (user.role !== 'admin') {
     if (plan.status !== 'active') {
       return res.status(403).json({
-        error: 'A 30-day hosting subscription (Silver, Diamond, or Gold) is mandatory before you can upload and publish video stays. Please select a plan and complete M-Pesa payment.',
+        error: 'A 30-day hosting subscription (Silver, Diamond, or Gold) is mandatory before you can upload and publish video stays. Please pay from your Host wallet.',
       });
     }
 
     // Check expiration
     if (plan.expiresAt > 0 && Date.now() > plan.expiresAt) {
       return res.status(403).json({
-        error: 'Your 30-day hosting plan has expired. Please renew your subscription via M-Pesa before publishing new listings.',
+        error: 'Your 30-day hosting plan has expired. Please renew your subscription from your Host wallet before publishing new listings.',
       });
     }
 
@@ -820,10 +1000,7 @@ app.post('/api/stays', (req, res) => {
     return res.status(400).json({ error: 'A maximum of 30 photos is allowed per listing.' });
   }
 
-  // Property must be approved by admin before going live!
-  const isApproved = user.role === 'admin';
-  const initialStatus = isApproved ? 'live' : 'review';
-
+  // Mandatory Admin Review pipeline: NEVER live immediately upon submission
   const newStay: Stay = {
     id: 's_' + Date.now(),
     title: title.trim(),
@@ -839,8 +1016,12 @@ app.post('/api/stays', (req, res) => {
     beds: Number(beds) || 1,
     area: Number(area) || 60,
     category: plan.tier || 'Silver',
-    status: initialStatus,
-    moderationStatus: isApproved ? 'approved' : 'pending',
+    status: 'review',
+    moderationStatus: 'pending',
+    moderationState: 'PENDING',
+    admin_feedback: null,
+    reviewed_at: null,
+    reviewed_by: null,
     mediaModerationStatus: 'clean',
     features: Array.isArray(features) ? features : ['WiFi', 'Parking'],
     highlights: Array.isArray(highlights) ? highlights : [],
@@ -854,7 +1035,7 @@ app.post('/api/stays', (req, res) => {
     source: affiliateLink ? 'External' : 'Direct',
     instantBook: true,
     isFeatured: false,
-    isApprovedByAdmin: isApproved,
+    isApprovedByAdmin: false,
     ownerEmail: user.email,
     hostName: user.name,
     hostPhone: user.phone || '',
@@ -899,25 +1080,25 @@ app.post('/api/stays', (req, res) => {
     return res.status(400).json({ error: err.message || 'Failed to save listing with media.' });
   }
 
-  // Notify admin for approval if submitted by owner
-  if (!isApproved) {
-    db.getAllUsers()
-      .filter(u => u.role === 'admin')
-      .forEach(admin => {
-        db.createNotification({
-          id: 'notif_' + Date.now() + Math.random(),
-          userEmail: admin.email,
-          title: 'New Video Listing Pending Approval',
-          message: `${user.name} submitted "${newStay.title}" for review.`,
-          read: false,
-          link: '/#admin',
-          type: 'system',
-          createdAt: Date.now(),
-        });
-      });
-  }
+  return res.status(201).json({
+    stay: newStay,
+    message: 'Listing submitted for Admin Review. It will go live once approved.',
+  });
+});
 
-  return res.status(201).json({ stay: newStay });
+// Edit & Resubmit a Stay (Preserves createdAt, clears admin_feedback, sets PENDING)
+app.post('/api/stays/:id/resubmit', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ error: 'Not authenticated' });
+  try {
+    const stay = db.resubmitStay(req.params.id, user.email, user.role === 'admin', req.body || {});
+    return res.json({
+      stay,
+      message: 'Listing updated and resubmitted for Admin Review.',
+    });
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'Could not resubmit listing.' });
+  }
 });
 
 // Update stay listing (Owner or Admin)
@@ -1026,57 +1207,84 @@ app.patch('/api/stays/:id', (req, res) => {
   }
 });
 
-// Promote Listing (KES 100/day visibility boost - atomic wallet or M-Pesa verification)
-app.post('/api/promotions/purchase', (req, res) => {
+// Promote Listing (KES 100/day visibility boost - Host Wallet Only)
+app.post('/api/promotions/purchase', async (req, res) => {
   const user = getAuthUser(req);
   if (!user) return res.status(401).json({ error: 'Please sign in to boost listings.' });
-  if (user.role === 'owner') {
-    try {
-      db.assertHostSubscriptionActive(user.email);
-    } catch (err: any) {
-      return res.status(403).json({ error: err.message });
-    }
+  if (user.role !== 'owner') {
+    return res.status(403).json({ error: 'Listing promotions use a Host wallet only.' });
+  }
+  const rl = apiRateLimiter.check(`pay:${user.email.toLowerCase()}`, 30, 60_000);
+  if (!rl.allowed) {
+    return res.status(429).json({ error: `Rate limit exceeded. Retry in ${rl.retryAfterSec}s.` });
+  }
+  try {
+    db.assertHostSubscriptionActive(user.email);
+  } catch (err: any) {
+    return res.status(403).json({ error: err.message });
   }
 
-  const { listingId, days, paymentMethod, mpesaCode } = req.body;
+  const { listingId, days, paymentMethod } = req.body;
   if (!listingId) return res.status(400).json({ error: 'Listing ID is required.' });
+  if (paymentMethod && paymentMethod !== 'wallet') {
+    return res.status(400).json({ error: 'Pay with M-Pesa has been removed. Use Deposit (M-Pesa) to top up your Host wallet, then Pay from Wallet.' });
+  }
 
+  const idemKey = (req.headers['idempotency-key'] as string) || req.body?.idempotencyKey;
   try {
-    const result = db.purchasePromotion({
-      listingId,
-      ownerEmail: user.email,
-      days: Number(days) || 7,
-      paymentMethod: paymentMethod === 'mpesa' ? 'mpesa' : 'wallet',
-      mpesaCode,
-    });
-    return res.status(201).json(result);
+    const out = await walletMutex.withWalletLock([user.email, 'admin@airbus.ke'], () =>
+      db.runWithIdempotency(idemKey, () =>
+        db.purchasePromotion({
+          listingId,
+          ownerEmail: user.email,
+          days: Number(days) || 7,
+          paymentMethod: 'wallet',
+        }),
+        201
+      )
+    );
+    return res.status(out.deduplicated ? 200 : 201).json(out.response);
   } catch (err: any) {
     return res.status(400).json({ error: err.message });
   }
 });
 
-// Backwards-compatible promote endpoint
-app.post('/api/listings/:id/promote', (req, res) => {
+// Backwards-compatible promote endpoint (Host Wallet Only)
+app.post('/api/listings/:id/promote', async (req, res) => {
   const user = getAuthUser(req);
   if (!user) return res.status(401).json({ error: 'Not authenticated' });
-  if (user.role === 'owner') {
-    try {
-      db.assertHostSubscriptionActive(user.email);
-    } catch (err: any) {
-      return res.status(403).json({ error: err.message });
-    }
+  if (user.role !== 'owner') {
+    return res.status(403).json({ error: 'Listing promotions use a Host wallet only.' });
+  }
+  const rl = apiRateLimiter.check(`pay:${user.email.toLowerCase()}`, 30, 60_000);
+  if (!rl.allowed) {
+    return res.status(429).json({ error: `Rate limit exceeded. Retry in ${rl.retryAfterSec}s.` });
+  }
+  try {
+    db.assertHostSubscriptionActive(user.email);
+  } catch (err: any) {
+    return res.status(403).json({ error: err.message });
   }
 
-  const { days, paymentMethod, mpesaCode } = req.body;
+  const { days, paymentMethod } = req.body;
+  if (paymentMethod && paymentMethod !== 'wallet') {
+    return res.status(400).json({ error: 'Pay with M-Pesa has been removed. Use Deposit (M-Pesa) to top up your Host wallet, then Pay from Wallet.' });
+  }
+
+  const idemKey = (req.headers['idempotency-key'] as string) || req.body?.idempotencyKey;
   try {
-    const result = db.purchasePromotion({
-      listingId: req.params.id,
-      ownerEmail: user.email,
-      days: Number(days) || 7,
-      paymentMethod: paymentMethod === 'mpesa' ? 'mpesa' : 'wallet',
-      mpesaCode,
-    });
-    return res.status(201).json(result);
+    const out = await walletMutex.withWalletLock([user.email, 'admin@airbus.ke'], () =>
+      db.runWithIdempotency(idemKey, () =>
+        db.purchasePromotion({
+          listingId: req.params.id,
+          ownerEmail: user.email,
+          days: Number(days) || 7,
+          paymentMethod: 'wallet',
+        }),
+        201
+      )
+    );
+    return res.status(out.deduplicated ? 200 : 201).json(out.response);
   } catch (err: any) {
     return res.status(400).json({ error: err.message });
   }
@@ -1155,33 +1363,79 @@ app.post('/api/listings/:id/promo-click', (req, res) => {
   return res.json({ recorded: true });
 });
 
-// Admin approves listing to go live
+// Admin approves listing to go live (syncs moderationState & emits real-time feed event)
 app.post('/api/admin/stays/:id/approve', (req, res) => {
   const user = getAuthUser(req);
   if (!user || user.role !== 'admin') {
     return res.status(403).json({ error: 'Admin access required.' });
   }
-
-  const stay = db.updateStay(req.params.id, {
-    isApprovedByAdmin: true,
-    status: 'live',
-  });
-  if (!stay) return res.status(404).json({ error: 'Stay not found' });
-
-  if (stay.ownerEmail) {
-    db.createNotification({
-      id: 'notif_' + Date.now(),
-      userEmail: stay.ownerEmail,
-      title: 'Listing Approved & Live! 🚀',
-      message: `Your video stay "${stay.title}" has been approved by admin and is now live in search and Shorts!`,
-      read: false,
-      link: `/#stay-${stay.id}`,
-      type: 'system',
-      createdAt: Date.now(),
-    });
+  try {
+    const stay = db.moderateStay(req.params.id, 'approve', user.email, req.body?.feedback);
+    if (!stay) return res.status(404).json({ error: 'Stay not found' });
+    return res.json({ stay });
+  } catch (err: any) {
+    return res.status(404).json({ error: err.message || 'Stay not found' });
   }
+});
 
-  return res.json({ stay });
+// Dedicated Admin Review Queue (oldest pending first)
+app.get('/api/admin/review-queue', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required.' });
+  }
+  const queue = db.getAdminReviewQueue();
+  return res.json(queue);
+});
+
+app.post('/api/admin/review-queue/stays/:id', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required.' });
+  }
+  const { action, admin_feedback } = req.body || {};
+  if (action !== 'approve' && action !== 'decline') {
+    return res.status(400).json({ error: 'action must be approve or decline.' });
+  }
+  if (action === 'decline' && (!admin_feedback || !String(admin_feedback).trim())) {
+    return res.status(400).json({ error: 'Decline feedback explaining why the listing was declined is strictly required.' });
+  }
+  try {
+    const stay = db.moderateStay(
+      req.params.id,
+      action === 'approve' ? 'approve' : 'reject',
+      user.email,
+      admin_feedback
+    );
+    return res.json({ stay });
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'Review action failed.' });
+  }
+});
+
+app.post('/api/admin/review-queue/trip-dating/:id', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required.' });
+  }
+  const { action, admin_feedback } = req.body || {};
+  if (action !== 'approve' && action !== 'decline') {
+    return res.status(400).json({ error: 'action must be approve or decline.' });
+  }
+  if (action === 'decline' && (!admin_feedback || !String(admin_feedback).trim())) {
+    return res.status(400).json({ error: 'Decline feedback explaining why the Trip Dating post was declined is strictly required.' });
+  }
+  try {
+    const profile = db.adminModerateTripDatingProfile(
+      req.params.id,
+      action === 'approve' ? 'active' : 'rejected',
+      admin_feedback,
+      user.email
+    );
+    return res.json({ profile });
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'Review action failed.' });
+  }
 });
 
 app.delete('/api/stays/:id', (req, res) => {
@@ -1564,82 +1818,80 @@ app.get('/api/payments', (req, res) => {
 });
 
 // Atomic Wallet Payment
-app.post('/api/payments/wallet', (req, res) => {
+app.post('/api/payments/wallet', async (req, res) => {
   const user = getAuthUser(req);
   if (!user) return res.status(401).json({ error: 'Please sign in to pay from wallet.' });
 
+  const rl = apiRateLimiter.check(`pay:${user.email.toLowerCase()}`, 30, 60_000);
+  if (!rl.allowed) {
+    return res.status(429).json({ error: `Rate limit exceeded. Retry in ${rl.retryAfterSec}s.` });
+  }
+
   const { type, amountSc, referenceId, planTier, durationDays, period, note } = req.body;
 
-  if (!type || !['advert', 'subscription', 'booking_fee'].includes(type)) {
-    return res.status(400).json({ error: 'Valid payment type (advert, subscription, booking_fee) is required.' });
+  if (!type || !['advert', 'subscription', 'boost', 'vvvip', 'trip_dating', 'booking_fee'].includes(type)) {
+    return res.status(400).json({ error: 'Valid payment type is required.' });
+  }
+  if ((type === 'subscription' || type === 'boost') && user.role !== 'owner') {
+    return res.status(403).json({ error: 'Subscriptions and listing promotions use a Host wallet only.' });
+  }
+  if (type === 'vvvip' && user.role !== 'guest') {
+    return res.status(403).json({ error: 'AirBus Plus is for Guests only and never uses a Host wallet.' });
   }
 
-  const intAmount = Math.floor(Number(amountSc) || 0);
-  if (intAmount <= 0) {
-    return res.status(400).json({ error: 'Payment amount must be greater than 0 Coins.' });
+  const numAmount = Number(amountSc);
+  if (!Number.isInteger(numAmount) || numAmount <= 0) {
+    return res.status(400).json({ error: 'Payment amount must be a positive whole integer in Ksh.' });
   }
 
+  const idemKey = (req.headers['idempotency-key'] as string) || req.body?.idempotencyKey;
   try {
-    const result = db.payWithWallet({
-      userId: user.email,
-      type,
-      amountSc: intAmount,
-      referenceId: referenceId || ('ref_' + Date.now()),
-      planTier,
-      durationDays: Number(durationDays) || undefined,
-      period,
-      note,
-    });
-    return res.status(201).json(result);
+    const out = await walletMutex.withWalletLock([user.email, 'admin@airbus.ke'], () =>
+      db.runWithIdempotency(idemKey, () =>
+        db.payWithWallet({
+          userId: user.email,
+          type,
+          amountSc: numAmount,
+          referenceId: referenceId || ('ref_' + Date.now()),
+          planTier,
+          durationDays: Number(durationDays) || undefined,
+          period,
+          note,
+        }),
+        201
+      )
+    );
+    return res.status(out.deduplicated ? 200 : 201).json(out.response);
   } catch (err: any) {
     return res.status(400).json({ error: err.message || 'Wallet payment failed.' });
   }
 });
 
-// M-Pesa Payment Submission
+// Direct M-Pesa Payment Submission — REMOVED (Wallet-only payments; M-Pesa is strictly Deposit (M-Pesa) into wallet)
 app.post('/api/payments/mpesa', (req, res) => {
   const user = getAuthUser(req);
-  if (!user) return res.status(401).json({ error: 'Please sign in to submit M-Pesa payment.' });
-
-  const { type, amountKes, mpesaCode, referenceId, planTier, durationDays, period } = req.body;
-
-  if (!type || !['advert', 'subscription', 'booking_fee'].includes(type)) {
-    return res.status(400).json({ error: 'Valid payment type is required.' });
-  }
-
-  const intAmount = Math.floor(Number(amountKes) || 0);
-  if (intAmount <= 0) {
-    return res.status(400).json({ error: 'Amount must be greater than 0.' });
-  }
-
-  if (!mpesaCode || !/^[A-Z0-9]{8,15}$/i.test(String(mpesaCode).trim())) {
-    return res.status(400).json({
-      error: 'M-Pesa receipt code must be 8-15 alphanumeric characters (e.g. QGH7X2K9LM).',
-    });
-  }
-
-  try {
-    const payment = db.createMpesaPayment({
-      userId: user.email,
-      type,
-      amountKes: intAmount,
-      mpesaCode: String(mpesaCode).trim().toUpperCase(),
-      referenceId: referenceId || ('ref_' + Date.now()),
-      planTier,
-      durationDays: Number(durationDays) || undefined,
-      period,
-    });
-    return res.status(201).json({ payment });
-  } catch (err: any) {
-    return res.status(409).json({ error: err.message || 'M-Pesa payment submission failed.' });
-  }
+  if (!user) return res.status(401).json({ error: 'Please sign in first.' });
+  return res.status(400).json({
+    error: 'Pay with M-Pesa has been removed. Use Deposit (M-Pesa) to top up your wallet, then Pay from Wallet.',
+  });
 });
 
-// Legacy / backward-compatible POST /api/payments
-app.post('/api/payments', (req, res) => {
+// Legacy / backward-compatible POST /api/payments — Deposit (M-Pesa) only
+app.post('/api/payments', async (req, res) => {
   const user = getAuthUser(req);
   if (!user) return res.status(401).json({ error: 'Not authenticated' });
-  const { kind, tier, amount, mpesaCode, period, referenceId } = req.body;
+  const rl = apiRateLimiter.check(`dep:${user.email.toLowerCase()}`, 20, 60_000);
+  if (!rl.allowed) {
+    return res.status(429).json({ error: `Rate limit exceeded. Retry in ${rl.retryAfterSec}s.` });
+  }
+  const { kind, amount, mpesaCode, referenceId } = req.body;
+
+  const rawType = String(kind || req.body.type || req.body.purpose || '');
+  if (!['wallet', 'wallet_topup', 'deposit'].includes(rawType)) {
+    return res.status(400).json({
+      error: 'Pay with M-Pesa has been removed. Submit Deposit (M-Pesa) to fund your wallet, then Pay from Wallet.',
+    });
+  }
 
   if (!mpesaCode || !/^[A-Z0-9]{8,15}$/i.test(String(mpesaCode).trim())) {
     return res.status(400).json({
@@ -1647,46 +1899,42 @@ app.post('/api/payments', (req, res) => {
     });
   }
 
+  const numAmount = Number(amount);
+  if (!Number.isInteger(numAmount) || numAmount < 10) {
+    return res.status(400).json({ error: 'Minimum deposit amount is KES 10 (whole integer Ksh).' });
+  }
+
   const cleanCode = String(mpesaCode).trim().toUpperCase();
-  const rawType = kind || req.body.type || req.body.purpose;
-  const paymentType: PaymentRecordType =
-    rawType === 'advert'
-      ? 'advert'
-      : rawType === 'wallet' || rawType === 'wallet_topup' || rawType === 'deposit'
-      ? 'wallet'
-      : rawType === 'vvvip'
-      ? 'vvvip'
-      : rawType === 'trip_dating'
-      ? 'trip_dating'
-      : 'subscription';
+  if (db.isMpesaCodeUsed(cleanCode)) {
+    return res.status(400).json({ error: 'Duplicate M-Pesa transaction code. This code has already been submitted and cannot be reused.' });
+  }
 
   try {
-    if (paymentType === 'subscription') {
-      const cleanTier: StayCategory = ['Silver', 'Diamond', 'Gold'].includes(tier) ? tier : 'Silver';
-      const cleanBilling: 'monthly' | 'annual' = period === 'annual' ? 'annual' : 'monthly';
-      const result = db.purchaseSubscription({
-        ownerId: user.email,
-        tier: cleanTier,
-        billing: cleanBilling,
-        method: 'mpesa',
+    const payment = await walletMutex.withWalletLock(user.email, () =>
+      db.createPayment({
+        id: 'pay_dep_' + Date.now(),
+        userId: user.email,
+        user_id: user.email,
+        hostEmail: user.email,
+        userRole: user.role,
+        userName: user.username || user.name,
+        kind: 'deposit',
+        type: 'deposit',
+        method: 'mpesa_manual',
+        amount: numAmount,
+        amountKes: numAmount,
+        amountSc: numAmount,
+        claimedAmount: numAmount,
         mpesaCode: cleanCode,
-      });
-      return res.status(201).json({ payment: result.payment, subscription: result.subscription });
-    }
-
-    const payment = db.createMpesaPayment({
-      userId: user.email,
-      type: paymentType,
-      amountKes: Number(amount) || 1000,
-      mpesaCode: cleanCode,
-      referenceId: referenceId || ('ref_' + Date.now()),
-      planTier: tier || 'Silver',
-      period: period === 'annual' ? 'annual' : 'monthly',
-      durationDays: period === 'annual' ? 365 : 30,
-    });
+        reference: cleanCode,
+        referenceId: referenceId || cleanCode,
+        status: 'pending',
+        createdAt: Date.now(),
+      })
+    );
     return res.status(201).json({ payment });
   } catch (err: any) {
-    return res.status(409).json({ error: err.message || 'Payment submission failed.' });
+    return res.status(400).json({ error: err.message || 'Deposit submission failed.' });
   }
 });
 
@@ -1712,11 +1960,18 @@ app.get('/api/subscriptions/current', (req, res) => {
   });
 });
 
-app.post('/api/subscriptions/purchase', (req, res) => {
+app.post('/api/subscriptions/purchase', async (req, res) => {
   const user = getAuthUser(req);
   if (!user) return res.status(401).json({ error: 'Please sign in to purchase a hosting plan.' });
+  if (user.role !== 'owner') {
+    return res.status(403).json({ error: 'Host subscriptions use a Host wallet only.' });
+  }
+  const rl = apiRateLimiter.check(`pay:${user.email.toLowerCase()}`, 30, 60_000);
+  if (!rl.allowed) {
+    return res.status(429).json({ error: `Rate limit exceeded. Retry in ${rl.retryAfterSec}s.` });
+  }
 
-  const { tier, billing, method, mpesaCode } = req.body;
+  const { tier, billing, method } = req.body;
 
   if (!['Silver', 'Diamond', 'Gold'].includes(tier)) {
     return res.status(400).json({ error: 'Invalid plan tier selected.' });
@@ -1724,19 +1979,24 @@ app.post('/api/subscriptions/purchase', (req, res) => {
   if (!['monthly', 'annual'].includes(billing)) {
     return res.status(400).json({ error: 'Invalid billing cycle. Choose monthly (30 days) or annual (365 days).' });
   }
-  if (!['wallet', 'mpesa'].includes(method)) {
-    return res.status(400).json({ error: 'Payment method must be wallet or mpesa.' });
+  if (method && method !== 'wallet') {
+    return res.status(400).json({ error: 'Pay with M-Pesa has been removed. Use Deposit (M-Pesa) to top up your Host wallet, then Pay from Wallet.' });
   }
 
+  const idemKey = (req.headers['idempotency-key'] as string) || req.body?.idempotencyKey;
   try {
-    const result = db.purchaseSubscription({
-      ownerId: user.email,
-      tier,
-      billing,
-      method,
-      mpesaCode,
-    });
-    return res.status(201).json(result);
+    const out = await walletMutex.withWalletLock([user.email, 'admin@airbus.ke'], () =>
+      db.runWithIdempotency(idemKey, () =>
+        db.purchaseSubscription({
+          ownerId: user.email,
+          tier,
+          billing,
+          method: 'wallet',
+        }),
+        201
+      )
+    );
+    return res.status(out.deduplicated ? 200 : 201).json(out.response);
   } catch (err: any) {
     return res.status(400).json({ error: err.message });
   }
@@ -1746,9 +2006,13 @@ app.post('/api/subscriptions/purchase', (req, res) => {
 // 3. ADVERT SLOTS ("ADVERTISE HERE" & PERSISTENT AD CARD)
 // ============================================================================
 
-app.post('/api/ads/slots', (req, res) => {
+app.post('/api/ads/slots', async (req, res) => {
   const user = getAuthUser(req);
   if (!user) return res.status(401).json({ error: 'Please sign in to advertise on AirBus.' });
+  const rl = apiRateLimiter.check(`pay:${user.email.toLowerCase()}`, 30, 60_000);
+  if (!rl.allowed) {
+    return res.status(429).json({ error: `Rate limit exceeded. Retry in ${rl.retryAfterSec}s.` });
+  }
   if (user.role === 'owner') {
     try {
       db.assertHostSubscriptionActive(user.email);
@@ -1783,19 +2047,25 @@ app.post('/api/ads/slots', (req, res) => {
   }
 
   const days = Math.min(90, Math.max(1, Math.floor(Number(durationDays) || 7)));
+  const idemKey = (req.headers['idempotency-key'] as string) || req.body?.idempotencyKey;
 
   try {
-    const result = db.createAdSlot({
-      ownerId: user.email,
-      title,
-      description,
-      linkUrl: linkUrl.startsWith('http') ? linkUrl : `https://${linkUrl}`,
-      thumbnailUrl: thumbnailUrl || '',
-      videoUrl: videoUrl || undefined,
-      durationDays: days,
-      paymentMethod: 'wallet',
-    });
-    return res.status(201).json(result);
+    const out = await walletMutex.withWalletLock([user.email, 'admin@airbus.ke'], () =>
+      db.runWithIdempotency(idemKey, () =>
+        db.createAdSlot({
+          ownerId: user.email,
+          title,
+          description,
+          linkUrl: linkUrl.startsWith('http') ? linkUrl : `https://${linkUrl}`,
+          thumbnailUrl: thumbnailUrl || '',
+          videoUrl: videoUrl || undefined,
+          durationDays: days,
+          paymentMethod: 'wallet',
+        }),
+        201
+      )
+    );
+    return res.status(out.deduplicated ? 200 : 201).json(out.response);
   } catch (err: any) {
     return res.status(400).json({ error: err.message || 'Ad slot creation failed.' });
   }
@@ -2039,18 +2309,28 @@ app.get('/api/admin/overview', (req, res) => {
   });
 });
 
-app.post('/api/admin/payments/:id/approve', (req, res) => {
+app.post('/api/admin/payments/:id/approve', async (req, res) => {
   const user = getAuthUser(req);
   if (!user || user.role !== 'admin') {
     return res.status(403).json({ error: 'Admin access required.' });
   }
   try {
-    const confirmedAmount = req.body && req.body.confirmedAmount ? Number(req.body.confirmedAmount) : undefined;
-    const result = db.approvePayment(req.params.id, user.email, confirmedAmount);
-    if (!result) return res.status(404).json({ error: 'Payment not found or already processed.' });
-    return res.json({ payment: result });
+    const hasConfirmedAmount = req.body && req.body.confirmedAmount !== undefined && req.body.confirmedAmount !== null && req.body.confirmedAmount !== '';
+    const confirmedAmount = hasConfirmedAmount ? Number(req.body.confirmedAmount) : undefined;
+    const targetPay = db.getPaymentRecords({}).find(p => p.id === req.params.id);
+    const lockKeys = [targetPay?.userId || targetPay?.hostEmail || '', 'admin@airbus.ke'];
+    const idemKey = (req.headers['idempotency-key'] as string) || req.body?.idempotencyKey;
+    const out = await walletMutex.withWalletLock(lockKeys, () =>
+      db.runWithIdempotency(idemKey, () => {
+        const result = db.approvePayment(req.params.id, user.email, confirmedAmount);
+        if (!result) throw new Error('Payment not found or already processed.');
+        return { payment: result };
+      })
+    );
+    return res.json(out.response);
   } catch (err: any) {
-    return res.status(400).json({ error: err.message || 'Could not approve payment.' });
+    const msg = err.message || 'Could not approve payment.';
+    return res.status(msg.includes('not found') ? 404 : 400).json({ error: msg });
   }
 });
 
@@ -2623,7 +2903,21 @@ app.get('/api/wallet', (req, res) => {
   if (!user) return res.status(401).json({ error: 'Not authenticated' });
   const wallet = db.getWalletRecord(user.email);
   const ledger = db.getLedgerEntries(user.email);
-  return res.json({ wallet, ledger });
+  const transactions = db.getUserWalletTransactions(user.email, false);
+  return res.json({ wallet, ledger, transactions });
+});
+
+app.get('/api/wallet/transactions', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ error: 'Not authenticated' });
+  const reqEmail = typeof req.query.email === 'string' ? req.query.email.trim().toLowerCase() : '';
+  const wantAll = req.query.scope === 'all';
+  if (user.role !== 'admin' && (wantAll || (reqEmail && reqEmail !== user.email.toLowerCase()))) {
+    return res.status(403).json({ error: 'Privacy error: you can only view your own wallet transactions.' });
+  }
+  const targetEmail = user.role === 'admin' && reqEmail ? reqEmail : user.email;
+  const transactions = db.getUserWalletTransactions(targetEmail, user.role === 'admin' && wantAll && !reqEmail);
+  return res.json({ transactions });
 });
 
 app.get('/api/wallet/stream', (req, res) => {
@@ -2672,90 +2966,106 @@ app.get('/api/wallet/stream', (req, res) => {
   });
 });
 
-app.post('/api/wallet/topup', (req, res) => {
+app.post('/api/wallet/topup', async (req, res) => {
   const user = getAuthUser(req);
   if (!user) return res.status(401).json({ error: 'Not authenticated' });
+  const rl = apiRateLimiter.check(`dep:${user.email.toLowerCase()}`, 20, 60_000);
+  if (!rl.allowed) {
+    return res.status(429).json({ error: `Rate limit exceeded. Retry in ${rl.retryAfterSec}s.` });
+  }
   const { amount, mpesaCode, phoneNumber, proofUrl } = req.body;
   const numAmount = Number(amount);
-  if (!numAmount || numAmount < 10) {
-    return res.status(400).json({ error: 'Minimum deposit amount is KES 10.' });
+  if (!Number.isInteger(numAmount) || numAmount < 10) {
+    return res.status(400).json({ error: 'Minimum deposit amount is KES 10 (whole integer Ksh).' });
   }
-  if (!mpesaCode || !/^[A-Z0-9]{8,15}$/i.test(mpesaCode.trim())) {
+  if (!mpesaCode || !/^[A-Z0-9]{8,15}$/i.test(String(mpesaCode).trim())) {
     return res.status(400).json({ error: 'M-Pesa code must be a valid 8-15 character alphanumeric transaction reference (e.g. QWE123RTY4).' });
   }
 
-  const cleanCode = mpesaCode.trim().toUpperCase();
+  const cleanCode = String(mpesaCode).trim().toUpperCase();
   if (db.isMpesaCodeUsed(cleanCode)) {
     return res.status(400).json({ error: 'Duplicate M-Pesa transaction code. This code has already been submitted and cannot be reused.' });
   }
 
-  const payment = db.createPayment({
-    id: 'pay_dep_' + Date.now(),
-    userId: user.email,
-    user_id: user.email,
-    hostEmail: user.email,
-    userRole: user.role,
-    userName: user.username || user.name,
-    kind: 'deposit',
-    type: 'deposit',
-    method: 'mpesa_manual',
-    amount: numAmount,
-    amountKes: numAmount,
-    amountSc: Math.floor(numAmount / 10),
-    mpesaCode: cleanCode,
-    reference: cleanCode,
-    phoneNumber: phoneNumber || user.phone || '',
-    proofUrl: proofUrl || undefined,
-    status: 'pending',
-    createdAt: Date.now(),
-  });
+  const payment = await walletMutex.withWalletLock(user.email, () =>
+    db.createPayment({
+      id: 'pay_dep_' + Date.now(),
+      userId: user.email,
+      user_id: user.email,
+      hostEmail: user.email,
+      userRole: user.role,
+      userName: user.username || user.name,
+      kind: 'deposit',
+      type: 'deposit',
+      method: 'mpesa_manual',
+      amount: numAmount,
+      amountKes: numAmount,
+      amountSc: numAmount,
+      claimedAmount: numAmount,
+      mpesaCode: cleanCode,
+      reference: cleanCode,
+      referenceId: cleanCode,
+      phoneNumber: phoneNumber || user.phone || '',
+      proofUrl: proofUrl || undefined,
+      status: 'pending',
+      createdAt: Date.now(),
+    })
+  );
 
   return res.status(201).json({
-    message: 'Deposit request submitted. Awaiting administrative approval.',
+    message: `Deposit (M-Pesa) of KES ${numAmount.toLocaleString()} submitted. Awaiting Admin approval.`,
     payment,
   });
 });
 
-app.post('/api/wallet/deposit', (req, res) => {
+app.post('/api/wallet/deposit', async (req, res) => {
   const user = getAuthUser(req);
   if (!user) return res.status(401).json({ error: 'Not authenticated' });
+  const rl = apiRateLimiter.check(`dep:${user.email.toLowerCase()}`, 20, 60_000);
+  if (!rl.allowed) {
+    return res.status(429).json({ error: `Rate limit exceeded. Retry in ${rl.retryAfterSec}s.` });
+  }
   const { amount, mpesaCode, phoneNumber, proofUrl } = req.body;
   const numAmount = Number(amount);
-  if (!numAmount || numAmount < 10) {
-    return res.status(400).json({ error: 'Deposit amount must be greater than 0 (minimum KES 10).' });
+  if (!Number.isInteger(numAmount) || numAmount < 10) {
+    return res.status(400).json({ error: 'Deposit amount must be a whole integer Ksh (minimum KES 10).' });
   }
-  if (!mpesaCode || !/^[A-Z0-9]{8,15}$/i.test(mpesaCode.trim())) {
+  if (!mpesaCode || !/^[A-Z0-9]{8,15}$/i.test(String(mpesaCode).trim())) {
     return res.status(400).json({ error: 'M-Pesa code must be a valid 8-15 character alphanumeric transaction reference.' });
   }
 
-  const cleanCode = mpesaCode.trim().toUpperCase();
+  const cleanCode = String(mpesaCode).trim().toUpperCase();
   if (db.isMpesaCodeUsed(cleanCode)) {
     return res.status(400).json({ error: 'Duplicate M-Pesa transaction code. This code has already been submitted and cannot be reused.' });
   }
 
-  const payment = db.createPayment({
-    id: 'pay_dep_' + Date.now(),
-    userId: user.email,
-    user_id: user.email,
-    hostEmail: user.email,
-    userRole: user.role,
-    userName: user.username || user.name,
-    kind: 'deposit',
-    type: 'deposit',
-    method: 'mpesa_manual',
-    amount: numAmount,
-    amountKes: numAmount,
-    amountSc: Math.floor(numAmount / 10),
-    mpesaCode: cleanCode,
-    reference: cleanCode,
-    phoneNumber: phoneNumber || user.phone || '',
-    proofUrl: proofUrl || undefined,
-    status: 'pending',
-    createdAt: Date.now(),
-  });
+  const payment = await walletMutex.withWalletLock(user.email, () =>
+    db.createPayment({
+      id: 'pay_dep_' + Date.now(),
+      userId: user.email,
+      user_id: user.email,
+      hostEmail: user.email,
+      userRole: user.role,
+      userName: user.username || user.name,
+      kind: 'deposit',
+      type: 'deposit',
+      method: 'mpesa_manual',
+      amount: numAmount,
+      amountKes: numAmount,
+      amountSc: numAmount,
+      claimedAmount: numAmount,
+      mpesaCode: cleanCode,
+      reference: cleanCode,
+      referenceId: cleanCode,
+      phoneNumber: phoneNumber || user.phone || '',
+      proofUrl: proofUrl || undefined,
+      status: 'pending',
+      createdAt: Date.now(),
+    })
+  );
 
   return res.status(201).json({
-    message: 'Deposit submitted and awaiting administrator approval. Funds will be credited to your wallet once verified.',
+    message: `Deposit (M-Pesa) of KES ${numAmount.toLocaleString()} submitted and awaiting Admin approval.`,
     payment,
   });
 });
@@ -2804,17 +3114,29 @@ app.post('/api/admin/withdrawals/:id/reject', (req, res) => {
   return res.json({ withdrawal: result });
 });
 
-// Pay Plan from Wallet (Monthly or Annual)
-app.post('/api/plans/wallet-pay', (req, res) => {
+// Pay Plan from Wallet (Monthly or Annual - Host Wallet Only)
+app.post('/api/plans/wallet-pay', async (req, res) => {
   const user = getAuthUser(req);
   if (!user) return res.status(401).json({ error: 'Not authenticated' });
+  if (user.role !== 'owner') {
+    return res.status(403).json({ error: 'Host subscriptions use a Host wallet only.' });
+  }
+  const rl = apiRateLimiter.check(`pay:${user.email.toLowerCase()}`, 30, 60_000);
+  if (!rl.allowed) {
+    return res.status(429).json({ error: `Rate limit exceeded. Retry in ${rl.retryAfterSec}s.` });
+  }
   const { tier, period } = req.body;
   if (!['Silver', 'Diamond', 'Gold'].includes(tier)) {
     return res.status(400).json({ error: 'Valid plan tier required (Silver, Diamond, Gold).' });
   }
+  const idemKey = (req.headers['idempotency-key'] as string) || req.body?.idempotencyKey;
   try {
-    const result = db.paySubscriptionFromWallet(user.email, tier, period === 'annual' ? 'annual' : 'monthly');
-    return res.json(result);
+    const out = await walletMutex.withWalletLock([user.email, 'admin@airbus.ke'], () =>
+      db.runWithIdempotency(idemKey, () =>
+        db.paySubscriptionFromWallet(user.email, tier, period === 'annual' ? 'annual' : 'monthly')
+      )
+    );
+    return res.json(out.response);
   } catch (err: any) {
     return res.status(400).json({ error: err.message });
   }
@@ -3359,11 +3681,15 @@ app.get('/api/ads/snappadd', (req, res) => {
   }
 });
 
-app.post('/api/ads/snappadd', (req, res) => {
+app.post('/api/ads/snappadd', async (req, res) => {
   try {
     const user = getAuthUser(req);
     if (!user) {
       return res.status(401).json({ error: 'Please sign in to run an advert campaign from your wallet.' });
+    }
+    const rl = apiRateLimiter.check(`pay:${user.email.toLowerCase()}`, 30, 60_000);
+    if (!rl.allowed) {
+      return res.status(429).json({ error: `Rate limit exceeded. Retry in ${rl.retryAfterSec}s.` });
     }
     if (user.role === 'owner') {
       db.assertHostSubscriptionActive(user.email);
@@ -3388,18 +3714,24 @@ app.post('/api/ads/snappadd', (req, res) => {
       return res.status(400).json({ error: 'Title and website URL are required.' });
     }
 
-    const result = db.createSnappAddCampaign({
-      userEmail: user.email,
-      title,
-      description: description || '',
-      websiteUrl,
-      thumbnailUrl: thumbnailUrl || '',
-      videoUrl,
-      durationDays: Number(durationDays) || 7,
-      coinsPaid: Number(coinsPaid) || 70,
-    });
+    const idemKey = (req.headers['idempotency-key'] as string) || req.body?.idempotencyKey;
+    const out = await walletMutex.withWalletLock([user.email, 'admin@airbus.ke'], () =>
+      db.runWithIdempotency(idemKey, () =>
+        db.createSnappAddCampaign({
+          userEmail: user.email,
+          title,
+          description: description || '',
+          websiteUrl,
+          thumbnailUrl: thumbnailUrl || '',
+          videoUrl,
+          durationDays: Number(durationDays) || 7,
+          coinsPaid: Number(coinsPaid) || 70,
+        }),
+        201
+      )
+    );
 
-    return res.status(201).json(result);
+    return res.status(out.deduplicated ? 200 : 201).json(out.response);
   } catch (err: any) {
     const msg = err.message || 'Payment processing failed.';
     return res.status(msg.toLowerCase().includes('subscription') ? 403 : 400).json({ error: msg });
@@ -3437,6 +3769,46 @@ app.get('/api/analytics/virality/:id', (req, res) => {
 });
 
 // -----------------------------------------------------------------------------
+// REAL-TIME APPROVED FEED SSE STREAM & REPLAY (Part 3.6)
+// -----------------------------------------------------------------------------
+app.get('/api/realtime/feed', (req, res) => {
+  const viewerUser = getAuthUser(req, { touch: false });
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders?.();
+
+  res.write(`event: connected\ndata: ${JSON.stringify({ ts: Date.now() })}\n\n`);
+
+  const unsubscribe = db.subscribeFeedUpdates(evt => {
+    const currentViewer = getAuthUser(req, { touch: false }) || viewerUser;
+    if (evt.type === 'stay' && evt.item?.isPlusVVVIP) {
+      const canSeePlus = Boolean(
+        currentViewer && (currentViewer.role === 'admin' || db.isActivePlusMember(currentViewer))
+      );
+      if (!canSeePlus) return;
+    }
+    res.write(`event: feed_update\ndata: ${JSON.stringify(evt)}\n\n`);
+  });
+
+  const keepalive = setInterval(() => {
+    res.write(': keepalive\n\n');
+  }, 25000);
+
+  req.on('close', () => {
+    clearInterval(keepalive);
+    unsubscribe();
+  });
+});
+
+app.get('/api/realtime/feed/missed', (req, res) => {
+  const viewerUser = getAuthUser(req, { touch: false });
+  const since = Number(req.query.since) || 0;
+  const events = db.getMissedApprovedFeed(since, viewerUser);
+  return res.json({ events });
+});
+
+// -----------------------------------------------------------------------------
 // TRIP DATING: A Dating Services Near You
 // Tagline: "Trip Dating – A Dating Services Near You. FREE TO JOIN. ENDLESS TO DISCOVER. KES 50 TO CONNECT."
 // -----------------------------------------------------------------------------
@@ -3445,19 +3817,31 @@ app.get('/api/trip-dating/profiles', (req, res) => {
   try {
     const user = getAuthUser(req);
     const clientSessionId = (req.headers['x-client-session'] as string) || (req.query.sessionId as string) || '';
-    const { gender, city, search, intention } = req.query;
+    const { gender, city, search, intention, cursor, limit } = req.query;
 
-    const profiles = db.getTripDatingProfiles(user?.email, clientSessionId, {
+    const result = db.queryTripDatingFeed(user?.email, clientSessionId, {
       gender: gender as string,
       city: city as string,
       search: search as string,
       intention: intention as string,
-      showAllStatuses: false,
+      cursor: typeof cursor === 'string' ? cursor : undefined,
+      limit: limit ? parseInt(limit as string, 10) : 20,
     });
 
-    return res.json({ profiles });
+    return res.json(result);
   } catch (err: any) {
     return res.status(500).json({ error: err.message || 'Failed to fetch dating profiles' });
+  }
+});
+
+app.get('/api/trip-dating/my-submissions', (req, res) => {
+  try {
+    const user = getAuthUser(req);
+    const clientSessionId = (req.headers['x-client-session'] as string) || (req.query.sessionId as string) || '';
+    const profiles = db.getMyTripDatingSubmissions(user?.email, clientSessionId);
+    return res.json({ profiles });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Failed to fetch your submissions' });
   }
 });
 
@@ -3465,7 +3849,12 @@ app.get('/api/trip-dating/profiles/:id', (req, res) => {
   try {
     const user = getAuthUser(req);
     const clientSessionId = (req.headers['x-client-session'] as string) || (req.query.sessionId as string) || '';
-    const profile = db.getTripDatingProfileById(req.params.id, user?.email, clientSessionId);
+    const profile = db.getTripDatingProfileById(
+      req.params.id,
+      user?.email,
+      clientSessionId,
+      user?.role === 'admin'
+    );
 
     if (!profile) {
       return res.status(404).json({ error: 'Dating profile not found' });
@@ -3477,10 +3866,16 @@ app.get('/api/trip-dating/profiles/:id', (req, res) => {
   }
 });
 
-// Free Instant Registration with Automated Policy Enforcement
+// Registration with Mandatory Admin Review (starts in PENDING) & Uploaded Media Support
 app.post('/api/trip-dating/profiles', (req, res) => {
   try {
     const user = getAuthUser(req);
+    const clientSessionId = (req.headers['x-client-session'] as string) || (req.body?.clientSessionId as string) || '';
+    const rl = apiRateLimiter.check(`td_create:${user?.email || clientSessionId || req.ip || 'anon'}`, 15, 60_000);
+    if (!rl.allowed) {
+      return res.status(429).json({ error: `Rate limit exceeded. Please retry in ${rl.retryAfterSec}s.` });
+    }
+
     const {
       fullName,
       phoneNumber,
@@ -3511,7 +3906,6 @@ app.post('/api/trip-dating/profiles', (req, res) => {
       return res.status(400).json({ error: 'Full name, valid phone number, gender, city, and bio description are required.' });
     }
 
-    // Validate 9:16 vertical video duration (maximum 60 seconds)
     const effectiveDur = Number(videoDuration) || 60;
     if (videoUrl && effectiveDur > 60.5) {
       return res.status(400).json({
@@ -3519,7 +3913,6 @@ app.post('/api/trip-dating/profiles', (req, res) => {
       });
     }
 
-    // Validate optional videos (max 2 videos, max 60s each)
     const validVideos: string[] = [];
     const validDurations: number[] = [];
     if (Array.isArray(videos)) {
@@ -3532,20 +3925,18 @@ app.post('/api/trip-dating/profiles', (req, res) => {
       });
     }
 
-    // Part E: Validation for Photo (Head to toe recommended, optional fallback)
     const bodyPhoto = full_body_photo || primaryPhoto || (Array.isArray(photos) && photos[0]) || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=800&q=80';
 
-    // Validate image format if custom URL or Base64 provided
     const isDataUrl = typeof bodyPhoto === 'string' && bodyPhoto.startsWith('data:image/');
     const isHttpUrl = typeof bodyPhoto === 'string' && (bodyPhoto.startsWith('http://') || bodyPhoto.startsWith('https://'));
-    
-    if (!isDataUrl && !isHttpUrl) {
+    const isUploadedUrl = typeof bodyPhoto === 'string' && bodyPhoto.startsWith('/uploads/');
+
+    if (!isDataUrl && !isHttpUrl && !isUploadedUrl) {
       return res.status(400).json({
         error: 'Invalid photo format. Only JPG, PNG, and WebP images are permitted.',
       });
     }
 
-    // Max 5MB file size limit check for Base64 uploads
     if (isDataUrl && bodyPhoto.length > 7 * 1024 * 1024) {
       return res.status(400).json({
         error: 'Photo file size exceeds maximum limit of 5MB. Please upload a compressed photo.',
@@ -3564,7 +3955,7 @@ app.post('/api/trip-dating/profiles', (req, res) => {
       description,
       lookingFor: lookingFor || 'Genuine companionship and fun dates',
       datingIntention,
-      photos: Array.isArray(photos) && photos.length > 0 ? photos.slice(0, 3) : [bodyPhoto],
+      photos: Array.isArray(photos) && photos.length > 0 ? photos.slice(0, 4) : [bodyPhoto],
       primaryPhoto: primaryPhoto || bodyPhoto,
       videos: validVideos.length > 0 ? validVideos : undefined,
       videoDurations: validDurations.length > 0 ? validDurations : undefined,
@@ -3577,13 +3968,35 @@ app.post('/api/trip-dating/profiles', (req, res) => {
       videoTrimEnd: videoTrimEnd !== undefined ? Number(videoTrimEnd) : undefined,
       full_body_photo: bodyPhoto,
       full_body_verified: full_body_verified !== undefined ? Boolean(full_body_verified) : true,
-      fullBodyModerationStatus: 'approved',
       userId: user?.id || user?.email,
+      ownerEmail: user?.email,
+      clientSessionId,
     });
 
     return res.status(201).json(result);
   } catch (err: any) {
     return res.status(400).json({ error: err.message || 'Registration rejected by safety policy.' });
+  }
+});
+
+// Edit & Resubmit Trip Dating post (Preserves createdAt, clears admin_feedback, sets PENDING)
+app.post('/api/trip-dating/profiles/:id/resubmit', (req, res) => {
+  try {
+    const user = getAuthUser(req);
+    const clientSessionId = (req.headers['x-client-session'] as string) || (req.body?.clientSessionId as string) || '';
+    const profile = db.resubmitTripDatingProfile(
+      req.params.id,
+      user?.email,
+      clientSessionId,
+      user?.role === 'admin',
+      req.body || {}
+    );
+    return res.json({
+      profile,
+      message: 'Trip Dating post updated and resubmitted for Admin Review.',
+    });
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'Failed to resubmit Trip Dating post' });
   }
 });
 
@@ -3617,31 +4030,44 @@ app.post('/api/trip-dating/profiles/:id/view', (req, res) => {
   }
 });
 
-// Submit KES 50 Contact Unlock Payment Request
-app.post('/api/trip-dating/contact-requests', (req, res) => {
-  try {
-    const user = getAuthUser(req);
-    const { profileId, payerPhone, transactionCode, clientSessionId } = req.body;
-
-    if (!profileId || !payerPhone || !transactionCode) {
-      return res.status(400).json({ error: 'Profile ID, payer phone number, and M-Pesa transaction code are required.' });
-    }
-
-    const request = db.createTripDatingPaymentRequest({
-      profileId,
-      userEmail: user?.email || 'guest@airbus.ke',
-      clientSessionId: clientSessionId || (req.headers['x-client-session'] as string) || 'session_default',
-      payerPhone,
-      transactionCode,
-    });
-
-    return res.status(201).json({
-      request,
-      message: 'KES 50 payment submitted successfully! Our verification admin is reviewing the transaction code on Till 943210. Contact access unlocks immediately upon approval for 10 minutes.',
-    });
-  } catch (err: any) {
-    return res.status(400).json({ error: err.message || 'Failed to submit payment request' });
+// Pay KES 50 from Wallet to unlock Trip Dating contact for 10 minutes
+app.post('/api/trip-dating/unlock', async (req, res) => {
+  const user = getAuthUser(req);
+  if (!user) {
+    return res.status(401).json({ error: 'Please sign in to unlock contacts using your AirBus Wallet.' });
   }
+  const rl = apiRateLimiter.check(`pay:${user.email.toLowerCase()}`, 30, 60_000);
+  if (!rl.allowed) {
+    return res.status(429).json({ error: `Rate limit exceeded. Retry in ${rl.retryAfterSec}s.` });
+  }
+
+  const { profileId, clientSessionId } = req.body || {};
+  if (!profileId) {
+    return res.status(400).json({ error: 'profileId is required.' });
+  }
+
+  const idemKey = (req.headers['idempotency-key'] as string) || req.body?.idempotencyKey;
+  try {
+    const out = await walletMutex.withWalletLock([user.email, 'admin@airbus.ke'], () =>
+      db.runWithIdempotency(idemKey, () =>
+        db.unlockTripDatingWithWallet({
+          profileId,
+          userEmail: user.email,
+          clientSessionId: clientSessionId || (req.headers['x-client-session'] as string) || undefined,
+        })
+      )
+    );
+    return res.json(out.response);
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'Failed to unlock contact from wallet.' });
+  }
+});
+
+// Legacy M-Pesa Contact Unlock Request — REMOVED in favor of Pay from Wallet (KES 50)
+app.post('/api/trip-dating/contact-requests', (_req, res) => {
+  return res.status(400).json({
+    error: 'Pay with M-Pesa has been removed. Use Deposit (M-Pesa) to top up your AirBus Wallet, then Pay KES 50 from Wallet.',
+  });
 });
 
 // Check Active 10-Minute Contact Unlock Status
@@ -3782,30 +4208,44 @@ app.post('/api/collections/black-friday/notify', (req, res) => {
   });
 });
 
-app.post('/api/collections/vvvip/upgrade', (req, res) => {
+app.post('/api/collections/vvvip/upgrade', async (req, res) => {
   const user = getAuthUser(req);
   if (!user) {
     return res.status(401).json({ error: 'Please sign in first to access AirBus Plus.' });
   }
-  const { mpesaCode, method } = req.body || {};
-  try {
-    const cleanMethod: 'wallet' | 'mpesa' = method === 'wallet' ? 'wallet' : 'mpesa';
-    if (cleanMethod === 'mpesa' && (!mpesaCode || !/^[A-Z0-9]{8,15}$/i.test(String(mpesaCode).trim()))) {
-      return res.status(400).json({ error: 'Please provide a valid 8-15 character M-Pesa transaction code for Till 943210.' });
-    }
-    const result = db.upgradeUserToVVVIP(
-      user.email,
-      mpesaCode ? String(mpesaCode).trim().toUpperCase() : undefined,
-      { billing: 'monthly', method: cleanMethod }
-    );
-    const { passwordHash, ...safeUser } = result.user as any;
-    return res.json({
-      user: safeUser,
-      pending: result.pending,
-      payment: result.payment,
-      walletBalance: result.walletBalance,
-      message: result.message,
+  if (user.role !== 'guest') {
+    return res.status(403).json({ error: 'AirBus Plus is for Guests only and never uses a Host wallet.' });
+  }
+  const rl = apiRateLimiter.check(`pay:${user.email.toLowerCase()}`, 20, 60_000);
+  if (!rl.allowed) {
+    return res.status(429).json({ error: `Rate limit exceeded. Retry in ${rl.retryAfterSec}s.` });
+  }
+  const { method } = req.body || {};
+  if (method && method !== 'wallet') {
+    return res.status(400).json({
+      error: 'Pay with M-Pesa has been removed. Use Deposit (M-Pesa) to top up your Guest wallet, then Pay Ksh 3,500 from Wallet.',
     });
+  }
+  const idemKey = (req.headers['idempotency-key'] as string) || req.body?.idempotencyKey;
+  try {
+    const out = await walletMutex.withWalletLock([user.email, 'admin@airbus.ke'], () =>
+      db.runWithIdempotency(idemKey, () => {
+        const result = db.upgradeUserToVVVIP(
+          user.email,
+          undefined,
+          { billing: 'monthly', method: 'wallet' }
+        );
+        const { passwordHash, ...safeUser } = result.user as any;
+        return {
+          user: safeUser,
+          pending: result.pending,
+          payment: result.payment,
+          walletBalance: result.walletBalance,
+          message: result.message,
+        };
+      })
+    );
+    return res.json(out.response);
   } catch (err: any) {
     return res.status(400).json({ error: err.message || 'AirBus Plus upgrade failed.' });
   }

@@ -492,7 +492,6 @@ export const ListingMediaViewer: React.FC<ListingMediaViewerProps> = ({
                 <img
                   src={photosList[photoIndex]}
                   alt={`${title} - Photo ${photoIndex + 1}`}
-                  loading="lazy"
                   onError={() => {
                     setFailedPhotos(prev => ({ ...prev, [photoIndex]: true }));
                   }}

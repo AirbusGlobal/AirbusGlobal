@@ -60,6 +60,9 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [sessionHydrating, setSessionHydrating] = useState<boolean>(true);
   const [stays, setStays] = useState<Stay[]>([]);
+  const [staysNextCursor, setStaysNextCursor] = useState<string | null>(null);
+  const [staysHasMore, setStaysHasMore] = useState<boolean>(false);
+  const [loadingMoreStays, setLoadingMoreStays] = useState<boolean>(false);
   const [ownerStays, setOwnerStays] = useState<Stay[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [threads, setThreads] = useState<ChatThread[]>([]);
@@ -157,11 +160,11 @@ export default function App() {
         }
       } catch {}
 
-      // Host plan, owner listings (including hidden/expired stays), & wallet
+      // Host plan, owner listings (including pending/declined/hidden stays), & wallet
       if (currentUser.role === 'owner') {
         const [pRes, myStaysRes] = await Promise.all([
           api.getHostPlan(),
-          api.getStays({ ownerEmail: currentUser.email }),
+          api.getMyStays().catch(() => api.getStays({ ownerEmail: currentUser.email })),
         ]);
         if (pRes?.plan) setHostPlan(pRes.plan);
         if (pRes?.wallet !== undefined) setWalletBalance(pRes.wallet);
@@ -187,9 +190,11 @@ export default function App() {
   const loadInitialData = useCallback(async () => {
     setSessionHydrating(true);
     try {
-      // Fetch public stays
-      const staysRes = await api.getStays();
-      setStays(staysRes.stays);
+      // Fetch public stays (newest-first, keyset cursor paginated)
+      const staysRes = await api.getStays({ limit: 20, sort: 'new' });
+      setStays(staysRes.stays || []);
+      setStaysNextCursor(staysRes.nextCursor || null);
+      setStaysHasMore(Boolean(staysRes.hasMore));
 
       // Validate active portal session cleanly
       const slot = isAdminRoute(window.location.pathname) ? 'admin' : api.getActivePortalSlot();
@@ -241,6 +246,92 @@ export default function App() {
   useEffect(() => {
     loadInitialData();
   }, [loadInitialData]);
+
+  // Real-time approved feed stream + missed-event catch-up on reconnect
+  const lastRealtimeTsRef = useRef<number>(Date.now());
+  useEffect(() => {
+    const canViewPlus = Boolean(
+      user &&
+        (user.role === 'admin' ||
+          user.isVVVIP ||
+          user.isPlusVVVIP ||
+          (user.vvvipExpiresAt && user.vvvipExpiresAt > Date.now()))
+    );
+
+    const applyRealtimeEvent = (evt: { id?: string; type: 'stay' | 'trip_dating'; item: any; createdAt?: number }) => {
+      if (!evt || !evt.item) return;
+      if (evt.createdAt && evt.createdAt > lastRealtimeTsRef.current) {
+        lastRealtimeTsRef.current = evt.createdAt;
+      }
+      if (evt.type === 'stay') {
+        const item = evt.item as Stay;
+        const modState = item.moderationState || (item.status === 'live' && item.isApprovedByAdmin !== false ? 'APPROVED' : 'PENDING');
+        if (modState === 'APPROVED' && item.status === 'live') {
+          if (!item.isPlusVVVIP || canViewPlus) {
+            setStays(prev => {
+              const filtered = prev.filter(s => s.id !== item.id);
+              return [item, ...filtered];
+            });
+          }
+        }
+        if (user && item.ownerEmail === user.email) {
+          setOwnerStays(prev => {
+            const exists = prev.some(s => s.id === item.id);
+            return exists ? prev.map(s => (s.id === item.id ? item : s)) : [item, ...prev];
+          });
+        }
+      }
+      window.dispatchEvent(new CustomEvent('airbus:realtime-feed', { detail: evt }));
+    };
+
+    const slot = isOnAdminRoute ? 'admin' : user?.role === 'owner' ? 'owner' : 'guest';
+    const url = api.getRealtimeFeedUrl(slot);
+    let es: EventSource | null = null;
+    try {
+      es = new EventSource(url);
+      es.addEventListener('feed_update', (e: MessageEvent) => {
+        try {
+          applyRealtimeEvent(JSON.parse(e.data));
+        } catch {}
+      });
+      es.addEventListener('open', () => {
+        const since = lastRealtimeTsRef.current;
+        if (since) {
+          api
+            .getMissedRealtimeFeed(since)
+            .then(res => {
+              (res?.events || []).forEach(applyRealtimeEvent);
+            })
+            .catch(() => {});
+        }
+      });
+    } catch {}
+
+    return () => {
+      try {
+        es?.close();
+      } catch {}
+    };
+  }, [user?.email, user?.role, user?.isVVVIP, user?.isPlusVVVIP, user?.vvvipExpiresAt, isOnAdminRoute]);
+
+  const handleLoadMoreStays = async () => {
+    if (!staysHasMore || !staysNextCursor || loadingMoreStays) return;
+    setLoadingMoreStays(true);
+    try {
+      const res = await api.getStays({ limit: 20, sort: 'new', cursor: staysNextCursor });
+      setStays(prev => {
+        const existing = new Set(prev.map(s => s.id));
+        const incoming = (res.stays || []).filter(s => !existing.has(s.id));
+        return [...prev, ...incoming];
+      });
+      setStaysNextCursor(res.nextCursor || null);
+      setStaysHasMore(Boolean(res.hasMore));
+    } catch (err: any) {
+      showToast(err?.message || 'Could not load more stays.');
+    } finally {
+      setLoadingMoreStays(false);
+    }
+  };
 
   const handleLogout = useCallback(async (customReason?: string) => {
     const slot = isOnAdminRoute
@@ -748,9 +839,20 @@ export default function App() {
       throw new Error('Mandatory GPS coordinates missing: Valid latitude and longitude are strictly required to pinpoint this stay on the discovery map.');
     }
     const res = await api.createStay(stayData);
-    setStays(prev => [res.stay, ...prev]);
+    // Newly created stays start as PENDING and NEVER enter the public feed until approved by Admin
     setOwnerStays(prev => [res.stay, ...prev]);
-    showToast('Stay published live successfully!');
+    showToast('Listing submitted for Admin Review. It will go live once approved.');
+    return res.stay;
+  };
+
+  const handleResubmitStay = async (id: string, updates: any) => {
+    const res = await api.resubmitStay(id, updates);
+    setOwnerStays(prev => {
+      const exists = prev.some(s => s.id === id);
+      return exists ? prev.map(s => (s.id === id ? res.stay : s)) : [res.stay, ...prev];
+    });
+    setStays(prev => prev.filter(s => s.id !== id));
+    showToast(res.message || 'Listing updated and resubmitted for Admin Review.');
     return res.stay;
   };
 
@@ -762,8 +864,18 @@ export default function App() {
       throw new Error('Valid longitude coordinate is required.');
     }
     const res = await api.updateStay(id, updates);
-    setStays(prev => prev.map(s => (s.id === id ? res.stay : s)));
-    setOwnerStays(prev => prev.map(s => (s.id === id ? res.stay : s)));
+    const updated = res.stay;
+    const isPubliclyVisible =
+      updated.status === 'live' &&
+      (updated.moderationState === 'APPROVED' || (!updated.moderationState && updated.isApprovedByAdmin !== false));
+    setStays(prev =>
+      isPubliclyVisible
+        ? prev.some(s => s.id === id)
+          ? prev.map(s => (s.id === id ? updated : s))
+          : [updated, ...prev]
+        : prev.filter(s => s.id !== id)
+    );
+    setOwnerStays(prev => prev.map(s => (s.id === id ? updated : s)));
     showToast('Listing updated.');
   };
 
@@ -1066,6 +1178,9 @@ export default function App() {
             currency={currency}
             searchQuery={searchQuery}
             guestCount={guestCount}
+            hasMore={staysHasMore}
+            loadingMore={loadingMoreStays}
+            onLoadMore={handleLoadMoreStays}
           />
         )}
 
@@ -1239,6 +1354,13 @@ export default function App() {
                 setPlanModalOpen(true);
               }}
               onCreateStay={handleCreateStay}
+              onResubmitStay={handleResubmitStay}
+              onRefreshMyStays={() =>
+                api
+                  .getMyStays()
+                  .then(r => setOwnerStays(r?.stays || []))
+                  .catch(() => {})
+              }
               onUpdateStay={handleUpdateStay}
               onDeleteStay={handleDeleteStay}
               onUpdateBookingStatus={handleUpdateBookingStatus}
@@ -1280,6 +1402,13 @@ export default function App() {
               setAuthInitialMode('login');
               setAuthModalOpen(true);
             }}
+            userWalletBalance={walletBalance}
+            onWalletBalanceUpdated={bal => setWalletBalance(bal)}
+            onOpenWalletDeposit={() => {
+              setPlanWalletMode(true);
+              setPlanModalOpen(true);
+            }}
+            showToast={showToast}
           />
         )}
 
@@ -1304,6 +1433,10 @@ export default function App() {
             onNavigateCollection={slug => handleNavigate(`collection-${slug}`)}
             onNavigateTripDating={() => handleNavigate('trip-dating')}
             userWalletBalance={walletBalance}
+            onOpenWalletDeposit={() => {
+              setPlanWalletMode(true);
+              setPlanModalOpen(true);
+            }}
             onOpenAuth={() => {
               setAuthInitialMode('login');
               setAuthModalOpen(true);

@@ -84,4 +84,6 @@ export interface DatabaseSchema {
     createdAt: number;
   }>;
   isSingleAdminRegistered?: boolean;
+  appliedMigrations?: Array<{ id: string; appliedAt: number; snapshot?: unknown }>;
+  idempotencyCache?: Record<string, { status: number; response: unknown; createdAt: number }>;
 }

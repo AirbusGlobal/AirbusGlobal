@@ -89,8 +89,9 @@ export const GuestDashboard: React.FC<GuestDashboardProps> = ({
   const [tripFilter, setTripFilter] = useState<'upcoming' | 'past' | 'cancelled'>('upcoming');
   const [tripsDisplayMode, setTripsDisplayMode] = useState<'list' | 'calendar'>('list');
 
-  // Guest Wallet & M-Pesa Till 943210 Deposit State
+  // Guest Wallet & Deposit (M-Pesa) State
   const [ledger, setLedger] = useState<LedgerEntry[]>([]);
+  const [walletTransactions, setWalletTransactions] = useState<any[]>([]);
   const [loadingWallet, setLoadingWallet] = useState(false);
   const [depositAmount, setDepositAmount] = useState('500');
   const [depositCode, setDepositCode] = useState('');
@@ -106,6 +107,9 @@ export const GuestDashboard: React.FC<GuestDashboardProps> = ({
       }
       if (Array.isArray(res?.ledger)) {
         setLedger(res.ledger);
+      }
+      if (Array.isArray(res?.transactions)) {
+        setWalletTransactions(res.transactions);
       }
     } catch {
       // Ignore network hiccup
@@ -582,18 +586,18 @@ export const GuestDashboard: React.FC<GuestDashboardProps> = ({
                   KES {walletBalance.toLocaleString()}
                 </div>
                 <div className="text-xs text-stone-400 mt-0.5">
-                  Available SnappCoins: <strong className="text-amber-400 font-mono">{walletBalance.toLocaleString()} SC</strong>
+                  Available Balance: <strong className="text-amber-400 font-mono">KES {walletBalance.toLocaleString()}</strong>
                 </div>
               </div>
 
               <div className="pt-3 border-t border-white/10 space-y-2">
                 <div className="text-xs text-stone-300">
-                  Use your private Guest Wallet to sponsor listings or run adverts on AirBus (10 SC / day).
+                  Use your private Guest Wallet for AirBus Plus membership (Ksh 3,500) or Guest adverts (KES 100 / day).
                 </div>
                 {walletBalance <= 0 && (
                   <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-[11px] text-amber-200 flex items-start gap-2">
                     <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-                    <span>Your wallet balance is empty. Deposit funds via M-Pesa Till 943210 on the right before running adverts.</span>
+                    <span>Your wallet balance is empty. Use Deposit (M-Pesa) on the right first.</span>
                   </div>
                 )}
                 <button
@@ -608,42 +612,68 @@ export const GuestDashboard: React.FC<GuestDashboardProps> = ({
               </div>
             </div>
 
-            {/* Transaction Ledger */}
+            {/* Transaction Records & Deposit Status */}
             <div className="p-5 rounded-3xl bg-white dark:bg-[#15171e] border border-stone-200 dark:border-stone-800 shadow-sm space-y-3">
               <div className="flex items-center justify-between">
                 <h4 className="text-xs font-extrabold text-stone-900 dark:text-white flex items-center gap-1.5">
                   <Coins className="w-4 h-4 text-amber-500" />
-                  <span>Recent Wallet Activity</span>
+                  <span>Wallet Transactions &amp; Deposits</span>
                 </h4>
                 {loadingWallet && <span className="text-[10px] text-stone-400">Refreshing...</span>}
               </div>
 
-              {ledger.length === 0 ? (
+              {walletTransactions.length === 0 && ledger.length === 0 ? (
                 <p className="text-xs text-stone-500 py-4 text-center">No wallet transactions yet.</p>
               ) : (
-                <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
-                  {ledger.slice(0, 12).map(tx => (
+                <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                  {(walletTransactions.length > 0 ? walletTransactions : ledger.map(tx => ({
+                    id: tx.id,
+                    date: tx.createdAt,
+                    user: user.email,
+                    type: tx.type,
+                    direction: tx.toWallet?.toLowerCase() === user.email.toLowerCase() ? 'credit' : 'debit',
+                    amount: tx.amount,
+                    status: 'approved',
+                    reference: tx.referenceId || tx.id,
+                    note: tx.description || tx.type,
+                  }))).slice(0, 20).map(tx => (
                     <div
                       key={tx.id}
-                      className="p-2.5 rounded-xl bg-stone-50 dark:bg-stone-900/60 border border-stone-100 dark:border-stone-800 flex items-center justify-between gap-2 text-xs"
+                      className="p-2.5 rounded-xl bg-stone-50 dark:bg-stone-900/60 border border-stone-100 dark:border-stone-800 space-y-1 text-xs"
                     >
-                      <div className="min-w-0">
-                        <div className="font-semibold text-stone-800 dark:text-stone-200 truncate">
-                          {tx.description || tx.type}
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="font-semibold text-stone-800 dark:text-stone-200 capitalize truncate">
+                          {String(tx.type || '').replace(/_/g, ' ')}
                         </div>
-                        <div className="text-[10px] text-stone-400">
-                          {new Date(tx.createdAt).toLocaleDateString()}
-                        </div>
+                        <span
+                          className={`font-mono font-bold shrink-0 ${
+                            tx.direction === 'credit'
+                              ? 'text-emerald-600 dark:text-emerald-400'
+                              : 'text-rose-600 dark:text-rose-400'
+                          }`}
+                        >
+                          {tx.direction === 'credit' ? '+' : '-'}KES {Number(tx.amount || 0).toLocaleString()}
+                        </span>
                       </div>
-                      <span
-                        className={`font-mono font-bold shrink-0 ${
-                          tx.toWallet?.toLowerCase() === user.email.toLowerCase()
-                            ? 'text-emerald-600 dark:text-emerald-400'
-                            : 'text-rose-600 dark:text-rose-400'
-                        }`}
-                      >
-                        {tx.toWallet?.toLowerCase() === user.email.toLowerCase() ? '+' : '-'}KES {tx.amount.toLocaleString()}
-                      </span>
+                      <div className="flex items-center justify-between gap-2 text-[10px] text-stone-400">
+                        <span>{new Date(tx.date).toLocaleDateString()} · Ref: <span className="font-mono">{tx.reference}</span></span>
+                        <span
+                          className={`px-1.5 py-0.5 rounded-full font-bold uppercase ${
+                            tx.status === 'approved'
+                              ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300'
+                              : tx.status === 'pending'
+                              ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300'
+                              : 'bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300'
+                          }`}
+                        >
+                          {tx.status}
+                        </span>
+                      </div>
+                      {tx.status === 'rejected' && tx.rejectionReason && (
+                        <div className="text-[10px] text-rose-500 font-semibold">
+                          Reason: {tx.rejectionReason}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -651,18 +681,18 @@ export const GuestDashboard: React.FC<GuestDashboardProps> = ({
             </div>
           </div>
 
-          {/* Right: M-Pesa Till 943210 Deposit Form */}
+          {/* Right: Deposit (M-Pesa) Form */}
           <div className="lg:col-span-2 bg-white dark:bg-[#15171e] p-6 rounded-3xl border border-stone-200 dark:border-stone-800 shadow-sm space-y-5">
             <div>
               <span className="text-[10px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300">
-                M-Pesa Till 943210
+                Deposit (M-Pesa) · Till 943210
               </span>
               <h3 className="text-lg font-extrabold text-stone-900 dark:text-white mt-2">
-                Deposit Funds to Your Guest Wallet
+                Deposit (M-Pesa) to Your Guest Wallet
               </h3>
               <p className="text-xs text-stone-500 mt-1">
                 Go to M-Pesa → Lipa na M-Pesa → Buy Goods &amp; Services → Till Number{' '}
-                <strong className="font-mono text-stone-900 dark:text-white">943210</strong>. Once you pay, enter the amount and your M-Pesa confirmation code below. Your wallet balance updates live immediately when Admin approves!
+                <strong className="font-mono text-stone-900 dark:text-white">943210</strong>. Enter the exact whole Ksh amount you sent and your M-Pesa confirmation code below. Admin will approve this exact amount into your wallet.
               </p>
             </div>
 
@@ -671,8 +701,8 @@ export const GuestDashboard: React.FC<GuestDashboardProps> = ({
                 e.preventDefault();
                 setDepositMsg(null);
                 const num = Number(depositAmount);
-                if (!num || num < 10) {
-                  setDepositMsg({ type: 'error', text: 'Minimum deposit amount is KES 10.' });
+                if (!Number.isInteger(num) || num < 10) {
+                  setDepositMsg({ type: 'error', text: 'Minimum deposit amount is KES 10 (whole integer Ksh).' });
                   return;
                 }
                 const cleanCode = depositCode.trim().toUpperCase();
@@ -686,9 +716,10 @@ export const GuestDashboard: React.FC<GuestDashboardProps> = ({
                   setDepositCode('');
                   setDepositMsg({
                     type: 'success',
-                    text: res?.message || `Deposit of KES ${num.toLocaleString()} (${cleanCode}) submitted! Awaiting Admin verification — your balance will update automatically.`,
+                    text: res?.message || `Deposit (M-Pesa) of KES ${num.toLocaleString()} (${cleanCode}) saved as Pending. Awaiting Admin approval.`,
                   });
                   showToast?.(`Deposit ${cleanCode} submitted for Admin approval.`);
+                  await loadGuestWallet();
                 } catch (err: any) {
                   setDepositMsg({ type: 'error', text: err.message || 'Deposit submission failed.' });
                 } finally {
@@ -705,6 +736,7 @@ export const GuestDashboard: React.FC<GuestDashboardProps> = ({
                   <input
                     type="number"
                     min={10}
+                    step={1}
                     required
                     value={depositAmount}
                     onChange={e => setDepositAmount(e.target.value)}
@@ -729,7 +761,7 @@ export const GuestDashboard: React.FC<GuestDashboardProps> = ({
               </div>
 
               <div className="flex flex-wrap gap-2">
-                {[100, 300, 500, 1000, 2500].map(preset => (
+                {[100, 300, 500, 1000, 3500].map(preset => (
                   <button
                     key={preset}
                     type="button"
@@ -767,7 +799,7 @@ export const GuestDashboard: React.FC<GuestDashboardProps> = ({
                 disabled={depositing}
                 className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs sm:text-sm shadow transition-all cursor-pointer disabled:opacity-50"
               >
-                {depositing ? 'Submitting Deposit...' : 'Submit M-Pesa Deposit for Admin Approval'}
+                {depositing ? 'Submitting Deposit...' : 'Deposit (M-Pesa) — Submit for Approval'}
               </button>
             </form>
           </div>

@@ -306,7 +306,7 @@ export const AdvertModal: React.FC<AdvertModalProps> = ({
                     onClick={onOpenTopup}
                     className="px-3.5 py-1.5 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] cursor-pointer shadow-xs"
                   >
-                    Top Up Wallet
+                    Deposit (M-Pesa)
                   </button>
                 )}
               </div>
@@ -314,7 +314,7 @@ export const AdvertModal: React.FC<AdvertModalProps> = ({
               {!hasSufficientFunds && (
                 <div className="p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800/60 text-amber-900 dark:text-amber-200 text-xs space-y-1.5 leading-relaxed">
                   <p>
-                    Your wallet balance is not enough for this payment. Please top up your wallet, or enter the amount you have paid (or want to pay) to the Till 943210 in the custom amount field.
+                    Your wallet balance is not enough for this payment. Please use Deposit (M-Pesa) to top up your wallet first.
                   </p>
                   <p className="text-[11px] text-amber-800 dark:text-amber-300 font-semibold">
                     Shortfall: KES {(totalAmount - userWalletBalance).toLocaleString()}
@@ -336,12 +336,12 @@ export const AdvertModal: React.FC<AdvertModalProps> = ({
               className="w-full py-3 rounded-full bg-gradient-to-r from-[#ff2e93] via-[#8b5cf6] to-[#06b6d4] hover:opacity-95 text-white font-extrabold text-xs shadow-lg transition-all cursor-pointer disabled:opacity-50"
             >
               {loading
-                ? 'Reserving Slot...'
+                ? 'Activating Advert...'
                 : !hasSufficientFunds
-                ? 'Insufficient Balance (Top Up Required)'
+                ? 'Insufficient Balance (Deposit (M-Pesa) Required)'
                 : activeSlotsCount >= maxSlots
                 ? 'All 10 Slots Occupied'
-                : `Submit Advert & Reserve (Hold KES ${totalAmount})`}
+                : `Pay KES ${totalAmount.toLocaleString()} from Wallet & Activate Advert`}
             </button>
           </form>
         )}

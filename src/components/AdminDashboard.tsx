@@ -205,7 +205,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [rejectModalPayment, setRejectModalPayment] = useState<PaymentRecord | null>(null);
   const [rejectReason, setRejectReason] = useState('Invalid or unverified receipt code.');
   const [approveModalPayment, setApproveModalPayment] = useState<PaymentRecord | null>(null);
-  const [confirmedAmountInput, setConfirmedAmountInput] = useState<number>(0);
   const [processingPayment, setProcessingPayment] = useState(false);
   const [paymentModalError, setPaymentModalError] = useState<string | null>(null);
   const [reconciliation, setReconciliation] = useState<any>(null);
@@ -929,7 +928,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
                           {/* Amount */}
                           <span className="text-sm font-black text-stone-900 dark:text-white font-mono">
-                            {p.method === 'wallet' ? `${amountDisplay.toLocaleString()} SC` : `KES ${amountDisplay.toLocaleString()}`}
+                            KES {amountDisplay.toLocaleString()}
                           </span>
                         </div>
 
@@ -978,7 +977,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             onClick={() => {
                               setPaymentModalError(null);
                               setApproveModalPayment(p);
-                              setConfirmedAmountInput(p.claimedAmount || p.amount || p.amountSc || 0);
                             }}
                             className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-full text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center gap-1.5 active:scale-95"
                           >
@@ -1129,7 +1127,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           onClick={() => {
                             setPaymentModalError(null);
                             setApproveModalPayment(dep);
-                            setConfirmedAmountInput(dep.claimedAmount || dep.amount || 0);
                           }}
                           className="px-3.5 py-2 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1 cursor-pointer shadow-xs"
                         >
@@ -1256,7 +1253,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           onClick={() => {
                             setPaymentModalError(null);
                             setApproveModalPayment(dep);
-                            setConfirmedAmountInput(dep.claimedAmount || dep.amount || 0);
                           }}
                           className="px-3.5 py-2 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1 cursor-pointer shadow-xs"
                         >
@@ -2186,13 +2182,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <div className="p-3 bg-stone-50 dark:bg-stone-900/60 rounded-2xl border border-stone-100 dark:border-stone-800">
                 <span className="text-stone-400 text-[10px] uppercase font-bold block">User Wallets Sum</span>
                 <span className="text-base font-extrabold text-stone-900 dark:text-white mt-0.5 block">
-                  KES 19,200
+                  KES {(reconciliation?.userWalletsSum ?? 0).toLocaleString()}
                 </span>
               </div>
               <div className="p-3 bg-stone-50 dark:bg-stone-900/60 rounded-2xl border border-stone-100 dark:border-stone-800">
-                <span className="text-stone-400 text-[10px] uppercase font-bold block">Admin Treasury Sum</span>
+                <span className="text-stone-400 text-[10px] uppercase font-bold block">Admin Wallet Sum</span>
                 <span className="text-base font-extrabold text-stone-900 dark:text-white mt-0.5 block">
-                  KES {(treasuryWallet?.balance || 35000).toLocaleString()}
+                  KES {(reconciliation?.adminBalance ?? treasuryWallet?.balance ?? 0).toLocaleString()}
                 </span>
               </div>
             </div>
@@ -2207,43 +2203,64 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </span>
             </h4>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1 text-xs">
-              <div className="p-3.5 rounded-2xl bg-gradient-to-tr from-pink-500/10 to-rose-500/10 border border-pink-500/20 space-y-1">
-                <div className="flex items-center justify-between font-bold text-stone-800 dark:text-stone-200">
-                  <span>Trip Dating Unlocks</span>
-                  <span className="text-[10px] bg-pink-500/20 text-pink-600 dark:text-pink-300 px-2 py-0.5 rounded-full">100% Platform</span>
-                </div>
-                <div className="text-xl font-black text-[#ff2e93]">
-                  KES {(incomeReport?.tripDating ?? 0).toLocaleString()}
-                </div>
-                <p className="text-[10px] text-stone-500 dark:text-stone-400">
-                  Unlock transactions @ KES 50 (10-min phone/WhatsApp reveal).
-                </p>
-              </div>
-
-              <div className="p-3.5 rounded-2xl bg-gradient-to-tr from-purple-500/10 to-indigo-500/10 border border-purple-500/20 space-y-1">
-                <div className="flex items-center justify-between font-bold text-stone-800 dark:text-stone-200">
-                  <span>Host Adverts Retained</span>
-                  <span className="text-[10px] bg-purple-500/20 text-purple-600 dark:text-purple-300 px-2 py-0.5 rounded-full">30% Kept</span>
-                </div>
-                <div className="text-xl font-black text-purple-600 dark:text-purple-400">
-                  KES {(incomeReport?.advertsRetained ?? 0).toLocaleString()}
-                </div>
-                <p className="text-[10px] text-stone-500 dark:text-stone-400">
-                  30% retained platform fee on approved video advert campaigns.
-                </p>
-              </div>
-
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 pt-1 text-xs">
               <div className="p-3.5 rounded-2xl bg-gradient-to-tr from-amber-500/10 to-orange-500/10 border border-amber-500/20 space-y-1">
                 <div className="flex items-center justify-between font-bold text-stone-800 dark:text-stone-200">
                   <span>Host Subscriptions</span>
-                  <span className="text-[10px] bg-amber-500/20 text-amber-700 dark:text-amber-300 px-2 py-0.5 rounded-full">Platform Revenue</span>
                 </div>
                 <div className="text-xl font-black text-amber-600 dark:text-amber-400">
                   KES {(incomeReport?.subscriptions ?? 0).toLocaleString()}
                 </div>
                 <p className="text-[10px] text-stone-500 dark:text-stone-400">
-                  Silver, Diamond &amp; Gold plans for short-stay publishing privileges.
+                  Paid from Host wallets.
+                </p>
+              </div>
+
+              <div className="p-3.5 rounded-2xl bg-gradient-to-tr from-purple-500/10 to-indigo-500/10 border border-purple-500/20 space-y-1">
+                <div className="flex items-center justify-between font-bold text-stone-800 dark:text-stone-200">
+                  <span>Adverts</span>
+                </div>
+                <div className="text-xl font-black text-purple-600 dark:text-purple-400">
+                  KES {(incomeReport?.advertsRetained ?? 0).toLocaleString()}
+                </div>
+                <p className="text-[10px] text-stone-500 dark:text-stone-400">
+                  Host &amp; Guest wallet adverts.
+                </p>
+              </div>
+
+              <div className="p-3.5 rounded-2xl bg-gradient-to-tr from-rose-500/10 to-amber-500/10 border border-rose-500/20 space-y-1">
+                <div className="flex items-center justify-between font-bold text-stone-800 dark:text-stone-200">
+                  <span>Promotions</span>
+                </div>
+                <div className="text-xl font-black text-rose-600 dark:text-rose-400">
+                  KES {(incomeReport?.promotions ?? 0).toLocaleString()}
+                </div>
+                <p className="text-[10px] text-stone-500 dark:text-stone-400">
+                  Listing boosts from Host wallets.
+                </p>
+              </div>
+
+              <div className="p-3.5 rounded-2xl bg-gradient-to-tr from-yellow-500/10 to-amber-500/10 border border-yellow-500/20 space-y-1">
+                <div className="flex items-center justify-between font-bold text-stone-800 dark:text-stone-200">
+                  <span>AirBus Plus</span>
+                </div>
+                <div className="text-xl font-black text-yellow-600 dark:text-yellow-400">
+                  KES {(incomeReport?.airbusPlus ?? 0).toLocaleString()}
+                </div>
+                <p className="text-[10px] text-stone-500 dark:text-stone-400">
+                  Ksh 3,500 Guest wallet memberships.
+                </p>
+              </div>
+
+              <div className="p-3.5 rounded-2xl bg-gradient-to-tr from-pink-500/10 to-rose-500/10 border border-pink-500/20 space-y-1">
+                <div className="flex items-center justify-between font-bold text-stone-800 dark:text-stone-200">
+                  <span>Trip Dating Unlocks</span>
+                </div>
+                <div className="text-xl font-black text-[#ff2e93]">
+                  KES {(incomeReport?.tripDating ?? 0).toLocaleString()}
+                </div>
+                <p className="text-[10px] text-stone-500 dark:text-stone-400">
+                  KES 50 contact unlocks.
                 </p>
               </div>
             </div>
@@ -4292,28 +4309,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             <div className="p-3 bg-stone-50 dark:bg-stone-900 rounded-2xl text-xs space-y-2 text-stone-600 dark:text-stone-300">
               <div>User: <strong className="text-stone-900 dark:text-white">{approveModalPayment.userName || approveModalPayment.userId || approveModalPayment.hostEmail}</strong></div>
               <div>Type: <strong className="capitalize">{approveModalPayment.type || approveModalPayment.kind}</strong></div>
-              <div>Claimed Amount: <strong className="font-mono text-emerald-600">{approveModalPayment.claimedAmount || approveModalPayment.amountSc || approveModalPayment.amount} KES</strong></div>
+              <div>
+                Exact Amount to Credit:{' '}
+                <strong className="font-mono text-emerald-600">
+                  KES {Number(approveModalPayment.claimedAmount || approveModalPayment.amountKes || approveModalPayment.amount || 0).toLocaleString()}
+                </strong>
+              </div>
               {approveModalPayment.mpesaCode && <div>Receipt: <strong className="font-mono">{approveModalPayment.mpesaCode}</strong></div>}
 
-              <div className="pt-2 border-t border-stone-200 dark:border-stone-800">
-                <label className="block text-[11px] font-bold text-stone-700 dark:text-stone-200 mb-1">
-                  Confirmed / Approved Amount (KES) *
-                </label>
-                <input
-                  type="number"
-                  min="1"
-                  value={confirmedAmountInput}
-                  onChange={e => setConfirmedAmountInput(Number(e.target.value) || 0)}
-                  className="w-full px-3 py-1.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-xs font-mono font-bold text-stone-900 dark:text-white outline-none focus:border-emerald-500"
-                />
-                <span className="text-[10px] text-stone-400 mt-0.5 block">
-                  Edit this amount if the actual Till SMS receipt differs from what the user claimed.
-                </span>
+              <div className="pt-2 border-t border-stone-200 dark:border-stone-800 text-[11px] text-stone-500 dark:text-stone-400">
+                Exact amount locked to user&apos;s submission. If the M-Pesa message amount does not match, Decline so the user can resubmit.
               </div>
             </div>
 
             <p className="text-xs text-stone-500 leading-relaxed">
-              Approving this payment will immediately activate the item (wallet credit, advert slot, or host subscription) and send a real-time SSE update to the user.
+              Approving this deposit will credit the user&apos;s wallet with this exact amount and send a real-time update.
             </p>
 
             {paymentModalError && (
@@ -4342,8 +4352,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   setProcessingPayment(true);
                   setPaymentModalError(null);
                   try {
-                    await api.approvePayment(approveModalPayment.id, confirmedAmountInput > 0 ? confirmedAmountInput : undefined);
-                    showToast?.('Payment approved and credited successfully.');
+                    await api.approvePayment(approveModalPayment.id);
+                    showToast?.('Deposit approved and wallet credited with exact amount.');
                     setApproveModalPayment(null);
                     loadAdminData();
                   } catch (err: any) {

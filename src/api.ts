@@ -739,7 +739,12 @@ export const api = {
   },
 
   // Stays
-  async getStays(params: Record<string, any> = {}): Promise<{ stays: Stay[] }> {
+  async getStays(params: Record<string, any> = {}): Promise<{
+    stays: Stay[];
+    nextCursor?: string | null;
+    hasMore?: boolean;
+    totalCount?: number;
+  }> {
     const query = new URLSearchParams();
     Object.entries(params).forEach(([k, v]) => {
       if (v !== undefined && v !== null && v !== '') {
@@ -751,7 +756,80 @@ export const api = {
       }
     });
     const qs = query.toString();
-    return this.request<{ stays: Stay[] }>(`/api/stays${qs ? `?${qs}` : ''}`);
+    return this.request(`/api/stays${qs ? `?${qs}` : ''}`);
+  },
+
+  async getMyStays(): Promise<{ stays: Stay[] }> {
+    return this.request<{ stays: Stay[] }>('/api/stays/my-submissions');
+  },
+
+  async resubmitStay(
+    id: string,
+    updates: Partial<Stay> & Record<string, any>
+  ): Promise<{ stay: Stay; message: string }> {
+    return this.request<{ stay: Stay; message: string }>(`/api/stays/${encodeURIComponent(id)}/resubmit`, {
+      method: 'POST',
+      body: JSON.stringify(updates),
+    });
+  },
+
+  uploadMediaWithProgress(
+    file: File | Blob,
+    kind: 'photo' | 'video',
+    filename?: string,
+    onProgress?: (pct: number) => void
+  ): Promise<{ url: string; kind: 'photo' | 'video'; bytes: number; mime: string }> {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      const targetUrl = API_BASE_URL ? `${API_BASE_URL}/api/uploads/media` : '/api/uploads/media';
+      const token = this.getToken();
+      const sessionId =
+        typeof window !== 'undefined'
+          ? window.localStorage.getItem('trip_dating_session_id') || ''
+          : '';
+      const resolvedName = filename || (file instanceof File ? file.name : `${kind}.${kind === 'video' ? 'mp4' : 'jpg'}`);
+      const resolvedMime = file.type || (kind === 'video' ? 'video/mp4' : 'image/jpeg');
+
+      xhr.open('POST', targetUrl, true);
+      xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+      xhr.setRequestHeader('x-file-mime', resolvedMime);
+      xhr.setRequestHeader('x-file-name', encodeURIComponent(resolvedName));
+      xhr.setRequestHeader('x-media-kind', kind);
+      if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+      if (sessionId) xhr.setRequestHeader('x-client-session', sessionId);
+
+      xhr.upload.onprogress = e => {
+        if (e.lengthComputable && onProgress) {
+          onProgress(Math.min(99, Math.round((e.loaded / e.total) * 100)));
+        }
+      };
+
+      xhr.onload = () => {
+        try {
+          const data = JSON.parse(xhr.responseText || '{}');
+          if (xhr.status >= 200 && xhr.status < 300 && data.url) {
+            onProgress?.(100);
+            resolve(data);
+          } else {
+            reject(new Error(data.error || `Upload failed (${xhr.status})`));
+          }
+        } catch {
+          reject(new Error(`Upload failed (${xhr.status})`));
+        }
+      };
+
+      xhr.onerror = () => reject(new Error('Network error while uploading media. Please retry.'));
+      xhr.send(file);
+    });
+  },
+
+  async cleanupUploadedMedia(urls: string[]): Promise<{ removed: number }> {
+    const clean = urls.filter(u => typeof u === 'string' && u.startsWith('/uploads/raw/'));
+    if (clean.length === 0) return { removed: 0 };
+    return this.request<{ removed: number }>('/api/uploads/cleanup', {
+      method: 'POST',
+      body: JSON.stringify({ urls: clean }),
+    });
   },
 
   async getStay(id: string): Promise<{ stay: Stay }> {
@@ -979,10 +1057,10 @@ export const api = {
     });
   },
 
-  async approvePayment(paymentId: string, confirmedAmount?: number): Promise<{ payment: PaymentRecord }> {
+  async approvePayment(paymentId: string): Promise<{ payment: PaymentRecord }> {
     return this.request(`/api/admin/payments/${paymentId}/approve`, {
       method: 'POST',
-      body: JSON.stringify({ confirmedAmount }),
+      body: JSON.stringify({}),
     });
   },
 
@@ -990,6 +1068,8 @@ export const api = {
     timestamp: number;
     totalWallets: number;
     mismatches: number;
+    userWalletsSum: number;
+    adminBalance: number;
     wallets: Array<{
       email: string;
       storedBalance: number;
@@ -1005,6 +1085,8 @@ export const api = {
     tripDating: number;
     advertsRetained: number;
     subscriptions: number;
+    promotions?: number;
+    airbusPlus?: number;
     other: number;
     totalRevenue: number;
   }> {
@@ -1261,8 +1343,16 @@ export const api = {
   },
 
   // Wallets & Ledger
-  async getWallet(): Promise<{ wallet: WalletRecord; ledger: LedgerEntry[] }> {
+  async getWallet(): Promise<{ wallet: WalletRecord; ledger: LedgerEntry[]; transactions?: any[] }> {
     return this.request('/api/wallet');
+  },
+
+  async getWalletTransactions(params?: { email?: string; scope?: 'all' | 'self' }): Promise<{ transactions: any[] }> {
+    const sp = new URLSearchParams();
+    if (params?.email) sp.set('email', params.email);
+    if (params?.scope) sp.set('scope', params.scope);
+    const qs = sp.toString();
+    return this.request(`/api/wallet/transactions${qs ? `?${qs}` : ''}`);
   },
 
   getWalletStreamUrl(slot?: PortalSlot): string {
@@ -1406,16 +1496,14 @@ export const api = {
     return this.request(`/api/ads/${id}/click`, { method: 'POST' });
   },
 
-  // Listing Promotions (KES 100/day visibility boost - wallet deduction or M-Pesa manual verification)
+  // Listing Promotions (KES 100/day visibility boost - Host Wallet Only)
   async purchasePromotion(
     listingId: string,
-    days: number,
-    paymentMethod: 'wallet' | 'mpesa',
-    mpesaCode?: string
+    days: number
   ): Promise<{ boost: BoostRecord; payment: PaymentRecord; message: string }> {
     return this.request('/api/promotions/purchase', {
       method: 'POST',
-      body: JSON.stringify({ listingId, days, paymentMethod, mpesaCode }),
+      body: JSON.stringify({ listingId, days, paymentMethod: 'wallet' }),
     });
   },
 
@@ -1498,15 +1586,59 @@ export const api = {
     search?: string;
     intention?: string;
     sessionId?: string;
-  }): Promise<{ profiles: TripDatingProfile[] }> {
+    cursor?: string;
+    limit?: number;
+  }): Promise<{
+    profiles: TripDatingProfile[];
+    nextCursor?: string | null;
+    hasMore?: boolean;
+    totalCount?: number;
+  }> {
     const searchParams = new URLSearchParams();
     if (params?.gender && params.gender !== 'all') searchParams.set('gender', params.gender);
     if (params?.city && params.city !== 'all') searchParams.set('city', params.city);
     if (params?.search) searchParams.set('search', params.search);
     if (params?.intention && params.intention !== 'all') searchParams.set('intention', params.intention);
     if (params?.sessionId) searchParams.set('sessionId', params.sessionId);
+    if (params?.cursor) searchParams.set('cursor', params.cursor);
+    if (params?.limit) searchParams.set('limit', String(params.limit));
     const qs = searchParams.toString();
-    return this.request<{ profiles: TripDatingProfile[] }>(`/api/trip-dating/profiles${qs ? '?' + qs : ''}`);
+    return this.request(`/api/trip-dating/profiles${qs ? '?' + qs : ''}`);
+  },
+
+  async getMyTripDatingSubmissions(sessionId?: string): Promise<{ profiles: TripDatingProfile[] }> {
+    const qs = sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : '';
+    return this.request<{ profiles: TripDatingProfile[] }>(`/api/trip-dating/my-submissions${qs}`);
+  },
+
+  async resubmitTripDatingProfile(
+    id: string,
+    data: Partial<TripDatingProfile> & { clientSessionId?: string }
+  ): Promise<{ profile: TripDatingProfile; message: string }> {
+    return this.request<{ profile: TripDatingProfile; message: string }>(
+      `/api/trip-dating/profiles/${encodeURIComponent(id)}/resubmit`,
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }
+    );
+  },
+
+  async unlockTripDating(
+    profileId: string,
+    clientSessionId?: string
+  ): Promise<{
+    unlock: TripDatingContactUnlock;
+    walletBalance: number;
+    remainingSeconds: number;
+    expiresAt: number;
+    unlockedPhone: string;
+    message?: string;
+  }> {
+    return this.request('/api/trip-dating/unlock', {
+      method: 'POST',
+      body: JSON.stringify({ profileId, clientSessionId }),
+    });
   },
 
   async getTripDatingProfile(id: string, sessionId?: string): Promise<{ profile: TripDatingProfile }> {
@@ -1671,6 +1803,49 @@ export const api = {
     });
   },
 
+  // Dedicated Admin Review Queue (oldest pending first)
+  async getAdminReviewQueue(): Promise<{
+    stays: Stay[];
+    tripDating: TripDatingProfile[];
+    counts: { stays: number; tripDating: number; total: number };
+  }> {
+    return this.request('/api/admin/review-queue');
+  },
+
+  async moderateReviewQueueStay(
+    id: string,
+    action: 'approve' | 'decline',
+    admin_feedback?: string
+  ): Promise<{ stay: Stay }> {
+    return this.request(`/api/admin/review-queue/stays/${encodeURIComponent(id)}`, {
+      method: 'POST',
+      body: JSON.stringify({ action, admin_feedback }),
+    });
+  },
+
+  async moderateReviewQueueTripDating(
+    id: string,
+    action: 'approve' | 'decline',
+    admin_feedback?: string
+  ): Promise<{ profile: TripDatingProfile }> {
+    return this.request(`/api/admin/review-queue/trip-dating/${encodeURIComponent(id)}`, {
+      method: 'POST',
+      body: JSON.stringify({ action, admin_feedback }),
+    });
+  },
+
+  getRealtimeFeedUrl(slot?: PortalSlot): string {
+    const token = this.getToken(slot) || '';
+    const base = API_BASE_URL ? `${API_BASE_URL}/api/realtime/feed` : '/api/realtime/feed';
+    return token ? `${base}?token=${encodeURIComponent(token)}` : base;
+  },
+
+  async getMissedRealtimeFeed(since: number): Promise<{
+    events: Array<{ id: string; type: 'stay' | 'trip_dating'; item: any; createdAt: number }>;
+  }> {
+    return this.request(`/api/realtime/feed/missed?since=${encodeURIComponent(String(since))}`);
+  },
+
   // Admin Subscriptions Moderation
   async getAdminSubscriptions(): Promise<{ subscriptions: any[]; total: number }> {
     return this.request('/api/admin/subscriptions');
@@ -1780,9 +1955,8 @@ export const api = {
     });
   },
 
-  async upgradeToVVVIP(data: {
-    method?: 'wallet' | 'mpesa';
-    mpesaCode?: string;
+  async upgradeToVVVIP(data?: {
+    method?: 'wallet';
     billing?: 'monthly' | 'annual';
   }): Promise<{
     user: User;
@@ -1793,7 +1967,7 @@ export const api = {
   }> {
     return this.request('/api/collections/vvvip/upgrade', {
       method: 'POST',
-      body: JSON.stringify(data),
+      body: JSON.stringify({ billing: data?.billing || 'monthly', method: 'wallet' }),
     });
   },
 

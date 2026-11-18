@@ -74,6 +74,8 @@ interface OwnerDashboardProps {
   onOpenPlanModal: () => void;
   onOpenTopupModal: () => void;
   onCreateStay: (stayData: any) => Promise<any>;
+  onResubmitStay?: (id: string, updates: any) => Promise<any>;
+  onRefreshMyStays?: () => void;
   onUpdateStay: (id: string, updates: Partial<Stay>) => Promise<void>;
   onDeleteStay: (id: string) => Promise<void>;
   onUpdateBookingStatus: (id: string, status: Booking['status']) => Promise<void>;
@@ -94,6 +96,8 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
   onOpenPlanModal,
   onOpenTopupModal,
   onCreateStay,
+  onResubmitStay,
+  onRefreshMyStays,
   onUpdateStay,
   onDeleteStay,
   onUpdateBookingStatus,
@@ -104,24 +108,24 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
   onRefreshWallet,
   showToast,
 }) => {
-  const [activeTab, setActiveTab] = useState<'listings' | 'reservations' | 'promotions' | 'shorts' | 'new-stay' | 'insights'>('listings');
+  const [activeTab, setActiveTab] = useState<'listings' | 'reservations' | 'promotions' | 'wallet' | 'shorts' | 'new-stay' | 'insights'>('listings');
 
   // Check if subscription is active (strict backend-synced expiry; no grace-period masking)
   const isPlanActive = plan.status === 'active' && plan.expiresAt > Date.now();
   const daysRemaining = isPlanActive ? Math.max(1, Math.ceil((plan.expiresAt - Date.now()) / 864e5)) : 0;
   const liveListingsCount = myStays.filter(s => s.status === 'live').length;
 
-  // Promoted Listings & Visibility Boost State
+  // Promoted Listings & Visibility Boost State (Host Wallet Only)
   const [promotions, setPromotions] = useState<ListingPromotion[]>([]);
   const [boostCampaigns, setBoostCampaigns] = useState<BoostRecord[]>([]);
+  const [walletTransactions, setWalletTransactions] = useState<any[]>([]);
+  const [loadingHostWallet, setLoadingHostWallet] = useState<boolean>(false);
   const [selectedStayIdForPromo, setSelectedStayIdForPromo] = useState<string>(myStays[0]?.id || '');
   const [promoDays, setPromoDays] = useState<number>(7);
-  const [promoPaymentMethod, setPromoPaymentMethod] = useState<'wallet' | 'mpesa'>('wallet');
-  const [promoMpesaCode, setPromoMpesaCode] = useState<string>('');
   const [promoLoading, setPromoLoading] = useState<boolean>(false);
   const [promoFeedback, setPromoFeedback] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
 
-  // Load host promotions and boosts
+  // Load host promotions, boosts, and private wallet transactions
   const fetchPromotions = () => {
     api.getBoosts()
       .then(res => setBoostCampaigns(res.campaigns || res.boosts || []))
@@ -131,9 +135,22 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
       .catch(() => {});
   };
 
+  const fetchHostWallet = () => {
+    setLoadingHostWallet(true);
+    api.getWallet()
+      .then(res => {
+        if (Array.isArray(res?.transactions)) {
+          setWalletTransactions(res.transactions);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoadingHostWallet(false));
+  };
+
   useEffect(() => {
     fetchPromotions();
-  }, []);
+    fetchHostWallet();
+  }, [walletBalance]);
 
   // Shorts & Reels Auto-Creation + Per-Listing Tier Quotas + Gold Listing Audio State
   const tierRules = getShortsTierRules(plan.tier, isPlanActive);
@@ -184,6 +201,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
 
   useEffect(() => {
     loadCreatorShorts();
+    onRefreshMyStays?.();
   }, [user.email]);
 
   useEffect(() => {
@@ -418,6 +436,19 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
   const [aiHighlights, setAiHighlights] = useState<string[]>([]);
   const [creatingStay, setCreatingStay] = useState(false);
   const [wizardError, setWizardError] = useState<string | null>(null);
+  const [editingResubmitStay, setEditingResubmitStay] = useState<Stay | null>(null);
+  const [videoUploadState, setVideoUploadState] = useState<{
+    uploading: boolean;
+    progress: number;
+    error: string | null;
+    failedFile: File | null;
+  }>({ uploading: false, progress: 0, error: null, failedFile: null });
+  const [photoUploadState, setPhotoUploadState] = useState<{
+    uploading: boolean;
+    progress: number;
+    error: string | null;
+  }>({ uploading: false, progress: 0, error: null });
+  const [sessionRawUploads, setSessionRawUploads] = useState<string[]>([]);
 
   // Instalments (Mdogo Mdogo) & Deposit Model States
   const [instalmentsAccepted, setInstalmentsAccepted] = useState(false);
@@ -452,15 +483,95 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
       setGateModal({
         isOpen: true,
         title: 'Listing Limit Reached',
-        message: `Your current ${plan.tier} Plan allows up to ${maxLimit} listings. You currently have ${myStays.length} active listings. Please upgrade your subscription to add more listings.`,
+        message: `Your current ${plan.tier} Plan allows up to ${maxLimit} listings. You currently have ${myStays.length} listings. Please upgrade your subscription to add more listings.`,
         actionText: 'Upgrade Subscription',
       });
       return;
     }
 
     // Allowed: continue to the listing form
+    setEditingResubmitStay(null);
     setStep(1);
     setActiveTab('new-stay');
+  };
+
+  const handleStartEditResubmit = (s: Stay) => {
+    setEditingResubmitStay(s);
+    setTitle(s.title || '');
+    const parts = (s.location || '').split('· near ');
+    setArea((parts[0] || s.location || '').trim());
+    setLandmark((parts[1] || '').trim());
+    setLat(typeof s.lat === 'number' ? s.lat : -1.2683);
+    setLng(typeof s.lng === 'number' ? s.lng : 36.8044);
+    setRooms(Math.max(1, s.beds || 1));
+    setNights(Math.max(1, s.nights || 1));
+    setPrice(s.price || 5000);
+    setDesc(s.description || '');
+    setSelectedFeatures(Array.isArray(s.features) && s.features.length > 0 ? s.features : ['WiFi', 'Parking']);
+    setWhatsapp(s.whatsapp || '');
+    setAffiliateLink(s.affiliateLink || '');
+    setWelcomeGifts(Array.isArray(s.welcomeGifts) ? s.welcomeGifts : []);
+    setHostMessage(s.hostMessage || '');
+    setInstalmentsAccepted(Boolean(s.instalmentsAccepted));
+    setDepositRequired(Boolean(s.depositRequired));
+    setDepositAmount(s.depositAmount || 5000);
+    setDepositReason(s.depositReason || 'Security against property damage or lost keys');
+    setDepositRefundTerms(s.depositRefundTerms || 'Inspected and refunded directly to guest via M-Pesa within 2 hours of checkout');
+    setBlackFridayOptIn(Boolean(s.blackFridayOptIn));
+    setIsAirbusWork(Boolean(s.isAirbusWork));
+    setIsLocalGuideExperience(Boolean(s.isLocalGuideExperience));
+    setIsWorldWide(Boolean(s.isWorldWide));
+    setWorldWideCountry(s.country || '');
+    setIsEscapeOffer(Boolean(s.isEscapeOffer));
+    setIsPlusVVVIP(Boolean(s.isPlusVVVIP));
+
+    const existingPhotos =
+      s.media?.photos && s.media.photos.length > 0
+        ? s.media.photos.map((p, idx) => ({ url: p.url, order: idx, isCover: Boolean(p.isCover ?? idx === 0) }))
+        : Array.isArray(s.images) && s.images.length > 0
+        ? s.images.map((url, idx) => ({ url, order: idx, isCover: idx === 0 }))
+        : s.thumbnailUrl
+        ? [{ url: s.thumbnailUrl, order: 0, isCover: true }]
+        : [];
+    setWizardPhotos(existingPhotos);
+
+    const existingVideo = s.media?.video?.url || s.videoUrl || '';
+    if (s.youtubeVideoId || (existingVideo && isYouTubeUrl(existingVideo))) {
+      setVideoSourceType('youtube');
+      setYoutubeInput(s.youtubeUrl || existingVideo);
+      setYoutubeVideoId(s.youtubeVideoId || extractYouTubeId(existingVideo));
+      setVideoUrl('');
+      setVideoPreviewUrl('');
+    } else if (existingVideo && !existingVideo.startsWith('blob:')) {
+      setVideoSourceType('upload');
+      setVideoUrl(existingVideo);
+      setVideoPreviewUrl(existingVideo);
+      setYoutubeInput('');
+      setYoutubeVideoId(null);
+    } else {
+      setVideoUrl('');
+      setVideoPreviewUrl('');
+      setYoutubeInput('');
+      setYoutubeVideoId(null);
+    }
+
+    if (existingVideo && existingPhotos.length > 0) setMediaMode('both');
+    else if (existingVideo) setMediaMode('video');
+    else setMediaMode('photos');
+
+    setWizardError(null);
+    setStep(1);
+    setActiveTab('new-stay');
+  };
+
+  const handleCancelWizard = async () => {
+    if (sessionRawUploads.length > 0) {
+      api.cleanupUploadedMedia(sessionRawUploads).catch(() => {});
+      setSessionRawUploads([]);
+    }
+    setEditingResubmitStay(null);
+    setWizardError(null);
+    setActiveTab('listings');
   };
 
   // Date blocking state
@@ -493,25 +604,42 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
     }
   };
 
-  const handleProcessVideoFile = (file: File) => {
-    // Validate format (MP4, MOV, WebM)
+  const handleProcessVideoFile = async (file: File) => {
     const validExtensions = ['mp4', 'mov', 'webm', 'm4v'];
     const ext = file.name.split('.').pop()?.toLowerCase() || '';
     if (!validExtensions.includes(ext) && !file.type.startsWith('video/')) {
-      showToast?.('Please upload a video file in MP4, MOV, or WebM format.');
+      setVideoUploadState({ uploading: false, progress: 0, error: 'Please upload a video file in MP4, MOV, or WebM format.', failedFile: null });
       return;
     }
 
-    // Size limit: 50MB
     if (file.size > 50 * 1024 * 1024) {
-      showToast?.('Video file size exceeds 50MB limit. Please upload a short tour video (max 60 seconds).');
+      setVideoUploadState({ uploading: false, progress: 0, error: 'Video file size exceeds 50MB limit. Please upload a shorter tour video.', failedFile: null });
       return;
     }
 
     setVideoFile(file);
-    const objectUrl = URL.createObjectURL(file);
-    setVideoPreviewUrl(objectUrl);
-    setVideoUrl(objectUrl);
+    setWizardError(null);
+    setVideoUploadState({ uploading: true, progress: 5, error: null, failedFile: file });
+    try {
+      const uploaded = await api.uploadMediaWithProgress(file, 'video', file.name, pct => {
+        setVideoUploadState(prev => ({ ...prev, progress: pct }));
+      });
+      if (videoUrl && videoUrl.startsWith('/uploads/raw/')) {
+        api.cleanupUploadedMedia([videoUrl]).catch(() => {});
+      }
+      setVideoPreviewUrl(uploaded.url);
+      setVideoUrl(uploaded.url);
+      setSessionRawUploads(prev => [...prev, uploaded.url]);
+      setVideoUploadState({ uploading: false, progress: 100, error: null, failedFile: null });
+      showToast?.('Tour video uploaded to server successfully.');
+    } catch (err: any) {
+      setVideoUploadState({
+        uploading: false,
+        progress: 0,
+        error: err?.message || 'Video upload failed. Your form entries were preserved.',
+        failedFile: file,
+      });
+    }
   };
 
   // Handle YouTube URL input
@@ -563,9 +691,14 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
     e.preventDefault();
     setWizardError(null);
 
+    if (videoUploadState.uploading || photoUploadState.uploading) {
+      setWizardError('Please wait for your media files to finish uploading before submitting.');
+      return;
+    }
+
     // Mandatory subscription enforcement
     if (!isPlanActive) {
-      setWizardError('A mandatory 30-day host subscription (Silver, Diamond, or Gold) is required before listing a stay. Please select and pay for a plan via M-Pesa.');
+      setWizardError('A mandatory 30-day host subscription (Silver, Diamond, or Gold) is required before listing a stay. Please pay from your AirBus Wallet.');
       return;
     }
 
@@ -582,6 +715,11 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
     const cleanWhatsapp = whatsapp ? whatsapp.trim().replace(/\s+/g, '') : '';
     if (!cleanWhatsapp || !/^\+[1-9]\d{7,14}$/.test(cleanWhatsapp)) {
       setWizardError('Host WhatsApp number is required in E.164 international format (e.g. +254712345678) so guests can chat with you.');
+      return;
+    }
+
+    if (videoUrl.startsWith('blob:') || wizardPhotos.some(p => p.url.startsWith('blob:'))) {
+      setWizardError('Unsaved local preview media detected. Please re-upload your video/photos before submitting.');
       return;
     }
 
@@ -628,7 +766,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
         })),
       };
 
-      const createdStay = await onCreateStay({
+      const stayPayload = {
         title,
         location: `${area} · near ${landmark || 'Central'}`,
         lat: Number(lat),
@@ -668,28 +806,27 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
         country: isWorldWide ? worldWideCountry.trim() : undefined,
         isEscapeOffer,
         isPlusVVVIP,
-      });
+      };
 
-      if (createdStay && createdStay.id) {
+      const savedStay = editingResubmitStay && onResubmitStay
+        ? await onResubmitStay(editingResubmitStay.id, stayPayload)
+        : await onCreateStay(stayPayload);
+
+      if (!editingResubmitStay && savedStay && savedStay.id) {
         if (autoCreateShortOnUpload && isPlanActive && tierRules.shorts_per_listing > 0) {
           (async () => {
             try {
               let sourceType: 'video' | 'photo' = 'photo';
               let mediaFiles: string[] = wizardPhotos.map(p => p.url).filter(Boolean);
 
-              if (videoFile && mediaMode !== 'photos') {
-                const dataUrl = await fileToDataUrl(videoFile);
-                const uploaded = await api.uploadShortMedia([dataUrl], 'video');
-                sourceType = 'video';
-                mediaFiles = uploaded.urls;
-              } else if (fullVideoUrl && !youtubeVideoId && !fullVideoUrl.startsWith('blob:') && mediaMode !== 'photos') {
+              if (fullVideoUrl && !youtubeVideoId && !fullVideoUrl.startsWith('blob:') && mediaMode !== 'photos') {
                 sourceType = 'video';
                 mediaFiles = [fullVideoUrl];
               }
 
               if (mediaFiles.length > 0) {
                 const jobRes = await api.createShortJob({
-                  stayId: createdStay.id,
+                  stayId: savedStay.id,
                   sourceType,
                   sourceFiles: mediaFiles,
                   caption: `${title} · ${area} — ${desc?.slice(0, 110) || 'Book directly on AirBus'}`,
@@ -704,7 +841,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                     voiceOverVolume: 0,
                     autoDuckMusic: false,
                   },
-                  idempotencyKey: `stay_auto_${createdStay.id}`,
+                  idempotencyKey: `stay_auto_${savedStay.id}`,
                 });
                 setMyShortJobs(prev => [jobRes.job, ...prev]);
                 showToast?.('Auto-creating your 9:16 Short in the background!');
@@ -716,7 +853,9 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
         }
       }
 
-      // Reset wizard
+      // Reset wizard after confirmed submission
+      setSessionRawUploads([]);
+      setEditingResubmitStay(null);
       setTitle('');
       setArea('');
       setLandmark('');
@@ -745,8 +884,9 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
       setIsPlusVVVIP(false);
       setStep(1);
       setActiveTab('listings');
+      onRefreshMyStays?.();
     } catch (err: any) {
-      setWizardError(err.message || 'Failed to publish stay.');
+      setWizardError(err.message || 'Failed to submit stay.');
     } finally {
       setCreatingStay(false);
     }
@@ -755,6 +895,10 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
   const handleAddWizardPhotoUrl = () => {
     const url = photoUrlInput.trim();
     if (!url) return;
+    if (url.startsWith('blob:')) {
+      setWizardError('Local blob URLs are not permitted. Please upload the image file directly.');
+      return;
+    }
     if (wizardPhotos.length >= 30) {
       setWizardError('Maximum 30 photos allowed.');
       return;
@@ -767,6 +911,11 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
   };
 
   const handleRemoveWizardPhoto = (index: number) => {
+    const target = wizardPhotos[index];
+    if (target?.url?.startsWith('/uploads/raw/')) {
+      api.cleanupUploadedMedia([target.url]).catch(() => {});
+      setSessionRawUploads(prev => prev.filter(u => u !== target.url));
+    }
     setWizardPhotos(prev => {
       const filtered = prev.filter((_, i) => i !== index);
       return filtered.map((p, i) => ({
@@ -866,25 +1015,14 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
       setPromoFeedback({ type: 'error', msg: 'Please select a listing to boost.' });
       return;
     }
-    const costSc = promoDays === 30 ? 300 : promoDays * 10;
+    const costKes = promoDays * 100;
 
-    if (promoPaymentMethod === 'wallet' && walletBalance < costSc) {
+    if (walletBalance < costKes) {
       setPromoFeedback({
         type: 'error',
-        msg: 'Not enough SC. Top up your wallet or pay with M-Pesa',
+        msg: `Insufficient Host wallet balance (KES ${walletBalance.toLocaleString()}). Required: KES ${costKes.toLocaleString()}. Use Deposit (M-Pesa) first.`,
       });
       return;
-    }
-
-    if (promoPaymentMethod === 'mpesa') {
-      const cleanCode = promoMpesaCode.trim().toUpperCase();
-      if (!/^[A-Z0-9]{8,15}$/.test(cleanCode)) {
-        setPromoFeedback({
-          type: 'error',
-          msg: 'Please enter a valid 8-15 character M-Pesa transaction receipt code (e.g. QGH7X2K9LM).',
-        });
-        return;
-      }
     }
 
     setPromoLoading(true);
@@ -892,19 +1030,15 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
     try {
       const res = await api.purchasePromotion(
         selectedStayIdForPromo,
-        promoDays,
-        promoPaymentMethod,
-        promoPaymentMethod === 'mpesa' ? promoMpesaCode.trim().toUpperCase() : undefined
+        promoDays
       );
       setPromoFeedback({
         type: 'success',
-        msg: res.message || 'Boost submitted. It goes live once the admin approves.',
+        msg: res.message || `Boost active for ${promoDays} days! Paid KES ${costKes.toLocaleString()} from your Host wallet.`,
       });
-      setPromoMpesaCode('');
       fetchPromotions();
-      if (promoPaymentMethod === 'wallet') {
-        onRefreshWallet?.();
-      }
+      fetchHostWallet();
+      onRefreshWallet?.();
     } catch (err: any) {
       setPromoFeedback({ type: 'error', msg: err.message || 'Boost submission failed.' });
     } finally {
@@ -1167,6 +1301,21 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
         </button>
 
         <button
+          onClick={() => {
+            setActiveTab('wallet');
+            fetchHostWallet();
+          }}
+          className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ${
+            activeTab === 'wallet'
+              ? 'bg-emerald-600 text-white shadow-sm'
+              : 'text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800'
+          }`}
+        >
+          <Wallet className="w-4 h-4" />
+          <span>Wallet &amp; History</span>
+        </button>
+
+        <button
           onClick={() => setActiveTab('shorts')}
           className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ${
             activeTab === 'shorts'
@@ -1213,21 +1362,51 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-4">
-              {myStays.map(s => {
+              {[...myStays].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)).map(s => {
                 const requestsCount = bookings.filter(b => b.stayId === s.id).length;
                 const conversionRate = s.views ? Math.round((requestsCount / s.views) * 100) : 0;
                 const isBlockedFormOpen = blockStayId === s.id;
-                const isExpired = s.status === 'expired' || !isPlanActive;
+                const modState =
+                  s.moderationState ||
+                  (s.status === 'live' && s.isApprovedByAdmin !== false
+                    ? 'APPROVED'
+                    : s.status === 'rejected'
+                    ? 'DECLINED'
+                    : 'PENDING');
+                const isExpired = modState === 'APPROVED' && (s.status === 'expired' || !isPlanActive);
 
                 return (
                   <div
                     key={s.id}
                     className={`bg-white dark:bg-[#15171e] p-5 rounded-3xl border shadow-sm space-y-4 transition-all ${
-                      isExpired
+                      modState === 'DECLINED'
+                        ? 'border-rose-400/70 bg-rose-50/20 dark:bg-rose-950/15'
+                        : isExpired
                         ? 'border-rose-400/50 bg-rose-50/20 dark:bg-rose-950/10'
                         : 'border-stone-200 dark:border-stone-800'
                     }`}
                   >
+                    {modState === 'DECLINED' && (
+                      <div className="p-3.5 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div className="text-xs text-rose-800 dark:text-rose-200 space-y-0.5">
+                          <div className="font-extrabold flex items-center gap-1.5">
+                            <XCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                            <span>Declined by Admin Review</span>
+                          </div>
+                          <p className="text-[11px] leading-relaxed">
+                            {s.admin_feedback || s.moderationReason || 'Please update this listing and resubmit for review.'}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleStartEditResubmit(s)}
+                          className="px-4 py-2 rounded-full bg-rose-600 hover:bg-rose-500 text-white text-xs font-extrabold shadow-xs shrink-0 cursor-pointer"
+                        >
+                          Edit &amp; Resubmit
+                        </button>
+                      </div>
+                    )}
+
                     <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                       {/* Stay Info */}
                       <div className="flex items-center gap-3">
@@ -1241,28 +1420,43 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                         </div>
 
                         <div>
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <h3 className="text-sm font-extrabold text-stone-900 dark:text-white">
                               {s.title}
                             </h3>
                             <span
                               className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full ${
-                                isExpired
+                                modState === 'PENDING'
+                                  ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400'
+                                  : modState === 'DECLINED'
+                                  ? 'bg-rose-500/20 text-rose-600 dark:text-rose-400'
+                                  : isExpired
                                   ? 'bg-rose-500 text-white'
                                   : s.status === 'live'
                                   ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400'
-                                  : s.status === 'review'
-                                  ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400'
                                   : 'bg-stone-500/20 text-stone-500'
                               }`}
                             >
-                              {isExpired ? 'Expired (Hidden)' : s.status}
+                              {modState === 'PENDING'
+                                ? 'Pending Admin Review'
+                                : modState === 'DECLINED'
+                                ? 'Declined'
+                                : isExpired
+                                ? 'Expired (Hidden)'
+                                : `Approved · ${s.status}`}
                             </span>
                           </div>
 
                           <div className="text-xs text-stone-500 mt-0.5">
                             📍 {s.location} · {formatMoney(s.price)}/night
                           </div>
+
+                          {modState === 'PENDING' && (
+                            <div className="text-[11px] text-amber-600 dark:text-amber-400 font-semibold mt-1 flex items-center gap-1">
+                              <Clock className="w-3.5 h-3.5" />
+                              <span>Submitted and waiting in Admin Review Queue. Goes live automatically once approved.</span>
+                            </div>
+                          )}
 
                           {isExpired && (
                             <div className="text-[11px] text-rose-500 font-bold mt-1 flex items-center gap-1">
@@ -1274,8 +1468,16 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                       </div>
 
                       {/* Controls */}
-                      <div className="flex items-center gap-2 self-end sm:self-auto">
-                        {isExpired ? (
+                      <div className="flex flex-wrap items-center gap-2 self-end sm:self-auto">
+                        {modState !== 'APPROVED' ? (
+                          <button
+                            type="button"
+                            onClick={() => handleStartEditResubmit(s)}
+                            className="px-3.5 py-1.5 rounded-full text-xs font-bold border border-stone-300 dark:border-stone-700 hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-800 dark:text-stone-200 cursor-pointer"
+                          >
+                            Edit &amp; Resubmit
+                          </button>
+                        ) : isExpired ? (
                           <button
                             onClick={onOpenPlanModal}
                             className="px-3.5 py-1.5 rounded-full text-xs font-bold bg-[#e4002b] text-white hover:bg-[#c90026] shadow-sm cursor-pointer"
@@ -1925,7 +2127,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                 onClick={onOpenTopupModal}
                 className="px-4 py-1.5 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-colors cursor-pointer shadow-sm w-full"
               >
-                + Top Up Wallet
+                Deposit (M-Pesa)
               </button>
             </div>
           </div>
@@ -1949,23 +2151,14 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                   {promoFeedback.type === 'success' ? <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" /> : <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />}
                   <span>{promoFeedback.msg}</span>
                 </div>
-                {promoFeedback.msg === 'Not enough SC. Top up your wallet or pay with M-Pesa' && (
-                  <div className="flex items-center gap-2 shrink-0">
-                    <button
-                      type="button"
-                      onClick={onOpenTopupModal}
-                      className="px-3 py-1.5 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] cursor-pointer"
-                    >
-                      Top Up Wallet
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setPromoPaymentMethod('mpesa')}
-                      className="px-3 py-1.5 rounded-full bg-stone-800 dark:bg-stone-200 text-white dark:text-stone-900 font-bold text-[11px] cursor-pointer"
-                    >
-                      Pay with M-Pesa
-                    </button>
-                  </div>
+                {promoFeedback.type === 'error' && walletBalance < promoDays * 100 && (
+                  <button
+                    type="button"
+                    onClick={onOpenTopupModal}
+                    className="px-3.5 py-1.5 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] cursor-pointer shrink-0"
+                  >
+                    Deposit (M-Pesa)
+                  </button>
                 )}
               </div>
             )}
@@ -1997,15 +2190,15 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
               {/* Select Duration */}
               <div>
                 <label className="text-xs font-bold text-stone-700 dark:text-stone-300 block mb-1.5">
-                  2. Choose Boost Duration (10 SC / day = KES 100/day)
+                  2. Choose Boost Duration (KES 100 / day)
                 </label>
                 <div className="grid grid-cols-5 gap-1.5">
                   {[
-                    { days: 1, label: '1 Day', sc: 10, kes: 100 },
-                    { days: 3, label: '3 Days', sc: 30, kes: 300 },
-                    { days: 7, label: '7 Days', sc: 70, kes: 700 },
-                    { days: 14, label: '14 Days', sc: 140, kes: 1400 },
-                    { days: 30, label: '30 Days', sc: 300, kes: 3000 },
+                    { days: 1, label: '1 Day', kes: 100 },
+                    { days: 3, label: '3 Days', kes: 300 },
+                    { days: 7, label: '7 Days', kes: 700 },
+                    { days: 14, label: '14 Days', kes: 1400 },
+                    { days: 30, label: '30 Days', kes: 3000 },
                   ].map(opt => (
                     <button
                       key={opt.days}
@@ -2018,77 +2211,37 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                       }`}
                     >
                       <span className="text-xs font-bold block">{opt.label}</span>
-                      <span className="text-[10px] opacity-80 font-mono block">{opt.sc} SC</span>
-                      <span className="text-[9px] opacity-60 font-mono block">KES {opt.kes}</span>
+                      <span className="text-[10px] opacity-85 font-mono block">KES {opt.kes.toLocaleString()}</span>
                     </button>
                   ))}
                 </div>
               </div>
             </div>
 
-            {/* Payment Method Selector */}
-            <div className="p-4 rounded-2xl bg-stone-50 dark:bg-stone-900/60 border border-stone-200 dark:border-stone-800 space-y-3">
-              <label className="text-xs font-bold text-stone-700 dark:text-stone-300 block">
-                3. Select Payment Method
-              </label>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setPromoPaymentMethod('wallet')}
-                  className={`p-3 rounded-xl border text-left flex items-start gap-3 transition-all cursor-pointer ${
-                    promoPaymentMethod === 'wallet'
-                      ? 'bg-amber-50 dark:bg-amber-950/30 border-amber-500 text-amber-900 dark:text-amber-200'
-                      : 'bg-white dark:bg-[#15171e] border-stone-200 dark:border-stone-700 text-stone-700 dark:text-stone-300'
-                  }`}
-                >
-                  <Wallet className="w-4 h-4 mt-0.5 text-amber-500 shrink-0" />
-                  <div>
-                    <div className="text-xs font-bold">AirBus Wallet</div>
-                    <div className="text-[11px] text-stone-500">
-                      Balance: <span className="font-mono font-bold text-stone-900 dark:text-white">{walletBalance} SC</span> (KES {(walletBalance * 10).toLocaleString()})
-                    </div>
-                  </div>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setPromoPaymentMethod('mpesa')}
-                  className={`p-3 rounded-xl border text-left flex items-start gap-3 transition-all cursor-pointer ${
-                    promoPaymentMethod === 'mpesa'
-                      ? 'bg-amber-50 dark:bg-amber-950/30 border-amber-500 text-amber-900 dark:text-amber-200'
-                      : 'bg-white dark:bg-[#15171e] border-stone-200 dark:border-stone-700 text-stone-700 dark:text-stone-300'
-                  }`}
-                >
-                  <CreditCard className="w-4 h-4 mt-0.5 text-emerald-500 shrink-0" />
-                  <div>
-                    <div className="text-xs font-bold">M-Pesa Manual Paybill / Till</div>
-                    <div className="text-[11px] text-stone-500">Till 987654 / Paybill 222111</div>
-                  </div>
-                </button>
-              </div>
-
-              {promoPaymentMethod === 'mpesa' && (
-                <div className="p-3.5 bg-emerald-50 dark:bg-emerald-950/30 rounded-xl border border-emerald-200 dark:border-emerald-800 space-y-2">
-                  <div className="text-xs text-emerald-900 dark:text-emerald-200 leading-relaxed">
-                    <p className="font-bold">M-Pesa Payment Instructions:</p>
-                    <p>1. Go to M-Pesa &gt; Lipa na M-Pesa &gt; Buy Goods: <span className="font-mono font-black text-stone-900 dark:text-white">Till 987654</span> (or Paybill <span className="font-mono font-black">222111</span>, Acct: <span className="font-mono font-black">BOOST-{selectedStayIdForPromo.slice(-4).toUpperCase()}</span>)</p>
-                    <p>2. Enter Amount: <span className="font-mono font-black text-stone-900 dark:text-white">KES {((promoDays === 30 ? 300 : promoDays * 10) * 10).toLocaleString()}</span></p>
-                    <p>3. Enter your M-Pesa PIN and paste the 10-character confirmation code below:</p>
-                  </div>
-                  <div>
-                    <label className="text-[11px] font-bold text-stone-700 dark:text-stone-300 block mb-1">
-                      M-Pesa Receipt Code (8-15 characters) *
-                    </label>
-                    <input
-                      type="text"
-                      maxLength={15}
-                      value={promoMpesaCode}
-                      onChange={e => setPromoMpesaCode(e.target.value.toUpperCase())}
-                      placeholder="e.g. QGH7X2K9LM"
-                      className="w-full sm:w-64 px-3 py-2 bg-white dark:bg-stone-900 border border-stone-300 dark:border-stone-700 rounded-xl text-xs font-mono font-bold uppercase tracking-wider outline-none focus:border-amber-500"
-                    />
+            {/* Wallet-Only Payment Card */}
+            <div className="p-4 rounded-2xl bg-stone-50 dark:bg-stone-900/60 border border-stone-200 dark:border-stone-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-start gap-3">
+                <Wallet className="w-4 h-4 mt-0.5 text-amber-500 shrink-0" />
+                <div>
+                  <div className="text-xs font-bold text-stone-900 dark:text-white">Host Wallet Payment Only</div>
+                  <div className="text-[11px] text-stone-500">
+                    Current Balance: <span className="font-mono font-bold text-stone-900 dark:text-white">KES {walletBalance.toLocaleString()}</span>
+                    {walletBalance < promoDays * 100 && (
+                      <span className="text-rose-600 dark:text-rose-400 font-bold ml-2">
+                        (Shortfall: KES {(promoDays * 100 - walletBalance).toLocaleString()})
+                      </span>
+                    )}
                   </div>
                 </div>
+              </div>
+              {walletBalance < promoDays * 100 && (
+                <button
+                  type="button"
+                  onClick={onOpenTopupModal}
+                  className="px-4 py-1.5 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs cursor-pointer shrink-0"
+                >
+                  Deposit (M-Pesa)
+                </button>
               )}
             </div>
 
@@ -2096,25 +2249,36 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
               <div>
                 <span className="text-xs text-stone-500 block">Total Campaign Cost:</span>
                 <div className="text-lg font-black text-stone-900 dark:text-white">
-                  {promoDays === 30 ? 300 : promoDays * 10} SC{' '}
+                  KES {(promoDays * 100).toLocaleString()}{' '}
                   <span className="text-xs font-normal text-stone-500">
-                    (KES {((promoDays === 30 ? 300 : promoDays * 10) * 10).toLocaleString()} • {promoDays} days boost)
+                    ({promoDays} days boost)
                   </span>
                 </div>
               </div>
 
-              <button
-                onClick={handleBoostListing}
-                disabled={promoLoading || myStays.length === 0}
-                className="px-6 py-2.5 rounded-full bg-gradient-to-r from-amber-500 via-rose-500 to-purple-600 hover:opacity-95 text-white font-extrabold text-xs shadow-md transition-all cursor-pointer disabled:opacity-50 flex items-center gap-2"
-              >
-                <Rocket className="w-4 h-4" />
-                <span>
-                  {promoLoading
-                    ? 'Submitting Boost...'
-                    : `Activate Boost for KES ${((promoDays === 30 ? 300 : promoDays * 10) * 10).toLocaleString()} (${promoDays === 30 ? 300 : promoDays * 10} SC)`}
-                </span>
-              </button>
+              {walletBalance < promoDays * 100 ? (
+                <button
+                  type="button"
+                  onClick={onOpenTopupModal}
+                  className="px-6 py-2.5 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs shadow-md transition-all cursor-pointer flex items-center gap-2"
+                >
+                  <Wallet className="w-4 h-4" />
+                  <span>Deposit (M-Pesa) to Continue</span>
+                </button>
+              ) : (
+                <button
+                  onClick={handleBoostListing}
+                  disabled={promoLoading || myStays.length === 0}
+                  className="px-6 py-2.5 rounded-full bg-gradient-to-r from-amber-500 via-rose-500 to-purple-600 hover:opacity-95 text-white font-extrabold text-xs shadow-md transition-all cursor-pointer disabled:opacity-50 flex items-center gap-2"
+                >
+                  <Rocket className="w-4 h-4" />
+                  <span>
+                    {promoLoading
+                      ? 'Activating Boost...'
+                      : `Pay KES ${(promoDays * 100).toLocaleString()} from Wallet`}
+                  </span>
+                </button>
+              )}
             </div>
           </div>
 
@@ -2154,6 +2318,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                           const stay = myStays.find(s => s.id === (b.listing_id || b.listingId));
                           const isStillActive = b.status === 'active' && Boolean(b.ends_at && b.ends_at > Date.now());
                           const daysLeft = b.ends_at ? Math.max(0, Math.ceil((b.ends_at - Date.now()) / 864e5)) : 0;
+                          const campaignCost = b.cost_sc || b.costSc || (b.days * 100);
                           return (
                             <tr key={b.id} className="hover:bg-stone-50 dark:hover:bg-stone-900/50">
                               <td className="py-3 px-3 font-bold text-stone-900 dark:text-white flex items-center gap-2">
@@ -2162,10 +2327,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                               </td>
                               <td className="py-3 px-3">{b.days} Days</td>
                               <td className="py-3 px-3 font-mono font-bold">
-                                {b.cost_sc || b.costSc || 70} SC{' '}
-                                <span className="text-[10px] text-stone-400 font-normal">
-                                  (KES {((b.cost_sc || b.costSc || 70) * 10).toLocaleString()})
-                                </span>
+                                KES {campaignCost.toLocaleString()}
                               </td>
                               <td className="py-3 px-3">
                                 <span
@@ -2227,6 +2389,106 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                             </tr>
                           );
                         })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* TAB: PRIVATE HOST WALLET & TRANSACTION HISTORY */}
+      {activeTab === 'wallet' && (
+        <div className="space-y-6">
+          <div className="p-6 rounded-3xl bg-gradient-to-r from-emerald-950 via-stone-900 to-stone-950 border border-emerald-500/30 text-white shadow-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="space-y-1">
+              <span className="text-[10px] font-black uppercase tracking-wider text-emerald-300 flex items-center gap-1.5">
+                <Wallet className="w-4 h-4" /> Private Host Wallet
+              </span>
+              <div className="text-3xl font-black font-mono">KES {walletBalance.toLocaleString()}</div>
+              <p className="text-xs text-stone-300">
+                Used exclusively for Host subscriptions, Host adverts, and Host listing promotions.
+              </p>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={fetchHostWallet}
+                className="px-4 py-2 rounded-full border border-white/20 text-xs font-bold text-white hover:bg-white/10 cursor-pointer"
+              >
+                {loadingHostWallet ? 'Refreshing...' : 'Refresh'}
+              </button>
+              <button
+                type="button"
+                onClick={onOpenTopupModal}
+                className="px-5 py-2 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold shadow cursor-pointer"
+              >
+                Deposit (M-Pesa)
+              </button>
+            </div>
+          </div>
+
+          <div className="p-6 bg-white dark:bg-[#15171e] rounded-3xl border border-stone-200 dark:border-stone-800 shadow-sm space-y-4">
+            <div className="flex items-center justify-between">
+              <h4 className="text-sm font-extrabold text-stone-900 dark:text-white">
+                Host Wallet Transactions &amp; Deposits ({walletTransactions.length})
+              </h4>
+              <span className="text-[11px] text-stone-400">Private to your Host account</span>
+            </div>
+
+            {walletTransactions.length === 0 ? (
+              <div className="p-8 text-center border border-dashed border-stone-200 dark:border-stone-800 rounded-2xl text-xs text-stone-400">
+                No wallet deposits or payments recorded yet.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs min-w-[640px]">
+                  <thead className="border-b border-stone-200 dark:border-stone-800 text-[10px] uppercase font-bold text-stone-400">
+                    <tr>
+                      <th className="py-2.5 px-3">Date</th>
+                      <th className="py-2.5 px-3">User</th>
+                      <th className="py-2.5 px-3">Type</th>
+                      <th className="py-2.5 px-3">Amount</th>
+                      <th className="py-2.5 px-3">Status</th>
+                      <th className="py-2.5 px-3">Reference</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-stone-100 dark:divide-stone-800">
+                    {walletTransactions.map(tx => (
+                      <tr key={tx.id} className="hover:bg-stone-50 dark:hover:bg-stone-900/50">
+                        <td className="py-3 px-3 text-stone-500 whitespace-nowrap">
+                          {new Date(tx.date || tx.createdAt).toLocaleString()}
+                        </td>
+                        <td className="py-3 px-3 font-mono text-[11px] text-stone-700 dark:text-stone-300">
+                          {tx.user}
+                        </td>
+                        <td className="py-3 px-3 font-bold capitalize text-stone-900 dark:text-white">
+                          {String(tx.type || '').replace(/_/g, ' ')}
+                        </td>
+                        <td className={`py-3 px-3 font-mono font-bold ${tx.direction === 'credit' ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                          {tx.direction === 'credit' ? '+' : '-'}KES {Number(tx.amount || 0).toLocaleString()}
+                        </td>
+                        <td className="py-3 px-3">
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase ${
+                              tx.status === 'approved'
+                                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
+                                : tx.status === 'pending'
+                                ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
+                                : 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300'
+                            }`}
+                          >
+                            {tx.status}
+                          </span>
+                          {tx.status === 'rejected' && tx.rejectionReason && (
+                            <div className="text-[10px] text-rose-500 mt-0.5">{tx.rejectionReason}</div>
+                          )}
+                        </td>
+                        <td className="py-3 px-3 font-mono text-[11px] text-stone-500">
+                          {tx.reference}
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>
@@ -2521,6 +2783,28 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
 
       {activeTab === 'new-stay' && isPlanActive && (
         <div className="max-w-2xl mx-auto bg-white dark:bg-[#15171e] p-6 sm:p-8 rounded-3xl border border-stone-200 dark:border-stone-800 shadow-xl space-y-6">
+          {editingResubmitStay && (
+            <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/30 border border-amber-300 dark:border-amber-800 flex items-center justify-between gap-3 text-xs">
+              <div>
+                <div className="font-extrabold text-amber-900 dark:text-amber-200">
+                  Editing &amp; Resubmitting: {editingResubmitStay.title}
+                </div>
+                {editingResubmitStay.admin_feedback && (
+                  <div className="text-[11px] text-rose-700 dark:text-rose-300 mt-0.5">
+                    Admin Feedback: {editingResubmitStay.admin_feedback}
+                  </div>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={handleCancelWizard}
+                className="px-3 py-1 rounded-full bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 text-xs font-bold cursor-pointer shrink-0"
+              >
+                Cancel Edit
+              </button>
+            </div>
+          )}
+
           {/* Steps Indicator */}
           <div className="grid grid-cols-3 gap-2 pb-4 border-b border-stone-100 dark:border-stone-800 text-center">
             {['1. Basics', '2. Amenities', '3. Video & Contact'].map((label, idx) => (
@@ -3032,14 +3316,43 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                           className="hidden"
                         />
 
-                        {videoPreviewUrl ? (
+                        {videoUploadState.uploading ? (
+                          <div className="space-y-3 py-4" onClick={e => e.stopPropagation()}>
+                            <div className="text-xs font-bold text-[#e4002b]">
+                              Uploading tour video to server... {videoUploadState.progress}%
+                            </div>
+                            <div className="w-full max-w-xs mx-auto h-2 bg-stone-200 dark:bg-stone-700 rounded-full overflow-hidden">
+                              <div
+                                className="h-full bg-[#e4002b] transition-all duration-150"
+                                style={{ width: `${videoUploadState.progress}%` }}
+                              />
+                            </div>
+                          </div>
+                        ) : videoUploadState.error ? (
+                          <div className="space-y-2 py-3" onClick={e => e.stopPropagation()}>
+                            <div className="text-xs font-bold text-rose-600">{videoUploadState.error}</div>
+                            {videoUploadState.failedFile && (
+                              <button
+                                type="button"
+                                onClick={() => handleProcessVideoFile(videoUploadState.failedFile!)}
+                                className="px-4 py-1.5 rounded-full bg-[#e4002b] text-white text-xs font-bold cursor-pointer"
+                              >
+                                Retry Video Upload
+                              </button>
+                            )}
+                          </div>
+                        ) : videoPreviewUrl ? (
                           <div className="space-y-3" onClick={e => e.stopPropagation()}>
                             <div className="relative aspect-video max-w-sm mx-auto rounded-2xl overflow-hidden bg-black shadow-lg">
                               <video src={videoPreviewUrl} controls className="w-full h-full object-cover" />
                             </div>
                             <div className="text-xs text-emerald-600 dark:text-emerald-400 font-bold flex items-center justify-center gap-1">
                               <CheckCircle2 className="w-4 h-4" />
-                              <span>{videoFile?.name} ({(videoFile!.size / (1024 * 1024)).toFixed(1)} MB)</span>
+                              <span>
+                                {videoFile
+                                  ? `${videoFile.name} (${(videoFile.size / (1024 * 1024)).toFixed(1)} MB) · Saved on Server`
+                                  : 'Tour Video Uploaded to Server'}
+                              </span>
                             </div>
                             <div className="flex items-center justify-center gap-3">
                               <button
@@ -3052,6 +3365,10 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                               <button
                                 type="button"
                                 onClick={() => {
+                                  if (videoUrl.startsWith('/uploads/raw/')) {
+                                    api.cleanupUploadedMedia([videoUrl]).catch(() => {});
+                                    setSessionRawUploads(prev => prev.filter(u => u !== videoUrl));
+                                  }
                                   setVideoFile(null);
                                   setVideoPreviewUrl('');
                                   setVideoUrl('');
@@ -3147,24 +3464,40 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                           type="file"
                           multiple
                           accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
-                          onChange={e => {
-                            if (e.target.files) {
-                              Array.from(e.target.files).forEach((file, idx) => {
-                                if (wizardPhotos.length + idx >= 30) return;
-                                const reader = new FileReader();
-                                reader.onload = ev => {
-                                  if (ev.target?.result) {
-                                    setWizardPhotos(prev => [
-                                      ...prev,
-                                      {
-                                        url: ev.target!.result as string,
-                                        order: prev.length,
-                                        isCover: prev.length === 0,
-                                      },
-                                    ]);
-                                  }
-                                };
-                                reader.readAsDataURL(file);
+                          onChange={async e => {
+                            const selectedFiles = e.target.files ? Array.from(e.target.files) : [];
+                            e.target.value = '';
+                            if (selectedFiles.length === 0) return;
+                            const availableSlots = Math.max(0, 30 - wizardPhotos.length);
+                            const batch = selectedFiles.slice(0, availableSlots);
+                            if (batch.length === 0) {
+                              setWizardError('Maximum 30 photos allowed.');
+                              return;
+                            }
+                            setPhotoUploadState({ uploading: true, progress: 0, error: null });
+                            try {
+                              for (let i = 0; i < batch.length; i++) {
+                                const f = batch[i];
+                                const uploaded = await api.uploadMediaWithProgress(f, 'photo', f.name, pct => {
+                                  const overall = Math.round(((i + pct / 100) / batch.length) * 100);
+                                  setPhotoUploadState(prev => ({ ...prev, progress: overall }));
+                                });
+                                setSessionRawUploads(prev => [...prev, uploaded.url]);
+                                setWizardPhotos(prev => [
+                                  ...prev,
+                                  {
+                                    url: uploaded.url,
+                                    order: prev.length,
+                                    isCover: prev.length === 0,
+                                  },
+                                ]);
+                              }
+                              setPhotoUploadState({ uploading: false, progress: 100, error: null });
+                            } catch (err: any) {
+                              setPhotoUploadState({
+                                uploading: false,
+                                progress: 0,
+                                error: err?.message || 'Photo upload failed. Your other form entries are preserved.',
                               });
                             }
                           }}
@@ -3172,14 +3505,34 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                         />
                         <button
                           type="button"
+                          disabled={photoUploadState.uploading}
                           onClick={() => photoFileInputRef.current?.click()}
-                          className="px-3 py-1.5 rounded-full bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold transition-all flex items-center gap-1 cursor-pointer"
+                          className="px-3 py-1.5 rounded-full bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold transition-all flex items-center gap-1 cursor-pointer disabled:opacity-50"
                         >
                           <Camera className="w-3.5 h-3.5" />
-                          <span>Upload Photos</span>
+                          <span>{photoUploadState.uploading ? `Uploading ${photoUploadState.progress}%` : 'Upload Photos'}</span>
                         </button>
                       </div>
                     </div>
+
+                    {photoUploadState.uploading && (
+                      <div className="space-y-1">
+                        <div className="text-[11px] font-bold text-purple-600">
+                          Uploading photos to server... {photoUploadState.progress}%
+                        </div>
+                        <div className="w-full h-1.5 bg-stone-200 dark:bg-stone-700 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-purple-600 transition-all duration-150"
+                            style={{ width: `${photoUploadState.progress}%` }}
+                          />
+                        </div>
+                      </div>
+                    )}
+                    {photoUploadState.error && (
+                      <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-800 text-xs text-rose-600">
+                        {photoUploadState.error}
+                      </div>
+                    )}
 
                     {/* Quick URL Input */}
                     <div className="flex items-center gap-2">
@@ -3574,10 +3927,16 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                   </button>
                   <button
                     type="submit"
-                    disabled={creatingStay}
+                    disabled={creatingStay || videoUploadState.uploading || photoUploadState.uploading}
                     className="px-6 py-2.5 bg-[#e4002b] text-white rounded-full text-xs font-extrabold hover:bg-[#c90026] shadow-lg cursor-pointer disabled:opacity-50"
                   >
-                    {creatingStay ? 'Submitting...' : 'Publish Stay (Submit for Review)'}
+                    {videoUploadState.uploading || photoUploadState.uploading
+                      ? 'Uploading Media...'
+                      : creatingStay
+                      ? 'Submitting...'
+                      : editingResubmitStay
+                      ? 'Save Changes & Resubmit for Review'
+                      : 'Submit Listing for Admin Review'}
                   </button>
                 </div>
               </div>

@@ -1585,7 +1585,6 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
                 type="button"
                 onClick={() => selectBgTheme('facebook')}
                 aria-pressed={bgTheme === 'facebook'}
-                title="Facebook Feed Background (#F0F2F5)"
                 className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition cursor-pointer ${
                   bgTheme === 'facebook'
                     ? 'bg-white text-[#1877F2] shadow-sm'
@@ -1593,13 +1592,12 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
                 }`}
               >
                 <span className="w-2.5 h-2.5 rounded-full bg-[#F0F2F5] border border-black/20 shrink-0" />
-                <span>Facebook</span>
+                <span>Colour A</span>
               </button>
               <button
                 type="button"
                 onClick={() => selectBgTheme('facebook_like')}
                 aria-pressed={bgTheme === 'facebook_like'}
-                title="Facebook Like Blue Background (#1877F2)"
                 className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition cursor-pointer ${
                   bgTheme === 'facebook_like'
                     ? 'bg-white text-[#1877F2] shadow-sm'
@@ -1607,7 +1605,7 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
                 }`}
               >
                 <ThumbsUp className="w-3.5 h-3.5" />
-                <span>FB Like</span>
+                <span>Colour B</span>
               </button>
             </div>
           </div>

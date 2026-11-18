@@ -67,6 +67,7 @@ export interface AuthSession {
 
 export type StayCategory = 'Silver' | 'Diamond' | 'Gold';
 export type ListingStatus = 'live' | 'review' | 'paused' | 'expired' | 'delisted';
+export type ModerationState = 'PENDING' | 'APPROVED' | 'DECLINED';
 
 export interface BlockedDateRange {
   from: string;
@@ -146,7 +147,11 @@ export interface Stay {
   hasVideo?: boolean;
   hasPhotos?: boolean;
   moderationStatus?: 'approved' | 'pending' | 'rejected' | 'suspended';
+  moderationState?: ModerationState;
   moderationReason?: string;
+  admin_feedback?: string | null;
+  reviewed_at?: number | null;
+  reviewed_by?: string | null;
   mediaModerationStatus?: 'approved' | 'flagged' | 'clean';
   source: string;
   instantBook: boolean;
@@ -896,6 +901,8 @@ export type LedgerEntryType =
   | 'referral_commission'
   | 'promotion'
   | 'promote_listing'
+  | 'trip_dating'
+  | 'vvvip'
   | 'hold'
   | 'release';
 
@@ -1076,11 +1083,13 @@ export interface StayWeatherInfo {
 // --- TRIP DATING: A Dating Services Near You ---
 export type TripDatingGender = 'male' | 'female' | 'other';
 export type TripDatingIntention = 'serious_relationship' | 'dating_companionship' | 'travel_partner' | 'friendship';
-export type TripDatingProfileStatus = 'active' | 'suspended' | 'removed';
+export type TripDatingProfileStatus = 'pending' | 'active' | 'rejected' | 'suspended' | 'removed';
 
 export interface TripDatingProfile {
   id: string;
   userId?: string;
+  ownerEmail?: string;
+  clientSessionId?: string;
   fullName: string;
   phoneNumber?: string; // Hidden in public queries
   gender: TripDatingGender;
@@ -1106,6 +1115,10 @@ export interface TripDatingProfile {
   full_body_photo?: string; // Optional/verified full-body photo
   full_body_verified: boolean;
   fullBodyModerationStatus?: 'pending_review' | 'approved' | 'rejected';
+  moderationState?: ModerationState;
+  admin_feedback?: string | null;
+  reviewed_at?: number | null;
+  reviewed_by?: string | null;
   likes: number;
   likedByUserEmails?: string[];
   views: number;

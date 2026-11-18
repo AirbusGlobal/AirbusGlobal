@@ -15,6 +15,7 @@ import {
   AuditLog,
   HostPlanStatus,
   ListingStatus,
+  ModerationState,
   VideoComment,
   VideoCommentReply,
   Post,
@@ -75,6 +76,7 @@ import { PLANS, AMENITY_GROUPS } from '../constants';
 import { audioLibraryService, FREE_AUDIO_LICENSES } from './services/audioLibraryService';
 import { shortJobQueue } from './services/shortJobQueue';
 import { AUDIO_UPLOAD_CONFIG, getShortsTierRules } from '../config/shortsTierConfig';
+import { logger } from './services/ops';
 
 export const DEFAULT_SETTINGS: PlatformSettings = {
   adPricePerDay: 100,
@@ -1450,34 +1452,26 @@ const SEED_PROMOTIONS: ListingPromotion[] = [
 const SEED_WALLET_RECORDS: Record<string, WalletRecord> = {
   'owner@airbus.ke': {
     email: 'owner@airbus.ke',
-    balance: 14500,
+    balance: 12500,
     holdBalance: 0,
-    lifetimeEarnings: 21000,
-    lifetimeSpent: 6500,
+    lifetimeEarnings: 15000,
+    lifetimeSpent: 2500,
     updatedAt: Date.now(),
   },
   'guest@airbus.ke': {
     email: 'guest@airbus.ke',
     balance: 4700,
-    holdBalance: 300,
-    lifetimeEarnings: 1500,
-    lifetimeSpent: 1200,
+    holdBalance: 0,
+    lifetimeEarnings: 5000,
+    lifetimeSpent: 300,
     updatedAt: Date.now(),
   },
   'admin@airbus.ke': {
     email: 'admin@airbus.ke',
-    balance: 35000,
+    balance: 2800,
     holdBalance: 0,
-    lifetimeEarnings: 35000,
+    lifetimeEarnings: 2800,
     lifetimeSpent: 0,
-    updatedAt: Date.now(),
-  },
-  'treasury': {
-    email: 'treasury',
-    balance: 62450,
-    holdBalance: 0,
-    lifetimeEarnings: 65000,
-    lifetimeSpent: 2550,
     updatedAt: Date.now(),
   },
 };
@@ -1490,13 +1484,13 @@ const SEED_LEDGER_ENTRIES: LedgerEntry[] = [
     amount: 15000,
     type: 'topup',
     referenceId: 'MP991204',
-    description: 'M-Pesa wallet top-up',
+    description: 'M-Pesa wallet deposit',
     createdAt: Date.now() - 25 * 864e5,
   },
   {
     id: 'ledg_2',
     fromWallet: 'owner@airbus.ke',
-    toWallet: 'treasury',
+    toWallet: 'admin@airbus.ke',
     amount: 2500,
     type: 'subscription',
     referenceId: 'Diamond',
@@ -1505,23 +1499,23 @@ const SEED_LEDGER_ENTRIES: LedgerEntry[] = [
   },
   {
     id: 'ledg_3',
-    fromWallet: 'guest@airbus.ke',
-    toWallet: 'owner@airbus.ke',
-    amount: 350,
-    type: 'ad_revenue',
-    referenceId: 'ad_1',
-    description: 'Ad display revenue (70% net) for Modern Westlands Penthouse',
-    createdAt: Date.now() - 864e5,
+    fromWallet: 'external_mpesa',
+    toWallet: 'guest@airbus.ke',
+    amount: 5000,
+    type: 'topup',
+    referenceId: 'GUE7X2K9AB',
+    description: 'M-Pesa wallet deposit',
+    createdAt: Date.now() - 15 * 864e5,
   },
   {
     id: 'ledg_4',
     fromWallet: 'guest@airbus.ke',
-    toWallet: 'treasury',
-    amount: 150,
-    type: 'ad_fee',
+    toWallet: 'admin@airbus.ke',
+    amount: 300,
+    type: 'ad_payment',
     referenceId: 'ad_1',
-    description: 'Platform ad fee (30%) for Modern Westlands Penthouse',
-    createdAt: Date.now() - 864e5,
+    description: '3-day advert payment for Modern Westlands Penthouse',
+    createdAt: Date.now() - 3 * 864e5,
   },
 ];
 
@@ -1775,13 +1769,234 @@ class DatabaseStore {
     available: number;
     updatedAt: number;
   }) => void>();
+  private feedListeners = new Set<(event: {
+    id: string;
+    type: 'stay' | 'trip_dating';
+    item: any;
+    ts: number;
+  }) => void>();
+  private recentApprovedEvents: Array<{
+    id: string;
+    type: 'stay' | 'trip_dating';
+    item: any;
+    ts: number;
+  }> = [];
+  private publicFeedCache: {
+    stays?: { key: string; ts: number; data: any };
+    tripDating?: { key: string; ts: number; data: any };
+  } = {};
 
   constructor() {
     this.data = this.load();
+    this.runStartupMigrations();
     this.ensurePortalCredentialSeeds();
     this.checkAllExpirations();
     this.checkUpcomingCheckinReminders();
     this.initShortServices();
+  }
+
+  public invalidateFeedCache(type?: 'stay' | 'trip_dating') {
+    if (!type || type === 'stay') {
+      this.publicFeedCache.stays = undefined;
+    }
+    if (!type || type === 'trip_dating') {
+      this.publicFeedCache.tripDating = undefined;
+    }
+  }
+
+  public assertNoBlobUrls(urls: Array<string | undefined | null>) {
+    for (const u of urls) {
+      if (typeof u === 'string' && u.trim().toLowerCase().startsWith('blob:')) {
+        throw new Error('Temporary browser blob: URLs cannot be saved. Please wait for media upload to complete.');
+      }
+    }
+  }
+
+  public subscribeFeedUpdates(
+    listener: (event: { id: string; type: 'stay' | 'trip_dating'; item: any; ts: number }) => void
+  ): () => void {
+    this.feedListeners.add(listener);
+    return () => {
+      this.feedListeners.delete(listener);
+    };
+  }
+
+  public emitFeedApproved(type: 'stay' | 'trip_dating', item: any) {
+    const evt = {
+      id: `evt_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      type,
+      item,
+      ts: Date.now(),
+    };
+    this.recentApprovedEvents.unshift(evt);
+    if (this.recentApprovedEvents.length > 200) {
+      this.recentApprovedEvents.length = 200;
+    }
+    this.feedListeners.forEach(fn => {
+      try {
+        fn(evt);
+      } catch (err) {
+        logger.warn('feed_listener_error', { error: String(err) });
+      }
+    });
+  }
+
+  public getMissedApprovedFeed(sinceTs: number, viewerUser?: User | null) {
+    const cutoff = Number(sinceTs) || 0;
+    const canSeePlus = this.canViewerSeePlus(viewerUser);
+    return this.recentApprovedEvents
+      .filter(evt => {
+        if (evt.ts <= cutoff) return false;
+        if (evt.type === 'stay' && evt.item?.isPlusVVVIP && !canSeePlus) return false;
+        return true;
+      })
+      .slice()
+      .reverse();
+  }
+
+  private canViewerSeePlus(viewerUser?: User | null): boolean {
+    if (!viewerUser) return false;
+    if (viewerUser.role === 'admin') return true;
+    return this.isActivePlusMember(viewerUser);
+  }
+
+  public runStartupMigrations() {
+    if (!this.data.appliedMigrations) this.data.appliedMigrations = [];
+    const migrationId = 'v1_moderation_pipeline_sync';
+    if (this.data.appliedMigrations.some(m => m.id === migrationId)) {
+      return;
+    }
+
+    const staysSnapshot = (this.data.stays || []).map(s => ({
+      id: s.id,
+      status: s.status,
+      isApprovedByAdmin: s.isApprovedByAdmin,
+      moderationStatus: s.moderationStatus,
+      moderationState: s.moderationState,
+      admin_feedback: s.admin_feedback,
+      reviewed_at: s.reviewed_at,
+      reviewed_by: s.reviewed_by,
+    }));
+    const tdpSnapshot = (this.data.tripDatingProfiles || []).map(p => ({
+      id: p.id,
+      status: p.status,
+      moderationState: p.moderationState,
+      admin_feedback: p.admin_feedback,
+      reviewed_at: p.reviewed_at,
+      reviewed_by: p.reviewed_by,
+    }));
+
+    (this.data.stays || []).forEach(s => {
+      if (!s.moderationState) {
+        if (s.status === 'review' || s.moderationStatus === 'pending' || (!s.isApprovedByAdmin && s.status !== 'live')) {
+          if (s.moderationStatus === 'rejected' || s.moderationStatus === 'suspended' || s.status === 'delisted') {
+            s.moderationState = 'DECLINED';
+          } else {
+            s.moderationState = 'PENDING';
+            s.status = 'review';
+            s.isApprovedByAdmin = false;
+            s.moderationStatus = 'pending';
+          }
+        } else if (s.moderationStatus === 'rejected' || s.moderationStatus === 'suspended') {
+          s.moderationState = 'DECLINED';
+        } else {
+          s.moderationState = 'APPROVED';
+          s.isApprovedByAdmin = true;
+          s.moderationStatus = 'approved';
+        }
+      }
+      if (s.admin_feedback === undefined) s.admin_feedback = s.moderationReason || null;
+      if (s.reviewed_at === undefined) s.reviewed_at = null;
+      if (s.reviewed_by === undefined) s.reviewed_by = null;
+    });
+
+    (this.data.tripDatingProfiles || []).forEach(p => {
+      if (!p.moderationState) {
+        if (p.status === 'pending' || p.fullBodyModerationStatus === 'pending_review') {
+          p.moderationState = 'PENDING';
+          p.status = 'pending';
+        } else if (p.status === 'rejected' || p.status === 'suspended' || p.status === 'removed' || p.fullBodyModerationStatus === 'rejected') {
+          p.moderationState = 'DECLINED';
+        } else {
+          p.moderationState = 'APPROVED';
+          p.status = 'active';
+          p.fullBodyModerationStatus = 'approved';
+        }
+      }
+      if (p.admin_feedback === undefined) p.admin_feedback = p.removalReason || null;
+      if (p.reviewed_at === undefined) p.reviewed_at = null;
+      if (p.reviewed_by === undefined) p.reviewed_by = null;
+    });
+
+    this.data.appliedMigrations.push({
+      id: migrationId,
+      appliedAt: Date.now(),
+      snapshot: { staysSnapshot, tdpSnapshot },
+    });
+    this.save();
+    logger.info('migration_applied', { migrationId });
+  }
+
+  public rollbackMigration(migrationId: string): boolean {
+    if (!this.data.appliedMigrations) return false;
+    const idx = this.data.appliedMigrations.findIndex(m => m.id === migrationId);
+    if (idx === -1) return false;
+    const mig = this.data.appliedMigrations[idx];
+    const snap = mig.snapshot as any;
+    if (snap?.staysSnapshot) {
+      snap.staysSnapshot.forEach((orig: any) => {
+        const s = (this.data.stays || []).find(st => st.id === orig.id);
+        if (s) Object.assign(s, orig);
+      });
+    }
+    if (snap?.tdpSnapshot) {
+      snap.tdpSnapshot.forEach((orig: any) => {
+        const p = (this.data.tripDatingProfiles || []).find(pr => pr.id === orig.id);
+        if (p) Object.assign(p, orig);
+      });
+    }
+    this.data.appliedMigrations.splice(idx, 1);
+    this.invalidateFeedCache();
+    this.save();
+    logger.info('migration_rolled_back', { migrationId });
+    return true;
+  }
+
+  public runWithIdempotency<T>(
+    idempotencyKey: string | undefined,
+    fn: () => T,
+    status = 200
+  ): { deduplicated: boolean; status: number; response: T } {
+    const cleanKey = typeof idempotencyKey === 'string' ? idempotencyKey.trim() : '';
+    if (!cleanKey) {
+      return { deduplicated: false, status, response: fn() };
+    }
+    if (!this.data.idempotencyCache) this.data.idempotencyCache = {};
+    const existing = this.data.idempotencyCache[cleanKey];
+    const now = Date.now();
+    if (existing && now - existing.createdAt < 24 * 60 * 60 * 1000) {
+      return {
+        deduplicated: true,
+        status: existing.status || status,
+        response: existing.response as T,
+      };
+    }
+
+    const result = fn();
+    this.data.idempotencyCache[cleanKey] = {
+      status,
+      response: result,
+      createdAt: now,
+    };
+    const keys = Object.keys(this.data.idempotencyCache);
+    if (keys.length > 500) {
+      keys
+        .sort((a, b) => (this.data.idempotencyCache![a]?.createdAt || 0) - (this.data.idempotencyCache![b]?.createdAt || 0))
+        .slice(0, keys.length - 500)
+        .forEach(k => delete this.data.idempotencyCache![k]);
+    }
+    this.save();
+    return { deduplicated: false, status, response: result };
   }
 
   public subscribeWalletUpdates(
@@ -2217,10 +2432,61 @@ class DatabaseStore {
       threads: SEED_THREADS,
       payments: [
         {
+          id: 'pay_demo_dep_owner',
+          hostEmail: 'owner@airbus.ke',
+          userId: 'owner@airbus.ke',
+          user_id: 'owner@airbus.ke',
+          userRole: 'owner',
+          type: 'deposit',
+          method: 'mpesa_manual',
+          amountSc: 15000,
+          amount_sc: 15000,
+          amountKes: 15000,
+          amount_kes: 15000,
+          amount: 15000,
+          claimedAmount: 15000,
+          approvedAmount: 15000,
+          referenceId: 'MP991204',
+          reference_id: 'MP991204',
+          kind: 'deposit',
+          mpesaCode: 'MP991204',
+          status: 'approved',
+          approvedBy: 'admin@airbus.ke',
+          approvedAt: Date.now() - 25 * 864e5,
+          createdAt: Date.now() - 25 * 864e5,
+          updatedAt: Date.now() - 25 * 864e5,
+        },
+        {
+          id: 'pay_demo_dep_guest',
+          hostEmail: 'guest@airbus.ke',
+          userId: 'guest@airbus.ke',
+          user_id: 'guest@airbus.ke',
+          userRole: 'guest',
+          type: 'deposit',
+          method: 'mpesa_manual',
+          amountSc: 5000,
+          amount_sc: 5000,
+          amountKes: 5000,
+          amount_kes: 5000,
+          amount: 5000,
+          claimedAmount: 5000,
+          approvedAmount: 5000,
+          referenceId: 'GUE7X2K9AB',
+          reference_id: 'GUE7X2K9AB',
+          kind: 'deposit',
+          mpesaCode: 'GUE7X2K9AB',
+          status: 'approved',
+          approvedBy: 'admin@airbus.ke',
+          approvedAt: Date.now() - 15 * 864e5,
+          createdAt: Date.now() - 15 * 864e5,
+          updatedAt: Date.now() - 15 * 864e5,
+        },
+        {
           id: 'pay_demo_1',
           hostEmail: 'owner@airbus.ke',
           userId: 'owner@airbus.ke',
           user_id: 'owner@airbus.ke',
+          userRole: 'owner',
           type: 'subscription',
           method: 'wallet',
           amountSc: 2500,
@@ -2233,19 +2499,95 @@ class DatabaseStore {
           kind: 'plan',
           tier: 'Diamond',
           planTier: 'Diamond',
-          mpesaCode: 'QGH7X2K9LM',
           status: 'approved',
+          approvedBy: 'admin@airbus.ke',
+          approvedAt: Date.now() - 10 * 864e5,
           createdAt: Date.now() - 10 * 864e5,
           updatedAt: Date.now() - 10 * 864e5,
         },
+        {
+          id: 'pay_demo_2',
+          hostEmail: 'guest@airbus.ke',
+          userId: 'guest@airbus.ke',
+          user_id: 'guest@airbus.ke',
+          userRole: 'guest',
+          type: 'advert',
+          method: 'wallet',
+          amountSc: 300,
+          amount_sc: 300,
+          amountKes: 300,
+          amount_kes: 300,
+          amount: 300,
+          referenceId: 'ad_1',
+          reference_id: 'ad_1',
+          kind: 'advert',
+          durationDays: 3,
+          status: 'approved',
+          approvedBy: 'admin@airbus.ke',
+          approvedAt: Date.now() - 3 * 864e5,
+          createdAt: Date.now() - 3 * 864e5,
+          updatedAt: Date.now() - 3 * 864e5,
+        },
       ],
       paymentRecords: [
+        {
+          id: 'pay_demo_dep_owner',
+          userId: 'owner@airbus.ke',
+          user_id: 'owner@airbus.ke',
+          hostEmail: 'owner@airbus.ke',
+          userRole: 'owner',
+          type: 'deposit',
+          kind: 'deposit',
+          method: 'mpesa_manual',
+          amountSc: 15000,
+          amount_sc: 15000,
+          amountKes: 15000,
+          amount_kes: 15000,
+          amount: 15000,
+          claimedAmount: 15000,
+          approvedAmount: 15000,
+          mpesaCode: 'MP991204',
+          referenceId: 'MP991204',
+          reference_id: 'MP991204',
+          status: 'approved',
+          approvedBy: 'admin@airbus.ke',
+          approvedAt: Date.now() - 25 * 864e5,
+          createdAt: Date.now() - 25 * 864e5,
+          updatedAt: Date.now() - 25 * 864e5,
+        },
+        {
+          id: 'pay_demo_dep_guest',
+          userId: 'guest@airbus.ke',
+          user_id: 'guest@airbus.ke',
+          hostEmail: 'guest@airbus.ke',
+          userRole: 'guest',
+          type: 'deposit',
+          kind: 'deposit',
+          method: 'mpesa_manual',
+          amountSc: 5000,
+          amount_sc: 5000,
+          amountKes: 5000,
+          amount_kes: 5000,
+          amount: 5000,
+          claimedAmount: 5000,
+          approvedAmount: 5000,
+          mpesaCode: 'GUE7X2K9AB',
+          referenceId: 'GUE7X2K9AB',
+          reference_id: 'GUE7X2K9AB',
+          status: 'approved',
+          approvedBy: 'admin@airbus.ke',
+          approvedAt: Date.now() - 15 * 864e5,
+          createdAt: Date.now() - 15 * 864e5,
+          updatedAt: Date.now() - 15 * 864e5,
+        },
         {
           id: 'pay_demo_1',
           userId: 'owner@airbus.ke',
           user_id: 'owner@airbus.ke',
           hostEmail: 'owner@airbus.ke',
+          userRole: 'owner',
           type: 'subscription',
+          kind: 'plan',
           method: 'wallet',
           amountSc: 2500,
           amount_sc: 2500,
@@ -2263,6 +2605,29 @@ class DatabaseStore {
           createdAt: Date.now() - 10 * 864e5,
           updatedAt: Date.now() - 10 * 864e5,
         },
+        {
+          id: 'pay_demo_2',
+          userId: 'guest@airbus.ke',
+          user_id: 'guest@airbus.ke',
+          hostEmail: 'guest@airbus.ke',
+          userRole: 'guest',
+          type: 'advert',
+          kind: 'advert',
+          method: 'wallet',
+          amountSc: 300,
+          amount_sc: 300,
+          amountKes: 300,
+          amount_kes: 300,
+          amount: 300,
+          referenceId: 'ad_1',
+          reference_id: 'ad_1',
+          durationDays: 3,
+          status: 'approved',
+          approvedBy: 'admin@airbus.ke',
+          approvedAt: Date.now() - 3 * 864e5,
+          createdAt: Date.now() - 3 * 864e5,
+          updatedAt: Date.now() - 3 * 864e5,
+        },
       ],
       walletTransactions: [
         {
@@ -2271,10 +2636,11 @@ class DatabaseStore {
           wallet_id: 'owner@airbus.ke',
           direction: 'credit',
           amount: 15000,
-          amountSc: 1500,
+          amountSc: 15000,
           type: 'wallet_topup',
-          reference: 'QGH7X2K9LM',
-          note: 'Initial M-Pesa deposit Till 943210 (Code: QGH7X2K9LM)',
+          reference: 'MP991204',
+          relatedPaymentId: 'pay_demo_dep_owner',
+          note: 'Initial M-Pesa deposit Till 943210 (Code: MP991204)',
           createdAt: Date.now() - 25 * 864e5,
         },
         {
@@ -2283,22 +2649,12 @@ class DatabaseStore {
           wallet_id: 'owner@airbus.ke',
           direction: 'debit',
           amount: 2500,
-          amountSc: 250,
+          amountSc: 2500,
           relatedPaymentId: 'pay_demo_1',
           type: 'subscription',
+          reference: 'sub_owner_demo',
           note: 'Subscription payment for Diamond tier (30 days)',
           createdAt: Date.now() - 10 * 864e5,
-        },
-        {
-          id: 'wtx_seed_ad_income_owner',
-          walletId: 'owner@airbus.ke',
-          wallet_id: 'owner@airbus.ke',
-          direction: 'credit',
-          amount: 2000,
-          amountSc: 200,
-          type: 'advert_income',
-          note: '70% sponsor ad revenue received for stay "s1"',
-          createdAt: Date.now() - 5 * 864e5,
         },
         {
           id: 'wtx_seed_topup_guest',
@@ -2306,9 +2662,10 @@ class DatabaseStore {
           wallet_id: 'guest@airbus.ke',
           direction: 'credit',
           amount: 5000,
-          amountSc: 500,
+          amountSc: 5000,
           type: 'wallet_topup',
           reference: 'GUE7X2K9AB',
+          relatedPaymentId: 'pay_demo_dep_guest',
           note: 'Initial M-Pesa deposit Till 943210 (Code: GUE7X2K9AB)',
           createdAt: Date.now() - 15 * 864e5,
         },
@@ -2318,21 +2675,12 @@ class DatabaseStore {
           wallet_id: 'guest@airbus.ke',
           direction: 'debit',
           amount: 300,
-          amountSc: 30,
+          amountSc: 300,
+          relatedPaymentId: 'pay_demo_2',
           type: 'advert_payment',
+          reference: 'ad_1',
           note: 'Advert campaign payment for 3 days',
           createdAt: Date.now() - 3 * 864e5,
-        },
-        {
-          id: 'wtx_seed_admin_rev',
-          walletId: 'admin@airbus.ke',
-          wallet_id: 'admin@airbus.ke',
-          direction: 'credit',
-          amount: 32500,
-          amountSc: 3250,
-          type: 'platform_revenue',
-          note: 'Platform earnings and retained fees',
-          createdAt: Date.now() - 30 * 864e5,
         },
         {
           id: 'wtx_seed_admin_sub',
@@ -2340,10 +2688,25 @@ class DatabaseStore {
           wallet_id: 'admin@airbus.ke',
           direction: 'credit',
           amount: 2500,
-          amountSc: 250,
+          amountSc: 2500,
+          relatedPaymentId: 'pay_demo_1',
           type: 'subscription_income',
+          reference: 'sub_owner_demo',
           note: 'Subscription revenue for Diamond tier',
           createdAt: Date.now() - 10 * 864e5,
+        },
+        {
+          id: 'wtx_seed_admin_ad',
+          walletId: 'admin@airbus.ke',
+          wallet_id: 'admin@airbus.ke',
+          direction: 'credit',
+          amount: 300,
+          amountSc: 300,
+          relatedPaymentId: 'pay_demo_2',
+          type: 'advert_income',
+          reference: 'ad_1',
+          note: 'Advert campaign revenue (3 days) from guest@airbus.ke',
+          createdAt: Date.now() - 3 * 864e5,
         },
       ],
       adSlots: [
@@ -2405,9 +2768,9 @@ class DatabaseStore {
         },
       },
       wallets: {
-        'owner@airbus.ke': 14500,
+        'owner@airbus.ke': 12500,
         'guest@airbus.ke': 4700,
-        'admin@airbus.ke': 35000,
+        'admin@airbus.ke': 2800,
       },
       walletRecords: SEED_WALLET_RECORDS,
       ledgerEntries: SEED_LEDGER_ENTRIES,
@@ -2649,6 +3012,17 @@ class DatabaseStore {
       for (const slot of this.data.adSlots) {
         if (slot.status === 'active' && slot.endsAt && slot.endsAt < now) {
           slot.status = 'expired';
+          changed = true;
+        }
+      }
+    }
+
+    // 4. Expire 30-day AirBus Plus guest memberships automatically
+    if (this.data.users) {
+      for (const u of this.data.users) {
+        if (u.vvvipSubscription && u.vvvipSubscription.status === 'active' && (!u.vvvipSubscription.expiresAt || u.vvvipSubscription.expiresAt <= now)) {
+          u.vvvipSubscription.status = 'expired';
+          u.isVVVIP = false;
           changed = true;
         }
       }
@@ -3353,6 +3727,17 @@ class DatabaseStore {
   }
 
   // --- Stays & Powerful Search ---
+  private isStayApprovedPublic(s: Stay): boolean {
+    if (s.isDelisted) return false;
+    if (s.moderationState) {
+      if (s.moderationState !== 'APPROVED') return false;
+    }
+    if (s.moderationStatus && s.moderationStatus !== 'approved') return false;
+    if (s.isApprovedByAdmin === false) return false;
+    if (s.status !== 'live') return false;
+    return true;
+  }
+
   public getStays(filter?: {
     query?: string;
     guests?: number;
@@ -3370,27 +3755,28 @@ class DatabaseStore {
     includePendingForAdmin?: boolean;
     viewerUser?: User | null;
     includeVVVIP?: boolean;
+    sort?: 'new' | 'featured';
   }): Stay[] {
     this.checkAllExpirations();
 
     let list = this.data.stays;
+    const canSeePlus = Boolean(filter?.includeVVVIP) || this.canViewerSeePlus(filter?.viewerUser);
+    const isAdminPreview = Boolean(filter?.includePendingForAdmin && filter?.viewerUser?.role === 'admin');
 
-    // All approved live stays (including those opted into collections like Black Friday, Work, Escapes, Plus, Local, World Wide)
-    // appear on the main feed so guests can discover and book them directly.
-
-    // By default, public feed only shows live, admin-approved stays whose owner subscription is active
     if (!filter?.status) {
-      list = list.filter(s => {
-        if (s.status !== 'live' || s.isDelisted) return false;
-        // Verify host subscription is active
-        if (s.ownerEmail) {
-          const plan = this.getHostPlan(s.ownerEmail);
-          if (plan.status !== 'active' || (plan.expiresAt > 0 && plan.expiresAt <= Date.now())) return false;
-        }
-        return true;
-      });
+      if (!isAdminPreview) {
+        list = list.filter(s => {
+          if (!this.isStayApprovedPublic(s)) return false;
+          if (s.isPlusVVVIP && !canSeePlus) return false;
+          if (s.ownerEmail) {
+            const plan = this.getHostPlan(s.ownerEmail);
+            if (plan.status !== 'active' || (plan.expiresAt > 0 && plan.expiresAt <= Date.now())) return false;
+          }
+          return true;
+        });
+      }
     } else {
-      list = list.filter(s => s.status === filter.status && !s.isDelisted);
+      list = list.filter(s => s.status === filter.status && !s.isDelisted && (!s.isPlusVVVIP || canSeePlus || isAdminPreview));
     }
 
     if (filter) {
@@ -3458,22 +3844,122 @@ class DatabaseStore {
       }
     }
 
-    // Active boosts rank listings at top of feed with Promoted Boost badge, followed by newest
     const now = Date.now();
+    const useFeaturedSort = filter?.sort === 'featured';
     return list
       .map(s => this.hydrateStayAudio({ ...s, isVerified: s.isVerified !== false }, filter?.viewerUser))
       .sort((a, b) => {
-        const aBoosted = Boolean(a.isPromoted && a.promotedUntil && a.promotedUntil > now);
-        const bBoosted = Boolean(b.isPromoted && b.promotedUntil && b.promotedUntil > now);
-        if (aBoosted && !bBoosted) return -1;
-        if (!aBoosted && bBoosted) return 1;
-        return (b.createdAt || 0) - (a.createdAt || 0);
+        if (useFeaturedSort) {
+          const aBoosted = Boolean(a.isPromoted && a.promotedUntil && a.promotedUntil > now);
+          const bBoosted = Boolean(b.isPromoted && b.promotedUntil && b.promotedUntil > now);
+          if (aBoosted && !bBoosted) return -1;
+          if (!aBoosted && bBoosted) return 1;
+        }
+        const diff = (b.createdAt || 0) - (a.createdAt || 0);
+        if (diff !== 0) return diff;
+        return b.id.localeCompare(a.id);
+      });
+  }
+
+  public queryStaysFeed(filter: {
+    query?: string;
+    guests?: number;
+    minPrice?: number;
+    maxPrice?: number;
+    types?: string[];
+    features?: string[];
+    instantBook?: boolean;
+    isFeatured?: boolean;
+    category?: string;
+    status?: ListingStatus;
+    checkIn?: string;
+    checkOut?: string;
+    beds?: number;
+    includePendingForAdmin?: boolean;
+    viewerUser?: User | null;
+    includeVVVIP?: boolean;
+    cursor?: string;
+    limit?: number;
+    sort?: 'new' | 'featured';
+  }): { stays: Stay[]; nextCursor: string | null; hasMore: boolean; totalCount: number } {
+    const limit = Math.min(50, Math.max(1, Number(filter.limit) || 20));
+    const canSeePlus = Boolean(filter.includeVVVIP) || this.canViewerSeePlus(filter.viewerUser);
+    const isCacheable =
+      !filter.query &&
+      !filter.guests &&
+      !filter.minPrice &&
+      !filter.maxPrice &&
+      (!filter.types || filter.types.length === 0) &&
+      (!filter.features || filter.features.length === 0) &&
+      !filter.instantBook &&
+      !filter.isFeatured &&
+      (!filter.category || filter.category === 'all') &&
+      !filter.status &&
+      !filter.checkIn &&
+      !filter.checkOut &&
+      !filter.beds &&
+      !filter.includePendingForAdmin;
+
+    const cacheKey = `${canSeePlus ? 'plus' : 'std'}_${filter.sort || 'new'}`;
+    let fullList: Stay[];
+
+    if (
+      isCacheable &&
+      this.publicFeedCache.stays &&
+      this.publicFeedCache.stays.key === cacheKey &&
+      Date.now() - this.publicFeedCache.stays.ts < 15_000
+    ) {
+      fullList = this.publicFeedCache.stays.data;
+    } else {
+      fullList = this.getStays(filter);
+      if (isCacheable) {
+        this.publicFeedCache.stays = { key: cacheKey, ts: Date.now(), data: fullList };
+      }
+    }
+
+    let filtered = fullList;
+    if (filter.cursor && filter.cursor.includes('|')) {
+      const [tsStr, cursorId] = filter.cursor.split('|');
+      const cursorTs = Number(tsStr);
+      if (Number.isFinite(cursorTs)) {
+        filtered = fullList.filter(s => {
+          const ts = s.createdAt || 0;
+          return ts < cursorTs || (ts === cursorTs && s.id.localeCompare(cursorId) < 0);
+        });
+      }
+    }
+
+    const page = filtered.slice(0, limit);
+    const hasMore = filtered.length > limit;
+    const last = page[page.length - 1];
+    const nextCursor = hasMore && last ? `${last.createdAt || 0}|${last.id}` : null;
+
+    return {
+      stays: page,
+      nextCursor,
+      hasMore,
+      totalCount: fullList.length,
+    };
+  }
+
+  public getMyStays(ownerEmail: string): Stay[] {
+    const clean = ownerEmail.trim().toLowerCase();
+    return (this.data.stays || [])
+      .filter(s => (s.ownerEmail || s.owner || '').toLowerCase() === clean)
+      .map(s => this.hydrateStayAudio({ ...s, isVerified: s.isVerified !== false }))
+      .sort((a, b) => {
+        const diff = (b.createdAt || 0) - (a.createdAt || 0);
+        return diff !== 0 ? diff : b.id.localeCompare(a.id);
       });
   }
 
   public getStayById(id: string, viewerUser?: User | null, _bypassVVVIP?: boolean): Stay | undefined {
     const s = this.data.stays.find(stay => stay.id === id);
     if (!s) return undefined;
+    if (s.isPlusVVVIP && !_bypassVVVIP && !this.canViewerSeePlus(viewerUser)) {
+      const isOwner = Boolean(viewerUser?.email && s.ownerEmail?.toLowerCase() === viewerUser.email.toLowerCase());
+      if (!isOwner) return undefined;
+    }
     if (s.ownerEmail) {
       const plan = this.getHostPlan(s.ownerEmail);
       const isExpired = plan.status !== 'active' || (plan.expiresAt > 0 && plan.expiresAt < Date.now());
@@ -3654,6 +4140,13 @@ class DatabaseStore {
   }
 
   public createStay(stay: Stay): Stay {
+    this.assertNoBlobUrls([
+      stay.videoUrl,
+      stay.thumbnailUrl,
+      ...(stay.images || []),
+      stay.media?.video?.url,
+      ...(stay.media?.photos?.map(p => p.url) || []),
+    ]);
     this.normalizeStayMedia(stay);
     if (!stay.hasVideo && !stay.hasPhotos) {
       throw new Error('At least one media type is required (one video tour or at least one photo).');
@@ -3661,7 +4154,37 @@ class DatabaseStore {
     if (stay.media?.photos && stay.media.photos.length > 30) {
       throw new Error('Maximum 30 photos allowed per listing.');
     }
+
+    // Mandatory moderation pipeline: NEVER live immediately on creation
+    stay.status = 'review';
+    stay.isApprovedByAdmin = false;
+    stay.moderationStatus = 'pending';
+    stay.moderationState = 'PENDING';
+    stay.admin_feedback = null;
+    stay.moderationReason = undefined;
+    stay.reviewed_at = null;
+    stay.reviewed_by = null;
+    stay.isDelisted = false;
+    if (!stay.createdAt) stay.createdAt = Date.now();
+
     this.data.stays.unshift(stay);
+    this.invalidateFeedCache('stay');
+
+    this.data.users
+      .filter(u => u.role === 'admin')
+      .forEach(admin => {
+        this.createNotification({
+          id: 'notif_rev_' + Date.now() + '_' + Math.random().toString(36).slice(2, 5),
+          userEmail: admin.email,
+          title: 'New Listing Pending Admin Review',
+          message: `"${stay.title}" (${stay.location}) submitted by ${stay.ownerEmail || stay.hostName || 'Host'} requires review.`,
+          read: false,
+          link: '/#admin',
+          type: 'system',
+          createdAt: Date.now(),
+        });
+      });
+
     this.save();
     return stay;
   }
@@ -3669,6 +4192,13 @@ class DatabaseStore {
   public updateStay(id: string, updates: Partial<Stay>): Stay | null {
     const s = this.data.stays.find(stay => stay.id === id);
     if (!s) return null;
+    this.assertNoBlobUrls([
+      updates.videoUrl,
+      updates.thumbnailUrl,
+      ...(updates.images || []),
+      updates.media?.video?.url,
+      ...(updates.media?.photos?.map(p => p.url) || []),
+    ]);
     Object.assign(s, updates);
     this.normalizeStayMedia(s);
     if (!s.hasVideo && !s.hasPhotos) {
@@ -3677,6 +4207,63 @@ class DatabaseStore {
     if (s.media?.photos && s.media.photos.length > 30) {
       throw new Error('Maximum 30 photos allowed per listing.');
     }
+    this.invalidateFeedCache('stay');
+    this.save();
+    return this.hydrateStayAudio(s);
+  }
+
+  public resubmitStay(id: string, actorEmail: string, isAdmin: boolean, updates: Partial<Stay>): Stay {
+    const s = this.data.stays.find(stay => stay.id === id);
+    if (!s) throw new Error('Listing not found.');
+    if (!isAdmin && (s.ownerEmail || s.owner || '').toLowerCase() !== actorEmail.toLowerCase()) {
+      throw new Error('Unauthorized to edit and resubmit this listing.');
+    }
+    this.assertNoBlobUrls([
+      updates.videoUrl,
+      updates.thumbnailUrl,
+      ...(updates.images || []),
+      updates.media?.video?.url,
+      ...(updates.media?.photos?.map(p => p.url) || []),
+    ]);
+
+    const preservedCreatedAt = s.createdAt;
+    const { createdAt: _ignoreCreatedAt, id: _ignoreId, ...safeUpdates } = updates as any;
+    Object.assign(s, safeUpdates);
+    s.createdAt = preservedCreatedAt; // Preserve original submission timestamp
+
+    this.normalizeStayMedia(s);
+    if (!s.hasVideo && !s.hasPhotos) {
+      throw new Error('Listing must retain at least one media type (video or at least one photo).');
+    }
+    if (s.media?.photos && s.media.photos.length > 30) {
+      throw new Error('Maximum 30 photos allowed per listing.');
+    }
+
+    s.moderationState = 'PENDING';
+    s.moderationStatus = 'pending';
+    s.status = 'review';
+    s.isApprovedByAdmin = false;
+    s.isDelisted = false;
+    s.admin_feedback = null;
+    s.moderationReason = undefined;
+    s.reviewed_at = null;
+    s.reviewed_by = null;
+
+    this.invalidateFeedCache('stay');
+    this.data.users
+      .filter(u => u.role === 'admin')
+      .forEach(admin => {
+        this.createNotification({
+          id: 'notif_resub_' + Date.now() + '_' + Math.random().toString(36).slice(2, 5),
+          userEmail: admin.email,
+          title: 'Resubmitted Listing Awaiting Review',
+          message: `"${s.title}" was updated and resubmitted for Admin Review.`,
+          read: false,
+          link: '/#admin',
+          type: 'system',
+          createdAt: Date.now(),
+        });
+      });
     this.save();
     return this.hydrateStayAudio(s);
   }
@@ -3685,6 +4272,7 @@ class DatabaseStore {
     const idx = this.data.stays.findIndex(s => s.id === id);
     if (idx === -1) return false;
     this.data.stays.splice(idx, 1);
+    this.invalidateFeedCache('stay');
     this.save();
     return true;
   }
@@ -3949,6 +4537,40 @@ class DatabaseStore {
     return this.getWalletBalance(email);
   }
 
+  /**
+   * Executes a multi-step wallet mutation inside an all-or-nothing snapshot transaction.
+   * If any step fails, all financial, subscription, listing, and user changes are rolled back.
+   */
+  public runAtomicWalletTransaction<T>(fn: () => T): T {
+    const clone = <V>(val: V): V => JSON.parse(JSON.stringify(val));
+    const snapshot = {
+      wallets: clone(this.data.wallets || {}),
+      walletRecords: clone(this.data.walletRecords || {}),
+      walletTransactions: clone(this.data.walletTransactions || []),
+      ledgerEntries: clone(this.data.ledgerEntries || []),
+      paymentRecords: clone(this.data.paymentRecords || []),
+      payments: clone(this.data.payments || []),
+      subscriptions: clone(this.data.subscriptions || []),
+      hostPlans: clone(this.data.hostPlans || {}),
+      stays: clone(this.data.stays || []),
+      boosts: clone(this.data.boosts || []),
+      promotions: clone(this.data.promotions || []),
+      sponsorSlots: clone(this.data.sponsorSlots || []),
+      adSlots: clone(this.data.adSlots || []),
+      adRequests: clone(this.data.adRequests || []),
+      snappAddCampaigns: clone(this.data.snappAddCampaigns || []),
+      users: clone(this.data.users || []),
+      notifications: clone(this.data.notifications || []),
+      auditLogs: clone(this.data.auditLogs || []),
+    };
+    try {
+      return fn();
+    } catch (err) {
+      Object.assign(this.data, snapshot);
+      throw err;
+    }
+  }
+
   public recordWalletTransaction(tx: {
     walletId: string;
     direction: 'credit' | 'debit';
@@ -3959,16 +4581,17 @@ class DatabaseStore {
     relatedPaymentId?: string;
   }): WalletTransaction {
     const cleanWallet = tx.walletId.toLowerCase().trim();
-    const intAmount = Math.max(0, Math.floor(tx.amount));
-    if (intAmount <= 0) {
-      throw new Error('Transaction amount must be greater than zero.');
+    const rawNum = Number(tx.amount);
+    if (!Number.isInteger(rawNum) || rawNum <= 0) {
+      throw new Error('Transaction amount must be a whole integer greater than zero.');
     }
+    const intAmount = rawNum;
 
     const wr = this.ensureWallet(cleanWallet);
-    const currentBalance = Math.max(0, Number(wr.balance) || 0);
+    const currentBalance = Math.floor(Math.max(0, Number(wr.balance) || 0));
     if (tx.direction === 'debit' && currentBalance < intAmount) {
       throw new Error(
-        'Your wallet balance is not enough for this payment. Please top up your wallet, or enter the amount you have paid (or want to pay) to the Till 943210 in the custom amount field.'
+        `Insufficient wallet balance (KES ${currentBalance.toLocaleString()} available, KES ${intAmount.toLocaleString()} required). Please deposit via Deposit (M-Pesa) first.`
       );
     }
 
@@ -3978,7 +4601,7 @@ class DatabaseStore {
       wallet_id: cleanWallet,
       direction: tx.direction,
       amount: intAmount,
-      amountSc: Math.floor(intAmount / 10),
+      amountSc: intAmount,
       type: tx.type || (tx.direction === 'credit' ? 'credit' : 'debit'),
       reference: tx.reference || '',
       note: tx.note,
@@ -3989,7 +4612,6 @@ class DatabaseStore {
     if (!this.data.walletTransactions) this.data.walletTransactions = [];
     this.data.walletTransactions.unshift(newTx);
 
-    // Atomic balance update preserving existing wallet balance (never recomputed from partial wtx)
     const newBal = tx.direction === 'credit' ? currentBalance + intAmount : currentBalance - intAmount;
     if (!this.data.wallets) this.data.wallets = {};
     this.data.wallets[cleanWallet] = newBal;
@@ -4001,7 +4623,6 @@ class DatabaseStore {
     }
     wr.updatedAt = Date.now();
 
-    // Mirror deposit/topup to ledgerEntries so Guest & Host wallet ledgers stay unified
     if (tx.type === 'wallet_topup' || tx.type === 'deposit') {
       if (!this.data.ledgerEntries) this.data.ledgerEntries = [];
       this.data.ledgerEntries.unshift({
@@ -4019,6 +4640,74 @@ class DatabaseStore {
     this.save();
     this.emitWalletUpdate(cleanWallet);
     return newTx;
+  }
+
+  public getUserWalletTransactions(viewerEmail: string, viewerIsAdmin = false) {
+    const cleanViewer = viewerEmail.toLowerCase().trim();
+    const payments = (this.data.paymentRecords || []).filter(p => {
+      if (viewerIsAdmin) return true;
+      const u = (p.userId || p.hostEmail || '').toLowerCase().trim();
+      return u === cleanViewer;
+    });
+
+    const mappedPayments = payments.map(p => {
+      const userEmail = (p.userId || p.hostEmail || '').toLowerCase().trim();
+      const rawType = p.type || p.kind || 'payment';
+      const normalizedType =
+        rawType === 'wallet' || rawType === 'wallet_topup' || rawType === 'deposit'
+          ? 'deposit'
+          : rawType === 'vvvip'
+          ? 'airbus_plus'
+          : rawType === 'boost'
+          ? 'promotion'
+          : rawType;
+      const isDeposit = normalizedType === 'deposit';
+      const amt = Math.floor(Number(p.approvedAmount ?? p.claimedAmount ?? p.amountKes ?? p.amount ?? 0) || 0);
+      return {
+        id: p.id,
+        date: p.createdAt || Date.now(),
+        createdAt: p.createdAt || Date.now(),
+        user: userEmail,
+        type: normalizedType,
+        direction: isDeposit ? ('credit' as const) : ('debit' as const),
+        amount: amt,
+        status: p.status,
+        reference: p.mpesaCode || p.referenceId || p.id,
+        mpesaCode: p.mpesaCode || undefined,
+        rejectionReason: p.rejectionReason || undefined,
+        method: p.method,
+        note:
+          normalizedType === 'deposit'
+            ? `Deposit (M-Pesa${p.mpesaCode ? ` · ${p.mpesaCode}` : ''})`
+            : `${normalizedType.replace(/_/g, ' ')} payment from wallet`,
+      };
+    });
+
+    const coveredPaymentIds = new Set(mappedPayments.map(m => m.id));
+    const extraWtx = (this.data.walletTransactions || [])
+      .filter(tx => {
+        const wId = (tx.walletId || tx.wallet_id || '').toLowerCase().trim();
+        if (!viewerIsAdmin && wId !== cleanViewer) return false;
+        if (tx.relatedPaymentId && coveredPaymentIds.has(tx.relatedPaymentId)) return false;
+        return true;
+      })
+      .map(tx => ({
+        id: tx.id,
+        date: tx.createdAt || Date.now(),
+        createdAt: tx.createdAt || Date.now(),
+        user: (tx.walletId || tx.wallet_id || '').toLowerCase().trim(),
+        type: tx.type || tx.direction || 'wallet',
+        direction: tx.direction,
+        amount: Math.floor(Number(tx.amount || 0)),
+        status: 'approved' as const,
+        reference: tx.reference || tx.relatedPaymentId || tx.id,
+        mpesaCode: undefined,
+        rejectionReason: undefined,
+        method: 'wallet' as const,
+        note: tx.note,
+      }));
+
+    return [...mappedPayments, ...extraWtx].sort((a, b) => (b.date || 0) - (a.date || 0));
   }
 
   public addWallet(email: string, amount: number) {
@@ -4121,8 +4810,8 @@ class DatabaseStore {
         this.createNotification({
           id: 'notif_' + Date.now() + Math.random(),
           userEmail: admin.email,
-          title: 'New Payment Pending Verification',
-          message: `${p.userId || p.hostEmail} submitted KES ${p.amountSc || p.amount} (${p.method.toUpperCase()}, Ref: ${p.mpesaCode || p.id}) for ${p.type || p.kind}.`,
+          title: 'New Deposit Pending Verification',
+          message: `${p.userId || p.hostEmail} submitted Deposit (M-Pesa) of KES ${p.amountKes || p.amount} (Ref: ${p.mpesaCode || p.id}).`,
           read: false,
           link: '/#admin',
           type: 'payment',
@@ -4143,143 +4832,159 @@ class DatabaseStore {
     period?: 'monthly' | 'annual';
     note?: string;
   }): { payment: PaymentRecord; userTx: WalletTransaction; adminTx: WalletTransaction } {
-    const cleanUserId = opts.userId.toLowerCase().trim();
-    const intAmount = Math.floor(opts.amountSc);
-    if (intAmount <= 0) {
-      throw new Error('Payment amount must be greater than 0.');
-    }
+    return this.runAtomicWalletTransaction(() => {
+      const cleanUserId = opts.userId.toLowerCase().trim();
+      const rawAmount = Number(opts.amountSc);
+      if (!Number.isInteger(rawAmount) || rawAmount <= 0) {
+        throw new Error('Payment amount must be a whole integer in Ksh greater than 0.');
+      }
+      const intAmount = rawAmount;
 
-    const userWallet = this.ensureWallet(cleanUserId);
-    const available = userWallet.balance - (userWallet.holdBalance || 0);
-    if (available < intAmount) {
-      const diff = intAmount - available;
-      throw new Error(
-        `Insufficient wallet balance. You have ${available} Coins but need ${intAmount} Coins. Please top up the shortfall of ${diff} Coins via M-Pesa to complete this payment.`
-      );
-    }
+      const userWallet = this.ensureWallet(cleanUserId);
+      const available = Math.floor(userWallet.balance - (userWallet.holdBalance || 0));
+      if (available < intAmount) {
+        const diff = intAmount - available;
+        throw new Error(
+          `Insufficient wallet balance. You have KES ${available.toLocaleString()} but need KES ${intAmount.toLocaleString()}. Please deposit KES ${diff.toLocaleString()} via Deposit (M-Pesa) to continue.`
+        );
+      }
 
-    // Atomic deduction from user wallet
-    userWallet.balance -= intAmount;
-    userWallet.lifetimeSpent = (userWallet.lifetimeSpent || 0) + intAmount;
-    userWallet.updatedAt = Date.now();
-    this.data.wallets[cleanUserId] = userWallet.balance;
+      // Debit payer wallet
+      userWallet.balance = Math.floor(userWallet.balance) - intAmount;
+      userWallet.lifetimeSpent = (userWallet.lifetimeSpent || 0) + intAmount;
+      userWallet.updatedAt = Date.now();
+      this.data.wallets[cleanUserId] = userWallet.balance;
 
-    // Atomic credit to admin/treasury
-    const adminWallet = this.ensureWallet('admin@airbus.ke');
-    adminWallet.balance += intAmount;
-    adminWallet.lifetimeEarnings = (adminWallet.lifetimeEarnings || 0) + intAmount;
-    adminWallet.updatedAt = Date.now();
-    this.data.wallets['admin@airbus.ke'] = adminWallet.balance;
+      // Credit admin wallet with exact same integer amount
+      const adminWallet = this.ensureWallet('admin@airbus.ke');
+      adminWallet.balance = Math.floor(adminWallet.balance) + intAmount;
+      adminWallet.lifetimeEarnings = (adminWallet.lifetimeEarnings || 0) + intAmount;
+      adminWallet.updatedAt = Date.now();
+      this.data.wallets['admin@airbus.ke'] = adminWallet.balance;
 
-    const payer = this.findUserByEmail(cleanUserId);
-    const paymentId = 'pay_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
-    const payment: PaymentRecord = {
-      id: paymentId,
-      userId: cleanUserId,
-      user_id: cleanUserId,
-      userRole: payer?.role || 'guest',
-      userName: payer?.username || payer?.name || cleanUserId,
-      hostEmail: cleanUserId,
-      type: opts.type,
-      kind: opts.type === 'subscription' ? 'plan' : 'advert',
-      method: 'wallet',
-      amountSc: intAmount,
-      amount_sc: intAmount,
-      amountKes: intAmount,
-      amount_kes: intAmount,
-      amount: intAmount,
-      status: 'pending',
-      referenceId: opts.referenceId,
-      reference_id: opts.referenceId,
-      planTier: opts.planTier,
-      plan_tier: opts.planTier,
-      durationDays: opts.durationDays,
-      duration_days: opts.durationDays,
-      period: opts.period || (opts.durationDays && opts.durationDays > 30 ? 'annual' : 'monthly'),
-      createdAt: Date.now(),
-      created_at: Date.now(),
-      updatedAt: Date.now(),
-      updated_at: Date.now(),
-    };
+      const payer = this.findUserByEmail(cleanUserId);
+      const now = Date.now();
+      const paymentId = 'pay_' + now + '_' + Math.random().toString(36).substring(2, 6);
+      const resolvedKind: PaymentRecord['kind'] =
+        opts.type === 'subscription'
+          ? 'plan'
+          : opts.type === 'vvvip'
+          ? 'vvvip'
+          : opts.type === 'trip_dating'
+          ? 'trip_dating'
+          : opts.type === 'boost'
+          ? 'boost'
+          : 'advert';
 
-    const userTx: WalletTransaction = {
-      id: 'wtx_' + Date.now() + '_dr',
-      walletId: cleanUserId,
-      wallet_id: cleanUserId,
-      direction: 'debit',
-      amount: intAmount,
-      amountSc: intAmount,
-      amount_sc: intAmount,
-      relatedPaymentId: paymentId,
-      related_payment_id: paymentId,
-      note: opts.note || `Payment for ${opts.type} (${opts.referenceId})`,
-      createdAt: Date.now(),
-      created_at: Date.now(),
-    };
+      const payment: PaymentRecord = {
+        id: paymentId,
+        userId: cleanUserId,
+        user_id: cleanUserId,
+        userRole: payer?.role || 'guest',
+        userName: payer?.username || payer?.name || cleanUserId,
+        hostEmail: cleanUserId,
+        type: opts.type,
+        kind: resolvedKind,
+        method: 'wallet',
+        amountSc: intAmount,
+        amount_sc: intAmount,
+        amountKes: intAmount,
+        amount_kes: intAmount,
+        amount: intAmount,
+        approvedAmount: intAmount,
+        approvedBy: 'admin@airbus.ke',
+        approvedAt: now,
+        status: 'approved',
+        referenceId: opts.referenceId,
+        reference_id: opts.referenceId,
+        planTier: opts.planTier,
+        plan_tier: opts.planTier,
+        durationDays: opts.durationDays,
+        duration_days: opts.durationDays,
+        period: opts.period || (opts.durationDays && opts.durationDays > 30 ? 'annual' : 'monthly'),
+        createdAt: now,
+        created_at: now,
+        updatedAt: now,
+        updated_at: now,
+      };
 
-    const adminTx: WalletTransaction = {
-      id: 'wtx_' + Date.now() + '_cr',
-      walletId: 'admin@airbus.ke',
-      wallet_id: 'admin@airbus.ke',
-      direction: 'credit',
-      amount: intAmount,
-      amountSc: intAmount,
-      amount_sc: intAmount,
-      relatedPaymentId: paymentId,
-      related_payment_id: paymentId,
-      note: `Received ${opts.type} payment (${opts.referenceId}) from ${cleanUserId}`,
-      createdAt: Date.now(),
-      created_at: Date.now(),
-    };
+      const userTx: WalletTransaction = {
+        id: 'wtx_' + now + '_dr_' + Math.random().toString(36).slice(2, 6),
+        walletId: cleanUserId,
+        wallet_id: cleanUserId,
+        direction: 'debit',
+        amount: intAmount,
+        amountSc: intAmount,
+        amount_sc: intAmount,
+        type: opts.type,
+        reference: opts.referenceId,
+        relatedPaymentId: paymentId,
+        related_payment_id: paymentId,
+        note: opts.note || `Payment for ${opts.type} (${opts.referenceId})`,
+        createdAt: now,
+        created_at: now,
+      };
 
-    if (!this.data.paymentRecords) this.data.paymentRecords = [];
-    this.data.paymentRecords.unshift(payment);
-    if (!this.data.payments) this.data.payments = [];
-    this.data.payments.unshift(payment);
+      const adminTx: WalletTransaction = {
+        id: 'wtx_' + now + '_cr_' + Math.random().toString(36).slice(2, 6),
+        walletId: 'admin@airbus.ke',
+        wallet_id: 'admin@airbus.ke',
+        direction: 'credit',
+        amount: intAmount,
+        amountSc: intAmount,
+        amount_sc: intAmount,
+        type: `${opts.type}_income`,
+        reference: opts.referenceId,
+        relatedPaymentId: paymentId,
+        related_payment_id: paymentId,
+        note: `Received ${opts.type} payment (${opts.referenceId}) from ${cleanUserId}`,
+        createdAt: now,
+        created_at: now,
+      };
 
-    if (!this.data.walletTransactions) this.data.walletTransactions = [];
-    this.data.walletTransactions.unshift(userTx, adminTx);
+      if (!this.data.paymentRecords) this.data.paymentRecords = [];
+      this.data.paymentRecords.unshift(payment);
+      if (!this.data.payments) this.data.payments = [];
+      this.data.payments.unshift(payment);
 
-    // Write to ledger
-    if (!this.data.ledgerEntries) this.data.ledgerEntries = [];
-    this.data.ledgerEntries.unshift({
-      id: 'ledg_' + Date.now(),
-      fromWallet: cleanUserId,
-      toWallet: 'admin@airbus.ke',
-      amount: intAmount,
-      type: opts.type === 'advert' ? 'ad_payment' : 'subscription',
-      referenceId: opts.referenceId,
-      description: `Wallet payment of ${intAmount} SC for ${opts.type}`,
-      createdAt: Date.now(),
-    });
+      if (!this.data.walletTransactions) this.data.walletTransactions = [];
+      this.data.walletTransactions.unshift(userTx, adminTx);
 
-    // Audit log
-    this.createAuditLog({
-      id: 'aud_' + Date.now(),
-      action: `wallet_payment_${opts.type}`,
-      actorEmail: cleanUserId,
-      details: `Paid ${intAmount} SC for ${opts.type} (ref: ${opts.referenceId}) via Wallet`,
-      createdAt: Date.now(),
-    });
-
-    // Notify Admins
-    this.data.users.filter(u => u.role === 'admin').forEach(admin => {
-      this.createNotification({
-        id: 'notif_' + Date.now() + Math.random(),
-        userEmail: admin.email,
-        title: `New Pending ${opts.type === 'advert' ? 'Advert' : 'Subscription'} (Wallet)`,
-        message: `${cleanUserId} paid ${intAmount} Coins from wallet for ${opts.type}. Awaiting your approval.`,
-        read: false,
-        link: '/#admin',
-        type: 'payment',
-        createdAt: Date.now(),
+      if (!this.data.ledgerEntries) this.data.ledgerEntries = [];
+      const mappedLedgerType: LedgerEntryType =
+        opts.type === 'advert'
+          ? 'ad_payment'
+          : opts.type === 'boost'
+          ? 'promotion'
+          : opts.type === 'trip_dating'
+          ? 'trip_dating'
+          : opts.type === 'vvvip'
+          ? 'vvvip'
+          : 'subscription';
+      this.data.ledgerEntries.unshift({
+        id: 'ledg_' + now + '_' + Math.random().toString(36).slice(2, 6),
+        fromWallet: cleanUserId,
+        toWallet: 'admin@airbus.ke',
+        amount: intAmount,
+        type: mappedLedgerType,
+        referenceId: opts.referenceId,
+        description: opts.note || `Wallet payment of KES ${intAmount} for ${opts.type}`,
+        createdAt: now,
       });
-    });
 
-    this.save();
-    this.emitWalletUpdate(cleanUserId);
-    this.emitWalletUpdate('admin@airbus.ke');
-    return { payment, userTx, adminTx };
+      this.createAuditLog({
+        id: 'aud_' + now,
+        action: `wallet_payment_${opts.type}`,
+        actorEmail: cleanUserId,
+        details: `Paid KES ${intAmount} for ${opts.type} (ref: ${opts.referenceId}) via Wallet`,
+        createdAt: now,
+      });
+
+      this.save();
+      this.emitWalletUpdate(cleanUserId);
+      this.emitWalletUpdate('admin@airbus.ke');
+      return { payment, userTx, adminTx };
+    });
   }
 
   public createMpesaPayment(opts: {
@@ -4292,36 +4997,33 @@ class DatabaseStore {
     durationDays?: number;
     period?: 'monthly' | 'annual';
   }): PaymentRecord {
+    const allowedMpesaTypes: PaymentRecordType[] = ['deposit', 'wallet', 'wallet_topup', 'mpesa_deposit', 'trip_dating'];
+    if (!allowedMpesaTypes.includes(opts.type)) {
+      throw new Error('Pay with M-Pesa has been removed. Please deposit funds via Deposit (M-Pesa) and pay from your wallet.');
+    }
+
     const cleanCode = opts.mpesaCode.trim().toUpperCase();
     if (!cleanCode || !/^[A-Z0-9]{8,15}$/.test(cleanCode)) {
       throw new Error('M-Pesa reference code must be 8-15 alphanumeric characters (e.g. QGH7X2K9LM).');
     }
 
-    const cleanUserId = opts.userId.toLowerCase().trim();
-    const intAmount = Math.floor(opts.amountKes);
+    const rawAmount = Number(opts.amountKes);
+    if (!Number.isInteger(rawAmount) || rawAmount < 10) {
+      throw new Error('Deposit amount must be a whole integer in Ksh (minimum Ksh 10).');
+    }
+    const intAmount = rawAmount;
 
-    const existing = (this.data.paymentRecords || []).find(
-      p => p.mpesaCode === cleanCode && p.status !== 'rejected'
-    );
-    if (existing) {
-      throw new Error('This M-Pesa transaction code has already been submitted and is in verification.');
+    if (this.isMpesaCodeUsed(cleanCode)) {
+      throw new Error('Duplicate M-Pesa transaction code. This code has already been submitted.');
     }
 
+    const cleanUserId = opts.userId.toLowerCase().trim();
     const payer = this.findUserByEmail(cleanUserId);
     const resolvedKind: PaymentRecord['kind'] =
-      opts.type === 'subscription'
-        ? 'plan'
-        : opts.type === 'vvvip'
-        ? 'vvvip'
-        : opts.type === 'wallet' || opts.type === 'wallet_topup' || opts.type === 'deposit'
-        ? 'wallet'
-        : opts.type === 'boost'
-        ? 'boost'
-        : opts.type === 'trip_dating'
-        ? 'trip_dating'
-        : 'advert';
+      opts.type === 'trip_dating' ? 'trip_dating' : 'deposit';
 
-    const paymentId = 'pay_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
+    const now = Date.now();
+    const paymentId = 'pay_dep_' + now + '_' + Math.random().toString(36).substring(2, 6);
     const payment: PaymentRecord = {
       id: paymentId,
       userId: cleanUserId,
@@ -4329,9 +5031,9 @@ class DatabaseStore {
       userRole: payer?.role || 'guest',
       userName: payer?.username || payer?.name || cleanUserId,
       hostEmail: cleanUserId,
-      type: opts.type,
+      type: opts.type === 'trip_dating' ? 'trip_dating' : 'deposit',
       kind: resolvedKind,
-      method: 'mpesa',
+      method: 'mpesa_manual',
       amountSc: intAmount,
       amount_sc: intAmount,
       amountKes: intAmount,
@@ -4339,19 +5041,14 @@ class DatabaseStore {
       amount: intAmount,
       claimedAmount: intAmount,
       status: 'pending',
-      referenceId: opts.referenceId,
-      reference_id: opts.referenceId,
+      referenceId: cleanCode,
+      reference_id: cleanCode,
       mpesaCode: cleanCode,
       mpesa_code: cleanCode,
-      planTier: opts.planTier,
-      plan_tier: opts.planTier,
-      durationDays: opts.durationDays,
-      duration_days: opts.durationDays,
-      period: opts.period || (opts.durationDays && opts.durationDays > 30 ? 'annual' : 'monthly'),
-      createdAt: Date.now(),
-      created_at: Date.now(),
-      updatedAt: Date.now(),
-      updated_at: Date.now(),
+      createdAt: now,
+      created_at: now,
+      updatedAt: now,
+      updated_at: now,
     };
 
     if (!this.data.paymentRecords) this.data.paymentRecords = [];
@@ -4359,26 +5056,24 @@ class DatabaseStore {
     if (!this.data.payments) this.data.payments = [];
     this.data.payments.unshift(payment);
 
-    // Audit log
     this.createAuditLog({
-      id: 'aud_' + Date.now(),
-      action: `mpesa_payment_${opts.type}`,
+      id: 'aud_' + now,
+      action: `mpesa_deposit_submitted`,
       actorEmail: cleanUserId,
-      details: `Submitted M-Pesa receipt ${cleanCode} for KES ${intAmount} (${opts.type}, ref: ${opts.referenceId})`,
-      createdAt: Date.now(),
+      details: `Submitted M-Pesa deposit ${cleanCode} for KES ${intAmount}`,
+      createdAt: now,
     });
 
-    // Notify admins
     this.data.users.filter(u => u.role === 'admin').forEach(admin => {
       this.createNotification({
-        id: 'notif_' + Date.now() + Math.random(),
+        id: 'notif_' + now + Math.random(),
         userEmail: admin.email,
-        title: 'New M-Pesa Payment Verification',
-        message: `${cleanUserId} submitted M-Pesa code ${cleanCode} (KES ${intAmount}) for ${opts.type}.`,
+        title: 'New M-Pesa Deposit Pending',
+        message: `${cleanUserId} submitted M-Pesa deposit code ${cleanCode} for KES ${intAmount}.`,
         read: false,
         link: '/#admin',
         type: 'payment',
-        createdAt: Date.now(),
+        createdAt: now,
       });
     });
 
@@ -4394,333 +5089,93 @@ class DatabaseStore {
     const p = (this.data.paymentRecords || []).find(x => x.id === paymentId) ||
               (this.data.payments || []).find(x => x.id === paymentId);
     if (!p) throw new Error('Payment record not found.');
-    // Idempotency: if already approved, return existing record without double processing
     if (p.status === 'approved') return p;
     if (p.status !== 'pending') throw new Error(`Payment is already ${p.status}.`);
 
-    const now = Date.now();
-    const hostEmail = (p.userId || p.hostEmail || '').toLowerCase().trim();
-
-    // Determine exact approved amount
-    const finalApprovedAmount = confirmedAmount && confirmedAmount > 0
-      ? Math.floor(confirmedAmount)
-      : (p.claimedAmount || p.amountKes || p.amount || 0);
-
-    p.status = 'approved';
-    p.approvedAmount = finalApprovedAmount;
-    p.amount = finalApprovedAmount;
-    p.amountKes = finalApprovedAmount;
-    p.amountSc = finalApprovedAmount;
-    p.approvedBy = adminEmail;
-    p.approved_by = adminEmail;
-    p.approvedAt = now;
-    p.approved_at = now;
-    p.updatedAt = now;
-    p.updated_at = now;
-
-    const pMirror = (this.data.payments || []).find(x => x.id === paymentId);
-    if (pMirror && pMirror !== p) {
-      pMirror.status = 'approved';
-      pMirror.approvedAmount = finalApprovedAmount;
-      pMirror.amount = finalApprovedAmount;
+    const submittedAmount = Math.floor(Number(p.claimedAmount ?? p.amountKes ?? p.amount ?? 0) || 0);
+    if (submittedAmount <= 0) {
+      throw new Error('Invalid submitted amount.');
+    }
+    if (confirmedAmount !== undefined && Number.isFinite(Number(confirmedAmount)) && Math.floor(Number(confirmedAmount)) !== submittedAmount) {
+      throw new Error('Admin cannot edit the deposit amount. If the M-Pesa SMS amount does not match KES ' + submittedAmount + ', reject this deposit so the user can resubmit.');
     }
 
-    // 1. If Boost Payment
-    if (p.type === 'boost' || p.referenceId?.startsWith('boost_') || p.kind === 'boost') {
-      const boost = (this.data.boosts || []).find(b => b.id === p.referenceId || b.payment_id === p.id);
-      if (boost) {
-        boost.status = 'active';
-        boost.starts_at = now;
-        boost.startsAt = now;
-        boost.ends_at = now + (boost.days * 864e5);
-        boost.endsAt = boost.ends_at;
+    return this.runAtomicWalletTransaction(() => {
+      const now = Date.now();
+      const hostEmail = (p.userId || p.hostEmail || '').toLowerCase().trim();
+      const finalApprovedAmount = submittedAmount;
 
-        const stay = this.getStayById(boost.listing_id || boost.listingId || '');
-        if (stay) {
-          stay.isPromoted = true;
-          stay.promotedUntil = boost.ends_at;
-        }
-      }
-    }
+      p.status = 'approved';
+      p.approvedAmount = finalApprovedAmount;
+      p.amount = finalApprovedAmount;
+      p.amountKes = finalApprovedAmount;
+      p.amountSc = finalApprovedAmount;
+      p.approvedBy = adminEmail;
+      p.approved_by = adminEmail;
+      p.approvedAt = now;
+      p.approved_at = now;
+      p.updatedAt = now;
+      p.updated_at = now;
 
-    // 2. If Advert / Sponsor Payment: activate slot & perform 70/30 host/platform revenue split
-    if (p.type === 'advert' || p.referenceId?.startsWith('adslot_') || p.referenceId?.startsWith('sponsor_') || p.kind === 'advert') {
-      const slot = (this.data.adSlots || []).find(s => s.id === p.referenceId || s.paymentId === p.id);
-      if (slot) {
-        slot.status = 'active';
-        slot.startsAt = now;
-        slot.endsAt = now + (slot.durationDays * 864e5);
-        slot.updatedAt = now;
-      }
-      const spSlot = (this.data.sponsorSlots || []).find(s => s.id === p.referenceId || s.payment_id === p.id);
-      if (spSlot) {
-        spSlot.status = 'active';
-        spSlot.starts_at = now;
-        spSlot.startsAt = now;
-        spSlot.ends_at = now + (spSlot.duration_days * 864e5);
-        spSlot.endsAt = spSlot.ends_at;
-      }
-      const adReq = (this.data.adRequests || []).find(a => a.id === p.referenceId);
-      if (adReq) {
-        adReq.status = 'approved';
-        adReq.startsAt = now;
-        adReq.expiresAt = now + (adReq.days * 864e5);
+      const pMirror = (this.data.payments || []).find(x => x.id === paymentId);
+      if (pMirror && pMirror !== p) {
+        pMirror.status = 'approved';
+        pMirror.approvedAmount = finalApprovedAmount;
+        pMirror.amount = finalApprovedAmount;
+        pMirror.amountKes = finalApprovedAmount;
+        pMirror.amountSc = finalApprovedAmount;
+        pMirror.approvedAt = now;
+        pMirror.updatedAt = now;
       }
 
-      // 70/30 REVENUE SPLIT:
-      // Total approved payment is credited to Admin treasury,
-      // 70% is debited to listing host's wallet with ledger transactions,
-      // 30% retained by platform.
-      const stayId = spSlot?.listing_id || spSlot?.listingId || adReq?.stayId || p.referenceId;
-      const stay = stayId ? this.getStayById(stayId) : undefined;
-      const stayHostEmail = (stay?.ownerEmail || '').toLowerCase().trim();
-      const hostShareKes = Math.floor(finalApprovedAmount * 0.7);
-
-      // Record atomic 70/30 split in ledger
-      this.recordWalletTransaction({
-        walletId: 'admin@airbus.ke',
-        direction: 'credit',
-        amount: finalApprovedAmount,
-        type: 'ad_income_gross',
-        reference: p.id,
-        note: `100% ad payment received for stay "${stay?.title || stayId}"`,
-        relatedPaymentId: p.id,
-      });
-
-      if (stayHostEmail && hostShareKes > 0) {
+      // 1. Wallet Deposit (M-Pesa): credit user wallet with exact submitted integer amount
+      if (p.kind === 'wallet' || p.kind === 'deposit' || p.type === 'wallet' || p.type === 'wallet_topup' || p.type === 'deposit' || p.type === 'mpesa_deposit') {
+        this.recordWalletTransaction({
+          walletId: hostEmail,
+          direction: 'credit',
+          amount: finalApprovedAmount,
+          type: 'wallet_topup',
+          reference: p.mpesaCode || p.id,
+          note: `Deposit (M-Pesa) Till 943210 approved (Code: ${p.mpesaCode || p.id})`,
+          relatedPaymentId: p.id,
+        });
+      } else if (p.type === 'trip_dating' || p.kind === 'trip_dating') {
         this.recordWalletTransaction({
           walletId: 'admin@airbus.ke',
-          direction: 'debit',
-          amount: hostShareKes,
-          type: 'ad_revenue_split_host',
-          reference: p.id,
-          note: `70% host ad payout for stay "${stay?.title || stayId}"`,
-          relatedPaymentId: p.id,
-        });
-
-        this.recordWalletTransaction({
-          walletId: stayHostEmail,
           direction: 'credit',
-          amount: hostShareKes,
-          type: 'advert_income',
+          amount: finalApprovedAmount,
+          type: 'trip_dating',
           reference: p.id,
-          note: `70% sponsor ad revenue received for stay "${stay?.title || stayId}"`,
+          note: `Trip Dating contact unlock fee (${p.referenceId || p.id})`,
           relatedPaymentId: p.id,
         });
-
-        this.createNotification({
-          id: 'notif_' + now + '_host_split',
-          userEmail: stayHostEmail,
-          title: 'Sponsor Ad Revenue Credited! 💰',
-          message: `You earned KES ${hostShareKes.toLocaleString()} (70% net share) from an approved sponsor ad on your listing "${stay?.title}".`,
-          read: false,
-          link: '/#owner',
-          type: 'payment',
-          createdAt: now,
-        });
-      }
-    }
-
-    // 3. If Subscription Payment: activate subscription & hostPlan
-    if (p.type === 'subscription' || p.kind === 'plan') {
-      const sub = (this.data.subscriptions || []).find(s => s.id === p.referenceId || s.paymentId === p.id);
-      const isAnnual = p.period === 'annual' || (sub && sub.billing === 'annual');
-      const durationMs = isAnnual ? 365 * 864e5 : 30 * 864e5;
-      const endsAt = now + durationMs;
-
-      // Credit Admin wallet with exact subscription amount
-      this.recordWalletTransaction({
-        walletId: 'admin@airbus.ke',
-        direction: 'credit',
-        amount: finalApprovedAmount,
-        type: 'subscription_income',
-        reference: p.id,
-        note: `Subscription payment for ${p.planTier || p.tier || 'Diamond'} (${isAnnual ? 'Annual' : 'Monthly'}) by ${hostEmail}`,
-        relatedPaymentId: p.id,
-      });
-
-      if (sub) {
-        sub.status = 'active';
-        sub.startsAt = now;
-        sub.endsAt = endsAt;
-        sub.updatedAt = now;
-      } else {
-        if (!this.data.subscriptions) this.data.subscriptions = [];
-        this.data.subscriptions.unshift({
-          id: 'sub_' + Date.now(),
-          ownerId: hostEmail,
-          owner_id: hostEmail,
-          tier: (p.planTier as StayCategory) || p.tier || 'Diamond',
-          billing: isAnnual ? 'annual' : 'monthly',
-          status: 'active',
-          startsAt: now,
-          endsAt: endsAt,
-          paymentId: p.id,
-          createdAt: now,
-          updatedAt: now,
-        });
       }
 
-      this.setHostPlan(hostEmail, {
-        tier: (p.planTier as StayCategory) || p.tier || 'Diamond',
-        status: 'active',
-        startsAt: now,
-        expiresAt: endsAt,
-        graceExpiresAt: endsAt,
-        hasPaidSubscription: true,
-        period: isAnnual ? 'annual' : 'monthly',
+      this.createAuditLog({
+        id: 'aud_' + now,
+        action: 'payment_approve',
+        actorEmail: adminEmail,
+        details: `Approved ${p.type || p.kind} (KES ${finalApprovedAmount}, method ${p.method}) for ${hostEmail}`,
+        createdAt: now,
       });
 
-      // Restore delisted/expired stays
-      this.data.stays.forEach(s => {
-        if (s.ownerEmail?.toLowerCase() === hostEmail) {
-          if (s.status === 'expired' || s.status === 'delisted' || s.isDelisted) {
-            s.status = 'live';
-            s.isDelisted = false;
-          }
-        }
-      });
-    }
-
-    // 4. If Trip Dating Payment: KES 50 unlock
-    if (p.type === 'trip_dating' || p.kind === 'trip_dating') {
-      this.recordWalletTransaction({
-        walletId: 'admin@airbus.ke',
-        direction: 'credit',
-        amount: 50,
-        type: 'trip_dating',
-        reference: p.id,
-        note: `Trip Dating contact unlock fee (${p.referenceId || p.id})`,
-        relatedPaymentId: p.id,
-      });
-    }
-
-    // 4b. If AirBus Plus Membership Payment (Ksh 3,500 -> 30 days from admin approval date)
-    if (p.type === 'vvvip' || p.kind === 'vvvip') {
-      const plusUser = this.findUserByEmail(hostEmail);
-      // Record deposit into wallet and immediate deduction for AirBus Plus membership
-      this.recordWalletTransaction({
-        walletId: hostEmail,
-        direction: 'credit',
-        amount: finalApprovedAmount,
-        type: 'wallet_topup',
-        reference: p.mpesaCode || p.id,
-        note: `AirBus Plus M-Pesa deposit approved into wallet (Code: ${p.mpesaCode || p.id})`,
-        relatedPaymentId: p.id,
-      });
-      this.recordWalletTransaction({
-        walletId: hostEmail,
-        direction: 'debit',
-        amount: finalApprovedAmount,
-        type: 'subscription',
-        reference: p.id,
-        note: `AirBus Plus 30-day membership fee (Ksh ${finalApprovedAmount.toLocaleString()})`,
-        relatedPaymentId: p.id,
-      });
-      this.recordWalletTransaction({
-        walletId: 'admin@airbus.ke',
-        direction: 'credit',
-        amount: finalApprovedAmount,
-        type: 'subscription_income',
-        reference: p.id,
-        note: `AirBus Plus 30-day membership approved for ${hostEmail}`,
-        relatedPaymentId: p.id,
+      const payerUser = this.findUserByEmail(hostEmail);
+      const isGuest = payerUser?.role === 'guest';
+      this.createNotification({
+        id: 'notif_' + now,
+        userEmail: hostEmail,
+        title: 'Wallet Deposit Approved!',
+        message: `Your M-Pesa deposit of KES ${finalApprovedAmount.toLocaleString()} (Ref: ${p.mpesaCode || p.id}) was approved and credited to your wallet.`,
+        read: false,
+        link: isGuest ? '/#guest' : '/#owner',
+        type: 'payment',
+        createdAt: now,
       });
 
-      if (plusUser) {
-        const curSub = plusUser.vvvipSubscription;
-        const isCurrentlyActive = Boolean(
-          plusUser.isVVVIP &&
-          curSub &&
-          curSub.status === 'active' &&
-          curSub.expiresAt > now
-        );
-        const startFrom = isCurrentlyActive && curSub?.expiresAt ? curSub.expiresAt : now;
-        const newExpiresAt = startFrom + 30 * 864e5;
-        plusUser.isVVVIP = true;
-        plusUser.vvvipSubscription = {
-          planName: 'AirBus Plus',
-          billing: 'monthly',
-          status: 'active',
-          startsAt: isCurrentlyActive && curSub?.startsAt ? curSub.startsAt : now,
-          expiresAt: newExpiresAt,
-        };
-        if (!this.data.subscriptions) this.data.subscriptions = [];
-        this.data.subscriptions.unshift({
-          id: 'sub_plus_' + now,
-          ownerId: plusUser.email.toLowerCase(),
-          owner_id: plusUser.email.toLowerCase(),
-          tier: 'Gold',
-          billing: 'monthly',
-          status: 'active',
-          startsAt: plusUser.vvvipSubscription.startsAt,
-          endsAt: newExpiresAt,
-          paymentId: p.id,
-          createdAt: now,
-          updatedAt: now,
-        });
-      }
+      this.save();
       this.emitWalletUpdate(hostEmail);
-      this.emitWalletUpdate('admin@airbus.ke');
-    }
-
-    // 5. If standard wallet top-up / deposit: credit exact approved amount (no * 10!)
-    if (p.kind === 'wallet' || p.type === 'wallet' || p.type === 'wallet_topup' || p.type === 'deposit') {
-      this.recordWalletTransaction({
-        walletId: hostEmail,
-        direction: 'credit',
-        amount: finalApprovedAmount,
-        type: 'wallet_topup',
-        reference: p.mpesaCode || p.id,
-        note: `Manual M-Pesa deposit Till 943210 (Code: ${p.mpesaCode || p.id})`,
-        relatedPaymentId: p.id,
-      });
-    }
-
-    this.createAuditLog({
-      id: 'aud_' + Date.now(),
-      action: 'payment_approve',
-      actorEmail: adminEmail,
-      details: `Approved ${p.type || p.kind} (KES ${finalApprovedAmount}, method ${p.method}) for ${hostEmail}`,
-      createdAt: now,
+      return p;
     });
-
-    const payerUser = this.findUserByEmail(hostEmail);
-    const isGuest = payerUser?.role === 'guest';
-    const itemLabel =
-      p.type === 'boost'
-        ? 'Visibility Boost'
-        : p.type === 'advert'
-        ? 'Advert Campaign'
-        : p.type === 'subscription'
-        ? 'Hosting Subscription'
-        : p.type === 'vvvip' || p.kind === 'vvvip'
-        ? 'AirBus Plus Membership'
-        : p.kind === 'deposit' || p.type === 'deposit' || p.kind === 'wallet'
-        ? 'Wallet Deposit'
-        : 'Payment';
-    this.createNotification({
-      id: 'notif_' + Date.now(),
-      userEmail: hostEmail,
-      title: `${itemLabel} Approved! ✓`,
-      message: `Your payment of KES ${finalApprovedAmount.toLocaleString()} (${p.method.toUpperCase()}) was verified! Your ${itemLabel.toLowerCase()} is now active.`,
-      read: false,
-      link: p.type === 'vvvip' || p.kind === 'vvvip' ? '/#collection-plus' : isGuest ? '/#guest' : p.type === 'advert' ? '/#ads' : '/#owner',
-      type: p.type === 'subscription' || p.type === 'vvvip' || p.kind === 'vvvip' ? 'subscription' : 'payment',
-      createdAt: now,
-    });
-
-    this.save();
-    this.emitWalletUpdate(hostEmail);
-    this.emitWalletUpdate('admin@airbus.ke');
-    const stayIdSplit = (p.referenceId && (this.data.sponsorSlots || []).find(s => s.id === p.referenceId)?.listing_id) || undefined;
-    if (stayIdSplit) {
-      const st = this.getStayById(stayIdSplit);
-      if (st?.ownerEmail && st.ownerEmail.toLowerCase() !== hostEmail) {
-        this.emitWalletUpdate(st.ownerEmail);
-      }
-    }
-    return p;
   }
 
   // --- Dormant Owners (Inactive for >= 90 days / 3 months) & Delisting ---
@@ -4952,7 +5407,7 @@ class DatabaseStore {
     return p;
   }
 
-  // --- Ad Slots (10 SC/day dynamic adverts - Wallet Only) ---
+  // --- Ad Slots (100 KES/day dynamic adverts - Wallet Only) ---
   public createAdSlot(opts: {
     ownerId: string;
     title: string;
@@ -4965,70 +5420,63 @@ class DatabaseStore {
     mpesaCode?: string;
   }): { slot: AdSlot; payment: PaymentRecord } {
     if (opts.paymentMethod && opts.paymentMethod !== 'wallet') {
-      throw new Error('Adverts must be paid strictly from your private AirBus Wallet. Please deposit funds to your wallet first.');
+      throw new Error('Adverts must be paid strictly from your private AirBus Wallet. Please deposit funds via Deposit (M-Pesa) first.');
     }
 
     const days = Math.min(90, Math.max(1, Math.floor(opts.durationDays || 7)));
-    const costSc = days * 10; // Exactly 10 SC / day
-
+    const ratePerDay = Math.floor(this.getSettings().adPricePerDay || 100);
+    const costKes = days * ratePerDay;
     const cleanOwnerId = opts.ownerId.toLowerCase().trim();
-    const wallet = this.ensureWallet(cleanOwnerId);
-    const available = Math.max(0, (wallet.balance || 0) - (wallet.holdBalance || 0));
-    if (available <= 0) {
-      throw new Error('Your AirBus Wallet is empty (KES 0). Please deposit funds via M-Pesa Till 943210 before advertising.');
-    }
-    if (available < costSc) {
-      throw new Error(
-        `Insufficient wallet balance. You have ${available} KES/Coins, but this campaign requires ${costSc} KES/Coins. Please deposit the shortfall of ${costSc - available} KES to your wallet.`
-      );
-    }
 
-    const slotId = 'adslot_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
+    return this.runAtomicWalletTransaction(() => {
+      const now = Date.now();
+      const slotId = 'adslot_' + now + '_' + Math.random().toString(36).substring(2, 6);
 
-    const slot: AdSlot = {
-      id: slotId,
-      ownerId: cleanOwnerId,
-      owner_id: cleanOwnerId,
-      title: opts.title.trim(),
-      description: opts.description.trim(),
-      linkUrl: opts.linkUrl.trim(),
-      link_url: opts.linkUrl.trim(),
-      thumbnailUrl: opts.thumbnailUrl.trim() || 'https://images.unsplash.com/photo-1540555700478-4be289fbecef?auto=format&fit=crop&w=800&q=80',
-      thumbnail_url: opts.thumbnailUrl.trim() || 'https://images.unsplash.com/photo-1540555700478-4be289fbecef?auto=format&fit=crop&w=800&q=80',
-      videoUrl: opts.videoUrl?.trim(),
-      video_url: opts.videoUrl?.trim(),
-      durationDays: days,
-      duration_days: days,
-      costSc,
-      cost_sc: costSc,
-      status: 'pending_approval',
-      paymentId: '',
-      paymentMethod: 'wallet',
-      impressions: 0,
-      clicks: 0,
-      createdAt: Date.now(),
-      created_at: Date.now(),
-      updatedAt: Date.now(),
-      updated_at: Date.now(),
-    };
+      const result = this.payWithWallet({
+        userId: cleanOwnerId,
+        type: 'advert',
+        amountSc: costKes,
+        referenceId: slotId,
+        durationDays: days,
+        note: `Advert Payment for "${opts.title.trim()}" (${days} days @ KES ${ratePerDay}/day)`,
+      });
 
-    const result = this.payWithWallet({
-      userId: cleanOwnerId,
-      type: 'advert',
-      amountSc: costSc,
-      referenceId: slotId,
-      durationDays: days,
-      note: `Advert Payment for "${opts.title}" (${days} days @ 10 SC/day)`,
+      const slot: AdSlot = {
+        id: slotId,
+        ownerId: cleanOwnerId,
+        owner_id: cleanOwnerId,
+        title: opts.title.trim(),
+        description: opts.description.trim(),
+        linkUrl: opts.linkUrl.trim(),
+        link_url: opts.linkUrl.trim(),
+        thumbnailUrl: opts.thumbnailUrl.trim() || 'https://images.unsplash.com/photo-1540555700478-4be289fbecef?auto=format&fit=crop&w=800&q=80',
+        thumbnail_url: opts.thumbnailUrl.trim() || 'https://images.unsplash.com/photo-1540555700478-4be289fbecef?auto=format&fit=crop&w=800&q=80',
+        videoUrl: opts.videoUrl?.trim(),
+        video_url: opts.videoUrl?.trim(),
+        durationDays: days,
+        duration_days: days,
+        costSc: costKes,
+        cost_sc: costKes,
+        status: 'active',
+        startsAt: now,
+        endsAt: now + days * 864e5,
+        paymentId: result.payment.id,
+        payment_id: result.payment.id,
+        paymentMethod: 'wallet',
+        impressions: 0,
+        clicks: 0,
+        createdAt: now,
+        created_at: now,
+        updatedAt: now,
+        updated_at: now,
+      };
+
+      if (!this.data.adSlots) this.data.adSlots = [];
+      this.data.adSlots.unshift(slot);
+      this.save();
+
+      return { slot, payment: result.payment };
     });
-    const payment = result.payment;
-    slot.paymentId = payment.id;
-    slot.payment_id = payment.id;
-
-    if (!this.data.adSlots) this.data.adSlots = [];
-    this.data.adSlots.unshift(slot);
-    this.save();
-
-    return { slot, payment };
   }
 
   public getActiveAdSlots(): AdSlot[] {
@@ -5231,9 +5679,16 @@ class DatabaseStore {
     method: 'wallet' | 'mpesa';
     mpesaCode?: string;
   }): { subscription: SubscriptionRecord; payment: PaymentRecord } {
-    const cleanOwnerId = opts.ownerId.toLowerCase().trim();
+    if (opts.method !== 'wallet') {
+      throw new Error('Host subscriptions can only be paid from your Host Wallet. Deposit via Deposit (M-Pesa) first.');
+    }
 
-    // SERVER RULE 1: Only one active subscription at a time.
+    const cleanOwnerId = opts.ownerId.toLowerCase().trim();
+    const payer = this.findUserByEmail(cleanOwnerId);
+    if (!payer || payer.role !== 'owner') {
+      throw new Error('Only Host accounts can purchase a host subscription.');
+    }
+
     const activeSub = this.getActiveSubscription(cleanOwnerId);
     if (activeSub) {
       const expiryDate = new Date(activeSub.endsAt!).toLocaleDateString();
@@ -5242,38 +5697,15 @@ class DatabaseStore {
       );
     }
 
-    // SERVER RULE 2: Block second purchase if one is pending approval.
-    const pendingSub = this.getPendingSubscription(cleanOwnerId);
-    if (pendingSub) {
-      throw new Error(
-        `You already have a ${pendingSub.tier} subscription request pending admin verification. Please wait for approval before submitting a new one.`
-      );
-    }
+    return this.runAtomicWalletTransaction(() => {
+      const isAnnual = opts.billing === 'annual';
+      const planConfig = PLANS[opts.tier];
+      const cost = Math.floor(isAnnual ? planConfig.annualPrice : planConfig.p);
+      const durationDays = isAnnual ? 365 : 30;
+      const now = Date.now();
+      const subId = 'sub_' + now + '_' + Math.random().toString(36).substring(2, 6);
 
-    const isAnnual = opts.billing === 'annual';
-    const planConfig = PLANS[opts.tier];
-    const cost = isAnnual ? planConfig.annualPrice : planConfig.p;
-    const durationDays = isAnnual ? 365 : 30;
-
-    const subId = 'sub_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
-    const subscription: SubscriptionRecord = {
-      id: subId,
-      ownerId: cleanOwnerId,
-      owner_id: cleanOwnerId,
-      tier: opts.tier,
-      billing: opts.billing,
-      status: 'pending',
-      paymentId: '',
-      createdAt: Date.now(),
-      created_at: Date.now(),
-      updatedAt: Date.now(),
-      updated_at: Date.now(),
-    };
-
-    let payment: PaymentRecord;
-
-    if (opts.method === 'wallet') {
-      const result = this.payWithWallet({
+      const payRes = this.payWithWallet({
         userId: cleanOwnerId,
         type: 'subscription',
         amountSc: cost,
@@ -5281,29 +5713,62 @@ class DatabaseStore {
         planTier: opts.tier,
         durationDays,
         period: opts.billing,
-        note: `Subscription Payment for ${opts.tier} Plan (${opts.billing === 'annual' ? '365 Days' : '30 Days'})`,
+        note: `Host Subscription Payment for ${opts.tier} Plan (${durationDays} Days)`,
       });
-      payment = result.payment;
-      subscription.paymentId = payment.id;
-    } else {
-      payment = this.createMpesaPayment({
-        userId: cleanOwnerId,
-        type: 'subscription',
-        amountKes: cost,
-        mpesaCode: opts.mpesaCode || '',
-        referenceId: subId,
-        planTier: opts.tier,
-        durationDays,
+
+      const endsAt = now + durationDays * 864e5;
+      const subscription: SubscriptionRecord = {
+        id: subId,
+        ownerId: cleanOwnerId,
+        owner_id: cleanOwnerId,
+        tier: opts.tier,
+        billing: opts.billing,
+        status: 'active',
+        startsAt: now,
+        endsAt,
+        paymentId: payRes.payment.id,
+        createdAt: now,
+        created_at: now,
+        updatedAt: now,
+        updated_at: now,
+      };
+
+      if (!this.data.subscriptions) this.data.subscriptions = [];
+      this.data.subscriptions.unshift(subscription);
+
+      this.setHostPlan(cleanOwnerId, {
+        tier: opts.tier,
+        status: 'active',
+        startsAt: now,
+        expiresAt: endsAt,
+        graceExpiresAt: endsAt,
+        hasPaidSubscription: true,
         period: opts.billing,
       });
-      subscription.paymentId = payment.id;
-    }
 
-    if (!this.data.subscriptions) this.data.subscriptions = [];
-    this.data.subscriptions.unshift(subscription);
-    this.save();
+      this.data.stays.forEach(s => {
+        if (s.ownerEmail?.toLowerCase() === cleanOwnerId) {
+          if (s.status === 'expired' || s.status === 'delisted' || s.isDelisted) {
+            s.status = 'live';
+            s.isDelisted = false;
+          }
+        }
+      });
 
-    return { subscription, payment };
+      this.createNotification({
+        id: 'notif_' + now,
+        userEmail: cleanOwnerId,
+        title: `${opts.tier} Plan Activated!`,
+        message: `KES ${cost.toLocaleString()} paid from your Host wallet. Subscription active until ${new Date(endsAt).toLocaleDateString()}.`,
+        read: false,
+        link: '/#owner',
+        type: 'subscription',
+        createdAt: now,
+      });
+
+      this.save();
+      return { subscription, payment: payRes.payment };
+    });
   }
 
   // --- Auto-Generated Shorts from Listing Videos ---
@@ -5778,122 +6243,130 @@ class DatabaseStore {
     tier: StayCategory,
     period: 'monthly' | 'annual' = 'monthly'
   ): { plan: HostPlanStatus; ledger: LedgerEntry; walletBalance: number } {
+    const cleanEmail = email.toLowerCase().trim();
+    const payer = this.findUserByEmail(cleanEmail);
+    if (!payer || payer.role !== 'owner') {
+      throw new Error('Host subscriptions can only be paid from a Host wallet.');
+    }
+
     const isAnnual = period === 'annual';
     const annualPrices: Record<StayCategory, number> = { Silver: 10000, Diamond: 25000, Gold: 50000 };
     const settings = this.getSettings();
-    const cost = isAnnual
-      ? annualPrices[tier]
-      : (settings.planPrices as any)?.[tier] || (tier === 'Gold' ? 5000 : tier === 'Diamond' ? 2500 : 1000);
-
-    const rec = this.ensureWallet(email);
-    const available = rec.balance - (rec.holdBalance || 0);
-    if (available < cost) {
-      const diff = cost - available;
-      throw new Error(
-        `Insufficient coins in wallet: you have ${available} coins, but ${tier} (${period}) requires ${cost} coins. Please top up ${diff} coins (KES ${diff}) via M-Pesa.`
-      );
-    }
-
-    const durationLabel = isAnnual ? '365-Day Annual' : '30-Day';
-    const ledger = this.transfer(
-      email,
-      'treasury',
-      cost,
-      'subscription',
-      tier,
-      `${durationLabel} ${tier} Plan Subscription from wallet`
+    const cost = Math.floor(
+      isAnnual
+        ? annualPrices[tier]
+        : (settings.planPrices as any)?.[tier] || (tier === 'Gold' ? 5000 : tier === 'Diamond' ? 2500 : 1000)
     );
+    const durationDays = isAnnual ? 365 : 30;
+    const durationMs = durationDays * 864e5;
+    const durationLabel = isAnnual ? '365-Day Annual' : '30-Day';
 
-    // Referral commission check
-    this.distributeReferralCommission(email, cost, 'subscription');
-
-    const cleanEmail = email.toLowerCase().trim();
-    const now = Date.now();
-    const cur = this.getHostPlan(cleanEmail);
-    const durationMs = isAnnual ? 365 * 864e5 : 30 * 864e5;
-
-    let targetPlan: HostPlanStatus;
-    // Upgrade / Downgrade policy: Host must finish current subscription period first!
-    if (cur.status === 'active' && cur.expiresAt > now && cur.tier !== tier) {
-      cur.scheduledTier = tier;
-      cur.scheduledStartsAt = cur.expiresAt;
-      cur.scheduledPeriod = period;
-      targetPlan = cur;
-      this.setHostPlan(cleanEmail, cur);
-    } else {
-      const baseStart = cur.status === 'active' && cur.expiresAt > now ? cur.expiresAt : now;
-      const newEnd = baseStart + durationMs;
-
-      targetPlan = {
-        tier,
-        status: 'active',
-        startsAt: cur.status === 'active' && cur.expiresAt > now && cur.startsAt ? cur.startsAt : now,
-        expiresAt: newEnd,
-        graceExpiresAt: newEnd,
-        hasPaidSubscription: true,
+    return this.runAtomicWalletTransaction(() => {
+      const now = Date.now();
+      const subId = 'sub_wallet_' + now;
+      const payRes = this.payWithWallet({
+        userId: cleanEmail,
+        type: 'subscription',
+        amountSc: cost,
+        referenceId: subId,
+        planTier: tier,
+        durationDays,
         period,
-      };
-      this.setHostPlan(cleanEmail, targetPlan);
-
-      if (!this.data.subscriptions) this.data.subscriptions = [];
-      for (const s of this.data.subscriptions) {
-        if ((s.ownerId || s.owner_id || '').toLowerCase().trim() === cleanEmail && s.status === 'active') {
-          s.status = 'expired';
-          s.updatedAt = now;
-        }
-      }
-      this.data.subscriptions.unshift({
-        id: 'sub_wallet_' + now,
-        ownerId: cleanEmail,
-        owner_id: cleanEmail,
-        tier,
-        billing: period,
-        status: 'active',
-        startsAt: targetPlan.startsAt,
-        endsAt: newEnd,
-        paymentId: ledger.id,
-        createdAt: now,
-        updatedAt: now,
+        note: `${durationLabel} ${tier} Plan subscription from Host wallet`,
       });
-    }
 
-    this.data.stays.forEach(s => {
-      if (s.ownerEmail?.toLowerCase() === cleanEmail) {
-        if (s.status === 'expired' || s.status === 'delisted' || s.isDelisted) {
-          s.status = 'live';
-          s.isDelisted = false;
+      const cur = this.getHostPlan(cleanEmail);
+      let targetPlan: HostPlanStatus;
+      if (cur.status === 'active' && cur.expiresAt > now && cur.tier !== tier) {
+        cur.scheduledTier = tier;
+        cur.scheduledStartsAt = cur.expiresAt;
+        cur.scheduledPeriod = period;
+        targetPlan = cur;
+        this.setHostPlan(cleanEmail, cur);
+      } else {
+        const baseStart = cur.status === 'active' && cur.expiresAt > now ? cur.expiresAt : now;
+        const newEnd = baseStart + durationMs;
+
+        targetPlan = {
+          tier,
+          status: 'active',
+          startsAt: cur.status === 'active' && cur.expiresAt > now && cur.startsAt ? cur.startsAt : now,
+          expiresAt: newEnd,
+          graceExpiresAt: newEnd,
+          hasPaidSubscription: true,
+          period,
+        };
+        this.setHostPlan(cleanEmail, targetPlan);
+
+        if (!this.data.subscriptions) this.data.subscriptions = [];
+        for (const s of this.data.subscriptions) {
+          if ((s.ownerId || s.owner_id || '').toLowerCase().trim() === cleanEmail && s.status === 'active') {
+            s.status = 'expired';
+            s.updatedAt = now;
+          }
         }
+        this.data.subscriptions.unshift({
+          id: subId,
+          ownerId: cleanEmail,
+          owner_id: cleanEmail,
+          tier,
+          billing: period,
+          status: 'active',
+          startsAt: targetPlan.startsAt,
+          endsAt: newEnd,
+          paymentId: payRes.payment.id,
+          createdAt: now,
+          updatedAt: now,
+        });
       }
-    });
 
-    this.createAuditLog({
-      id: 'aud_' + Date.now(),
-      action: 'plan_wallet_pay',
-      actorEmail: email,
-      details: `Paid ${cost} coins/KES from wallet for ${durationLabel} ${tier} Plan.`,
-      createdAt: Date.now(),
-    });
+      this.data.stays.forEach(s => {
+        if (s.ownerEmail?.toLowerCase() === cleanEmail) {
+          if (s.status === 'expired' || s.status === 'delisted' || s.isDelisted) {
+            s.status = 'live';
+            s.isDelisted = false;
+          }
+        }
+      });
 
-    this.createNotification({
-      id: 'notif_' + Date.now(),
-      userEmail: email,
-      title: `${durationLabel} ${tier} Plan ${targetPlan.scheduledTier ? 'Scheduled' : 'Activated'}! 🎉`,
-      message: `${cost} coins were deducted from your wallet. ${
-        targetPlan.scheduledTier
-          ? `Your current plan finishes first, then ${tier} takes effect on ${new Date(targetPlan.expiresAt).toLocaleDateString()}.`
-          : `Your subscription is active until ${new Date(targetPlan.expiresAt).toLocaleDateString()}.`
-      }`,
-      read: false,
-      link: '/#owner',
-      type: 'subscription',
-      createdAt: Date.now(),
-    });
+      this.createAuditLog({
+        id: 'aud_' + now,
+        action: 'plan_wallet_pay',
+        actorEmail: cleanEmail,
+        details: `Paid KES ${cost} from wallet for ${durationLabel} ${tier} Plan.`,
+        createdAt: now,
+      });
 
-    this.save();
-    this.emitWalletUpdate(email);
-    const updatedRec = this.ensureWallet(email);
-    const remaining = updatedRec.balance - (updatedRec.holdBalance || 0);
-    return { plan: targetPlan, ledger, walletBalance: remaining };
+      this.createNotification({
+        id: 'notif_' + now,
+        userEmail: cleanEmail,
+        title: `${durationLabel} ${tier} Plan ${targetPlan.scheduledTier ? 'Scheduled' : 'Activated'}!`,
+        message: `KES ${cost.toLocaleString()} was deducted from your wallet. ${
+          targetPlan.scheduledTier
+            ? `Your current plan finishes first, then ${tier} takes effect on ${new Date(targetPlan.expiresAt).toLocaleDateString()}.`
+            : `Your subscription is active until ${new Date(targetPlan.expiresAt).toLocaleDateString()}.`
+        }`,
+        read: false,
+        link: '/#owner',
+        type: 'subscription',
+        createdAt: now,
+      });
+
+      this.save();
+      const updatedRec = this.ensureWallet(cleanEmail);
+      const remaining = Math.floor(updatedRec.balance - (updatedRec.holdBalance || 0));
+      const latestLedger = this.data.ledgerEntries?.[0] || {
+        id: 'ledg_' + now,
+        fromWallet: cleanEmail,
+        toWallet: 'admin@airbus.ke',
+        amount: cost,
+        type: 'subscription' as const,
+        referenceId: subId,
+        description: `${durationLabel} ${tier} Plan`,
+        createdAt: now,
+      };
+      return { plan: targetPlan, ledger: latestLedger, walletBalance: remaining };
+    });
   }
 
   // --- Posts & Content Moderation (Photo, Short, Video) ---
@@ -6064,70 +6537,65 @@ class DatabaseStore {
   }): AdRequest {
     const settings = this.getSettings();
     const cleanDays = Math.max(1, Math.min(30, Math.floor(req.days)));
-    const totalAmount = cleanDays * settings.adPricePerDay; // e.g. 3 * 100 = 300 KES
+    const ratePerDay = Math.floor(settings.adPricePerDay || 100);
+    const totalAmount = cleanDays * ratePerDay;
+    const cleanEmail = req.advertiserEmail.toLowerCase().trim();
 
-    // Check 10-slot maximum on this stay/video
     const activeAds = this.getActiveAdsForStay(req.stayId);
     if (activeAds.length >= settings.maxAdSlotsPerPost) {
       throw new Error(`All ${settings.maxAdSlotsPerPost} sponsor ad slots on this stay video are currently occupied.`);
     }
 
-    // Place hold on advertiser's wallet (wallet-only adverts)
-    const wallet = this.ensureWallet(req.advertiserEmail);
-    const available = Math.max(0, (wallet.balance || 0) - (wallet.holdBalance || 0));
-    if (available <= 0) {
-      throw new Error('Your AirBus Wallet is empty (KES 0). Please deposit funds via M-Pesa Till 943210 before advertising.');
-    }
-    const holdPlaced = this.placeWalletHold(req.advertiserEmail, totalAmount);
-    if (!holdPlaced) {
-      throw new Error(
-        `Insufficient wallet balance (${available} KES available, ${totalAmount} KES required). Please deposit funds into your AirBus Wallet first.`
-      );
-    }
+    return this.runAtomicWalletTransaction(() => {
+      const now = Date.now();
+      const adId = 'ad_' + now + '_' + Math.random().toString(36).slice(2, 6);
 
-    // Calculate dynamic 70/30 split
-    const platformFee = Math.round(totalAmount * (settings.adPlatformFeePercent / 100)); // 30% -> 90 KES
-    const hostNet = totalAmount - platformFee; // 70% -> 210 KES
-
-    const adRequest: AdRequest = {
-      id: 'ad_' + Date.now(),
-      advertiserEmail: req.advertiserEmail.toLowerCase().trim(),
-      stayId: req.stayId,
-      title: req.title.trim(),
-      description: req.description.trim(),
-      imageUrl: req.imageUrl.trim(),
-      targetUrl: req.targetUrl.trim(),
-      contactPhone: req.contactPhone?.trim(),
-      tag: req.tag?.trim() || 'Featured Sponsor',
-      days: cleanDays,
-      totalAmount,
-      platformFee,
-      hostNet,
-      status: 'pending',
-      createdAt: Date.now(),
-    };
-
-    if (!this.data.adRequests) this.data.adRequests = [];
-    this.data.adRequests.unshift(adRequest);
-
-    // Notify Admin of pending ad
-    this.data.users
-      .filter(u => u.role === 'admin')
-      .forEach(a => {
-        this.createNotification({
-          id: 'notif_' + Date.now() + Math.random(),
-          userEmail: a.email,
-          title: 'New Ad Placement Pending Approval',
-          message: `${req.advertiserEmail} booked a ${cleanDays}-day sponsor ad (${totalAmount} KES) on stay #${req.stayId}. Host Net: KES ${hostNet}, Platform Fee: KES ${platformFee}.`,
-          read: false,
-          link: '/#admin',
-          type: 'payment',
-          createdAt: Date.now(),
-        });
+      this.payWithWallet({
+        userId: cleanEmail,
+        type: 'advert',
+        amountSc: totalAmount,
+        referenceId: adId,
+        durationDays: cleanDays,
+        note: `Advert placement "${req.title.trim()}" (${cleanDays} days @ KES ${ratePerDay}/day)`,
       });
 
-    this.save();
-    return adRequest;
+      const adRequest: AdRequest = {
+        id: adId,
+        advertiserEmail: cleanEmail,
+        stayId: req.stayId,
+        title: req.title.trim(),
+        description: req.description.trim(),
+        imageUrl: req.imageUrl.trim(),
+        targetUrl: req.targetUrl.trim(),
+        contactPhone: req.contactPhone?.trim(),
+        tag: req.tag?.trim() || 'Featured Sponsor',
+        days: cleanDays,
+        totalAmount,
+        platformFee: totalAmount,
+        hostNet: 0,
+        status: 'approved',
+        startsAt: now,
+        expiresAt: now + cleanDays * 864e5,
+        createdAt: now,
+      };
+
+      if (!this.data.adRequests) this.data.adRequests = [];
+      this.data.adRequests.unshift(adRequest);
+
+      this.createNotification({
+        id: 'notif_' + now,
+        userEmail: cleanEmail,
+        title: 'Advert Activated!',
+        message: `KES ${totalAmount.toLocaleString()} was paid from your wallet and your advert "${adRequest.title}" is now live for ${cleanDays} days.`,
+        read: false,
+        link: `/#stay-${req.stayId}`,
+        type: 'payment',
+        createdAt: now,
+      });
+
+      this.save();
+      return adRequest;
+    });
   }
 
   public approveAdRequest(id: string, adminEmail: string): AdRequest | null {
@@ -6266,97 +6734,68 @@ class DatabaseStore {
     coinsPaid: number;
   }): { campaign: SnappAddCampaign; walletBalance: number } {
     if (!this.data.snappAddCampaigns) this.data.snappAddCampaigns = [];
-    const coins = Math.max(10, Math.floor(data.coinsPaid));
+    const days = Math.max(1, Math.min(90, Math.floor(data.durationDays || 7)));
+    const ratePerDay = Math.floor(this.getSettings().adPricePerDay || 100);
+    const costKes = Math.floor(days * ratePerDay);
     const cleanEmail = data.userEmail.toLowerCase().trim();
 
-    // Check wallet balance (wallet-only adverts)
-    const wallet = this.ensureWallet(cleanEmail);
-    const available = Math.max(0, (wallet.balance || 0) - (wallet.holdBalance || 0));
-    if (available <= 0) {
-      throw new Error('Your AirBus Wallet is empty (KES 0). Please deposit funds via M-Pesa Till 943210 before running an advert.');
-    }
-    if (available < coins) {
-      throw new Error(`Insufficient wallet balance. You need ${coins} SC, but have ${available} SC. Please deposit funds to your wallet.`);
-    }
+    return this.runAtomicWalletTransaction(() => {
+      const now = Date.now();
+      const campaignId = 'snappadd_' + now;
 
-    // Debit wallet atomically
-    wallet.balance -= coins;
-    wallet.lifetimeSpent = (wallet.lifetimeSpent || 0) + coins;
-    wallet.updatedAt = Date.now();
-    this.data.wallets[cleanEmail] = wallet.balance;
+      this.payWithWallet({
+        userId: cleanEmail,
+        type: 'advert',
+        amountSc: costKes,
+        referenceId: campaignId,
+        durationDays: days,
+        note: `Advert Campaign "${data.title.trim()}" (${days} days @ KES ${ratePerDay}/day)`,
+      });
 
-    // Credit treasury
-    const treasuryWallet = this.ensureWallet('treasury');
-    treasuryWallet.balance += coins;
-    treasuryWallet.lifetimeEarnings += coins;
-    treasuryWallet.updatedAt = Date.now();
-    this.data.wallets['treasury'] = treasuryWallet.balance;
+      const campaign: SnappAddCampaign = {
+        id: campaignId,
+        userEmail: cleanEmail,
+        title: data.title.trim(),
+        description: data.description?.trim() || '',
+        websiteUrl: data.websiteUrl.trim(),
+        thumbnailUrl: data.thumbnailUrl.trim() || 'https://images.unsplash.com/photo-1540555700478-4be289fbecef?auto=format&fit=crop&w=800&q=80',
+        videoUrl: data.videoUrl?.trim(),
+        targetCategory: 'News & Politics: Local Campaign 3',
+        durationDays: days,
+        coinsPaid: costKes,
+        status: 'active',
+        createdAt: now,
+        expiresAt: now + days * 864e5,
+      };
 
-    if (!this.data.ledgerEntries) this.data.ledgerEntries = [];
-    this.data.ledgerEntries.unshift({
-      id: 'ledg_snappadd_' + Date.now(),
-      fromWallet: cleanEmail,
-      toWallet: 'treasury',
-      amount: coins,
-      type: 'ad_payment',
-      referenceId: 'snappadd_' + Date.now(),
-      description: `SnappAdd Campaign "${data.title.trim()}" (${data.durationDays} days)`,
-      createdAt: Date.now(),
+      if (!this.data.snappAddCampaigns) this.data.snappAddCampaigns = [];
+      this.data.snappAddCampaigns.unshift(campaign);
+
+      if (!this.data.adRequests) this.data.adRequests = [];
+      this.data.adRequests.unshift({
+        id: 'ad_' + campaignId,
+        advertiserEmail: cleanEmail,
+        stayId: '1',
+        title: campaign.title,
+        description: campaign.description,
+        imageUrl: campaign.thumbnailUrl,
+        targetUrl: campaign.websiteUrl,
+        tag: 'News & Politics: Local Campaign 3',
+        days,
+        totalAmount: costKes,
+        platformFee: costKes,
+        hostNet: 0,
+        status: 'approved',
+        startsAt: now,
+        expiresAt: campaign.expiresAt,
+        views: 0,
+        clicks: 0,
+        createdAt: now,
+      });
+
+      this.save();
+      return { campaign, walletBalance: this.getWalletBalance(cleanEmail) };
     });
-
-    const campaignId = 'snappadd_' + Date.now();
-    const campaign: SnappAddCampaign = {
-      id: campaignId,
-      userEmail: cleanEmail,
-      title: data.title.trim(),
-      description: data.description?.trim() || '',
-      websiteUrl: data.websiteUrl.trim(),
-      thumbnailUrl: data.thumbnailUrl.trim() || 'https://images.unsplash.com/photo-1540555700478-4be289fbecef?auto=format&fit=crop&w=800&q=80',
-      videoUrl: data.videoUrl?.trim(),
-      targetCategory: 'News & Politics: Local Campaign 3',
-      durationDays: data.durationDays,
-      coinsPaid: coins,
-      status: 'active',
-      createdAt: Date.now(),
-      expiresAt: Date.now() + data.durationDays * 864e5,
-    };
-
-    this.data.snappAddCampaigns.unshift(campaign);
-
-    // Also inject into active adRequests so it rotates across the entire platform
-    if (!this.data.adRequests) this.data.adRequests = [];
-    this.data.adRequests.unshift({
-      id: 'ad_' + campaignId,
-      advertiserEmail: cleanEmail,
-      stayId: '1',
-      title: campaign.title,
-      description: campaign.description,
-      imageUrl: campaign.thumbnailUrl,
-      targetUrl: campaign.websiteUrl,
-      tag: 'News & Politics: Local Campaign 3',
-      days: campaign.durationDays,
-      totalAmount: coins,
-      platformFee: coins,
-      hostNet: 0,
-      status: 'approved',
-      startsAt: Date.now(),
-      expiresAt: campaign.expiresAt,
-      views: 0,
-      clicks: 0,
-      createdAt: Date.now(),
-    });
-
-    this.createAuditLog({
-      id: 'aud_snappadd_' + Date.now(),
-      action: 'snappadd_campaign_launched',
-      actorEmail: cleanEmail,
-      details: `Created SnappAdd campaign "${campaign.title}" (${coins} SC) featured below News & Politics: Local Campaign 3 for ${campaign.durationDays} days.`,
-      createdAt: Date.now(),
-    });
-
-    this.save();
-    this.emitWalletUpdate(cleanEmail);
-    return { campaign, walletBalance: wallet.balance };
   }
 
   public getSnappAddCampaigns(): SnappAddCampaign[] {
@@ -6371,81 +6810,20 @@ class DatabaseStore {
     ledger: LedgerEntry;
     walletBalance: number;
   } {
-    const stay = this.getStayById(stayId);
-    if (!stay) throw new Error('Stay listing not found.');
-    const cleanEmail = ownerEmail.toLowerCase().trim();
-    if (stay.ownerEmail && stay.ownerEmail.toLowerCase() !== cleanEmail) {
-      throw new Error('Only the listing owner can boost this property.');
-    }
-
-    const cleanDays = Math.max(1, Math.min(60, Math.floor(days)));
-    const settings = this.getSettings();
-    const ratePerDay = settings.adPricePerDay || 100;
-    const totalCost = cleanDays * ratePerDay;
-
-    // Deduct via atomic transfer into treasury with idempotency key
-    const ledger = this.transfer(
-      cleanEmail,
-      'treasury',
-      totalCost,
-      'promotion',
-      stayId,
-      `Promoted listing boost (${cleanDays} days @ KES ${ratePerDay}/day) for ${stay.title}`,
-      idempotencyKey
-    );
-
-    const now = Date.now();
-    const currentExpiry = (stay.promotedUntil && stay.promotedUntil > now) ? stay.promotedUntil : now;
-    const newExpiry = currentExpiry + cleanDays * 864e5;
-
-    stay.isPromoted = true;
-    stay.promotedUntil = newExpiry;
-    stay.promotionImpressions = stay.promotionImpressions || 0;
-    stay.promotionClicks = stay.promotionClicks || 0;
-
-    const promoRecord: ListingPromotion = {
-      id: 'promo_' + Date.now(),
-      stayId,
-      ownerEmail: cleanEmail,
-      days: cleanDays,
-      cost: totalCost,
-      startsAt: currentExpiry === now ? now : currentExpiry,
-      expiresAt: newExpiry,
-      status: 'active',
-      impressions: 0,
-      clicks: 0,
-      createdAt: now,
-    };
-
-    if (!this.data.promotions) this.data.promotions = [];
-    this.data.promotions.unshift(promoRecord);
-
-    this.createAuditLog({
-      id: 'aud_' + Date.now(),
-      action: 'listing_promoted',
-      actorEmail: cleanEmail,
-      details: `Promoted stay ${stayId} for ${cleanDays} days (Cost: KES ${totalCost})`,
-      createdAt: now,
+    const res = this.purchasePromotion({
+      listingId: stayId,
+      ownerEmail,
+      days,
+      paymentMethod: 'wallet',
     });
-
-    this.createNotification({
-      id: 'notif_' + Date.now(),
-      userEmail: cleanEmail,
-      title: '🚀 Listing Boost Activated!',
-      message: `Your listing "${stay.title}" is now prominently promoted with top-of-feed placement and badge for ${cleanDays} days until ${new Date(newExpiry).toLocaleDateString()}.`,
-      read: false,
-      link: '/#owner',
-      type: 'payment',
-      createdAt: now,
-    });
-
-    this.save();
-    const w = this.ensureWallet(cleanEmail);
+    const stay = this.getStayById(stayId)!;
+    const promotion = this.data.promotions[0];
+    const ledger = this.data.ledgerEntries[0];
     return {
       stay,
-      promotion: promoRecord,
+      promotion,
       ledger,
-      walletBalance: w.balance - (w.holdBalance || 0),
+      walletBalance: this.getWalletBalance(ownerEmail),
     };
   }
 
@@ -6475,7 +6853,7 @@ class DatabaseStore {
     }
   }
 
-  // --- Real Visibility Boosts (Atomic Wallet & M-Pesa Verification) ---
+  // --- Real Visibility Boosts (Wallet-Only Immediate Atomic Activation) ---
   public purchasePromotion(opts: {
     listingId: string;
     ownerEmail: string;
@@ -6487,192 +6865,102 @@ class DatabaseStore {
     payment: PaymentRecord;
     message: string;
   } {
+    if (opts.paymentMethod !== 'wallet') {
+      throw new Error('Promotions can only be paid from your Host Wallet. Deposit via Deposit (M-Pesa) first.');
+    }
+
     const cleanEmail = opts.ownerEmail.toLowerCase().trim();
-    const stay = this.getStayById(opts.listingId);
+    const payer = this.findUserByEmail(cleanEmail);
+    if (!payer || payer.role !== 'owner') {
+      throw new Error('Only Host accounts can purchase listing promotions from a Host wallet.');
+    }
+
+    const stay = (this.data.stays || []).find(s => s.id === opts.listingId);
     if (!stay) throw new Error('Listing not found');
     if (stay.ownerEmail && stay.ownerEmail.toLowerCase() !== cleanEmail) {
       throw new Error('Only the listing owner can activate a boost on this listing');
     }
 
-    // Pricing calculation strictly on server:
-    // 10 SC per day: 1 day = 10 SC, 7 days = 70 SC, 30 days = 300 SC
-    const days = Math.max(1, Math.floor(opts.days || 7));
-    const costSc = days === 30 ? 300 : days * 10;
-    const costKes = costSc * 10;
+    const days = Math.max(1, Math.min(60, Math.floor(opts.days || 7)));
+    const ratePerDay = Math.floor(this.getSettings().adPricePerDay || 100);
+    const costKes = days * ratePerDay;
 
-    const boostId = 'boost_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
-    const paymentId = 'pay_boost_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+    return this.runAtomicWalletTransaction(() => {
+      const now = Date.now();
+      const boostId = 'boost_' + now + '_' + Math.random().toString(36).slice(2, 6);
 
-    let paymentRecord: PaymentRecord;
-
-    if (opts.paymentMethod === 'wallet') {
-      const userWallet = this.ensureWallet(cleanEmail);
-      const available = userWallet.balance - (userWallet.holdBalance || 0);
-      if (available < costSc) {
-        throw new Error('Not enough SC. Top up your wallet or pay with M-Pesa');
-      }
-
-      // Debit owner, credit admin
-      userWallet.balance -= costSc;
-      userWallet.lifetimeSpent = (userWallet.lifetimeSpent || 0) + costSc;
-      userWallet.updatedAt = Date.now();
-      this.data.wallets[cleanEmail] = userWallet.balance;
-
-      const adminWallet = this.ensureWallet('admin@airbus.ke');
-      adminWallet.balance += costSc;
-      adminWallet.lifetimeEarnings = (adminWallet.lifetimeEarnings || 0) + costSc;
-      adminWallet.updatedAt = Date.now();
-      this.data.wallets['admin@airbus.ke'] = adminWallet.balance;
-
-      paymentRecord = {
-        id: paymentId,
+      const payRes = this.payWithWallet({
         userId: cleanEmail,
-        user_id: cleanEmail,
         type: 'boost',
-        kind: 'boost',
-        method: 'wallet',
-        amountSc: costSc,
-        amount_sc: costSc,
-        amountKes: costKes,
-        amount_kes: costKes,
-        amount: costSc,
-        status: 'pending',
+        amountSc: costKes,
         referenceId: boostId,
-        reference_id: boostId,
         durationDays: days,
-        duration_days: days,
-        createdAt: Date.now(),
-        created_at: Date.now(),
-        updatedAt: Date.now(),
-        updated_at: Date.now(),
-      };
-
-      const userTx: WalletTransaction = {
-        id: 'wtx_' + Date.now() + '_boost_dr',
-        walletId: cleanEmail,
-        wallet_id: cleanEmail,
-        direction: 'debit',
-        amount: costSc,
-        amountSc: costSc,
-        amount_sc: costSc,
-        relatedPaymentId: paymentId,
-        related_payment_id: paymentId,
-        note: `Boost payment for "${stay.title}" (${days} days)`,
-        createdAt: Date.now(),
-        created_at: Date.now(),
-      };
-
-      const adminTx: WalletTransaction = {
-        id: 'wtx_' + Date.now() + '_boost_cr',
-        walletId: 'admin@airbus.ke',
-        wallet_id: 'admin@airbus.ke',
-        direction: 'credit',
-        amount: costSc,
-        amountSc: costSc,
-        amount_sc: costSc,
-        relatedPaymentId: paymentId,
-        related_payment_id: paymentId,
-        note: `Boost revenue for "${stay.title}" (${days} days) from ${cleanEmail}`,
-        createdAt: Date.now(),
-        created_at: Date.now(),
-      };
-
-      if (!this.data.walletTransactions) this.data.walletTransactions = [];
-      this.data.walletTransactions.unshift(userTx, adminTx);
-    } else {
-      const cleanCode = (opts.mpesaCode || '').trim().toUpperCase();
-      if (!/^[A-Z0-9]{8,15}$/.test(cleanCode)) {
-        throw new Error('Please enter a valid 8-15 character alphanumeric M-Pesa receipt code (e.g. QGH7X2K9LM).');
-      }
-      const duplicate = (this.data.paymentRecords || []).some(
-        p => (p.mpesaCode?.toUpperCase() === cleanCode || p.mpesa_code?.toUpperCase() === cleanCode)
-      );
-      if (duplicate) {
-        throw new Error('This M-Pesa transaction code has already been submitted. Please check your receipt.');
-      }
-
-      paymentRecord = {
-        id: paymentId,
-        userId: cleanEmail,
-        user_id: cleanEmail,
-        type: 'boost',
-        kind: 'boost',
-        method: 'mpesa',
-        amountSc: costSc,
-        amount_sc: costSc,
-        amountKes: costKes,
-        amount_kes: costKes,
-        amount: costKes,
-        mpesaCode: cleanCode,
-        mpesa_code: cleanCode,
-        status: 'pending',
-        referenceId: boostId,
-        reference_id: boostId,
-        durationDays: days,
-        duration_days: days,
-        createdAt: Date.now(),
-        created_at: Date.now(),
-        updatedAt: Date.now(),
-        updated_at: Date.now(),
-      };
-    }
-
-    if (!this.data.paymentRecords) this.data.paymentRecords = [];
-    this.data.paymentRecords.unshift(paymentRecord);
-    if (!this.data.payments) this.data.payments = [];
-    this.data.payments.unshift(paymentRecord);
-
-    const boost: BoostRecord = {
-      id: boostId,
-      listing_id: stay.id,
-      listingId: stay.id,
-      owner_id: cleanEmail,
-      ownerId: cleanEmail,
-      days,
-      cost_sc: costSc,
-      costSc,
-      status: 'pending',
-      payment_id: paymentId,
-      paymentId,
-      created_at: Date.now(),
-      createdAt: Date.now(),
-    };
-
-    if (!this.data.boosts) this.data.boosts = [];
-    this.data.boosts.unshift(boost);
-
-    this.createAuditLog({
-      id: 'aud_' + Date.now(),
-      action: 'boost_purchase',
-      actorEmail: cleanEmail,
-      details: `Submitted boost for "${stay.title}" (${days} days, ${costSc} SC / KES ${costKes}) via ${opts.paymentMethod.toUpperCase()}`,
-      createdAt: Date.now(),
-    });
-
-    this.data.users.filter(u => u.role === 'admin').forEach(admin => {
-      this.createNotification({
-        id: 'notif_' + Date.now() + Math.random(),
-        userEmail: admin.email,
-        title: 'New Boost Pending Approval',
-        message: `${cleanEmail} requested a ${days}-day boost for "${stay.title}" (${opts.paymentMethod.toUpperCase()}).`,
-        read: false,
-        link: '/#admin',
-        type: 'payment',
-        createdAt: Date.now(),
+        note: `Listing boost for "${stay.title}" (${days} days @ KES ${ratePerDay}/day)`,
       });
+
+      const currentExpiry = (stay.promotedUntil && stay.promotedUntil > now) ? stay.promotedUntil : now;
+      const newExpiry = currentExpiry + days * 864e5;
+      stay.isPromoted = true;
+      stay.promotedUntil = newExpiry;
+      stay.promotionImpressions = stay.promotionImpressions || 0;
+      stay.promotionClicks = stay.promotionClicks || 0;
+
+      const boost: BoostRecord = {
+        id: boostId,
+        listing_id: stay.id,
+        listingId: stay.id,
+        owner_id: cleanEmail,
+        ownerId: cleanEmail,
+        days,
+        cost_sc: costKes,
+        costSc: costKes,
+        status: 'active',
+        starts_at: now,
+        startsAt: now,
+        ends_at: newExpiry,
+        endsAt: newExpiry,
+        payment_id: payRes.payment.id,
+        paymentId: payRes.payment.id,
+        created_at: now,
+        createdAt: now,
+      };
+
+      if (!this.data.boosts) this.data.boosts = [];
+      this.data.boosts.unshift(boost);
+
+      if (!this.data.promotions) this.data.promotions = [];
+      this.data.promotions.unshift({
+        id: boostId,
+        stayId: stay.id,
+        ownerEmail: cleanEmail,
+        days,
+        cost: costKes,
+        startsAt: now,
+        expiresAt: newExpiry,
+        status: 'active',
+        impressions: 0,
+        clicks: 0,
+        createdAt: now,
+      });
+
+      this.createNotification({
+        id: 'notif_' + now,
+        userEmail: cleanEmail,
+        title: 'Listing Boost Activated!',
+        message: `KES ${costKes.toLocaleString()} paid from your Host wallet. "${stay.title}" is now boosted for ${days} days.`,
+        read: false,
+        link: '/#owner',
+        type: 'payment',
+        createdAt: now,
+      });
+
+      this.save();
+      return {
+        boost,
+        payment: payRes.payment,
+        message: `Boost activated immediately for KES ${costKes.toLocaleString()} (${days} days).`,
+      };
     });
-
-    this.save();
-    if (opts.paymentMethod === 'wallet') {
-      this.emitWalletUpdate(cleanEmail);
-      this.emitWalletUpdate('admin@airbus.ke');
-    }
-
-    return {
-      boost,
-      payment: paymentRecord,
-      message: 'Boost submitted. It goes live once the admin approves.',
-    };
   }
 
   public getBoosts(ownerEmail?: string): BoostRecord[] {
@@ -6683,7 +6971,7 @@ class DatabaseStore {
     return this.data.boosts.filter(b => (b.owner_id || b.ownerId || '').toLowerCase() === clean);
   }
 
-  // --- Dynamic Sponsor Slots (1 to 10 Slots with 70/30 Split - Wallet Only) ---
+  // --- Dynamic Sponsor Slots (1 to 10 Slots - Wallet-Only Immediate Activation) ---
   public purchaseSponsorSlot(opts: {
     listingId: string;
     advertiserEmail: string;
@@ -6700,7 +6988,7 @@ class DatabaseStore {
     message: string;
   } {
     if (opts.paymentMethod && opts.paymentMethod !== 'wallet') {
-      throw new Error('Adverts must be paid strictly from your private AirBus Wallet. Please deposit funds to your wallet first.');
+      throw new Error('Adverts must be paid strictly from your private AirBus Wallet. Please deposit funds via Deposit (M-Pesa) first.');
     }
 
     const cleanEmail = opts.advertiserEmail.toLowerCase().trim();
@@ -6715,171 +7003,94 @@ class DatabaseStore {
     }
 
     const nextSlotNumber = existingSlots.length + 1;
-    const days = Math.max(1, Math.floor(opts.durationDays || 30));
-    const costSc = days === 30 ? 300 : days * 10;
-    const costKes = costSc * 10;
+    const days = Math.max(1, Math.min(90, Math.floor(opts.durationDays || 30)));
+    const ratePerDay = Math.floor(this.getSettings().adPricePerDay || 100);
+    const costKes = days * ratePerDay;
 
-    const slotId = 'sponsor_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
-    const paymentId = 'pay_sponsor_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+    return this.runAtomicWalletTransaction(() => {
+      const now = Date.now();
+      const slotId = 'sponsor_' + now + '_' + Math.random().toString(36).slice(2, 6);
 
-    const userWallet = this.ensureWallet(cleanEmail);
-    const available = Math.max(0, userWallet.balance - (userWallet.holdBalance || 0));
-    if (available <= 0) {
-      throw new Error('Your AirBus Wallet is empty (KES 0). Please deposit funds via M-Pesa Till 943210 before advertising.');
-    }
-    if (available < costSc) {
-      throw new Error(`Insufficient wallet balance. Required: ${costSc} SC, Available: ${available} SC. Please deposit funds to your wallet.`);
-    }
+      const payRes = this.payWithWallet({
+        userId: cleanEmail,
+        type: 'advert',
+        amountSc: costKes,
+        referenceId: slotId,
+        durationDays: days,
+        note: `Sponsor slot #${nextSlotNumber} on "${stay.title}" (${days} days @ KES ${ratePerDay}/day)`,
+      });
 
-    userWallet.balance -= costSc;
-    userWallet.lifetimeSpent = (userWallet.lifetimeSpent || 0) + costSc;
-    userWallet.updatedAt = Date.now();
-    this.data.wallets[cleanEmail] = userWallet.balance;
+      const endsAt = now + days * 864e5;
+      const sponsorSlot: SponsorSlot = {
+        id: slotId,
+        listing_id: stay.id,
+        listingId: stay.id,
+        advertiser_id: cleanEmail,
+        advertiserId: cleanEmail,
+        title: opts.title.trim(),
+        description: opts.description.trim(),
+        link_url: opts.linkUrl.trim(),
+        linkUrl: opts.linkUrl.trim(),
+        thumbnail_url: opts.thumbnailUrl.trim(),
+        thumbnailUrl: opts.thumbnailUrl.trim(),
+        duration_days: days,
+        durationDays: days,
+        cost_sc: costKes,
+        costSc: costKes,
+        status: 'active',
+        starts_at: now,
+        startsAt: now,
+        ends_at: endsAt,
+        endsAt,
+        slot_number: nextSlotNumber,
+        slotNumber: nextSlotNumber,
+        payment_id: payRes.payment.id,
+        paymentId: payRes.payment.id,
+        impressions: 0,
+        clicks: 0,
+        created_at: now,
+        createdAt: now,
+      };
 
-    const adminWallet = this.ensureWallet('admin@airbus.ke');
-    adminWallet.balance += costSc;
-    adminWallet.lifetimeEarnings = (adminWallet.lifetimeEarnings || 0) + costSc;
-    adminWallet.updatedAt = Date.now();
-    this.data.wallets['admin@airbus.ke'] = adminWallet.balance;
+      if (!this.data.sponsorSlots) this.data.sponsorSlots = [];
+      this.data.sponsorSlots.unshift(sponsorSlot);
 
-    const advertiserUser = this.findUserByEmail(cleanEmail);
-    const paymentRecord: PaymentRecord = {
-      id: paymentId,
-      userId: cleanEmail,
-      user_id: cleanEmail,
-      userRole: advertiserUser?.role || 'guest',
-      userName: advertiserUser?.username || advertiserUser?.name || cleanEmail,
-      type: 'advert',
-      kind: 'advert',
-      method: 'wallet',
-      amountSc: costSc,
-      amount_sc: costSc,
-      amountKes: costKes,
-      amount_kes: costKes,
-      amount: costSc,
-      status: 'pending',
-      referenceId: slotId,
-      reference_id: slotId,
-      durationDays: days,
-      duration_days: days,
-      createdAt: Date.now(),
-      created_at: Date.now(),
-      updatedAt: Date.now(),
-      updated_at: Date.now(),
-    };
+      if (!this.data.adSlots) this.data.adSlots = [];
+      this.data.adSlots.unshift({
+        id: slotId,
+        ownerId: cleanEmail,
+        owner_id: cleanEmail,
+        title: opts.title.trim(),
+        description: opts.description.trim(),
+        linkUrl: opts.linkUrl.trim(),
+        link_url: opts.linkUrl.trim(),
+        thumbnailUrl: opts.thumbnailUrl.trim(),
+        thumbnail_url: opts.thumbnailUrl.trim(),
+        durationDays: days,
+        costSc: costKes,
+        cost_sc: costKes,
+        costCoins: costKes,
+        cost_coins: costKes,
+        paymentMethod: 'wallet',
+        status: 'active',
+        startsAt: now,
+        endsAt,
+        paymentId: payRes.payment.id,
+        impressions: 0,
+        clicks: 0,
+        createdAt: now,
+        created_at: now,
+        updatedAt: now,
+        updated_at: now,
+      });
 
-    const userTx: WalletTransaction = {
-      id: 'wtx_' + Date.now() + '_slot_dr',
-      walletId: cleanEmail,
-      wallet_id: cleanEmail,
-      direction: 'debit',
-      amount: costSc,
-      amountSc: costSc,
-      amount_sc: costSc,
-      relatedPaymentId: paymentId,
-      related_payment_id: paymentId,
-      note: `Sponsor slot #${nextSlotNumber} on "${stay.title}" (${days} days)`,
-      createdAt: Date.now(),
-      created_at: Date.now(),
-    };
-
-    const adminTx: WalletTransaction = {
-      id: 'wtx_' + Date.now() + '_slot_cr',
-      walletId: 'admin@airbus.ke',
-      wallet_id: 'admin@airbus.ke',
-      direction: 'credit',
-      amount: costSc,
-      amountSc: costSc,
-      amount_sc: costSc,
-      relatedPaymentId: paymentId,
-      related_payment_id: paymentId,
-      note: `Sponsor slot payment for "${stay.title}" from ${cleanEmail}`,
-      createdAt: Date.now(),
-      created_at: Date.now(),
-    };
-
-    if (!this.data.walletTransactions) this.data.walletTransactions = [];
-    this.data.walletTransactions.unshift(userTx, adminTx);
-
-    if (!this.data.paymentRecords) this.data.paymentRecords = [];
-    this.data.paymentRecords.unshift(paymentRecord);
-    if (!this.data.payments) this.data.payments = [];
-    this.data.payments.unshift(paymentRecord);
-
-    const sponsorSlot: SponsorSlot = {
-      id: slotId,
-      listing_id: stay.id,
-      listingId: stay.id,
-      advertiser_id: cleanEmail,
-      advertiserId: cleanEmail,
-      title: opts.title.trim(),
-      description: opts.description.trim(),
-      link_url: opts.linkUrl.trim(),
-      linkUrl: opts.linkUrl.trim(),
-      thumbnail_url: opts.thumbnailUrl.trim(),
-      thumbnailUrl: opts.thumbnailUrl.trim(),
-      duration_days: days,
-      durationDays: days,
-      cost_sc: costSc,
-      costSc,
-      status: 'pending_approval',
-      slot_number: nextSlotNumber,
-      slotNumber: nextSlotNumber,
-      payment_id: paymentId,
-      paymentId,
-      impressions: 0,
-      clicks: 0,
-      created_at: Date.now(),
-      createdAt: Date.now(),
-    };
-
-    if (!this.data.sponsorSlots) this.data.sponsorSlots = [];
-    this.data.sponsorSlots.unshift(sponsorSlot);
-
-    if (!this.data.adSlots) this.data.adSlots = [];
-    this.data.adSlots.unshift({
-      id: slotId,
-      ownerId: cleanEmail,
-      owner_id: cleanEmail,
-      title: opts.title.trim(),
-      description: opts.description.trim(),
-      linkUrl: opts.linkUrl.trim(),
-      link_url: opts.linkUrl.trim(),
-      thumbnailUrl: opts.thumbnailUrl.trim(),
-      thumbnail_url: opts.thumbnailUrl.trim(),
-      durationDays: days,
-      costSc,
-      cost_sc: costSc,
-      costCoins: costSc,
-      cost_coins: costSc,
-      paymentMethod: 'wallet',
-      status: 'pending',
-      paymentId,
-      impressions: 0,
-      clicks: 0,
-      createdAt: Date.now(),
-      created_at: Date.now(),
-      updatedAt: Date.now(),
-      updated_at: Date.now(),
+      this.save();
+      return {
+        sponsorSlot,
+        payment: payRes.payment,
+        message: `Sponsor advert activated immediately for KES ${costKes.toLocaleString()} (${days} days).`,
+      };
     });
-
-    this.createAuditLog({
-      id: 'aud_' + Date.now(),
-      action: 'sponsor_slot_purchase',
-      actorEmail: cleanEmail,
-      details: `Reserved sponsor slot #${nextSlotNumber} on "${stay.title}" (${days} days) via WALLET`,
-      createdAt: Date.now(),
-    });
-
-    this.save();
-    this.emitWalletUpdate(cleanEmail);
-    this.emitWalletUpdate('admin@airbus.ke');
-
-    return {
-      sponsorSlot,
-      payment: paymentRecord,
-      message: 'Sponsor advert submitted. It goes live once approved by the admin.',
-    };
   }
 
   public getSponsorSlots(listingId?: string): {
@@ -7126,6 +7337,17 @@ class DatabaseStore {
 
   // --- TRIP DATING: A Dating Services Near You ---
 
+  private isTripDatingApprovedPublic(p: TripDatingProfile): boolean {
+    if (p.moderationState) {
+      return p.moderationState === 'APPROVED' && p.status === 'active';
+    }
+    return (
+      p.status === 'active' &&
+      Boolean(p.full_body_verified) &&
+      (p.fullBodyModerationStatus === 'approved' || p.fullBodyModerationStatus === undefined)
+    );
+  }
+
   public getTripDatingProfiles(
     viewerEmail?: string,
     clientSessionId?: string,
@@ -7140,12 +7362,7 @@ class DatabaseStore {
     let profiles = [...this.data.tripDatingProfiles];
 
     if (!query?.showAllStatuses) {
-      // Part E: Users without approved full-body photo cannot appear in Trip Dating discovery
-      profiles = profiles.filter(
-        p => p.status === 'active' &&
-             p.full_body_verified &&
-             (p.fullBodyModerationStatus === 'approved' || p.fullBodyModerationStatus === undefined)
-      );
+      profiles = profiles.filter(p => this.isTripDatingApprovedPublic(p));
     }
 
     if (query?.gender && query.gender !== 'all') {
@@ -7170,6 +7387,11 @@ class DatabaseStore {
         p.lookingFor.toLowerCase().includes(q)
       );
     }
+
+    profiles.sort((a, b) => {
+      const diff = (b.createdAt || 0) - (a.createdAt || 0);
+      return diff !== 0 ? diff : b.id.localeCompare(a.id);
+    });
 
     // Mask phone numbers unless active 10-minute unlock exists
     return profiles.map(p => {
@@ -7196,10 +7418,139 @@ class DatabaseStore {
     });
   }
 
-  public getTripDatingProfileById(id: string, viewerEmail?: string, clientSessionId?: string) {
+  public queryTripDatingFeed(
+    viewerEmail?: string,
+    clientSessionId?: string,
+    query?: { gender?: string; city?: string; search?: string; intention?: string; cursor?: string; limit?: number }
+  ): { profiles: TripDatingProfile[]; nextCursor: string | null; hasMore: boolean; totalCount: number } {
+    const limit = Math.min(50, Math.max(1, Number(query?.limit) || 20));
+    const isCacheable =
+      (!query?.gender || query.gender === 'all') &&
+      (!query?.city || query.city === 'all') &&
+      (!query?.intention || query.intention === 'all') &&
+      !query?.search;
+
+    let baseApproved: TripDatingProfile[];
+    if (
+      isCacheable &&
+      this.publicFeedCache.tripDating &&
+      Date.now() - this.publicFeedCache.tripDating.ts < 15_000
+    ) {
+      baseApproved = this.publicFeedCache.tripDating.data;
+    } else {
+      if (!this.data.tripDatingProfiles) {
+        this.data.tripDatingProfiles = SEED_TRIP_DATING_PROFILES;
+        this.save();
+      }
+      let list = this.data.tripDatingProfiles.filter(p => this.isTripDatingApprovedPublic(p));
+      if (query?.gender && query.gender !== 'all') {
+        list = list.filter(p => p.gender.toLowerCase() === query.gender!.toLowerCase());
+      }
+      if (query?.city && query.city !== 'all') {
+        list = list.filter(p => p.city.toLowerCase().includes(query.city!.toLowerCase()) || p.location.toLowerCase().includes(query.city!.toLowerCase()));
+      }
+      if (query?.intention && query.intention !== 'all') {
+        list = list.filter(p => p.datingIntention === query.intention);
+      }
+      if (query?.search && query.search.trim()) {
+        const q = query.search.toLowerCase().trim();
+        list = list.filter(p =>
+          p.fullName.toLowerCase().includes(q) ||
+          p.city.toLowerCase().includes(q) ||
+          p.location.toLowerCase().includes(q) ||
+          p.description.toLowerCase().includes(q) ||
+          p.lookingFor.toLowerCase().includes(q)
+        );
+      }
+      list.sort((a, b) => {
+        const diff = (b.createdAt || 0) - (a.createdAt || 0);
+        return diff !== 0 ? diff : b.id.localeCompare(a.id);
+      });
+      baseApproved = list;
+      if (isCacheable) {
+        this.publicFeedCache.tripDating = { key: 'public', ts: Date.now(), data: baseApproved };
+      }
+    }
+
+    let filtered = baseApproved;
+    if (query?.cursor && query.cursor.includes('|')) {
+      const [tsStr, cursorId] = query.cursor.split('|');
+      const cursorTs = Number(tsStr);
+      if (Number.isFinite(cursorTs)) {
+        filtered = baseApproved.filter(p => {
+          const ts = p.createdAt || 0;
+          return ts < cursorTs || (ts === cursorTs && p.id.localeCompare(cursorId) < 0);
+        });
+      }
+    }
+
+    const now = Date.now();
+    const pageSlice = filtered.slice(0, limit);
+    const hasMore = filtered.length > limit;
+    const last = pageSlice[pageSlice.length - 1];
+    const nextCursor = hasMore && last ? `${last.createdAt || 0}|${last.id}` : null;
+
+    const hydrated = pageSlice.map(p => {
+      const activeUnlock = this.checkActiveContactUnlock(p.id, viewerEmail, clientSessionId);
+      const isLikedByViewer = viewerEmail ? (p.likedByUserEmails || []).includes(viewerEmail) : false;
+      if (activeUnlock && activeUnlock.expiresAt > now) {
+        return {
+          ...p,
+          phoneNumber: activeUnlock.unlockedPhone,
+          isUnlocked: true,
+          unlockExpiresAt: activeUnlock.expiresAt,
+          isLikedByViewer,
+        };
+      }
+      return {
+        ...p,
+        phoneNumber: '+254 7•• ••• •••',
+        isUnlocked: false,
+        unlockExpiresAt: undefined,
+        isLikedByViewer,
+      };
+    });
+
+    return {
+      profiles: hydrated,
+      nextCursor,
+      hasMore,
+      totalCount: baseApproved.length,
+    };
+  }
+
+  public getMyTripDatingSubmissions(ownerEmail?: string, clientSessionId?: string): TripDatingProfile[] {
+    if (!this.data.tripDatingProfiles) this.data.tripDatingProfiles = SEED_TRIP_DATING_PROFILES;
+    const cleanEmail = (ownerEmail || '').trim().toLowerCase();
+    const cleanSess = (clientSessionId || '').trim();
+    if (!cleanEmail && !cleanSess) return [];
+
+    return this.data.tripDatingProfiles
+      .filter(p => {
+        if (cleanEmail && ((p.ownerEmail || '').toLowerCase() === cleanEmail || (p.userId || '').toLowerCase() === cleanEmail)) {
+          return true;
+        }
+        if (cleanSess && p.clientSessionId === cleanSess) return true;
+        return false;
+      })
+      .sort((a, b) => {
+        const diff = (b.createdAt || 0) - (a.createdAt || 0);
+        return diff !== 0 ? diff : b.id.localeCompare(a.id);
+      });
+  }
+
+  public getTripDatingProfileById(id: string, viewerEmail?: string, clientSessionId?: string, allowUnapproved = false) {
     if (!this.data.tripDatingProfiles) this.data.tripDatingProfiles = SEED_TRIP_DATING_PROFILES;
     const profile = this.data.tripDatingProfiles.find(p => p.id === id);
     if (!profile) return null;
+
+    const isOwner = Boolean(
+      (viewerEmail && ((profile.ownerEmail || '').toLowerCase() === viewerEmail.toLowerCase() || (profile.userId || '').toLowerCase() === viewerEmail.toLowerCase())) ||
+      (clientSessionId && profile.clientSessionId === clientSessionId)
+    );
+    if (!allowUnapproved && !isOwner && !this.isTripDatingApprovedPublic(profile)) {
+      return null;
+    }
 
     const now = Date.now();
     const activeUnlock = this.checkActiveContactUnlock(profile.id, viewerEmail, clientSessionId);
@@ -7217,7 +7568,7 @@ class DatabaseStore {
 
     return {
       ...profile,
-      phoneNumber: '+254 7•• ••• •••',
+      phoneNumber: isOwner ? profile.phoneNumber : '+254 7•• ••• •••',
       isUnlocked: false,
       unlockExpiresAt: undefined,
       isLikedByViewer,
@@ -7227,6 +7578,38 @@ class DatabaseStore {
   public getRawTripDatingProfileById(id: string): TripDatingProfile | null {
     if (!this.data.tripDatingProfiles) this.data.tripDatingProfiles = SEED_TRIP_DATING_PROFILES;
     return this.data.tripDatingProfiles.find(p => p.id === id) || null;
+  }
+
+  private assertTripDatingContentSafe(data: { fullName: string; description: string; lookingFor: string }) {
+    const combinedContent = `${data.fullName} ${data.description} ${data.lookingFor}`.toLowerCase();
+
+    const adultPatterns = [/\b(nude|naked|sex|escort|camgirl|hooker|porn|xxx|blowjob|anal|massage with happy ending)\b/i];
+    for (const pat of adultPatterns) {
+      if (pat.test(combinedContent)) {
+        throw new Error('Community Safety Policy: Explicit sexual content or escort solicitation is strictly prohibited on Trip Dating.');
+      }
+    }
+
+    const merchandisePatterns = [/\b(for sale|wholesale|brand new shoes|handbags?|merchandise|discount price|stock available|shop now|order via whatsapp|in stock)\b/i];
+    for (const pat of merchandisePatterns) {
+      if (pat.test(combinedContent)) {
+        throw new Error('Content Policy: Trip Dating is exclusively for genuine dating and companionship. Selling commercial goods or merchandise is strictly prohibited.');
+      }
+    }
+
+    const drugPatterns = [/\b(weed|bhang|cocaine|narcotics|prescription pills|shrooms|meth)\b/i];
+    for (const pat of drugPatterns) {
+      if (pat.test(combinedContent)) {
+        throw new Error('Content Policy: Mention or solicitation of drugs or illegal substances is prohibited.');
+      }
+    }
+
+    const stayPatterns = [/\b(per night|airbnb|rental unit|check-in fee|booking deposit|serviced apartment for rent|studio to let)\b/i];
+    for (const pat of stayPatterns) {
+      if (pat.test(combinedContent)) {
+        throw new Error('Content Policy: This section is for Trip Dating, not accommodation rentals. Please publish stays via the Host section.');
+      }
+    }
   }
 
   public createTripDatingProfile(data: {
@@ -7256,43 +7639,24 @@ class DatabaseStore {
     full_body_verified?: boolean;
     fullBodyModerationStatus?: 'pending_review' | 'approved' | 'rejected';
     userId?: string;
+    ownerEmail?: string;
+    clientSessionId?: string;
   }): { profile: TripDatingProfile; message: string } {
     if (!this.data.tripDatingProfiles) this.data.tripDatingProfiles = SEED_TRIP_DATING_PROFILES;
 
-    // Automated Content Policy Enforcement
-    const combinedContent = `${data.fullName} ${data.description} ${data.lookingFor}`.toLowerCase();
+    this.assertNoBlobUrls([
+      ...(data.photos || []),
+      data.primaryPhoto,
+      ...(data.videos || []),
+      data.videoUrl,
+      data.full_body_photo,
+    ]);
 
-    // 1. Check for adult / escort / sexual solicitation
-    const adultPatterns = [/\b(nude|naked|sex|escort|camgirl|hooker|porn|xxx|blowjob|anal|massage with happy ending)\b/i];
-    for (const pat of adultPatterns) {
-      if (pat.test(combinedContent)) {
-        throw new Error('Community Safety Policy: Explicit sexual content or escort solicitation is strictly prohibited on Trip Dating.');
-      }
-    }
-
-    // 2. Check for commercial merchandise sales
-    const merchandisePatterns = [/\b(for sale|wholesale|brand new shoes|handbags?|merchandise|discount price|stock available|shop now|order via whatsapp|in stock)\b/i];
-    for (const pat of merchandisePatterns) {
-      if (pat.test(combinedContent)) {
-        throw new Error('Content Policy: Trip Dating is exclusively for genuine dating and companionship. Selling commercial goods or merchandise is strictly prohibited.');
-      }
-    }
-
-    // 3. Check for drugs or illicit substances
-    const drugPatterns = [/\b(weed|bhang|cocaine|narcotics|prescription pills|shrooms|meth)\b/i];
-    for (const pat of drugPatterns) {
-      if (pat.test(combinedContent)) {
-        throw new Error('Content Policy: Mention or solicitation of drugs or illegal substances is prohibited.');
-      }
-    }
-
-    // 4. Check for hotel or rental accommodation listings
-    const stayPatterns = [/\b(per night|airbnb|rental unit|check-in fee|booking deposit|serviced apartment for rent|studio to let)\b/i];
-    for (const pat of stayPatterns) {
-      if (pat.test(combinedContent)) {
-        throw new Error('Content Policy: This section is for Trip Dating, not accommodation rentals. Please publish stays via the Host section.');
-      }
-    }
+    this.assertTripDatingContentSafe({
+      fullName: data.fullName,
+      description: data.description,
+      lookingFor: data.lookingFor,
+    });
 
     // Validate photos (maximum 4, default 3)
     const sanitizedPhotos = (data.photos || []).filter(p => typeof p === 'string' && p.trim().length > 0).slice(0, 4);
@@ -7315,7 +7679,6 @@ class DatabaseStore {
       ? data.videoThumbnail.trim()
       : (Array.isArray(data.videoThumbnails) && data.videoThumbnails.length > 0 ? data.videoThumbnails[0] : fullBodyPhoto);
 
-    // Multi-video array support (up to 2 videos, max 60 seconds each)
     let sanitizedVideos = Array.isArray(data.videos)
       ? data.videos.filter(v => typeof v === 'string' && v.trim().length > 0).slice(0, 2)
       : undefined;
@@ -7325,9 +7688,12 @@ class DatabaseStore {
     const sanitizedDurations = sanitizedVideos ? sanitizedVideos.map(() => effectiveDuration) : undefined;
     const sanitizedThumbnails = effectiveThumbnail ? [effectiveThumbnail] : undefined;
 
+    const now = Date.now();
     const newProfile: TripDatingProfile = {
-      id: 'tdp_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6),
-      userId: data.userId || 'u_guest',
+      id: 'tdp_' + now.toString(36) + '_' + Math.random().toString(36).slice(2, 6),
+      userId: data.userId || data.ownerEmail || 'u_guest',
+      ownerEmail: data.ownerEmail?.toLowerCase(),
+      clientSessionId: data.clientSessionId,
       fullName: data.fullName.trim(),
       phoneNumber: data.phoneNumber.trim(),
       gender: data.gender,
@@ -7352,39 +7718,134 @@ class DatabaseStore {
       videoThumbnails: sanitizedThumbnails,
       full_body_photo: fullBodyPhoto,
       full_body_verified: data.full_body_verified !== undefined ? Boolean(data.full_body_verified) : true,
-      fullBodyModerationStatus: data.fullBodyModerationStatus || 'approved',
+      fullBodyModerationStatus: 'pending_review',
+      moderationState: 'PENDING',
+      admin_feedback: null,
+      reviewed_at: null,
+      reviewed_by: null,
       likes: 0,
       likedByUserEmails: [],
       views: 0,
-      status: 'active', // Automated policy passed
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
+      status: 'pending', // Mandatory Admin Review before going live
+      createdAt: now,
+      updatedAt: now,
     };
 
     this.data.tripDatingProfiles.unshift(newProfile);
+    this.invalidateFeedCache('trip_dating');
+
     this.createAuditLog({
-      id: 'aud_tdp_' + Date.now(),
-      action: 'trip_dating_profile_created',
-      actorEmail: data.userId || 'guest@airbus.ke',
-      details: `Created and auto-published Trip Dating profile for ${newProfile.fullName} (${newProfile.city}).`,
-      createdAt: Date.now(),
+      id: 'aud_tdp_' + now,
+      action: 'trip_dating_profile_submitted',
+      actorEmail: data.ownerEmail || data.userId || 'guest@airbus.ke',
+      details: `Submitted Trip Dating profile for ${newProfile.fullName} (${newProfile.city}) for Admin Review.`,
+      createdAt: now,
     });
+
+    this.data.users
+      .filter(u => u.role === 'admin')
+      .forEach(admin => {
+        this.createNotification({
+          id: 'notif_tdp_rev_' + now + '_' + Math.random().toString(36).slice(2, 5),
+          userEmail: admin.email,
+          title: 'New Trip Dating Post Pending Review',
+          message: `${newProfile.fullName} (${newProfile.city}) submitted a Trip Dating profile for Admin approval.`,
+          read: false,
+          link: '/#admin',
+          type: 'system',
+          createdAt: now,
+        });
+      });
 
     this.save();
     return {
       profile: newProfile,
-      message: 'Congratulations! Your Trip Dating profile has been verified by our automated safety system and is now live across Kenya.',
+      message: 'Submitted for Admin Review. Your Trip Dating post will go live once approved.',
     };
   }
 
-  public updateTripDatingProfile(id: string, updates: Partial<TripDatingProfile>, actorEmail?: string) {
+  public resubmitTripDatingProfile(
+    id: string,
+    actorEmail: string | undefined,
+    clientSessionId: string | undefined,
+    isAdmin: boolean,
+    updates: Partial<TripDatingProfile>
+  ): TripDatingProfile {
+    if (!this.data.tripDatingProfiles) this.data.tripDatingProfiles = SEED_TRIP_DATING_PROFILES;
+    const index = this.data.tripDatingProfiles.findIndex(p => p.id === id);
+    if (index === -1) throw new Error('Dating profile not found');
+
+    const current = this.data.tripDatingProfiles[index];
+    const cleanActor = (actorEmail || '').toLowerCase();
+    const ownsByEmail = Boolean(cleanActor && ((current.ownerEmail || '').toLowerCase() === cleanActor || (current.userId || '').toLowerCase() === cleanActor));
+    const ownsBySession = Boolean(clientSessionId && current.clientSessionId === clientSessionId);
+    if (!isAdmin && !ownsByEmail && !ownsBySession) {
+      throw new Error('Unauthorized to edit and resubmit this Trip Dating profile.');
+    }
+
+    this.assertNoBlobUrls([
+      ...(updates.photos || []),
+      updates.primaryPhoto,
+      ...(updates.videos || []),
+      updates.videoUrl,
+      updates.full_body_photo,
+    ]);
+
+    this.assertTripDatingContentSafe({
+      fullName: updates.fullName ?? current.fullName,
+      description: updates.description ?? current.description,
+      lookingFor: updates.lookingFor ?? current.lookingFor,
+    });
+
+    if (updates.photos && updates.photos.length > 4) {
+      updates.photos = updates.photos.slice(0, 4);
+    }
+
+    const { createdAt: _ignoreCreatedAt, id: _ignoreId, ...safeUpdates } = updates as any;
+    const updated: TripDatingProfile = {
+      ...current,
+      ...safeUpdates,
+      id: current.id,
+      createdAt: current.createdAt, // Preserve original timestamp
+      moderationState: 'PENDING',
+      status: 'pending',
+      fullBodyModerationStatus: 'pending_review',
+      admin_feedback: null,
+      removalReason: undefined,
+      reviewed_at: null,
+      reviewed_by: null,
+      updatedAt: Date.now(),
+    };
+
+    this.data.tripDatingProfiles[index] = updated;
+    this.invalidateFeedCache('trip_dating');
+
+    this.data.users
+      .filter(u => u.role === 'admin')
+      .forEach(admin => {
+        this.createNotification({
+          id: 'notif_tdp_resub_' + Date.now() + '_' + Math.random().toString(36).slice(2, 5),
+          userEmail: admin.email,
+          title: 'Resubmitted Trip Dating Post Awaiting Review',
+          message: `${updated.fullName} updated and resubmitted their Trip Dating post for review.`,
+          read: false,
+          link: '/#admin',
+          type: 'system',
+          createdAt: Date.now(),
+        });
+      });
+
+    this.save();
+    return updated;
+  }
+
+  public updateTripDatingProfile(id: string, updates: Partial<TripDatingProfile>, _actorEmail?: string) {
     if (!this.data.tripDatingProfiles) this.data.tripDatingProfiles = SEED_TRIP_DATING_PROFILES;
     const index = this.data.tripDatingProfiles.findIndex(p => p.id === id);
     if (index === -1) throw new Error('Dating profile not found');
 
     const current = this.data.tripDatingProfiles[index];
 
-    // If updating description or photos, enforce limits
     if (updates.photos && updates.photos.length > 4) {
       updates.photos = updates.photos.slice(0, 4);
     }
@@ -7397,6 +7858,7 @@ class DatabaseStore {
     };
 
     this.data.tripDatingProfiles[index] = updated;
+    this.invalidateFeedCache('trip_dating');
     this.save();
     return updated;
   }
@@ -7420,6 +7882,7 @@ class DatabaseStore {
       liked = true;
     }
 
+    this.invalidateFeedCache('trip_dating');
     this.save();
     return { liked, totalLikes: profile.likes };
   }
@@ -7433,6 +7896,84 @@ class DatabaseStore {
       return profile.views;
     }
     return 0;
+  }
+
+  public unlockTripDatingWithWallet(opts: {
+    profileId: string;
+    userEmail: string;
+    clientSessionId?: string;
+  }): {
+    unlock: TripDatingContactUnlock;
+    payment?: PaymentRecord;
+    unlockedPhone: string;
+    expiresAt: number;
+    remainingSeconds: number;
+    walletBalance: number;
+    alreadyUnlocked: boolean;
+  } {
+    const profile = this.getRawTripDatingProfileById(opts.profileId);
+    if (!profile) {
+      throw new Error('Target Trip Dating post does not exist.');
+    }
+    if (!this.isTripDatingApprovedPublic(profile)) {
+      throw new Error('Only approved Trip Dating profiles can be unlocked.');
+    }
+
+    const cleanEmail = opts.userEmail.trim().toLowerCase();
+    const existing = this.checkActiveContactUnlock(profile.id, cleanEmail, opts.clientSessionId);
+    if (existing && existing.expiresAt > Date.now()) {
+      return {
+        unlock: existing,
+        unlockedPhone: existing.unlockedPhone,
+        expiresAt: existing.expiresAt,
+        remainingSeconds: Math.max(0, Math.round((existing.expiresAt - Date.now()) / 1000)),
+        walletBalance: this.getWalletBalance(cleanEmail),
+        alreadyUnlocked: true,
+      };
+    }
+
+    if (!this.data.tripDatingContactUnlocks) this.data.tripDatingContactUnlocks = [];
+
+    const payRes = this.payWithWallet({
+      userId: cleanEmail,
+      type: 'trip_dating',
+      amountSc: 50,
+      referenceId: profile.id,
+      note: `Trip Dating 10-min contact unlock for ${profile.fullName}`,
+    });
+
+    const now = Date.now();
+    const expiresAt = now + 10 * 60 * 1000;
+    const unlock: TripDatingContactUnlock = {
+      id: 'unlock_' + now.toString(36) + '_' + Math.random().toString(36).slice(2, 6),
+      profileId: profile.id,
+      profileName: profile.fullName,
+      unlockedPhone: profile.phoneNumber || '+254 712 345 678',
+      userEmail: cleanEmail,
+      clientSessionId: opts.clientSessionId || `wallet_${cleanEmail}`,
+      unlockedAt: now,
+      expiresAt,
+    };
+
+    this.data.tripDatingContactUnlocks.unshift(unlock);
+    this.createAuditLog({
+      id: 'aud_td_unlock_' + now,
+      action: 'trip_dating_wallet_unlock',
+      actorEmail: cleanEmail,
+      details: `Unlocked contact for ${profile.fullName} (${profile.id}) for 10 minutes via Wallet (KES 50).`,
+      createdAt: now,
+    });
+    this.save();
+
+    return {
+      unlock,
+      payment: payRes.payment,
+      unlockedPhone: unlock.unlockedPhone,
+      expiresAt,
+      remainingSeconds: 600,
+      walletBalance: this.getWalletBalance(cleanEmail),
+      alreadyUnlocked: false,
+    };
   }
 
   public createTripDatingPaymentRequest(req: {
@@ -7495,16 +8036,14 @@ class DatabaseStore {
     req.reviewedBy = adminEmail;
     req.reviewedAt = Date.now();
 
-    // Credit treasury
     if (this.data.walletRecords?.['treasury']) {
       this.data.walletRecords['treasury'].balance += 50;
       this.data.walletRecords['treasury'].lifetimeEarnings += 50;
       this.data.walletRecords['treasury'].updatedAt = Date.now();
     }
 
-    // Grant 10-Minute Contact Unlock window
     const now = Date.now();
-    const unlockDuration = 10 * 60 * 1000; // 10 minutes in milliseconds
+    const unlockDuration = 10 * 60 * 1000;
     const unlock: TripDatingContactUnlock = {
       id: 'unlock_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6),
       profileId: profile.id,
@@ -7536,7 +8075,7 @@ class DatabaseStore {
     if (!req) throw new Error('Payment request not found');
 
     req.status = 'rejected';
-    req.rejectionReason = reason || 'Payment transaction code could not be verified on Till 943210.';
+    req.rejectionReason = reason || 'Payment transaction code could not be verified.';
     req.reviewedBy = adminEmail;
     req.reviewedAt = Date.now();
 
@@ -7555,11 +8094,12 @@ class DatabaseStore {
   public checkActiveContactUnlock(profileId: string, userEmail?: string, clientSessionId?: string): TripDatingContactUnlock | null {
     if (!this.data.tripDatingContactUnlocks) return null;
     const now = Date.now();
+    const cleanEmail = userEmail ? userEmail.toLowerCase() : undefined;
 
-    const unlock = this.data.tripDatingContactUnlocks.find(u => 
+    const unlock = this.data.tripDatingContactUnlocks.find(u =>
       u.profileId === profileId &&
       u.expiresAt > now &&
-      ((userEmail && u.userEmail === userEmail) || (clientSessionId && u.clientSessionId === clientSessionId))
+      ((cleanEmail && u.userEmail.toLowerCase() === cleanEmail) || (clientSessionId && u.clientSessionId === clientSessionId))
     );
 
     return unlock || null;
@@ -7570,20 +8110,88 @@ class DatabaseStore {
     const profile = this.data.tripDatingProfiles.find(p => p.id === profileId);
     if (!profile) throw new Error('Dating profile not found');
 
-    profile.status = status;
-    profile.removalReason = reason;
-    profile.updatedAt = Date.now();
+    const now = Date.now();
+    const cleanAdmin = adminEmail || 'admin@airbus.ke';
+
+    if (status === 'active') {
+      profile.status = 'active';
+      profile.moderationState = 'APPROVED';
+      profile.fullBodyModerationStatus = 'approved';
+      profile.full_body_verified = true;
+      profile.admin_feedback = null;
+      profile.removalReason = undefined;
+      profile.reviewed_at = now;
+      profile.reviewed_by = cleanAdmin;
+    } else {
+      const cleanReason = (reason || '').trim();
+      if ((status === 'rejected' || status === 'suspended') && !cleanReason) {
+        throw new Error('Admin feedback explaining why the submission was declined is required.');
+      }
+      profile.status = status;
+      profile.moderationState = 'DECLINED';
+      profile.fullBodyModerationStatus = 'rejected';
+      profile.admin_feedback = cleanReason || 'Declined by administrator.';
+      profile.removalReason = profile.admin_feedback;
+      profile.reviewed_at = now;
+      profile.reviewed_by = cleanAdmin;
+    }
+
+    profile.updatedAt = now;
+    this.invalidateFeedCache('trip_dating');
 
     this.createAuditLog({
-      id: 'aud_mod_tdp_' + Date.now(),
+      id: 'aud_mod_tdp_' + now,
       action: `trip_dating_profile_${status}`,
-      actorEmail: adminEmail || 'admin@airbus.ke',
-      details: `Admin changed status of ${profile.fullName} to ${status}. Reason: ${reason || 'N/A'}`,
-      createdAt: Date.now(),
+      actorEmail: cleanAdmin,
+      details: `Admin changed status of ${profile.fullName} to ${status} (${profile.moderationState}). Feedback: ${profile.admin_feedback || 'Approved'}`,
+      createdAt: now,
     });
 
+    const ownerEmail = profile.ownerEmail || (profile.userId && profile.userId.includes('@') ? profile.userId : undefined);
+    if (ownerEmail) {
+      this.createNotification({
+        id: 'notif_tdp_mod_' + now,
+        userEmail: ownerEmail,
+        title: status === 'active' ? 'Trip Dating Post Approved!' : 'Trip Dating Post Declined',
+        message:
+          status === 'active'
+            ? `Your Trip Dating post for ${profile.fullName} has been approved and is now live!`
+            : `Your Trip Dating post was declined: ${profile.admin_feedback}`,
+        read: false,
+        link: '/#trip-dating',
+        type: 'system',
+        createdAt: now,
+      });
+    }
+
     this.save();
+    if (status === 'active') {
+      this.emitFeedApproved('trip_dating', {
+        ...profile,
+        phoneNumber: '+254 7•• ••• •••',
+        isUnlocked: false,
+      });
+    }
     return profile;
+  }
+
+  public getAdminReviewQueue(): { listings: Stay[]; tripDating: TripDatingProfile[] } {
+    const listings = (this.data.stays || [])
+      .filter(s => s.moderationState === 'PENDING' || (!s.moderationState && (s.status === 'review' || s.moderationStatus === 'pending')))
+      .map(s => this.hydrateStayAudio({ ...s, isVerified: s.isVerified !== false }))
+      .sort((a, b) => {
+        const diff = (a.createdAt || 0) - (b.createdAt || 0);
+        return diff !== 0 ? diff : a.id.localeCompare(b.id);
+      });
+
+    const tripDating = (this.data.tripDatingProfiles || [])
+      .filter(p => p.moderationState === 'PENDING' || (!p.moderationState && p.status === 'pending'))
+      .sort((a, b) => {
+        const diff = (a.createdAt || 0) - (b.createdAt || 0);
+        return diff !== 0 ? diff : a.id.localeCompare(b.id);
+      });
+
+    return { listings, tripDating };
   }
 
   public reportTripDatingProfile(data: {
@@ -7832,7 +8440,8 @@ class DatabaseStore {
     if (!stay && action !== 'delete') throw new Error('Listing not found.');
 
     const now = Date.now();
-    const cleanReason = (reason || '').trim() || 'Moderation decision by platform administrator.';
+    const rawReason = (reason || '').trim();
+    const cleanReason = rawReason || 'Moderation decision by platform administrator.';
 
     if (action === 'delete') {
       this.deleteStay(id);
@@ -7852,34 +8461,61 @@ class DatabaseStore {
       stay.status = 'live';
       stay.isApprovedByAdmin = true;
       stay.moderationStatus = 'approved';
+      stay.moderationState = 'APPROVED';
       stay.isDelisted = false;
+      stay.moderationReason = undefined;
+      stay.admin_feedback = null;
+      stay.reviewed_at = now;
+      stay.reviewed_by = adminEmail;
     } else if (action === 'reject') {
+      if (!rawReason) {
+        throw new Error('Admin feedback explaining why the listing was declined is required.');
+      }
       stay.status = 'delisted';
       stay.isApprovedByAdmin = false;
       stay.moderationStatus = 'rejected';
-      stay.moderationReason = cleanReason;
+      stay.moderationState = 'DECLINED';
+      stay.moderationReason = rawReason;
+      stay.admin_feedback = rawReason;
+      stay.reviewed_at = now;
+      stay.reviewed_by = adminEmail;
       stay.isDelisted = true;
     } else if (action === 'suspend') {
       stay.status = 'delisted';
       stay.moderationStatus = 'suspended';
+      stay.moderationState = 'DECLINED';
       stay.moderationReason = cleanReason;
+      stay.admin_feedback = cleanReason;
+      stay.reviewed_at = now;
+      stay.reviewed_by = adminEmail;
       stay.isDelisted = true;
     } else if (action === 'unsuspend' || action === 'relist') {
       stay.status = 'live';
+      stay.isApprovedByAdmin = true;
       stay.moderationStatus = 'approved';
+      stay.moderationState = 'APPROVED';
       stay.isDelisted = false;
       stay.moderationReason = undefined;
+      stay.admin_feedback = null;
+      stay.reviewed_at = now;
+      stay.reviewed_by = adminEmail;
     } else if (action === 'delist') {
       stay.status = 'delisted';
+      stay.moderationState = 'DECLINED';
       stay.isDelisted = true;
       stay.moderationReason = cleanReason;
+      stay.admin_feedback = cleanReason;
+      stay.reviewed_at = now;
+      stay.reviewed_by = adminEmail;
     }
+
+    this.invalidateFeedCache('stay');
 
     this.createAuditLog({
       id: 'aud_' + now,
       action: `stay_${action}`,
       actorEmail: adminEmail,
-      details: `${action.toUpperCase()} stay "${stay.title}" (${stay.id}). Reason: ${cleanReason}`,
+      details: `${action.toUpperCase()} stay "${stay.title}" (${stay.id}). Feedback: ${stay.admin_feedback || 'Approved'}`,
       createdAt: now,
     });
 
@@ -7887,8 +8523,8 @@ class DatabaseStore {
       this.createNotification({
         id: 'notif_' + now,
         userEmail: stay.ownerEmail,
-        title: `Listing ${action === 'approve' ? 'Approved & Published' : action === 'unsuspend' ? 'Restored' : 'Moderated'}`,
-        message: `Your listing "${stay.title}" was ${action === 'approve' ? 'approved and is now live!' : `updated: ${action} (${cleanReason})`}`,
+        title: `Listing ${action === 'approve' ? 'Approved & Published' : action === 'reject' ? 'Declined' : action === 'unsuspend' ? 'Restored' : 'Moderated'}`,
+        message: `Your listing "${stay.title}" was ${action === 'approve' ? 'approved and is now live!' : `${action === 'reject' ? 'declined' : action}: ${stay.admin_feedback || cleanReason}`}`,
         read: false,
         link: '/#owner',
         type: 'system',
@@ -7897,7 +8533,11 @@ class DatabaseStore {
     }
 
     this.save();
-    return this.hydrateStayAudio(stay);
+    const hydrated = this.hydrateStayAudio({ ...stay, isVerified: stay.isVerified !== false });
+    if (action === 'approve' || action === 'unsuspend' || action === 'relist') {
+      this.emitFeedApproved('stay', hydrated);
+    }
+    return hydrated;
   }
 
   // --- Subscriptions Moderation Queue (Section 3) ---
@@ -8279,12 +8919,30 @@ class DatabaseStore {
   // --- Wallet Reconciliation (Platform Ledger Audit) ---
   public getWalletReconciliation() {
     const allEmails = new Set<string>();
-    Object.keys(this.data.wallets || {}).forEach(e => allEmails.add(e.toLowerCase().trim()));
-    Object.keys(this.data.walletRecords || {}).forEach(e => allEmails.add(e.toLowerCase().trim()));
     (this.data.users || []).forEach(u => allEmails.add(u.email.toLowerCase().trim()));
-    (this.data.walletTransactions || []).forEach(t => {
-      if (t.walletId) allEmails.add(t.walletId.toLowerCase().trim());
+    Object.keys(this.data.wallets || {}).forEach(k => {
+      if (!['treasury', 'external_mpesa', 'withdrawal_payout', 'system'].includes(k.toLowerCase())) {
+        allEmails.add(k.toLowerCase().trim());
+      }
     });
+    allEmails.add('admin@airbus.ke');
+
+    const wtxTotals: Record<string, number> = {};
+    for (const tx of this.data.walletTransactions || []) {
+      const w = String(tx.walletId || tx.wallet_id || '').toLowerCase().trim();
+      if (!w) continue;
+      const amt = Math.floor(Number(tx.amount ?? tx.amountSc ?? 0));
+      wtxTotals[w] = (wtxTotals[w] || 0) + (tx.direction === 'credit' ? amt : -amt);
+    }
+
+    const ledgerTotals: Record<string, number> = {};
+    for (const entry of this.data.ledgerEntries || []) {
+      const amt = Math.floor(Number(entry.amount || 0));
+      const from = String(entry.fromWallet || '').toLowerCase().trim();
+      const to = String(entry.toWallet || '').toLowerCase().trim();
+      if (to) ledgerTotals[to] = (ledgerTotals[to] || 0) + amt;
+      if (from) ledgerTotals[from] = (ledgerTotals[from] || 0) - amt;
+    }
 
     const reconciliationList: Array<{
       email: string;
@@ -8295,35 +8953,45 @@ class DatabaseStore {
     }> = [];
 
     let totalMismatches = 0;
+    let userWalletsSum = 0;
 
     for (const email of allEmails) {
-      if (!email) continue;
-      const ledgerBal = this.getWalletBalance(email);
-      const storedBal = this.data.wallets?.[email] ?? 0;
-      const isMatched = storedBal === ledgerBal;
-      if (!isMatched) {
-        totalMismatches++;
-        if (this.data.wallets) this.data.wallets[email] = ledgerBal;
-        const wr = this.ensureWallet(email);
-        wr.balance = ledgerBal;
+      if (!email || email === 'treasury') continue;
+      const storedBal = Math.floor(Number(this.data.wallets?.[email] ?? this.data.walletRecords?.[email]?.balance ?? 0));
+      const isAdmin = email === 'admin@airbus.ke';
+      if (!isAdmin) {
+        userWalletsSum += storedBal;
       }
+
+      const hasWtx = Object.prototype.hasOwnProperty.call(wtxTotals, email);
+      const ledgerBal = hasWtx
+        ? wtxTotals[email]
+        : Object.prototype.hasOwnProperty.call(ledgerTotals, email)
+        ? ledgerTotals[email]
+        : 0;
+      const diff = storedBal - ledgerBal;
+      const isMatched = diff === 0;
+      if (!isMatched) {
+        totalMismatches += 1;
+      }
+
       reconciliationList.push({
         email,
         storedBalance: storedBal,
         ledgerBalance: ledgerBal,
-        difference: storedBal - ledgerBal,
+        difference: diff,
         isMatched,
       });
     }
 
-    if (totalMismatches > 0) {
-      this.save();
-    }
+    const adminBalance = this.getWalletBalance('admin@airbus.ke');
 
     return {
       timestamp: Date.now(),
       totalWallets: reconciliationList.length,
       mismatches: totalMismatches,
+      userWalletsSum,
+      adminBalance,
       wallets: reconciliationList,
     };
   }
@@ -8332,37 +9000,32 @@ class DatabaseStore {
   public getAdminIncomeReport() {
     let tripDatingIncome = 0;
     let subscriptionsIncome = 0;
+    let advertsIncome = 0;
+    let promotionsIncome = 0;
+    let airbusPlusIncome = 0;
     let otherIncome = 0;
 
-    for (const tx of this.data.walletTransactions || []) {
-      const wId = (tx.walletId || tx.wallet_id || '').toLowerCase().trim();
-      if (wId === 'admin@airbus.ke' || wId === 'treasury') {
-        const amt = Number(tx.amount !== undefined ? tx.amount : ((tx.amountSc || 0) * 10)) || 0;
-        if (tx.type === 'trip_dating') {
-          tripDatingIncome += amt;
-        } else if (tx.type === 'subscription_income' || tx.type === 'subscription') {
-          subscriptionsIncome += amt;
-        } else if (tx.direction === 'credit' && tx.type !== 'ad_income_gross') {
-          otherIncome += amt;
-        }
-      }
+    for (const p of this.data.paymentRecords || []) {
+      if (p.status !== 'approved') continue;
+      const t = String(p.type || p.kind || '');
+      if (['deposit', 'wallet', 'wallet_topup', 'mpesa_deposit'].includes(t)) continue;
+      const amt = Math.floor(Number(p.approvedAmount ?? p.amountKes ?? p.amount ?? 0));
+      if (t === 'subscription' || t === 'plan') subscriptionsIncome += amt;
+      else if (t === 'advert') advertsIncome += amt;
+      else if (t === 'boost') promotionsIncome += amt;
+      else if (t === 'vvvip') airbusPlusIncome += amt;
+      else if (t === 'trip_dating') tripDatingIncome += amt;
+      else otherIncome += amt;
     }
 
-    // Retained 30% advert revenue directly from approved adverts
-    const approvedAdPayments = (this.data.paymentRecords || []).filter(
-      p => p.status === 'approved' && (p.type === 'advert' || p.kind === 'advert')
-    );
-    const advertsRetained = approvedAdPayments.reduce((acc, p) => {
-      const amt = p.approvedAmount || (p.amountSc ? p.amountSc * 10 : p.amount) || 0;
-      return acc + Math.floor(amt * 0.3);
-    }, 0);
-
-    const totalRevenue = tripDatingIncome + advertsRetained + subscriptionsIncome + otherIncome;
+    const totalRevenue = tripDatingIncome + advertsIncome + subscriptionsIncome + promotionsIncome + airbusPlusIncome + otherIncome;
 
     return {
       tripDating: tripDatingIncome,
-      advertsRetained,
+      advertsRetained: advertsIncome,
       subscriptions: subscriptionsIncome,
+      promotions: promotionsIncome,
+      airbusPlus: airbusPlusIncome,
       other: otherIncome,
       totalRevenue,
     };
@@ -8579,14 +9242,18 @@ class DatabaseStore {
   // --- AIRBUS COLLECTIONS (Server-Side Logic & AirBus Plus Privacy) ---
   public isActivePlusMember(user?: User | null): boolean {
     if (!user) return false;
-    if (user.role === 'admin') return true;
+    // AirBus Plus is strictly for Guests who have paid the Ksh 3,500 membership fee
+    if (user.role !== 'guest') return false;
     const dbUser = this.findUserByEmail(user.email) || user;
-    if (!dbUser.isVVVIP) return false;
+    if (dbUser.role !== 'guest' || !dbUser.isVVVIP) return false;
     const sub = dbUser.vvvipSubscription;
-    if (sub) {
-      if (sub.status === 'expired' || sub.expiresAt <= Date.now()) {
-        return false;
+    if (!sub || sub.status !== 'active' || !sub.expiresAt || sub.expiresAt <= Date.now()) {
+      if (sub && sub.status === 'active' && (!sub.expiresAt || sub.expiresAt <= Date.now())) {
+        sub.status = 'expired';
+        dbUser.isVVVIP = false;
+        this.save();
       }
+      return false;
     }
     return true;
   }
@@ -8598,24 +9265,13 @@ class DatabaseStore {
     const allLive = this.getStays({ viewerUser: dbViewer, includeVVVIP: true });
 
     if (slug === 'plus') {
-      // Strictly enforce active AirBus Plus membership on the server/data-access layer!
-      // Private membership status, expiry, payments & service requests are visible ONLY to the member themselves & Admin.
-      const pendingPlusPayment = dbViewer
-        ? (this.data.paymentRecords || []).find(
-            p =>
-              (p.userId || p.hostEmail || '').toLowerCase() === dbViewer.email.toLowerCase() &&
-              (p.type === 'vvvip' || p.kind === 'vvvip') &&
-              p.status === 'pending'
-          ) || null
-        : null;
-
       if (!isActivePlus) {
         return {
           collection: 'plus',
           locked: true,
           requiresVVVIP: true,
           stays: [],
-          pendingApproval: Boolean(pendingPlusPayment),
+          pendingApproval: false,
           membership: dbViewer
             ? {
                 isActive: false,
@@ -8624,21 +9280,24 @@ class DatabaseStore {
                 daysRemaining: 0,
               }
             : null,
-          message: 'AirBus Plus is Reserved VIP to VVVIP Guests.',
+          message:
+            dbViewer && dbViewer.role === 'owner'
+              ? 'AirBus Plus is for Guests only and never uses a Host wallet.'
+              : 'AirBus Plus is Reserved VIP to VVVIP Guests.',
         };
       }
 
       const sub = dbViewer?.vvvipSubscription;
       const daysRemaining = sub?.expiresAt
         ? Math.max(0, Math.ceil((sub.expiresAt - Date.now()) / 864e5))
-        : 30;
+        : 0;
 
       return {
         collection: 'plus',
         locked: false,
         requiresVVVIP: true,
         stays: allLive.filter(s => Boolean(s.isPlusVVVIP)),
-        pendingApproval: Boolean(pendingPlusPayment),
+        pendingApproval: false,
         membership: dbViewer
           ? {
               isActive: true,
@@ -8722,55 +9381,52 @@ class DatabaseStore {
 
   public upgradeUserToVVVIP(
     email: string,
-    mpesaCode?: string,
+    _mpesaCode?: string,
     options?: { billing?: 'monthly' | 'annual'; method?: 'wallet' | 'mpesa' }
   ): { user: User; pending: boolean; payment?: PaymentRecord; walletBalance: number; message: string } {
     const user = this.findUserByEmail(email);
     if (!user) throw new Error('User account not found.');
+    if (user.role !== 'guest') {
+      throw new Error('AirBus Plus is for Guests only and never uses a Host wallet.');
+    }
+
+    if (options?.method && options.method !== 'wallet') {
+      throw new Error('AirBus Plus membership can only be paid from your Guest Wallet. Deposit via Deposit (M-Pesa) first.');
+    }
 
     const feeKes = 3500;
     const durationMs = 30 * 864e5;
-    const now = Date.now();
-    const method: 'wallet' | 'mpesa' = options?.method === 'wallet' ? 'wallet' : 'mpesa';
 
-    if (method === 'wallet') {
-      const rec = this.ensureWallet(user.email);
-      const available = rec.balance - (rec.holdBalance || 0);
-      if (available < feeKes) {
-        const diff = feeKes - available;
-        throw new Error(
-          `Insufficient wallet balance. AirBus Plus costs Ksh 3,500 (30 days), you have KES ${available.toLocaleString()}. Please deposit KES ${diff.toLocaleString()} via M-Pesa or pay directly with M-Pesa.`
-        );
-      }
+    return this.runAtomicWalletTransaction(() => {
+      const now = Date.now();
+      const plusSubId = 'plus_' + now + '_' + Math.random().toString(36).slice(2, 6);
 
-      this.transfer(
-        user.email,
-        'treasury',
-        feeKes,
-        'subscription',
-        'vvvip',
-        'AirBus Plus (30-Day Monthly) membership'
-      );
+      const payRes = this.payWithWallet({
+        userId: user.email,
+        type: 'vvvip',
+        amountSc: feeKes,
+        referenceId: plusSubId,
+        durationDays: 30,
+        period: 'monthly',
+        note: 'AirBus Plus (30-Day Monthly) membership from Guest wallet',
+      });
 
-      const baseStart =
+      const existingActive = Boolean(
+        user.isVVVIP &&
         user.vvvipSubscription &&
         user.vvvipSubscription.status === 'active' &&
         user.vvvipSubscription.expiresAt > now
-          ? user.vvvipSubscription.expiresAt
-          : now;
+      );
+      const baseStart = existingActive && user.vvvipSubscription?.expiresAt ? user.vvvipSubscription.expiresAt : now;
+      const newExpiresAt = baseStart + durationMs;
 
       user.isVVVIP = true;
       user.vvvipSubscription = {
         planName: 'AirBus Plus',
         billing: 'monthly',
         status: 'active',
-        startsAt:
-          user.vvvipSubscription &&
-          user.vvvipSubscription.status === 'active' &&
-          user.vvvipSubscription.expiresAt > now
-            ? user.vvvipSubscription.startsAt
-            : now,
-        expiresAt: baseStart + durationMs,
+        startsAt: existingActive && user.vvvipSubscription?.startsAt ? user.vvvipSubscription.startsAt : now,
+        expiresAt: newExpiresAt,
       };
 
       if (!this.data.subscriptions) this.data.subscriptions = [];
@@ -8782,8 +9438,8 @@ class DatabaseStore {
         billing: 'monthly',
         status: 'active',
         startsAt: user.vvvipSubscription.startsAt,
-        endsAt: user.vvvipSubscription.expiresAt,
-        paymentId: 'plus_wallet_' + now,
+        endsAt: newExpiresAt,
+        paymentId: payRes.payment.id,
         createdAt: now,
         updatedAt: now,
       });
@@ -8791,69 +9447,24 @@ class DatabaseStore {
       this.createNotification({
         id: 'notif_plus_' + now,
         userEmail: user.email,
-        title: 'Welcome to AirBus Plus',
-        message: `Your 30-day AirBus Plus membership is active until ${new Date(
-          user.vvvipSubscription.expiresAt
-        ).toLocaleDateString()}!`,
+        title: 'AirBus Plus Activated!',
+        message: `KES 3,500 paid from your Guest wallet. Your AirBus Plus access is active until ${new Date(newExpiresAt).toLocaleDateString()}.`,
         read: false,
         link: '/#collection-plus',
         type: 'subscription',
         createdAt: now,
       });
-      this.createAuditLog({
-        id: 'aud_plus_' + now,
-        action: 'airbus_plus_wallet_activated',
-        actorEmail: user.email,
-        details: `User ${user.email} paid Ksh 3,500 from wallet for 30-day AirBus Plus membership.`,
-        createdAt: now,
-      });
+
       this.save();
       this.emitWalletUpdate(user.email);
       return {
         user,
         pending: false,
+        payment: payRes.payment,
         walletBalance: this.getWalletBalance(user.email),
-        message: `AirBus Plus is now active for 30 days until ${new Date(user.vvvipSubscription.expiresAt).toLocaleDateString()}.`,
+        message: `AirBus Plus is now active until ${new Date(newExpiresAt).toLocaleDateString()} (30 days added).`,
       };
-    }
-
-    // M-Pesa payment ALWAYS requires Admin approval into the wallet before unlocking access
-    const cleanCode = (mpesaCode || '').trim().toUpperCase();
-    if (!cleanCode || !/^[A-Z0-9]{8,15}$/.test(cleanCode)) {
-      throw new Error('Please enter a valid 8-15 character M-Pesa transaction code for Till 943210.');
-    }
-    if (this.isMpesaCodeUsed(cleanCode)) {
-      throw new Error('This M-Pesa transaction code has already been submitted.');
-    }
-
-    const payment = this.createMpesaPayment({
-      userId: user.email,
-      type: 'vvvip',
-      amountKes: feeKes,
-      mpesaCode: cleanCode,
-      referenceId: 'plus_' + now,
-      durationDays: 30,
-      period: 'monthly',
     });
-
-    this.createNotification({
-      id: 'notif_plus_pending_' + now,
-      userEmail: user.email,
-      title: 'AirBus Plus M-Pesa Payment Received',
-      message: `Your Ksh 3,500 M-Pesa payment (${cleanCode}) is pending Admin verification. Your 30-day access will unlock immediately upon approval.`,
-      read: false,
-      link: '/#collection-plus',
-      type: 'payment',
-      createdAt: now,
-    });
-
-    return {
-      user,
-      pending: true,
-      payment,
-      walletBalance: this.getWalletBalance(user.email),
-      message: 'M-Pesa payment submitted (Ksh 3,500). Access unlocks for 30 days once Admin approves the payment into your wallet.',
-    };
   }
 
   public getPlusServiceRequests(viewerUser?: User | null): PlusServiceRequest[] {
@@ -9465,40 +10076,50 @@ class DatabaseStore {
     };
   }
 
-  public getPublicShortsFeed(params?: { trackId?: string; ownerEmail?: string }): Post[] {
+  public getPublicShortsFeed(params?: { trackId?: string; ownerEmail?: string; viewerUser?: User | null }): Post[] {
     let posts = this.getPosts({ status: 'approved', type: 'short', ownerEmail: params?.ownerEmail });
     if (params?.trackId) {
       posts = posts.filter(p => p.shortAudio?.trackId === params.trackId);
     }
 
     const now = Date.now();
-    return posts.map(p => {
-      const linkedStayId = p.stayId || p.listing_id;
-      const stay = linkedStayId ? this.data.stays.find(s => s.id === linkedStayId) : undefined;
-      let listingUnavailable = false;
-      if (!stay || stay.status !== 'live' || stay.isDelisted) {
-        listingUnavailable = true;
-      } else if (stay.ownerEmail) {
-        const plan = this.getHostPlan(stay.ownerEmail);
-        if (plan.status !== 'active' || (plan.expiresAt > 0 && plan.expiresAt <= now)) {
-          listingUnavailable = true;
-        }
-      }
+    const canSeePlus = this.canViewerSeePlus(params?.viewerUser);
 
-      const stats = this.data.short_analytics?.[p.id];
-      return {
-        ...p,
-        stayId: linkedStayId,
-        listing_id: linkedStayId,
-        host_id: p.host_id || p.ownerEmail,
-        listingUnavailable,
-        plays: stats?.plays || p.plays || 0,
-        replays: stats?.replays || p.replays || 0,
-        actionClicks: stats
-          ? Object.values(stats.clicks || {}).reduce((acc, n) => acc + (n || 0), 0)
-          : p.actionClicks || 0,
-      };
-    });
+    return posts
+      .filter(p => {
+        const linkedStayId = p.stayId || p.listing_id;
+        if (!linkedStayId) return true;
+        const stay = this.data.stays.find(s => s.id === linkedStayId);
+        if (!stay || !this.isStayApprovedPublic(stay)) {
+          return false;
+        }
+        if (stay.isPlusVVVIP && !canSeePlus) {
+          return false;
+        }
+        if (stay.ownerEmail) {
+          const plan = this.getHostPlan(stay.ownerEmail);
+          if (plan.status !== 'active' || (plan.expiresAt > 0 && plan.expiresAt <= now)) {
+            return false;
+          }
+        }
+        return true;
+      })
+      .map(p => {
+        const linkedStayId = p.stayId || p.listing_id;
+        const stats = this.data.short_analytics?.[p.id];
+        return {
+          ...p,
+          stayId: linkedStayId,
+          listing_id: linkedStayId,
+          host_id: p.host_id || p.ownerEmail,
+          listingUnavailable: false,
+          plays: stats?.plays || p.plays || 0,
+          replays: stats?.replays || p.replays || 0,
+          actionClicks: stats
+            ? Object.values(stats.clicks || {}).reduce((acc, n) => acc + (n || 0), 0)
+            : p.actionClicks || 0,
+        };
+      });
   }
 
   public saveListingAudio(

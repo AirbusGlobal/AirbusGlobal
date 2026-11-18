@@ -60,8 +60,8 @@ export const PersistentAdCard: React.FC<PersistentAdCardProps> = ({
     return () => window.removeEventListener('airbus:open-advert-modal', handler);
   }, []);
 
-  // Dynamic cost calculation: 10 SC / day
-  const costSc = Math.max(1, durationDays) * 10;
+  // Dynamic cost calculation: KES 100 / day
+  const costSc = Math.max(1, durationDays) * 100;
   const currentBalance = userWalletBalance;
   const hasEnoughCoins = currentBalance >= costSc;
   const shortfall = Math.max(0, costSc - currentBalance);
@@ -111,13 +111,7 @@ export const PersistentAdCard: React.FC<PersistentAdCardProps> = ({
   // Handle click on card
   const handleCardClick = () => {
     if (!currentAd) return;
-
-    // Record click
     fetch(`/api/ads/slots/${currentAd.id}/click`, { method: 'POST' }).catch(() => {});
-
-    if (currentAd.linkUrl) {
-      window.open(currentAd.linkUrl, '_blank', 'noopener,noreferrer');
-    }
   };
 
   // Submit new Ad Campaign
@@ -154,13 +148,13 @@ export const PersistentAdCard: React.FC<PersistentAdCardProps> = ({
     }
 
     if (currentBalance <= 0) {
-      setFormError('Your AirBus Wallet is empty (KES 0). Please deposit funds via M-Pesa Till 943210 before advertising.');
+      setFormError('Your AirBus Wallet is empty (KES 0). Please top up via Deposit (M-Pesa) before advertising.');
       return;
     }
 
     if (!hasEnoughCoins) {
       setFormError(
-        `Insufficient wallet balance. You need ${costSc} SC (KES ${costSc}), but your wallet has ${currentBalance} SC. Please deposit at least KES ${shortfall}.`
+        `Insufficient wallet balance. You need KES ${costSc.toLocaleString()}, but your wallet has KES ${currentBalance.toLocaleString()}. Please deposit at least KES ${shortfall.toLocaleString()} via Deposit (M-Pesa).`
       );
       return;
     }
@@ -179,8 +173,8 @@ export const PersistentAdCard: React.FC<PersistentAdCardProps> = ({
         paymentMethod: 'wallet',
       });
 
-      setFormSuccess(`🎉 Advert submitted! ${costSc} SC debited from your AirBus Wallet. Live upon admin approval.`);
-      showToast?.(`Success! Paid ${costSc} SC from wallet for ${durationDays} days advert slot.`);
+      setFormSuccess(`🎉 Advert active! KES ${costSc.toLocaleString()} paid from your AirBus Wallet.`);
+      showToast?.(`Success! Paid KES ${costSc.toLocaleString()} from wallet for ${durationDays} days advert slot.`);
 
       await loadActiveAds();
 
@@ -213,7 +207,7 @@ export const PersistentAdCard: React.FC<PersistentAdCardProps> = ({
             <Megaphone className="w-3.5 h-3.5" />
           </span>
           <span className="text-xs font-bold">Advertise Here</span>
-          <span className="text-[10px] text-amber-400 font-mono font-bold">10 SC/day</span>
+          <span className="text-[10px] text-amber-400 font-mono font-bold">KES 100/day</span>
         </button>
       </aside>
     );
@@ -282,7 +276,10 @@ export const PersistentAdCard: React.FC<PersistentAdCardProps> = ({
             </div>
 
             {/* Clickable Ad Body */}
-            <div
+            <a
+              href={currentAd.linkUrl || '#'}
+              target={currentAd.linkUrl ? '_blank' : undefined}
+              rel={currentAd.linkUrl ? 'noopener noreferrer' : undefined}
               onClick={handleCardClick}
               className={`flex items-center gap-2.5 transition-all duration-300 cursor-pointer ${
                 isFading ? 'opacity-0 scale-98' : 'opacity-100 scale-100'
@@ -296,7 +293,6 @@ export const PersistentAdCard: React.FC<PersistentAdCardProps> = ({
                   }
                   alt={currentAd.title}
                   className="w-full h-full object-cover"
-                  loading="lazy"
                 />
               </div>
 
@@ -314,7 +310,7 @@ export const PersistentAdCard: React.FC<PersistentAdCardProps> = ({
                   </div>
                 )}
               </div>
-            </div>
+            </a>
 
             {/* Persistent CTA Button: "Advertise here (@ 10 SC/day)" */}
             <div className="mt-2.5 pt-2 border-t border-stone-800/80">
@@ -376,13 +372,13 @@ export const PersistentAdCard: React.FC<PersistentAdCardProps> = ({
               <div>
                 <span className="text-[11px] font-bold text-stone-400 block">Rate & Pricing</span>
                 <span className="text-xs font-black text-white">
-                  10 SC / day <span className="text-stone-400 font-normal">(1 SC = 1 KES)</span>
+                  KES 100 / day
                 </span>
               </div>
               <div className="text-right">
                 <span className="text-[11px] font-bold text-stone-400 block">Your Wallet Balance</span>
                 <span className="text-xs font-mono font-black text-amber-400">
-                  {currentBalance.toLocaleString()} SC
+                  KES {currentBalance.toLocaleString()}
                 </span>
               </div>
             </div>
@@ -482,7 +478,7 @@ export const PersistentAdCard: React.FC<PersistentAdCardProps> = ({
                     Campaign Duration: <span className="text-white font-black">{durationDays} days</span>
                   </label>
                   <span className="text-[11px] font-bold text-amber-400 font-mono">
-                    Total: {costSc} SC ({costSc} KES)
+                    Total: KES {costSc.toLocaleString()}
                   </span>
                 </div>
 
@@ -500,7 +496,7 @@ export const PersistentAdCard: React.FC<PersistentAdCardProps> = ({
                       }`}
                     >
                       <div className="text-[11px]">{d} Days</div>
-                      <div className="text-[10px] font-mono font-black">{d * 10} SC</div>
+                      <div className="text-[10px] font-mono font-black">KES {(d * 100).toLocaleString()}</div>
                     </button>
                   ))}
                 </div>
@@ -525,7 +521,7 @@ export const PersistentAdCard: React.FC<PersistentAdCardProps> = ({
                       {userRole === 'owner' ? 'Host Wallet Payment Only' : userRole === 'guest' ? 'Guest Wallet Payment Only' : 'AirBus Wallet Payment Only'}
                     </div>
                     <div className="text-[10px] font-mono text-stone-300">
-                      Available Balance: {currentBalance.toLocaleString()} SC (KES {currentBalance.toLocaleString()})
+                      Available Balance: KES {currentBalance.toLocaleString()}
                     </div>
                   </div>
                 </div>
@@ -534,7 +530,7 @@ export const PersistentAdCard: React.FC<PersistentAdCardProps> = ({
                 </span>
               </div>
 
-              {/* Empty or Insufficient Wallet Prompt with Direct Deposit Button */}
+              {/* Empty or Insufficient Wallet Prompt with Direct Deposit (M-Pesa) Button */}
               {(!userEmail || currentBalance <= 0 || !hasEnoughCoins) && (
                 <div className="p-3 rounded-xl bg-amber-950/60 border border-amber-700 text-amber-200 text-xs space-y-2">
                   <div className="flex items-start gap-2">
@@ -551,8 +547,8 @@ export const PersistentAdCard: React.FC<PersistentAdCardProps> = ({
                         {!userEmail
                           ? 'Please log in as a Guest or Host to fund your private AirBus Wallet and run adverts.'
                           : currentBalance <= 0
-                          ? 'Adverts are paid strictly from your private AirBus Wallet. Please deposit funds via M-Pesa Till 943210 first.'
-                          : `You have ${currentBalance} SC, but this campaign requires ${costSc} SC. Please deposit at least KES ${shortfall} to your wallet.`}
+                          ? 'Adverts are paid strictly from your private AirBus Wallet. Use Deposit (M-Pesa) first.'
+                          : `You have KES ${currentBalance.toLocaleString()}, but this campaign requires KES ${costSc.toLocaleString()}. Deposit at least KES ${shortfall.toLocaleString()} via M-Pesa first.`}
                       </p>
                     </div>
                   </div>
@@ -565,7 +561,7 @@ export const PersistentAdCard: React.FC<PersistentAdCardProps> = ({
                       }}
                       className="w-full py-1.5 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] cursor-pointer transition-colors"
                     >
-                      {!userEmail ? 'Sign In to Deposit Funds' : 'Deposit Funds via M-Pesa Till 943210'}
+                      {!userEmail ? 'Sign In to Deposit' : 'Deposit (M-Pesa)'}
                     </button>
                   )}
                 </div>
@@ -597,7 +593,7 @@ export const PersistentAdCard: React.FC<PersistentAdCardProps> = ({
                   <span>
                     {submitting
                       ? 'Processing Wallet Payment...'
-                      : `Pay ${costSc} SC from Wallet & Submit Advert`}
+                      : `Pay KES ${costSc.toLocaleString()} from Wallet & Activate Advert`}
                   </span>
                 </button>
               </div>
