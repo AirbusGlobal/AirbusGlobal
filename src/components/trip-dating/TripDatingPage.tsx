@@ -60,6 +60,10 @@ interface TripDatingPageProps {
   currentUser?: any;
   onNavigateToStays?: () => void;
   onOpenAuth?: () => void;
+  userWalletBalance?: number;
+  onWalletBalanceUpdated?: (balance: number) => void;
+  onOpenWalletDeposit?: () => void;
+  showToast?: (msg: string) => void;
 }
 
 const PRESET_PHOTOS = {
@@ -294,6 +298,10 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
   currentUser,
   onNavigateToStays,
   onOpenAuth,
+  userWalletBalance,
+  onWalletBalanceUpdated,
+  onOpenWalletDeposit,
+  showToast,
 }) => {
   // Session id stored in localStorage to preserve unlocks across reloads
   const [sessionId, setSessionId] = useState<string>(() => {
@@ -308,6 +316,23 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
   const [profiles, setProfiles] = useState<TripDatingProfile[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState<boolean>(false);
+  const [loadingMore, setLoadingMore] = useState<boolean>(false);
+
+  // My Submissions & Edit/Resubmit states
+  const [showMySubmissionsModal, setShowMySubmissionsModal] = useState<boolean>(false);
+  const [mySubmissions, setMySubmissions] = useState<TripDatingProfile[]>([]);
+  const [loadingMySubmissions, setLoadingMySubmissions] = useState<boolean>(false);
+  const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
+
+  // Live Wallet balance synced with parent & modal refresh
+  const [liveWalletBalance, setLiveWalletBalance] = useState<number>(userWalletBalance || 0);
+  useEffect(() => {
+    if (typeof userWalletBalance === 'number') {
+      setLiveWalletBalance(userWalletBalance);
+    }
+  }, [userWalletBalance]);
 
   // Filters
   const [selectedGender, setSelectedGender] = useState<string>('all');
@@ -369,11 +394,17 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
   const [regError, setRegError] = useState<string | null>(null);
   const [regSuccess, setRegSuccess] = useState<string | null>(null);
 
-  // State for Photo Upload (Max 3 photos)
+  // State for Photo Upload (Max 3 photos, server persisted with progress)
   const photoUploadInputRef = useRef<HTMLInputElement>(null);
   const [uploadingPhotos, setUploadingPhotos] = useState<boolean>(false);
+  const [photoUploadState, setPhotoUploadState] = useState<{
+    uploading: boolean;
+    progress: number;
+    error: string | null;
+    lastFiles?: File[];
+  }>({ uploading: false, progress: 0, error: null });
 
-  // State for 9:16 Video Upload (Max 2 videos, compressed)
+  // State for 9:16 Video Upload (Max 2 videos, compressed & server persisted)
   interface VideoItemState {
     url: string;
     duration: number;
@@ -388,6 +419,13 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
   const [regVideos, setRegVideos] = useState<VideoItemState[]>([]);
   const [activeVideoSlot, setActiveVideoSlot] = useState<number>(0);
   const [compressingVideo, setCompressingVideo] = useState<boolean>(false);
+  const [videoUploadState, setVideoUploadState] = useState<{
+    uploading: boolean;
+    progress: number;
+    error: string | null;
+    lastFile?: File;
+  }>({ uploading: false, progress: 0, error: null });
+  const [sessionUploadedMediaUrls, setSessionUploadedMediaUrls] = useState<string[]>([]);
   const [compressionStats, setCompressionStats] = useState<{
     originalMb: number;
     compressedMb: number;
@@ -729,10 +767,14 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
   const [activeCountdowns, setActiveCountdowns] = useState<Record<string, number>>({});
   const [copiedPhone, setCopiedPhone] = useState<string | null>(null);
 
-  // Fetch profiles
-  const loadProfiles = async () => {
+  // Fetch profiles (keyset cursor pagination, newest first)
+  const loadProfiles = async (cursor?: string, append = false) => {
     try {
-      setLoading(true);
+      if (append) {
+        setLoadingMore(true);
+      } else {
+        setLoading(true);
+      }
       setError(null);
       const res = await api.getTripDatingProfiles({
         gender: selectedGender,
@@ -740,30 +782,84 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
         search: searchQuery,
         intention: selectedIntention,
         sessionId,
+        limit: 20,
+        cursor,
       });
-      setProfiles(res.profiles || []);
+      const incoming = res.profiles || [];
+      setProfiles(prev => {
+        if (!append) return incoming;
+        const existing = new Set(prev.map(p => p.id));
+        return [...prev, ...incoming.filter(p => !existing.has(p.id))];
+      });
+      setNextCursor(res.nextCursor || null);
+      setHasMore(Boolean(res.hasMore));
 
       // Initialize countdowns for unlocked profiles
-      const newCountdowns: Record<string, number> = {};
-      res.profiles.forEach(p => {
-        if (p.isUnlocked && p.unlockExpiresAt) {
-          const remaining = Math.max(0, Math.round((p.unlockExpiresAt - Date.now()) / 1000));
-          if (remaining > 0) {
-            newCountdowns[p.id] = remaining;
+      setActiveCountdowns(prev => {
+        const next: Record<string, number> = append ? { ...prev } : {};
+        incoming.forEach(p => {
+          if (p.isUnlocked && p.unlockExpiresAt) {
+            const remaining = Math.max(0, Math.round((p.unlockExpiresAt - Date.now()) / 1000));
+            if (remaining > 0) {
+              next[p.id] = remaining;
+            }
           }
-        }
+        });
+        return next;
       });
-      setActiveCountdowns(newCountdowns);
     } catch (err: any) {
       setError(err.message || 'Failed to load dating profiles');
     } finally {
       setLoading(false);
+      setLoadingMore(false);
+    }
+  };
+
+  const loadMySubmissions = async () => {
+    setLoadingMySubmissions(true);
+    try {
+      const res = await api.getMyTripDatingSubmissions(sessionId);
+      const list = [...(res.profiles || [])].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+      setMySubmissions(list);
+    } catch {
+      // Ignore silent fetch errors
+    } finally {
+      setLoadingMySubmissions(false);
     }
   };
 
   useEffect(() => {
     loadProfiles();
   }, [selectedGender, selectedCity, selectedIntention]);
+
+  useEffect(() => {
+    loadMySubmissions();
+  }, [sessionId, currentUser?.email]);
+
+  // Listen to real-time SSE events for newly approved Trip Dating profiles
+  useEffect(() => {
+    const onRealtime = (e: Event) => {
+      const custom = e as CustomEvent<{ type: 'stay' | 'trip_dating'; item: any }>;
+      const evt = custom.detail;
+      if (!evt || evt.type !== 'trip_dating' || !evt.item) return;
+      const item = evt.item as TripDatingProfile;
+      const isApproved =
+        item.moderationState === 'APPROVED' || (!item.moderationState && item.status === 'active');
+      if (isApproved && item.status === 'active') {
+        const matchesGender = selectedGender === 'all' || item.gender === selectedGender;
+        const matchesCity =
+          selectedCity === 'all' || (item.city || '').toLowerCase() === selectedCity.toLowerCase();
+        const matchesIntention =
+          selectedIntention === 'all' || item.datingIntention === selectedIntention;
+        if (matchesGender && matchesCity && matchesIntention) {
+          setProfiles(prev => [item, ...prev.filter(p => p.id !== item.id)]);
+        }
+      }
+      loadMySubmissions();
+    };
+    window.addEventListener('airbus:realtime-feed', onRealtime as EventListener);
+    return () => window.removeEventListener('airbus:realtime-feed', onRealtime as EventListener);
+  }, [selectedGender, selectedCity, selectedIntention, sessionId]);
 
   // Periodic 1-second interval to update 10-minute countdown timers
   useEffect(() => {
@@ -876,38 +972,44 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
     }
   };
 
-  // Submit KES 50 Contact Request
-  const handleSubmitPayment = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // Wallet-Only KES 50 Contact Unlock (10-minute server-enforced window)
+  const handleWalletUnlock = async () => {
     if (!selectedProfileForContact) return;
-    if (!payerPhone.trim() || !transactionCode.trim()) {
-      setPaymentMsg({ type: 'error', text: 'Please fill in both your phone number and M-Pesa transaction code.' });
+    if (!currentUser) {
+      setSelectedProfileForContact(null);
+      onOpenAuth?.();
       return;
     }
 
     try {
       setPaymentSubmitting(true);
       setPaymentMsg(null);
-      const res = await api.requestTripDatingContact({
-        profileId: selectedProfileForContact.id,
-        payerPhone: payerPhone.trim(),
-        transactionCode: transactionCode.trim().toUpperCase(),
-        clientSessionId: sessionId,
-      });
+      const res = await api.unlockTripDating(selectedProfileForContact.id, sessionId);
+      setLiveWalletBalance(res.walletBalance);
+      onWalletBalanceUpdated?.(res.walletBalance);
 
-      setPaymentMsg({
-        type: 'success',
-        text: res.message || 'Payment submitted! Admin will verify M-Pesa Till 943210 and unlock this contact for 10 minutes.',
-      });
+      const targetId = selectedProfileForContact.id;
+      setActiveCountdowns(prev => ({ ...prev, [targetId]: res.remainingSeconds || 600 }));
+      setProfiles(prev =>
+        prev.map(p =>
+          p.id === targetId
+            ? {
+                ...p,
+                isUnlocked: true,
+                phoneNumber: res.unlockedPhone,
+                unlockExpiresAt: res.expiresAt,
+              }
+            : p
+        )
+      );
 
-      setTimeout(() => {
-        // Poll for unlock or close modal
-        setSelectedProfileForContact(null);
-        setTransactionCode('');
-        loadProfiles();
-      }, 3500);
+      showToast?.(`Unlocked ${selectedProfileForContact.fullName}'s contact for 10 minutes!`);
+      setSelectedProfileForContact(null);
     } catch (err: any) {
-      setPaymentMsg({ type: 'error', text: err.message || 'Failed to submit payment request.' });
+      setPaymentMsg({
+        type: 'error',
+        text: err.message || 'Could not unlock contact from Wallet.',
+      });
     } finally {
       setPaymentSubmitting(false);
     }
@@ -952,6 +1054,7 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
   // Client-Side Video Compression: Downscales 9:16 vertical video to 540x960 1.2 Mbps for small lightweight streaming
   const compressVideoFile = (file: File): Promise<{
     compressedUrl: string;
+    compressedBlob?: Blob;
     originalMb: number;
     compressedMb: number;
     savings: number;
@@ -970,10 +1073,9 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
       video.onloadedmetadata = () => {
         const dur = Math.min(60, Math.round(video.duration) || 60);
 
-        // Check if MediaRecorder and canvas captureStream are available
         const canvas = document.createElement('canvas');
         canvas.width = 540;
-        canvas.height = 960; // 9:16 mobile resolution
+        canvas.height = 960;
         const ctx = canvas.getContext('2d');
 
         let stream: MediaStream | null = null;
@@ -989,10 +1091,10 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
         }
 
         if (!stream || typeof MediaRecorder === 'undefined' || !MediaRecorder.isTypeSupported(mimeType)) {
-          // Standard optimized stream fallback
           const targetMb = Math.max(1.2, Number((originalMb * 0.32).toFixed(1)));
           resolve({
             compressedUrl: rawUrl,
+            compressedBlob: file,
             originalMb,
             compressedMb: Math.min(originalMb, targetMb),
             savings: Math.max(45, Math.round((1 - targetMb / (originalMb || 1)) * 100)),
@@ -1004,7 +1106,7 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
         try {
           const recorder = new MediaRecorder(stream, {
             mimeType,
-            videoBitsPerSecond: 1_200_000, // 1.2 Mbps for compressed mobile playback
+            videoBitsPerSecond: 1_200_000,
           });
           const chunks: Blob[] = [];
 
@@ -1016,9 +1118,11 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
             const compressedBlob = new Blob(chunks, { type: mimeType });
             const compMb = Number((compressedBlob.size / (1024 * 1024)).toFixed(1));
             const compUrl = URL.createObjectURL(compressedBlob);
+            try { URL.revokeObjectURL(rawUrl); } catch {}
             const savings = Math.max(15, Math.round(((originalMb - compMb) / (originalMb || 1)) * 100));
             resolve({
               compressedUrl: compUrl,
+              compressedBlob,
               originalMb,
               compressedMb: compMb || Math.round(originalMb * 0.35 * 10) / 10,
               savings: savings > 0 ? savings : 55,
@@ -1028,7 +1132,7 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
 
           recorder.start(100);
           video.currentTime = 0;
-          video.playbackRate = 2.0; // 2x playback during compression
+          video.playbackRate = 2.0;
           video.play().catch(() => {});
 
           const renderFrame = () => {
@@ -1045,7 +1149,6 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
           };
           renderFrame();
 
-          // Safety timeout after 10s
           setTimeout(() => {
             if (recorder.state === 'recording') {
               recorder.stop();
@@ -1055,6 +1158,7 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
           const targetMb = Math.max(1.2, Number((originalMb * 0.35).toFixed(1)));
           resolve({
             compressedUrl: rawUrl,
+            compressedBlob: file,
             originalMb,
             compressedMb: Math.min(originalMb, targetMb),
             savings: 60,
@@ -1066,6 +1170,7 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
       video.onerror = () => {
         resolve({
           compressedUrl: rawUrl,
+          compressedBlob: file,
           originalMb,
           compressedMb: originalMb,
           savings: 0,
@@ -1100,27 +1205,41 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
     });
   };
 
-  // Photo Upload Handler: Enforces single user maximum 3 photos with auto-compression
-  const handlePhotoFilesUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
+  // Photo Upload Handler: Compresses and uploads immediately to server (/uploads/raw/...) with progress
+  const processPhotoFilesUpload = async (fileList: File[]) => {
+    if (!fileList || fileList.length === 0) return;
 
     const currentPhotos = [...regForm.photos];
     if (currentPhotos.length >= 3) {
-      alert('A single user can upload a maximum of 3 photos.');
+      setRegError('A single user can upload a maximum of 3 photos.');
+      showToast?.('A single user can upload a maximum of 3 photos.');
       return;
     }
 
     setUploadingPhotos(true);
+    setPhotoUploadState({ uploading: true, progress: 5, error: null, lastFiles: fileList });
     try {
       const slotsLeft = 3 - currentPhotos.length;
-      const filesToProcess = Array.from(files).slice(0, slotsLeft);
+      const filesToProcess = fileList.filter(f => f.type.startsWith('image/')).slice(0, slotsLeft);
+      if (filesToProcess.length === 0) {
+        setPhotoUploadState({ uploading: false, progress: 0, error: 'Please select valid image files.' });
+        return;
+      }
 
-      for (const file of filesToProcess) {
-        if (!file.type.startsWith('image/')) continue;
+      for (let i = 0; i < filesToProcess.length; i++) {
+        const file = filesToProcess[i];
         const compressedDataUrl = await compressImageFile(file);
-        if (compressedDataUrl && currentPhotos.length < 3) {
-          currentPhotos.push(compressedDataUrl);
+        const blob = compressedDataUrl
+          ? await fetch(compressedDataUrl).then(r => r.blob())
+          : file;
+
+        const uploaded = await api.uploadMediaWithProgress(blob, 'photo', file.name, pct => {
+          const overall = Math.round(((i + pct / 100) / filesToProcess.length) * 100);
+          setPhotoUploadState(prev => ({ ...prev, uploading: true, progress: overall }));
+        });
+        if (uploaded.url && currentPhotos.length < 3) {
+          currentPhotos.push(uploaded.url);
+          setSessionUploadedMediaUrls(prev => [...prev, uploaded.url]);
         }
       }
 
@@ -1130,20 +1249,35 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
         photos: finalPhotos,
       }));
 
-      // Update full body photo to slot 0 if not set or updated
       if (finalPhotos.length > 0) {
         setFullBodyPhoto(finalPhotos[0]);
         verifyPhotoFullBody(finalPhotos[0]);
       }
-    } catch (err) {
-      console.error('Photo upload error:', err);
+      setPhotoUploadState({ uploading: false, progress: 100, error: null });
+    } catch (err: any) {
+      setPhotoUploadState({
+        uploading: false,
+        progress: 0,
+        error: err?.message || 'Photo upload failed. Your form inputs were preserved — click Retry.',
+        lastFiles: fileList,
+      });
     } finally {
       setUploadingPhotos(false);
       if (photoUploadInputRef.current) photoUploadInputRef.current.value = '';
     }
   };
 
+  const handlePhotoFilesUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files ? Array.from(e.target.files) : [];
+    await processPhotoFilesUpload(files);
+  };
+
   const handleRemovePhoto = (index: number) => {
+    const targetUrl = regForm.photos[index];
+    if (targetUrl && targetUrl.startsWith('/uploads/raw/')) {
+      api.cleanupUploadedMedia([targetUrl]).catch(() => {});
+      setSessionUploadedMediaUrls(prev => prev.filter(u => u !== targetUrl));
+    }
     const updated = regForm.photos.filter((_, idx) => idx !== index);
     setRegForm(prev => ({ ...prev, photos: updated }));
     if (updated.length > 0) {
@@ -1155,20 +1289,13 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
     }
   };
 
-  // 9:16 Vertical Video Upload Mechanics (File & URL, Max 2 Videos, Compressed)
-  const handleVideoFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
+  // 9:16 Vertical Video Upload Mechanics (Uploads immediately to server with progress bar)
+  const processVideoUpload = async (file: File) => {
     setVideoUploadError(null);
-
-    // Format validation
     if (!file.type.startsWith('video/')) {
       setVideoUploadError('Please select a valid video file (MP4, QuickTime MOV, or WebM).');
       return;
     }
-
-    // Size limit 100MB
     if (file.size > 100 * 1024 * 1024) {
       setVideoUploadError('Video file exceeds 100MB size limit.');
       return;
@@ -1176,6 +1303,7 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
 
     try {
       setCompressingVideo(true);
+      setVideoUploadState({ uploading: true, progress: 5, error: null, lastFile: file });
       const res = await compressVideoFile(file);
       setCompressionStats({
         originalMb: res.originalMb,
@@ -1183,9 +1311,18 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
         savings: res.savings,
       });
 
-      const effectiveUrl = res.compressedUrl;
       const dur = Math.round(res.duration || 60);
-      const thumb = await captureVideoThumbnail(effectiveUrl);
+      const thumb = await captureVideoThumbnail(res.compressedUrl);
+      const uploadBlob = res.compressedBlob || file;
+      try {
+        if (res.compressedUrl.startsWith('blob:')) URL.revokeObjectURL(res.compressedUrl);
+      } catch {}
+
+      const uploaded = await api.uploadMediaWithProgress(uploadBlob, 'video', file.name, pct => {
+        setVideoUploadState(prev => ({ ...prev, uploading: true, progress: pct }));
+      });
+      const effectiveUrl = uploaded.url;
+      setSessionUploadedMediaUrls(prev => [...prev, effectiveUrl]);
 
       const newVidItem = {
         url: effectiveUrl,
@@ -1225,12 +1362,21 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
         setTrimPlayhead(0);
         setShowTrimmer(true);
       }
+      setVideoUploadState({ uploading: false, progress: 100, error: null });
     } catch (err: any) {
-      setVideoUploadError('Unable to process and compress video. Please try another MP4 or WebM file.');
+      const msg = err?.message || 'Video upload failed. Form entries preserved — click Retry.';
+      setVideoUploadError(msg);
+      setVideoUploadState({ uploading: false, progress: 0, error: msg, lastFile: file });
     } finally {
       setCompressingVideo(false);
       if (videoInputRef.current) videoInputRef.current.value = '';
     }
+  };
+
+  const handleVideoFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    await processVideoUpload(file);
   };
 
   const handleLoadCustomVideoUrl = (url: string) => {
@@ -1345,7 +1491,89 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
     };
   };
 
-  // Submit Free Registration (Enforcing single user max 3 photos, max 2 videos)
+  const resetRegistrationModalState = (cleanupUnsaved = false) => {
+    if (cleanupUnsaved && sessionUploadedMediaUrls.length > 0) {
+      api.cleanupUploadedMedia(sessionUploadedMediaUrls).catch(() => {});
+    }
+    setSessionUploadedMediaUrls([]);
+    setEditingProfileId(null);
+    setRegForm({
+      fullName: '',
+      phoneNumber: '',
+      gender: 'female',
+      age: 26,
+      dob: '1998-05-15',
+      city: 'Nairobi',
+      location: 'Westlands, Nairobi',
+      description: '',
+      lookingFor: '',
+      datingIntention: 'dating_companionship',
+      photos: [FULL_BODY_PRESETS.female[0].url],
+      videoUrl: '',
+      videoDuration: 60,
+      videoThumbnail: '',
+      videoFilter: 'normal',
+      videoTrimStart: 0,
+      videoTrimEnd: 60,
+    });
+    setFullBodyPhoto(FULL_BODY_PRESETS.female[0].url);
+    setFullBodyVerified(true);
+    setRegVideos([]);
+    setPhotoUploadState({ uploading: false, progress: 0, error: null });
+    setVideoUploadState({ uploading: false, progress: 0, error: null });
+    setRegError(null);
+    setRegSuccess(null);
+  };
+
+  const handleCloseRegisterModal = () => {
+    resetRegistrationModalState(true);
+    setShowRegisterModal(false);
+  };
+
+  const handleStartEditResubmit = (item: TripDatingProfile) => {
+    setEditingProfileId(item.id);
+    const photosList = item.photos && item.photos.length > 0
+      ? item.photos.slice(0, 3)
+      : [item.full_body_photo || item.primaryPhoto || FULL_BODY_PRESETS.female[0].url];
+    const fb = item.full_body_photo || item.primaryPhoto || photosList[0] || '';
+    setFullBodyPhoto(fb);
+    setFullBodyVerified(Boolean(fb));
+    setRegForm({
+      fullName: item.fullName || '',
+      phoneNumber: item.phoneNumber && !item.phoneNumber.includes('•') ? item.phoneNumber : '',
+      gender: item.gender || 'female',
+      age: item.age || 26,
+      dob: item.dob || '1998-05-15',
+      city: item.city || 'Nairobi',
+      location: item.location || 'Westlands, Nairobi',
+      description: item.description || '',
+      lookingFor: item.lookingFor || '',
+      datingIntention: item.datingIntention || 'dating_companionship',
+      photos: photosList,
+      videoUrl: item.videoUrl || (item.videos && item.videos[0]) || '',
+      videoDuration: item.videoDuration || 60,
+      videoThumbnail: item.videoThumbnail || '',
+      videoFilter: item.videoFilter || 'normal',
+      videoTrimStart: item.videoTrimStart || 0,
+      videoTrimEnd: item.videoTrimEnd || item.videoDuration || 60,
+    });
+    const vidList: VideoItemState[] = (item.videos && item.videos.length > 0 ? item.videos : item.videoUrl ? [item.videoUrl] : []).map((vUrl, idx) => ({
+      url: vUrl,
+      duration: (item.videoDurations && item.videoDurations[idx]) || item.videoDuration || 60,
+      thumbnail: (item.videoThumbnails && item.videoThumbnails[idx]) || item.videoThumbnail || '',
+      filter: item.videoFilter || 'normal',
+      trimStart: item.videoTrimStart || 0,
+      trimEnd: item.videoTrimEnd || item.videoDuration || 60,
+      isCompressed: true,
+    }));
+    setRegVideos(vidList);
+    setRegError(null);
+    setRegSuccess(null);
+    setShowMySubmissionsModal(false);
+    setShowRegisterModal(true);
+  };
+
+  // Submit Registration or Edit & Resubmit (Always enters Admin Review Queue)
   const handleRegisterProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -1353,23 +1581,32 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
       setRegError(null);
       setRegSuccess(null);
 
+      if (photoUploadState.uploading || videoUploadState.uploading || compressingVideo) {
+        setRegError('Please wait for media uploads to reach 100% before submitting.');
+        setRegistering(false);
+        return;
+      }
+
       if (!fullBodyVerified || !fullBodyPhoto) {
         setRegError('A full-body photo (head to toe) is required. Face-only photos are not accepted.');
         setRegistering(false);
         return;
       }
 
-      // Enforce maximum 3 photos strictly
       const sanitizedPhotos = [fullBodyPhoto, ...regForm.photos.filter(p => p !== fullBodyPhoto)].slice(0, 3);
-
-      // Enforce maximum 2 videos strictly
       const finalVideos = regVideos.map(v => v.url).filter(Boolean).slice(0, 2);
       const finalDurations = regVideos.map(v => v.duration).slice(0, 2);
       const finalThumbnails = regVideos.map(v => v.thumbnail).slice(0, 2);
       const primaryVideo = regVideos[0];
       const effectiveVideoUrl = primaryVideo?.url || regForm.videoUrl || undefined;
 
-      const res = await api.createTripDatingProfile({
+      if (sanitizedPhotos.some(p => p.startsWith('blob:')) || (effectiveVideoUrl && effectiveVideoUrl.startsWith('blob:')) || finalVideos.some(v => v.startsWith('blob:'))) {
+        setRegError('Local temporary blob URLs cannot be saved. Please re-upload your media to the server.');
+        setRegistering(false);
+        return;
+      }
+
+      const payload = {
         ...regForm,
         photos: sanitizedPhotos,
         primaryPhoto: fullBodyPhoto,
@@ -1384,38 +1621,24 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
         videoTrimEnd: primaryVideo?.trimEnd !== undefined ? primaryVideo.trimEnd : (regForm.videoTrimEnd || (regForm.videoDuration || 60)),
         full_body_photo: fullBodyPhoto,
         full_body_verified: true,
-      });
-      setRegSuccess(res.message);
-      loadProfiles();
+        clientSessionId: sessionId,
+      };
+
+      const res = editingProfileId
+        ? await api.resubmitTripDatingProfile(editingProfileId, payload)
+        : await api.createTripDatingProfile(payload);
+
+      setSessionUploadedMediaUrls([]);
+      setRegSuccess(res.message || 'Submitted for Admin Review! Track approval status in My Submissions.');
+      showToast?.('Profile submitted for Admin Review.');
+      loadMySubmissions();
 
       setTimeout(() => {
         setShowRegisterModal(false);
-        setRegSuccess(null);
-        setRegForm({
-          fullName: '',
-          phoneNumber: '',
-          gender: 'female',
-          age: 26,
-          dob: '1998-05-15',
-          city: 'Nairobi',
-          location: 'Westlands, Nairobi',
-          description: '',
-          lookingFor: '',
-          datingIntention: 'dating_companionship',
-          photos: [
-            FULL_BODY_PRESETS.female[0].url,
-          ],
-          videoUrl: '',
-          videoDuration: 60,
-          videoThumbnail: '',
-          videoFilter: 'normal',
-          videoTrimStart: 0,
-          videoTrimEnd: 60,
-        });
-        setRegVideos([]);
-      }, 2500);
+        resetRegistrationModalState(false);
+      }, 1800);
     } catch (err: any) {
-      setRegError(err.message || 'Failed to create profile. Please check that guidelines are followed.');
+      setRegError(err.message || 'Failed to submit profile. Please check that guidelines are followed.');
     } finally {
       setRegistering(false);
     }
@@ -1558,6 +1781,27 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
               3-Step Match Finder
             </button>
 
+            <button
+              type="button"
+              onClick={() => {
+                loadMySubmissions();
+                setShowMySubmissionsModal(true);
+              }}
+              className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-full font-semibold text-sm transition duration-150 active:scale-95 cursor-pointer border ${
+                isFacebookBg
+                  ? 'bg-white/15 hover:bg-white/25 border-white/30 text-white'
+                  : 'bg-neutral-800/80 hover:bg-neutral-800 border-neutral-700/60 text-neutral-200'
+              }`}
+            >
+              <Clock className={`w-4 h-4 ${isFacebookBg ? 'text-white' : 'text-amber-400'}`} />
+              <span>My Submissions</span>
+              {mySubmissions.length > 0 && (
+                <span className="px-1.5 py-0.5 rounded-full bg-rose-600 text-white text-[10px] font-bold">
+                  {mySubmissions.length}
+                </span>
+              )}
+            </button>
+
             {/* Background Color Toggle: Default / Facebook Feed / Facebook Like Blue */}
             <div
               className={`inline-flex items-center gap-1 p-1 rounded-full border ${
@@ -1632,7 +1876,7 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
             </span>
           </div>
           <span className={`hidden sm:inline ${isFacebookBg ? 'text-[#65676B]' : 'text-neutral-500'}`}>
-            M-Pesa Till 943210 · Buy Goods
+            Contact Unlock · KES 50 via AirBus Wallet
           </span>
         </div>
       </div>
@@ -1799,7 +2043,7 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
             <AlertCircle className={`w-8 h-8 mx-auto mb-2 ${isFacebookBg ? 'text-red-600' : 'text-red-400'}`} />
             <p className="font-semibold">{error}</p>
             <button
-              onClick={loadProfiles}
+              onClick={() => loadProfiles()}
               className="mt-3 px-4 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-xs font-medium text-white cursor-pointer"
             >
               Retry
@@ -2459,7 +2703,7 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
                           </div>
 
                           <p className={`text-[11px] ${isFacebookBg ? 'text-[#65676B]' : 'text-neutral-400'}`}>
-                            Verified via Till 943210. This contact window automatically closes when the timer reaches 00:00 to protect member privacy.
+                            Unlocked via AirBus Wallet. This contact window automatically closes when the timer reaches 00:00 to protect member privacy.
                           </p>
                         </div>
                       ) : (
@@ -2494,7 +2738,7 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
                                 </span>
                               </div>
                               <p className={`text-[11px] ${isFacebookBg ? 'text-[#65676B]' : 'text-neutral-500'}`}>
-                                10-minute temporary unlock via M-Pesa Buy Goods Till 943210
+                                10-minute temporary unlock · KES 50 from AirBus Wallet
                               </p>
                             </div>
                           </div>
@@ -2502,8 +2746,15 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
                           <button
                             onClick={() => {
                               setSelectedProfileForContact(profile);
-                              setPayerPhone(currentUser?.phone || '');
                               setPaymentMsg(null);
+                              if (currentUser) {
+                                api.getWallet().then(res => {
+                                  if (res?.wallet) {
+                                    setLiveWalletBalance(res.wallet.balance);
+                                    onWalletBalanceUpdated?.(res.wallet.balance);
+                                  }
+                                }).catch(() => {});
+                              }
                             }}
                             className={`inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider shadow-lg transition active:scale-95 shrink-0 cursor-pointer ${
                               isFacebookBg
@@ -2521,6 +2772,23 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
                 </article>
               );
             })}
+
+            {hasMore && nextCursor && (
+              <div className="pt-4 flex justify-center">
+                <button
+                  type="button"
+                  disabled={loadingMore}
+                  onClick={() => loadProfiles(nextCursor, true)}
+                  className={`px-6 py-2.5 rounded-full text-xs font-bold transition shadow-md cursor-pointer disabled:opacity-50 ${
+                    isFacebookBg
+                      ? 'bg-white text-[#1877F2] border border-[#CED0D4] hover:bg-[#F0F2F5]'
+                      : 'bg-neutral-900 hover:bg-neutral-800 text-white border border-neutral-700'
+                  }`}
+                >
+                  {loadingMore ? 'Loading more profiles...' : 'Load More Profiles'}
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -2621,7 +2889,7 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
                   >
                     <div>
                       <span className="font-bold text-sm text-rose-300 block">Become a Date (Free)</span>
-                      <span className="text-xs text-neutral-400">Publish my profile with 0 wait time</span>
+                      <span className="text-xs text-neutral-400">Submit profile for fast Admin Review</span>
                     </div>
                     <UserPlus className="w-5 h-5 text-rose-400" />
                   </button>
@@ -2723,13 +2991,13 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
         </div>
       )}
 
-      {/* "See Contact · KES 50" Payment Modal */}
+      {/* "See Contact · KES 50" Wallet-Only Unlock Modal */}
       {selectedProfileForContact && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm p-4 overflow-y-auto">
           <div className="bg-neutral-900 border border-neutral-800 rounded-3xl p-6 sm:p-7 max-w-md w-full shadow-2xl relative my-8">
             <button
               onClick={() => setSelectedProfileForContact(null)}
-              className="absolute top-4 right-4 p-2 text-neutral-400 hover:text-white rounded-full bg-neutral-800"
+              className="absolute top-4 right-4 p-2 text-neutral-400 hover:text-white rounded-full bg-neutral-800 cursor-pointer"
             >
               <X className="w-4 h-4" />
             </button>
@@ -2747,95 +3015,87 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
               </div>
             </div>
 
-            {/* M-Pesa Instructions Card */}
             <div className="bg-neutral-950 border border-neutral-800 rounded-2xl p-4 mb-5 space-y-3">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold uppercase tracking-wider text-emerald-400">
-                  M-Pesa Buy Goods & Services
+                  Pay from AirBus Wallet
                 </span>
                 <span className="text-xs font-bold text-amber-300 bg-amber-950/60 border border-amber-800/40 px-2 py-0.5 rounded">
-                  Amount: KES 50
+                  Fee: KES 50
                 </span>
               </div>
 
-              <div className="space-y-1.5 text-xs text-neutral-300">
-                <p>1. Open M-Pesa on your phone</p>
-                <p>2. Select <strong className="text-white">Lipa na M-Pesa</strong> &gt; <strong className="text-white">Buy Goods and Services</strong></p>
-                <div className="p-2.5 rounded-xl bg-neutral-900 border border-neutral-800 flex items-center justify-between">
-                  <span className="text-neutral-400">Till Number:</span>
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono text-base font-extrabold text-rose-400">943210</span>
-                    <button
-                      onClick={() => copyToClipboard('943210')}
-                      className="text-xs text-neutral-400 hover:text-white"
-                      title="Copy Till"
-                    >
-                      <Copy className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
+              {currentUser ? (
+                <div className="p-3 rounded-xl bg-neutral-900 border border-neutral-800 flex items-center justify-between text-xs">
+                  <span className="text-neutral-400">Current Wallet Balance:</span>
+                  <span
+                    className={`font-mono text-base font-extrabold ${
+                      liveWalletBalance >= 50 ? 'text-emerald-400' : 'text-amber-400'
+                    }`}
+                  >
+                    KES {liveWalletBalance.toLocaleString()}
+                  </span>
                 </div>
-                <p>3. Enter Amount: <strong className="text-white">KES 50</strong></p>
-                <p>4. Enter your PIN and complete transaction</p>
-                <p>5. Paste the M-Pesa SMS Confirmation Code below</p>
-              </div>
-            </div>
-
-            {/* Submission Form */}
-            <form onSubmit={handleSubmitPayment} className="space-y-4">
-              <div>
-                <label className="block text-xs font-medium text-neutral-300 mb-1">
-                  Your Phone Number (M-Pesa sender)
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. 0712345678"
-                  value={payerPhone}
-                  onChange={e => setPayerPhone(e.target.value)}
-                  className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3.5 py-2.5 text-sm text-neutral-200 focus:outline-none focus:border-rose-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-neutral-300 mb-1">
-                  M-Pesa Transaction Code
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. QGH7X2K9LM"
-                  value={transactionCode}
-                  onChange={e => setTransactionCode(e.target.value.toUpperCase())}
-                  className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3.5 py-2.5 text-sm font-mono uppercase text-neutral-200 focus:outline-none focus:border-rose-500"
-                />
-              </div>
-
-              {paymentMsg && (
-                <div
-                  className={`p-3 rounded-xl text-xs font-medium ${
-                    paymentMsg.type === 'success'
-                      ? 'bg-emerald-950/60 border border-emerald-800/60 text-emerald-300'
-                      : 'bg-red-950/60 border border-red-800/60 text-red-300'
-                  }`}
-                >
-                  {paymentMsg.text}
-                </div>
+              ) : (
+                <p className="text-xs text-neutral-300">
+                  Please sign in to unlock contacts using your AirBus Wallet balance.
+                </p>
               )}
 
-              <div className="pt-2">
+              <p className="text-[11px] text-neutral-400 leading-relaxed">
+                Paying KES 50 from your wallet immediately unlocks {selectedProfileForContact.fullName}&apos;s phone number with a live 10:00 countdown timer.
+              </p>
+            </div>
+
+            {paymentMsg && (
+              <div
+                className={`p-3 rounded-xl text-xs font-medium mb-4 ${
+                  paymentMsg.type === 'success'
+                    ? 'bg-emerald-950/60 border border-emerald-800/60 text-emerald-300'
+                    : 'bg-red-950/60 border border-red-800/60 text-red-300'
+                }`}
+              >
+                {paymentMsg.text}
+              </div>
+            )}
+
+            {!currentUser ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedProfileForContact(null);
+                  onOpenAuth?.();
+                }}
+                className="w-full py-3 rounded-xl bg-gradient-to-r from-rose-600 to-pink-600 hover:from-rose-500 hover:to-pink-500 text-white font-bold text-sm shadow-lg transition cursor-pointer"
+              >
+                Sign In to Pay from Wallet
+              </button>
+            ) : liveWalletBalance < 50 ? (
+              <div className="space-y-2.5">
+                <div className="p-3 rounded-xl bg-amber-950/40 border border-amber-800/50 text-xs text-amber-200">
+                  Insufficient wallet balance (need KES {(50 - liveWalletBalance).toLocaleString()} more). Top up your wallet via Deposit (M-Pesa) first.
+                </div>
                 <button
-                  type="submit"
-                  disabled={paymentSubmitting}
-                  className="w-full py-3 rounded-xl bg-gradient-to-r from-rose-600 to-pink-600 hover:from-rose-500 hover:to-pink-500 text-white font-bold text-sm shadow-lg shadow-rose-950/50 transition active:scale-95 disabled:opacity-50"
+                  type="button"
+                  onClick={() => {
+                    setSelectedProfileForContact(null);
+                    onOpenWalletDeposit?.();
+                  }}
+                  className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm shadow-lg transition cursor-pointer"
                 >
-                  {paymentSubmitting ? 'Submitting...' : 'Submit Verification · KES 50'}
+                  Deposit (M-Pesa) to Wallet
                 </button>
               </div>
-
-              <p className="text-[11px] text-neutral-500 text-center">
-                Upon admin verification, you will receive full phone access with a live 10:00 countdown timer.
-              </p>
-            </form>
+            ) : (
+              <button
+                type="button"
+                disabled={paymentSubmitting}
+                onClick={handleWalletUnlock}
+                className="w-full py-3 rounded-xl bg-gradient-to-r from-rose-600 to-pink-600 hover:from-rose-500 hover:to-pink-500 text-white font-bold text-sm shadow-lg shadow-rose-950/50 transition active:scale-95 disabled:opacity-50 cursor-pointer"
+              >
+                {paymentSubmitting ? 'Unlocking Contact...' : 'Pay KES 50 from Wallet'}
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -2847,7 +3107,7 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
             {/* Modal Header */}
             <div className="p-5 sm:p-6 pb-3 border-b border-neutral-800 bg-neutral-900/95 backdrop-blur-md shrink-0">
               <button
-                onClick={() => setShowRegisterModal(false)}
+                onClick={handleCloseRegisterModal}
                 className="absolute top-4 right-4 p-2 text-neutral-400 hover:text-white rounded-full bg-neutral-800 hover:bg-neutral-700 transition cursor-pointer"
                 aria-label="Close registration modal"
               >
@@ -2859,9 +3119,11 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
                   <UserPlus className="w-5 h-5 text-rose-400" />
                 </div>
                 <div>
-                  <h3 className="text-xl font-bold text-white">Join Trip Dating · Free</h3>
+                  <h3 className="text-xl font-bold text-white">
+                    {editingProfileId ? 'Edit & Resubmit Dating Profile' : 'Join Trip Dating · Free'}
+                  </h3>
                   <div className="flex items-center gap-2 mt-0.5">
-                    <span className="text-xs text-rose-300 font-medium">Instant Automatic Publication</span>
+                    <span className="text-xs text-rose-300 font-medium">Admin Reviewed for Safety</span>
                     <span className="text-[10px] bg-rose-500/20 text-rose-300 font-bold px-2 py-0.5 rounded-full border border-rose-500/30 flex items-center gap-1">
                       <Film className="w-2.5 h-2.5" />
                       9:16 Video (60s)
@@ -2922,12 +3184,12 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
                 onScroll={handleModalScroll}
                 className="flex-1 overflow-y-auto p-5 sm:p-6 pr-12 sm:pr-14 space-y-5 text-xs scroll-smooth"
               >
-                {/* Automated Policy Warning Banner */}
+                {/* Admin Review Policy Warning Banner */}
                 <div className="bg-amber-950/30 border border-amber-800/40 rounded-xl p-3 flex items-start gap-2.5 text-xs text-amber-200/90">
                   <ShieldCheck className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
                   <div>
-                    <strong className="text-amber-300 block">Automated Content Policy Shield:</strong>
-                    All photos, videos, and bios must follow our safety guidelines. No explicit nudity, no merchandise sales, no drugs, and no accommodation rentals. Valid profiles go live immediately with zero manual wait time!
+                    <strong className="text-amber-300 block">Safety &amp; Admin Review Policy:</strong>
+                    All photos, videos, and bios must follow our safety guidelines. No explicit nudity, no merchandise sales, no drugs, and no accommodation rentals. Submitted profiles enter the Admin Review Queue and go live in real time once approved.
                   </div>
                 </div>
 
@@ -3286,6 +3548,37 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
                       </div>
                     </div>
 
+                    {/* Photo Upload Progress / Retry State */}
+                    {photoUploadState.uploading && (
+                      <div className="p-3 rounded-xl bg-neutral-900 border border-rose-500/40 space-y-1.5">
+                        <div className="flex items-center justify-between text-[11px] font-bold text-rose-300">
+                          <span>Uploading Photo to Server...</span>
+                          <span className="font-mono">{photoUploadState.progress}%</span>
+                        </div>
+                        <div className="w-full h-2 rounded-full bg-neutral-800 overflow-hidden">
+                          <div
+                            className="h-full bg-gradient-to-r from-rose-500 to-pink-500 transition-all duration-150"
+                            style={{ width: `${photoUploadState.progress}%` }}
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    {photoUploadState.error && (
+                      <div className="p-2.5 rounded-xl bg-red-950/60 border border-red-800/60 text-xs text-red-300 flex items-center justify-between gap-2">
+                        <span>{photoUploadState.error}</span>
+                        {photoUploadState.lastFiles && (
+                          <button
+                            type="button"
+                            onClick={() => processPhotoFilesUpload(photoUploadState.lastFiles!)}
+                            className="px-2.5 py-1 rounded-lg bg-red-600 hover:bg-red-500 text-white font-bold text-[10px] shrink-0 cursor-pointer"
+                          >
+                            Retry
+                          </button>
+                        )}
+                      </div>
+                    )}
+
                     {/* Or Paste Direct Image URL */}
                     <div className="flex gap-2 pt-1">
                       <input
@@ -3300,7 +3593,8 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
                         onClick={() => {
                           if (!customPhotoInput.trim()) return;
                           if (regForm.photos.length >= 3) {
-                            alert('A single user can upload a maximum of 3 photos.');
+                            setRegError('A single user can upload a maximum of 3 photos.');
+                            showToast?.('A single user can upload a maximum of 3 photos.');
                             return;
                           }
                           const updated = [...regForm.photos, customPhotoInput.trim()].slice(0, 3);
@@ -3419,24 +3713,34 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
                       </button>
                     </div>
 
-                    {/* Compressing Video Spinner Banner */}
-                    {compressingVideo && (
-                      <div className="p-3 rounded-xl bg-amber-950/60 border border-amber-800/60 text-xs text-amber-300 flex items-center gap-2.5 animate-pulse">
-                        <Zap className="w-4 h-4 text-amber-400 animate-spin" />
-                        <div>
-                          <strong className="block text-white">Compressing 9:16 Video to Smaller Size...</strong>
-                          <span>Transcoding and reducing bitrate for fast mobile playback across Kenya.</span>
+                    {/* Compressing / Uploading Video Progress Banner */}
+                    {(compressingVideo || videoUploadState.uploading) && (
+                      <div className="p-3 rounded-xl bg-amber-950/60 border border-amber-800/60 text-xs text-amber-300 space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <Zap className="w-4 h-4 text-amber-400 animate-spin" />
+                            <strong className="text-white">
+                              {compressingVideo ? 'Compressing & Uploading 9:16 Video...' : 'Uploading Video to Server...'}
+                            </strong>
+                          </div>
+                          <span className="font-mono font-bold text-amber-200">{videoUploadState.progress}%</span>
+                        </div>
+                        <div className="w-full h-2 rounded-full bg-neutral-900 overflow-hidden">
+                          <div
+                            className="h-full bg-gradient-to-r from-amber-500 to-rose-500 transition-all duration-150"
+                            style={{ width: `${videoUploadState.progress}%` }}
+                          />
                         </div>
                       </div>
                     )}
 
                     {/* Compression Stats Banner */}
-                    {compressionStats && !compressingVideo && (
+                    {compressionStats && !compressingVideo && !videoUploadState.uploading && (
                       <div className="p-2.5 rounded-xl bg-emerald-950/60 border border-emerald-800/60 text-xs text-emerald-300 flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
                           <span>
-                            Video compressed: <strong className="text-white">{compressionStats.originalMb} MB</strong> ➔ <strong className="text-emerald-300">{compressionStats.compressedMb} MB</strong>
+                            Video uploaded: <strong className="text-white">{compressionStats.originalMb} MB</strong> ➔ <strong className="text-emerald-300">{compressionStats.compressedMb} MB</strong>
                           </span>
                         </div>
                         <span className="font-mono font-bold text-[10px] bg-emerald-900/60 px-2 py-0.5 rounded text-emerald-200">
@@ -3445,10 +3749,21 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
                       </div>
                     )}
 
-                    {videoUploadError && (
-                      <div className="p-2.5 rounded-xl bg-red-950/60 border border-red-800/60 text-xs text-red-300 flex items-center gap-2">
-                        <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
-                        <span>{videoUploadError}</span>
+                    {(videoUploadError || videoUploadState.error) && (
+                      <div className="p-2.5 rounded-xl bg-red-950/60 border border-red-800/60 text-xs text-red-300 flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+                          <span>{videoUploadError || videoUploadState.error}</span>
+                        </div>
+                        {videoUploadState.lastFile && (
+                          <button
+                            type="button"
+                            onClick={() => processVideoUpload(videoUploadState.lastFile!)}
+                            className="px-2.5 py-1 rounded-lg bg-red-600 hover:bg-red-500 text-white font-bold text-[10px] shrink-0 cursor-pointer"
+                          >
+                            Retry
+                          </button>
+                        )}
                       </div>
                     )}
 
@@ -3754,6 +4069,14 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
                               <button
                                 type="button"
                                 onClick={() => {
+                                  const targetUrl =
+                                    activeVideoSlot === 0
+                                      ? (regVideos[0]?.url || regForm.videoUrl)
+                                      : regVideos[1]?.url;
+                                  if (targetUrl && targetUrl.startsWith('/uploads/raw/')) {
+                                    api.cleanupUploadedMedia([targetUrl]).catch(() => {});
+                                    setSessionUploadedMediaUrls(prev => prev.filter(u => u !== targetUrl));
+                                  }
                                   if (activeVideoSlot === 0) {
                                     setRegForm(prev => ({ ...prev, videoUrl: '', videoDuration: 60, videoThumbnail: '', videoFilter: 'normal', videoTrimStart: 0, videoTrimEnd: 60 }));
                                     setRegVideos(prev => prev.filter((_, idx) => idx !== 0));
@@ -3961,14 +4284,24 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
                     <div className="pt-2">
                       <button
                         type="submit"
-                        disabled={registering || !fullBodyVerified}
+                        disabled={
+                          registering ||
+                          !fullBodyVerified ||
+                          photoUploadState.uploading ||
+                          videoUploadState.uploading ||
+                          compressingVideo
+                        }
                         className="w-full py-3.5 rounded-xl bg-gradient-to-r from-rose-600 to-pink-600 hover:from-rose-500 hover:to-pink-500 text-white font-bold text-sm shadow-lg shadow-rose-950/50 transition active:scale-95 disabled:opacity-50 cursor-pointer"
                       >
-                        {registering
-                          ? 'Verifying and Publishing...'
+                        {photoUploadState.uploading || videoUploadState.uploading || compressingVideo
+                          ? 'Uploading Media to Server...'
+                          : registering
+                          ? 'Submitting for Admin Review...'
                           : !fullBodyVerified
                           ? 'Full-Body Photo Required (Face-Only Rejected)'
-                          : 'Publish My Free Dating Profile'}
+                          : editingProfileId
+                          ? 'Save & Resubmit for Admin Review'
+                          : 'Submit Profile for Admin Review'}
                       </button>
                     </div>
                   </div>
@@ -4572,6 +4905,115 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
               >
                 Apply Filters
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* My Submissions Modal (Newest First, Declined Feedback, Edit & Resubmit) */}
+      {showMySubmissionsModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-4">
+          <div className="bg-neutral-900 border border-neutral-800 rounded-3xl p-5 sm:p-6 max-w-2xl w-full max-h-[88vh] flex flex-col shadow-2xl relative">
+            <div className="flex items-center justify-between pb-3 border-b border-neutral-800">
+              <div>
+                <h3 className="text-lg font-bold text-white">My Trip Dating Submissions</h3>
+                <p className="text-xs text-neutral-400">
+                  Track Admin Review status, view feedback, or edit and resubmit declined posts.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowMySubmissionsModal(false)}
+                className="p-2 rounded-full bg-neutral-800 hover:bg-neutral-700 text-neutral-300 hover:text-white cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto py-4 space-y-3">
+              {loadingMySubmissions ? (
+                <div className="py-10 text-center text-xs text-neutral-400">Loading your submissions...</div>
+              ) : mySubmissions.length === 0 ? (
+                <div className="py-10 text-center space-y-3">
+                  <p className="text-xs text-neutral-400">You have not submitted a Trip Dating profile yet.</p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowMySubmissionsModal(false);
+                      setShowRegisterModal(true);
+                    }}
+                    className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold cursor-pointer"
+                  >
+                    Create Your Free Profile
+                  </button>
+                </div>
+              ) : (
+                mySubmissions.map(sub => {
+                  const modState =
+                    sub.moderationState ||
+                    (sub.status === 'active'
+                      ? 'APPROVED'
+                      : sub.status === 'rejected'
+                      ? 'DECLINED'
+                      : 'PENDING');
+                  return (
+                    <div
+                      key={sub.id}
+                      className="p-4 rounded-2xl bg-neutral-950 border border-neutral-800 space-y-3"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-center gap-3">
+                          <img
+                            src={sub.primaryPhoto || sub.photos?.[0] || FULL_BODY_PRESETS.female[0].url}
+                            alt={sub.fullName}
+                            className="w-14 h-16 rounded-xl object-cover border border-neutral-800"
+                          />
+                          <div>
+                            <div className="font-bold text-sm text-white">
+                              {sub.fullName}, {sub.age}
+                            </div>
+                            <div className="text-[11px] text-neutral-400">
+                              {sub.city} · Submitted {new Date(sub.createdAt).toLocaleDateString()}
+                            </div>
+                          </div>
+                        </div>
+
+                        <span
+                          className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider shrink-0 ${
+                            modState === 'APPROVED'
+                              ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-700/60'
+                              : modState === 'DECLINED'
+                              ? 'bg-red-950/80 text-red-300 border border-red-700/60'
+                              : 'bg-amber-950/80 text-amber-300 border border-amber-700/60'
+                          }`}
+                        >
+                          {modState === 'APPROVED'
+                            ? 'Approved · Live'
+                            : modState === 'DECLINED'
+                            ? 'Declined'
+                            : 'Pending Admin Review'}
+                        </span>
+                      </div>
+
+                      {modState === 'DECLINED' && (
+                        <div className="p-3 rounded-xl bg-red-950/40 border border-red-800/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                          <div className="text-xs text-red-200 space-y-0.5">
+                            <div className="font-bold text-red-300">Admin Feedback</div>
+                            <div>{sub.admin_feedback || 'Please update your media or bio to comply with community guidelines.'}</div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleStartEditResubmit(sub)}
+                            className="px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs shrink-0 cursor-pointer"
+                          >
+                            Edit &amp; Resubmit
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
             </div>
           </div>
         </div>

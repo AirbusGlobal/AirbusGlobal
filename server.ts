@@ -4426,7 +4426,16 @@ async function startServer() {
   });
 }
 
-startServer().catch((err) => {
-  console.error('Fatal server startup error:', err);
-  process.exit(1);
-});
+export { app };
+
+const isTestRunner =
+  Boolean(process.env.AIRBUS_TEST_NO_LISTEN) ||
+  Boolean(process.env.NODE_TEST_CONTEXT) ||
+  process.argv.includes('--test');
+
+if (!isTestRunner) {
+  startServer().catch((err) => {
+    console.error('Fatal server startup error:', err);
+    process.exit(1);
+  });
+}

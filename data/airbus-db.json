@@ -329,7 +329,11 @@
       "createdAt": 1794732514224,
       "hasVideo": false,
       "hasPhotos": true,
-      "isVerified": true
+      "isVerified": true,
+      "moderationState": "PENDING",
+      "admin_feedback": null,
+      "reviewed_at": null,
+      "reviewed_by": null
     },
     {
       "id": "s1",
@@ -419,7 +423,12 @@
       "hasDedicatedWorkspace": true,
       "corporateInvoicingAvailable": true,
       "blackFridayOptIn": true,
-      "blackFridayDiscountPercent": 45
+      "blackFridayDiscountPercent": 45,
+      "moderationState": "APPROVED",
+      "isApprovedByAdmin": true,
+      "admin_feedback": null,
+      "reviewed_at": null,
+      "reviewed_by": null
     },
     {
       "id": "s2",
@@ -508,7 +517,12 @@
       "escapeOfferPrice": 3375,
       "escapeDiscountPercent": 25,
       "escapeValidFrom": "2026-11-13",
-      "escapeValidTo": "2026-12-04"
+      "escapeValidTo": "2026-12-04",
+      "moderationState": "APPROVED",
+      "isApprovedByAdmin": true,
+      "admin_feedback": null,
+      "reviewed_at": null,
+      "reviewed_by": null
     },
     {
       "id": "s3",
@@ -589,7 +603,12 @@
       "images": [
         "https://images.unsplash.com/photo-1580587771525-78b9dba3b914?auto=format&fit=crop&w=800&q=80"
       ],
-      "isVerified": true
+      "isVerified": true,
+      "moderationState": "APPROVED",
+      "isApprovedByAdmin": true,
+      "admin_feedback": null,
+      "reviewed_at": null,
+      "reviewed_by": null
     },
     {
       "id": "s4",
@@ -670,7 +689,12 @@
       "images": [
         "https://images.unsplash.com/photo-1512917774080-9991f1c4c750?auto=format&fit=crop&w=800&q=80"
       ],
-      "isVerified": true
+      "isVerified": true,
+      "moderationState": "APPROVED",
+      "isApprovedByAdmin": true,
+      "admin_feedback": null,
+      "reviewed_at": null,
+      "reviewed_by": null
     },
     {
       "id": "s5",
@@ -755,7 +779,12 @@
       "escapeOfferPrice": 9450,
       "escapeDiscountPercent": 30,
       "escapeValidFrom": "2026-11-13",
-      "escapeValidTo": "2026-12-13"
+      "escapeValidTo": "2026-12-13",
+      "moderationState": "APPROVED",
+      "isApprovedByAdmin": true,
+      "admin_feedback": null,
+      "reviewed_at": null,
+      "reviewed_by": null
     },
     {
       "id": "s6",
@@ -831,7 +860,12 @@
       "images": [
         "https://images.unsplash.com/photo-1518780664697-55e3ad937233?auto=format&fit=crop&w=800&q=80"
       ],
-      "isVerified": true
+      "isVerified": true,
+      "moderationState": "APPROVED",
+      "isApprovedByAdmin": true,
+      "admin_feedback": null,
+      "reviewed_at": null,
+      "reviewed_by": null
     },
     {
       "id": "s7",
@@ -908,7 +942,12 @@
       "images": [
         "https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?auto=format&fit=crop&w=800&q=80"
       ],
-      "isVerified": true
+      "isVerified": true,
+      "moderationState": "APPROVED",
+      "isApprovedByAdmin": true,
+      "admin_feedback": null,
+      "reviewed_at": null,
+      "reviewed_by": null
     },
     {
       "id": "s8",
@@ -992,7 +1031,12 @@
       "escapeOfferPrice": 12000,
       "escapeDiscountPercent": 25,
       "escapeValidFrom": "2026-11-13",
-      "escapeValidTo": "2026-12-01"
+      "escapeValidTo": "2026-12-01",
+      "moderationState": "APPROVED",
+      "isApprovedByAdmin": true,
+      "admin_feedback": null,
+      "reviewed_at": null,
+      "reviewed_by": null
     },
     {
       "id": "s_plus_1",
@@ -1079,7 +1123,11 @@
       "hasVideo": true,
       "hasPhotos": true,
       "moderationStatus": "approved",
-      "mediaModerationStatus": "clean"
+      "mediaModerationStatus": "clean",
+      "moderationState": "APPROVED",
+      "admin_feedback": null,
+      "reviewed_at": null,
+      "reviewed_by": null
     },
     {
       "id": "s_plus_2",
@@ -1165,7 +1213,11 @@
       "hasVideo": true,
       "hasPhotos": true,
       "moderationStatus": "approved",
-      "mediaModerationStatus": "clean"
+      "mediaModerationStatus": "clean",
+      "moderationState": "APPROVED",
+      "admin_feedback": null,
+      "reviewed_at": null,
+      "reviewed_by": null
     },
     {
       "id": "s_local_1",
@@ -1242,7 +1294,11 @@
       "hasVideo": true,
       "hasPhotos": true,
       "moderationStatus": "approved",
-      "mediaModerationStatus": "clean"
+      "mediaModerationStatus": "clean",
+      "moderationState": "APPROVED",
+      "admin_feedback": null,
+      "reviewed_at": null,
+      "reviewed_by": null
     },
     {
       "id": "s_local_2",
@@ -1319,7 +1375,11 @@
       "hasVideo": true,
       "hasPhotos": true,
       "moderationStatus": "approved",
-      "mediaModerationStatus": "clean"
+      "mediaModerationStatus": "clean",
+      "moderationState": "APPROVED",
+      "admin_feedback": null,
+      "reviewed_at": null,
+      "reviewed_by": null
     },
     {
       "id": "s_ww_1",
@@ -1406,7 +1466,11 @@
       "hasVideo": true,
       "hasPhotos": true,
       "moderationStatus": "approved",
-      "mediaModerationStatus": "clean"
+      "mediaModerationStatus": "clean",
+      "moderationState": "APPROVED",
+      "admin_feedback": null,
+      "reviewed_at": null,
+      "reviewed_by": null
     },
     {
       "id": "s_ww_2",
@@ -1489,7 +1553,11 @@
       "hasVideo": true,
       "hasPhotos": true,
       "moderationStatus": "approved",
-      "mediaModerationStatus": "clean"
+      "mediaModerationStatus": "clean",
+      "moderationState": "APPROVED",
+      "admin_feedback": null,
+      "reviewed_at": null,
+      "reviewed_by": null
     },
     {
       "id": "s_ww_3",
@@ -1577,7 +1645,11 @@
       "hasVideo": true,
       "hasPhotos": true,
       "moderationStatus": "approved",
-      "mediaModerationStatus": "clean"
+      "mediaModerationStatus": "clean",
+      "moderationState": "APPROVED",
+      "admin_feedback": null,
+      "reviewed_at": null,
+      "reviewed_by": null
     },
     {
       "id": "s_ww_4",
@@ -1665,7 +1737,11 @@
       "hasVideo": true,
       "hasPhotos": true,
       "moderationStatus": "approved",
-      "mediaModerationStatus": "clean"
+      "mediaModerationStatus": "clean",
+      "moderationState": "APPROVED",
+      "admin_feedback": null,
+      "reviewed_at": null,
+      "reviewed_by": null
     }
   ],
   "bookings": [
@@ -4133,17 +4209,17 @@
       "email": "guest@airbus.ke",
       "balance": 1000,
       "holdBalance": 0,
-      "lifetimeEarnings": 2500,
-      "lifetimeSpent": 1500,
-      "updatedAt": 1794405064148
+      "lifetimeEarnings": 6500,
+      "lifetimeSpent": 5000,
+      "updatedAt": 1795108405860
     },
     "admin@airbus.ke": {
       "email": "admin@airbus.ke",
       "balance": 6190,
       "holdBalance": 0,
-      "lifetimeEarnings": 41190,
+      "lifetimeEarnings": 44690,
       "lifetimeSpent": 0,
-      "updatedAt": 1794732514205
+      "updatedAt": 1795108405860
     },
     "treasury": {
       "email": "treasury",
@@ -4411,7 +4487,11 @@
       "views": 0,
       "status": "active",
       "createdAt": 1794233834412,
-      "updatedAt": 1794233834412
+      "updatedAt": 1794233834412,
+      "moderationState": "APPROVED",
+      "admin_feedback": null,
+      "reviewed_at": null,
+      "reviewed_by": null
     },
     {
       "id": "tdp_mw9c3qg4_m1vu",
@@ -4450,7 +4530,11 @@
       "views": 0,
       "status": "active",
       "createdAt": 1794233170084,
-      "updatedAt": 1794233170084
+      "updatedAt": 1794233170084,
+      "moderationState": "APPROVED",
+      "admin_feedback": null,
+      "reviewed_at": null,
+      "reviewed_by": null
     },
     {
       "id": "tdp_mw23f936_umtm",
@@ -4477,7 +4561,11 @@
       "views": 0,
       "status": "active",
       "createdAt": 1793795327682,
-      "updatedAt": 1793795327682
+      "updatedAt": 1793795327682,
+      "moderationState": "APPROVED",
+      "admin_feedback": null,
+      "reviewed_at": null,
+      "reviewed_by": null
     },
     {
       "id": "tdp_1",
@@ -4521,7 +4609,11 @@
       "videoThumbnails": [
         "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=800&q=80",
         "https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=800&q=80"
-      ]
+      ],
+      "moderationState": "APPROVED",
+      "admin_feedback": null,
+      "reviewed_at": null,
+      "reviewed_by": null
     },
     {
       "id": "tdp_2",
@@ -4552,7 +4644,11 @@
       "views": 480,
       "status": "active",
       "createdAt": 1792067306976,
-      "updatedAt": 1793363306976
+      "updatedAt": 1793363306976,
+      "moderationState": "APPROVED",
+      "admin_feedback": null,
+      "reviewed_at": null,
+      "reviewed_by": null
     },
     {
       "id": "tdp_3",
@@ -4585,7 +4681,11 @@
       "views": 620,
       "status": "active",
       "createdAt": 1792931306976,
-      "updatedAt": 1793708906976
+      "updatedAt": 1793708906976,
+      "moderationState": "APPROVED",
+      "admin_feedback": null,
+      "reviewed_at": null,
+      "reviewed_by": null
     },
     {
       "id": "tdp_4",
@@ -4615,7 +4715,11 @@
       "views": 295,
       "status": "active",
       "createdAt": 1792240106976,
-      "updatedAt": 1793536106976
+      "updatedAt": 1793536106976,
+      "moderationState": "APPROVED",
+      "admin_feedback": null,
+      "reviewed_at": null,
+      "reviewed_by": null
     },
     {
       "id": "tdp_5",
@@ -4645,7 +4749,11 @@
       "views": 410,
       "status": "active",
       "createdAt": 1792758506976,
-      "updatedAt": 1793622506976
+      "updatedAt": 1793622506976,
+      "moderationState": "APPROVED",
+      "admin_feedback": null,
+      "reviewed_at": null,
+      "reviewed_by": null
     },
     {
       "id": "tdp_6",
@@ -4675,7 +4783,11 @@
       "views": 220,
       "status": "active",
       "createdAt": 1793104106976,
-      "updatedAt": 1793708906976
+      "updatedAt": 1793708906976,
+      "moderationState": "APPROVED",
+      "admin_feedback": null,
+      "reviewed_at": null,
+      "reviewed_by": null
     }
   ],
   "tripDatingPaymentRequests": [],
@@ -6001,7 +6113,7 @@
       "paymentId": "pay_demo_1",
       "payment_id": "pay_demo_1",
       "paymentMethod": "wallet",
-      "impressions": 1424,
+      "impressions": 1425,
       "clicks": 86,
       "startsAt": 1793543326423,
       "endsAt": 1796135326423,
@@ -7778,6 +7890,30 @@
       "role": "admin",
       "createdAt": 1794732513609,
       "expiresAt": 1797324513609
+    },
+    "sess_admin_56c17118-bfe5-4142-a15c-40f53fd0e20f": {
+      "token": "sess_admin_56c17118-bfe5-4142-a15c-40f53fd0e20f",
+      "userId": "u_admin_master",
+      "userEmail": "kamalahari93@gmail.com",
+      "username": "KamalaHari",
+      "portal": "admin",
+      "role": "admin",
+      "createdAt": 1795108405777,
+      "lastActiveAt": 1795108405819,
+      "idleTimeoutMs": 1200000,
+      "expiresAt": 1797700405777
+    },
+    "sess_guest_ed176998-6f6b-433e-8701-e3340c3af9cf": {
+      "token": "sess_guest_ed176998-6f6b-433e-8701-e3340c3af9cf",
+      "userId": "u_guest",
+      "userEmail": "guest@airbus.ke",
+      "username": "SarahWanjiku",
+      "portal": "guest",
+      "role": "guest",
+      "createdAt": 1795108405795,
+      "lastActiveAt": 1795108405855,
+      "idleTimeoutMs": 1200000,
+      "expiresAt": 1797700405795
     }
   },
   "failedLoginAttempts": {
@@ -7829,5 +7965,147 @@
       "count": 1,
       "updatedAt": 1794732513552
     }
-  }
+  },
+  "appliedMigrations": [
+    {
+      "id": "v1_moderation_pipeline_sync",
+      "appliedAt": 1795107799127,
+      "snapshot": {
+        "staysSnapshot": [
+          {
+            "id": "s_1794732514224",
+            "status": "review",
+            "isApprovedByAdmin": false,
+            "moderationStatus": "pending"
+          },
+          {
+            "id": "s1",
+            "status": "live",
+            "moderationStatus": "approved"
+          },
+          {
+            "id": "s2",
+            "status": "live",
+            "moderationStatus": "approved"
+          },
+          {
+            "id": "s3",
+            "status": "live",
+            "moderationStatus": "approved"
+          },
+          {
+            "id": "s4",
+            "status": "live",
+            "moderationStatus": "approved"
+          },
+          {
+            "id": "s5",
+            "status": "live",
+            "moderationStatus": "approved"
+          },
+          {
+            "id": "s6",
+            "status": "live",
+            "moderationStatus": "approved"
+          },
+          {
+            "id": "s7",
+            "status": "live",
+            "moderationStatus": "approved"
+          },
+          {
+            "id": "s8",
+            "status": "live",
+            "moderationStatus": "approved"
+          },
+          {
+            "id": "s_plus_1",
+            "status": "live",
+            "isApprovedByAdmin": true,
+            "moderationStatus": "approved"
+          },
+          {
+            "id": "s_plus_2",
+            "status": "live",
+            "isApprovedByAdmin": true,
+            "moderationStatus": "approved"
+          },
+          {
+            "id": "s_local_1",
+            "status": "live",
+            "isApprovedByAdmin": true,
+            "moderationStatus": "approved"
+          },
+          {
+            "id": "s_local_2",
+            "status": "live",
+            "isApprovedByAdmin": true,
+            "moderationStatus": "approved"
+          },
+          {
+            "id": "s_ww_1",
+            "status": "live",
+            "isApprovedByAdmin": true,
+            "moderationStatus": "approved"
+          },
+          {
+            "id": "s_ww_2",
+            "status": "live",
+            "isApprovedByAdmin": true,
+            "moderationStatus": "approved"
+          },
+          {
+            "id": "s_ww_3",
+            "status": "live",
+            "isApprovedByAdmin": true,
+            "moderationStatus": "approved"
+          },
+          {
+            "id": "s_ww_4",
+            "status": "live",
+            "isApprovedByAdmin": true,
+            "moderationStatus": "approved"
+          }
+        ],
+        "tdpSnapshot": [
+          {
+            "id": "tdp_mw9chz1o_v3yd",
+            "status": "active"
+          },
+          {
+            "id": "tdp_mw9c3qg4_m1vu",
+            "status": "active"
+          },
+          {
+            "id": "tdp_mw23f936_umtm",
+            "status": "active"
+          },
+          {
+            "id": "tdp_1",
+            "status": "active"
+          },
+          {
+            "id": "tdp_2",
+            "status": "active"
+          },
+          {
+            "id": "tdp_3",
+            "status": "active"
+          },
+          {
+            "id": "tdp_4",
+            "status": "active"
+          },
+          {
+            "id": "tdp_5",
+            "status": "active"
+          },
+          {
+            "id": "tdp_6",
+            "status": "active"
+          }
+        ]
+      }
+    }
+  ]
 }

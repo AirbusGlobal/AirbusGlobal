@@ -18,6 +18,8 @@ export interface User {
   videos?: string[];
   idVerified: boolean;
   isVVVIP?: boolean;
+  isPlusVVVIP?: boolean;
+  vvvipExpiresAt?: number;
   vvvipSubscription?: {
     planName: string;
     billing: 'monthly' | 'annual';

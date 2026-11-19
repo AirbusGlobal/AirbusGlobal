@@ -1670,6 +1670,7 @@ export const api = {
     videoTrimEnd?: number;
     full_body_photo?: string;
     full_body_verified?: boolean;
+    clientSessionId?: string;
   }): Promise<{ profile: TripDatingProfile; message: string }> {
     return this.request<{ profile: TripDatingProfile; message: string }>('/api/trip-dating/profiles', {
       method: 'POST',

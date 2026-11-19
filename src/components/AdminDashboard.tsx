@@ -119,7 +119,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onUpdateAdminUser,
 }) => {
   const [tab, setTab] = useState<
-    'queue' | 'wallets' | 'ads' | 'plans' | 'listings' | 'media' | 'users' | 'reports' | 'reviews' | 'audit' | 'posts' | 'withdrawals' | 'settings' | 'treasury' | 'dormant' | 'negotiations' | 'trip-dating' | 'plus-local'
+    'queue' | 'review-queue' | 'wallets' | 'ads' | 'plans' | 'listings' | 'media' | 'users' | 'reports' | 'reviews' | 'audit' | 'posts' | 'withdrawals' | 'settings' | 'treasury' | 'dormant' | 'negotiations' | 'trip-dating' | 'plus-local'
   >('queue');
 
   // Plan adjustment form state
@@ -152,6 +152,33 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [listingRejectModalStay, setListingRejectModalStay] = useState<Stay | null>(null);
   const [listingRejectReason, setListingRejectReason] = useState('Listing does not meet content guidelines.');
   const [listingActionLoading, setListingActionLoading] = useState(false);
+
+  // Dedicated Admin Review Queue State (Listings & Trip Dating oldest pending first)
+  const [reviewQueue, setReviewQueue] = useState<{
+    stays: Stay[];
+    tripDating: TripDatingProfile[];
+    counts: { stays: number; tripDating: number; total: number };
+  }>({ stays: [], tripDating: [], counts: { stays: 0, tripDating: 0, total: 0 } });
+  const [reviewSubTab, setReviewSubTab] = useState<'stays' | 'trip-dating'>('stays');
+  const [reviewDeclineTarget, setReviewDeclineTarget] = useState<{
+    kind: 'stay' | 'trip_dating';
+    id: string;
+    title: string;
+  } | null>(null);
+  const [reviewFeedback, setReviewFeedback] = useState('');
+  const [reviewFeedbackError, setReviewFeedbackError] = useState<string | null>(null);
+  const [reviewActionBusy, setReviewActionBusy] = useState(false);
+  const [reviewPhotoLightbox, setReviewPhotoLightbox] = useState<{
+    title: string;
+    photos: string[];
+    idx: number;
+  } | null>(null);
+  const [datingModalPrompt, setDatingModalPrompt] = useState<{
+    kind: 'reject_request' | 'suspend_profile';
+    id: string;
+    label: string;
+  } | null>(null);
+  const [datingModalReason, setDatingModalReason] = useState('');
 
   // Adverts Moderation State
   const [adRejectModalId, setAdRejectModalId] = useState<string | null>(null);
@@ -367,6 +394,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     api.getAdminLocalProviders().then(res => {
       if (res?.providers) setLocalProvidersAdmin(res.providers);
     }).catch(() => {});
+    api.getAdminReviewQueue().then(res => {
+      if (res) setReviewQueue(res);
+    }).catch(() => {});
   };
 
   const handleDelistOwner = async (email: string) => {
@@ -403,6 +433,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     const interval = setInterval(() => {
       api.getLiveUpdates().then(res => {
         if (res && res.counts) setLiveCounts(res.counts);
+      }).catch(() => {});
+      api.getAdminReviewQueue().then(res => {
+        if (res) setReviewQueue(res);
       }).catch(() => {});
     }, 8000);
     return () => clearInterval(interval);
@@ -501,6 +534,24 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           {pendingPayments.length > 0 && (
             <span className="ml-1 px-1.5 py-0.5 rounded-full bg-rose-600 text-white text-[10px] font-black animate-pulse">
               {pendingPayments.length}
+            </span>
+          )}
+        </button>
+
+        {/* Dedicated Review Queue (Airbus Listings & Trip Dating) */}
+        <button
+          onClick={() => setTab('review-queue')}
+          className={`px-3.5 py-2 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ${
+            tab === 'review-queue'
+              ? 'bg-amber-500 text-stone-950 font-extrabold shadow-sm'
+              : 'text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800'
+          }`}
+        >
+          <ShieldCheck className="w-4 h-4 text-emerald-500" />
+          <span>Review Queue</span>
+          {reviewQueue.counts.total > 0 && (
+            <span className="ml-1 px-1.5 py-0.5 rounded-full bg-rose-600 text-white text-[10px] font-black animate-pulse">
+              {reviewQueue.counts.total}
             </span>
           )}
         </button>
@@ -736,6 +787,339 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <span>Negotiations ({threads.length})</span>
         </button>
       </div>
+
+      {/* DEDICATED REVIEW QUEUE TAB (Oldest Pending First) */}
+      {tab === 'review-queue' && (
+        <div className="space-y-5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-stone-200 dark:border-stone-800">
+            <div>
+              <h3 className="text-base font-extrabold text-stone-900 dark:text-white flex items-center gap-2">
+                <ShieldCheck className="w-5 h-5 text-emerald-500" />
+                <span>Admin Review Queue (Oldest Pending First)</span>
+                <span className="px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 text-xs font-bold">
+                  {reviewQueue.counts.total} pending
+                </span>
+              </h3>
+              <p className="text-xs text-stone-500 mt-0.5">
+                Inspect full video and full-resolution photos before approving or declining with required creator feedback.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={loadAdminData}
+              className="self-start sm:self-auto px-3 py-1.5 rounded-xl border border-stone-200 dark:border-stone-800 text-xs font-bold text-stone-700 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800 flex items-center gap-1.5 cursor-pointer"
+            >
+              <RefreshCw className="w-3.5 h-3.5 text-stone-400" />
+              <span>Refresh Queue</span>
+            </button>
+          </div>
+
+          {/* Two Sub-Tabs: Airbus Listings & Trip Dating Posts */}
+          <div className="flex items-center gap-2 border-b border-stone-200 dark:border-stone-800 pb-3">
+            <button
+              type="button"
+              onClick={() => setReviewSubTab('stays')}
+              className={`px-4 py-2 rounded-xl text-xs font-extrabold transition cursor-pointer flex items-center gap-2 ${
+                reviewSubTab === 'stays'
+                  ? 'bg-emerald-600 text-white shadow-sm'
+                  : 'bg-stone-100 dark:bg-stone-900 text-stone-600 dark:text-stone-300 hover:bg-stone-200 dark:hover:bg-stone-800'
+              }`}
+            >
+              <Building className="w-4 h-4" />
+              <span>Airbus Listings ({reviewQueue.stays.length})</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setReviewSubTab('trip-dating')}
+              className={`px-4 py-2 rounded-xl text-xs font-extrabold transition cursor-pointer flex items-center gap-2 ${
+                reviewSubTab === 'trip-dating'
+                  ? 'bg-rose-600 text-white shadow-sm'
+                  : 'bg-stone-100 dark:bg-stone-900 text-stone-600 dark:text-stone-300 hover:bg-stone-200 dark:hover:bg-stone-800'
+              }`}
+            >
+              <Flame className="w-4 h-4" />
+              <span>Trip Dating Posts ({reviewQueue.tripDating.length})</span>
+            </button>
+          </div>
+
+          {/* Sub-Tab 1: Airbus Listings */}
+          {reviewSubTab === 'stays' && (
+            <div className="space-y-4">
+              {reviewQueue.stays.length === 0 ? (
+                <div className="p-10 text-center bg-white dark:bg-[#15171e] rounded-3xl border border-stone-200 dark:border-stone-800 text-xs text-stone-500">
+                  No Airbus Listings pending review.
+                </div>
+              ) : (
+                reviewQueue.stays.map((stay, idx) => {
+                  const stayPhotos: string[] = Array.from(
+                    new Set(
+                      [
+                        ...(stay.media?.photos?.map(p => p.url) || []),
+                        ...(stay.images || []),
+                      ].filter(Boolean)
+                    )
+                  );
+                  return (
+                    <div
+                      key={stay.id}
+                      className="p-5 bg-white dark:bg-[#15171e] rounded-3xl border border-stone-200 dark:border-stone-800 shadow-sm space-y-4"
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 text-[10px] font-bold">
+                              Queue #{idx + 1} · Submitted {new Date(stay.createdAt).toLocaleString()}
+                            </span>
+                            {stay.isPlusVVVIP && (
+                              <span className="px-2 py-0.5 rounded-full bg-purple-600 text-white text-[10px] font-bold">
+                                AirBus Plus VVVIP
+                              </span>
+                            )}
+                          </div>
+                          <h4 className="text-base font-extrabold text-stone-900 dark:text-white">{stay.title}</h4>
+                          <p className="text-xs text-stone-500">
+                            {stay.location} · KES {stay.price.toLocaleString()}/night · Host: {stay.hostName || stay.owner || stay.ownerEmail} ({stay.ownerEmail})
+                          </p>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button
+                            type="button"
+                            disabled={reviewActionBusy}
+                            onClick={async () => {
+                              setReviewActionBusy(true);
+                              try {
+                                await api.moderateReviewQueueStay(stay.id, 'approve');
+                                showToast?.(`Approved listing "${stay.title}". It is now live!`);
+                                loadAdminData();
+                              } catch (err: any) {
+                                showToast?.(err.message || 'Approval failed');
+                              } finally {
+                                setReviewActionBusy(false);
+                              }
+                            }}
+                            className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                          >
+                            <CheckCircle2 className="w-4 h-4" />
+                            <span>Approve</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            disabled={reviewActionBusy}
+                            onClick={() => {
+                              setReviewDeclineTarget({ kind: 'stay', id: stay.id, title: stay.title });
+                              setReviewFeedback('');
+                              setReviewFeedbackError(null);
+                            }}
+                            className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-extrabold flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                          >
+                            <XCircle className="w-4 h-4" />
+                            <span>Decline</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      <p className="text-xs text-stone-600 dark:text-stone-300 bg-stone-50 dark:bg-stone-900 p-3 rounded-2xl border border-stone-200 dark:border-stone-800">
+                        {stay.description}
+                      </p>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {/* Playable Video Player */}
+                        <div className="space-y-1.5">
+                          <div className="text-[11px] font-bold text-stone-500 uppercase">Video Tour</div>
+                          {stay.videoUrl ? (
+                            <video
+                              src={stay.videoUrl}
+                              poster={stay.thumbnailUrl || stay.media?.video?.thumbnail}
+                              controls
+                              playsInline
+                              preload="metadata"
+                              className="w-full max-h-72 rounded-2xl bg-black border border-stone-200 dark:border-stone-800 object-contain"
+                            />
+                          ) : (
+                            <div className="h-36 rounded-2xl border border-dashed border-stone-300 dark:border-stone-700 flex items-center justify-center text-xs text-stone-400">
+                              No video uploaded
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Full-Resolution Photo Thumbnails */}
+                        <div className="space-y-1.5">
+                          <div className="text-[11px] font-bold text-stone-500 uppercase">
+                            Photos ({stayPhotos.length}) — Click to inspect full resolution
+                          </div>
+                          {stayPhotos.length > 0 ? (
+                            <div className="grid grid-cols-3 gap-2">
+                              {stayPhotos.map((pUrl: string, pIdx: number) => (
+                                <button
+                                  key={pIdx}
+                                  type="button"
+                                  onClick={() =>
+                                    setReviewPhotoLightbox({
+                                      title: stay.title,
+                                      photos: stayPhotos,
+                                      idx: pIdx,
+                                    })
+                                  }
+                                  className="aspect-[4/3] rounded-xl overflow-hidden border border-stone-200 dark:border-stone-700 hover:ring-2 hover:ring-amber-500 cursor-pointer"
+                                >
+                                  <img src={pUrl} alt="" className="w-full h-full object-cover" />
+                                </button>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="h-36 rounded-2xl border border-dashed border-stone-300 dark:border-stone-700 flex items-center justify-center text-xs text-stone-400">
+                              No photos uploaded
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          )}
+
+          {/* Sub-Tab 2: Trip Dating Posts */}
+          {reviewSubTab === 'trip-dating' && (
+            <div className="space-y-4">
+              {reviewQueue.tripDating.length === 0 ? (
+                <div className="p-10 text-center bg-white dark:bg-[#15171e] rounded-3xl border border-stone-200 dark:border-stone-800 text-xs text-stone-500">
+                  No Trip Dating posts pending review.
+                </div>
+              ) : (
+                reviewQueue.tripDating.map((profile, idx) => {
+                  const profilePhotos = Array.from(
+                    new Set(
+                      [profile.full_body_photo, profile.primaryPhoto, ...(profile.photos || [])].filter(
+                        Boolean
+                      ) as string[]
+                    )
+                  );
+                  const profileVideo = profile.videoUrl || profile.videos?.[0];
+                  return (
+                    <div
+                      key={profile.id}
+                      className="p-5 bg-white dark:bg-[#15171e] rounded-3xl border border-stone-200 dark:border-stone-800 shadow-sm space-y-4"
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="px-2 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950 text-rose-800 dark:text-rose-300 text-[10px] font-bold">
+                              Queue #{idx + 1} · Submitted {new Date(profile.createdAt).toLocaleString()}
+                            </span>
+                            <span className="px-2 py-0.5 rounded-full bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 text-[10px] font-bold capitalize">
+                              {profile.gender}, {profile.age} yrs · {profile.city}
+                            </span>
+                          </div>
+                          <h4 className="text-base font-extrabold text-stone-900 dark:text-white">
+                            {profile.fullName}
+                          </h4>
+                          <p className="text-xs text-stone-500">
+                            Intention: {profile.datingIntention?.replace(/_/g, ' ')} · Location: {profile.location} · Contact: {profile.phoneNumber}
+                          </p>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button
+                            type="button"
+                            disabled={reviewActionBusy}
+                            onClick={async () => {
+                              setReviewActionBusy(true);
+                              try {
+                                await api.moderateReviewQueueTripDating(profile.id, 'approve');
+                                showToast?.(`Approved ${profile.fullName}. Profile is now live!`);
+                                loadAdminData();
+                              } catch (err: any) {
+                                showToast?.(err.message || 'Approval failed');
+                              } finally {
+                                setReviewActionBusy(false);
+                              }
+                            }}
+                            className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                          >
+                            <CheckCircle2 className="w-4 h-4" />
+                            <span>Approve</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            disabled={reviewActionBusy}
+                            onClick={() => {
+                              setReviewDeclineTarget({
+                                kind: 'trip_dating',
+                                id: profile.id,
+                                title: profile.fullName,
+                              });
+                              setReviewFeedback('');
+                              setReviewFeedbackError(null);
+                            }}
+                            className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-extrabold flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                          >
+                            <XCircle className="w-4 h-4" />
+                            <span>Decline</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      <p className="text-xs text-stone-600 dark:text-stone-300 bg-stone-50 dark:bg-stone-900 p-3 rounded-2xl border border-stone-200 dark:border-stone-800">
+                        {profile.description}
+                        {profile.lookingFor ? ` — Looking for: ${profile.lookingFor}` : ''}
+                      </p>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-1.5">
+                          <div className="text-[11px] font-bold text-stone-500 uppercase">9:16 Video</div>
+                          {profileVideo ? (
+                            <video
+                              src={profileVideo}
+                              poster={profile.videoThumbnail || profile.primaryPhoto}
+                              controls
+                              playsInline
+                              preload="metadata"
+                              className="w-full max-h-72 rounded-2xl bg-black border border-stone-200 dark:border-stone-800 object-contain"
+                            />
+                          ) : (
+                            <div className="h-36 rounded-2xl border border-dashed border-stone-300 dark:border-stone-700 flex items-center justify-center text-xs text-stone-400">
+                              No video uploaded
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <div className="text-[11px] font-bold text-stone-500 uppercase">
+                            Photos ({profilePhotos.length}) — Click to inspect full resolution
+                          </div>
+                          <div className="grid grid-cols-3 gap-2">
+                            {profilePhotos.map((pUrl, pIdx) => (
+                              <button
+                                key={pIdx}
+                                type="button"
+                                onClick={() =>
+                                  setReviewPhotoLightbox({
+                                    title: profile.fullName,
+                                    photos: profilePhotos,
+                                    idx: pIdx,
+                                  })
+                                }
+                                className="aspect-[3/4] rounded-xl overflow-hidden border border-stone-200 dark:border-stone-700 hover:ring-2 hover:ring-rose-500 cursor-pointer"
+                              >
+                                <img src={pUrl} alt="" className="w-full h-full object-cover" />
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* TAB 1: PAYMENTS MODULE & AUDIT LEDGER */}
       {tab === 'queue' && (
@@ -3542,7 +3926,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 Trip Dating – A Safer Way to Meet Like-Minded Singles
               </h3>
               <p className="text-xs text-rose-200/80 mt-0.5">
-                All contact numbers verified and unlocked via M-Pesa Till 943210.
+                All contact numbers are unlocked via AirBus Wallet (KES 50 for a 10-minute window).
               </p>
             </div>
             <button
@@ -3599,16 +3983,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </div>
           </div>
 
-          {/* SECTION 1: KES 50 PAYMENT REQUESTS (TILL 943210 VERIFICATION) */}
+          {/* SECTION 1: KES 50 CONTACT UNLOCK LOGS & LEGACY REQUESTS */}
           <div className="bg-white dark:bg-[#15171e] rounded-2xl border border-stone-200 dark:border-stone-800 p-5 space-y-4">
             <div className="flex items-center justify-between">
               <div>
                 <h4 className="font-bold text-stone-900 dark:text-white flex items-center gap-2">
                   <CreditCard className="w-4 h-4 text-emerald-500" />
-                  KES 50 Contact Unlock Requests (Buy Goods Till 943210)
+                  KES 50 Contact Unlock Requests (Wallet &amp; Legacy)
                 </h4>
                 <p className="text-xs text-stone-500 dark:text-stone-400">
-                  Approving a request activates an automatic 10-minute temporary unlock countdown window for the requester.
+                  Contact unlocks now process immediately from AirBus Wallet for a 10-minute window.
                 </p>
               </div>
               <span className="text-xs font-mono px-2.5 py-1 bg-stone-100 dark:bg-stone-800 rounded-lg text-stone-600 dark:text-stone-300">
@@ -3617,7 +4001,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </div>
 
             {datingRequests.length === 0 ? (
-              <p className="text-xs text-stone-400 py-6 text-center">No payment requests received yet.</p>
+              <p className="text-xs text-stone-400 py-6 text-center">No contact unlock requests logged yet.</p>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-xs text-left">
@@ -3626,7 +4010,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       <th className="pb-2 font-semibold">Target Member</th>
                       <th className="pb-2 font-semibold">Requester</th>
                       <th className="pb-2 font-semibold">Payer Phone</th>
-                      <th className="pb-2 font-semibold">M-Pesa Code</th>
+                      <th className="pb-2 font-semibold">Reference Code</th>
                       <th className="pb-2 font-semibold">Amount</th>
                       <th className="pb-2 font-semibold">Status</th>
                       <th className="pb-2 font-semibold text-right">Actions</th>
@@ -3680,19 +4064,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                 Approve (Unlock 10m)
                               </button>
                               <button
-                                onClick={async () => {
-                                  const reason = prompt('Reason for rejection:');
-                                  if (!reason) return;
-                                  try {
-                                    setActionLoading(true);
-                                    await api.rejectAdminTripDatingRequest(req.id, reason);
-                                    showToast?.(`Rejected payment request for ${req.profileName}`);
-                                    loadAdminData();
-                                  } catch (err: any) {
-                                    showToast?.(err.message || 'Rejection failed');
-                                  } finally {
-                                    setActionLoading(false);
-                                  }
+                                onClick={() => {
+                                  setDatingModalPrompt({
+                                    kind: 'reject_request',
+                                    id: req.id,
+                                    label: req.profileName || req.id,
+                                  });
+                                  setDatingModalReason('');
                                 }}
                                 className="px-2.5 py-1 bg-stone-200 dark:bg-stone-800 hover:bg-red-600 hover:text-white text-stone-600 dark:text-stone-300 rounded-lg font-bold text-[11px] transition cursor-pointer"
                               >
@@ -3824,18 +4202,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
                           {p.status === 'active' && (
                             <button
-                              onClick={async () => {
-                                const reason = prompt('Reason for suspension (optional):');
-                                try {
-                                  setActionLoading(true);
-                                  await api.moderateAdminTripDatingProfile(p.id, 'suspended', reason || undefined);
-                                  showToast?.(`Suspended profile for ${p.fullName}.`);
-                                  loadAdminData();
-                                } catch (err: any) {
-                                  showToast?.(err.message || 'Action failed');
-                                } finally {
-                                  setActionLoading(false);
-                                }
+                              onClick={() => {
+                                setDatingModalPrompt({
+                                  kind: 'suspend_profile',
+                                  id: p.id,
+                                  label: p.fullName,
+                                });
+                                setDatingModalReason('');
                               }}
                               className="px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-stone-950 rounded-lg text-[10px] font-bold transition cursor-pointer"
                             >
@@ -4447,6 +4820,214 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 className="px-5 py-2 rounded-full bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow-md cursor-pointer disabled:opacity-50"
               >
                 {processingPayment ? 'Processing...' : 'Confirm Decline & Notify'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* REVIEW QUEUE DECLINE FEEDBACK MODAL */}
+      {reviewDeclineTarget && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-[#15171e] text-stone-900 dark:text-stone-100 rounded-3xl p-6 max-w-md w-full shadow-2xl border border-stone-200 dark:border-stone-800 space-y-4">
+            <div className="flex items-center gap-2 text-rose-600">
+              <XCircle className="w-6 h-6" />
+              <h4 className="text-base font-extrabold text-stone-900 dark:text-white">
+                Decline Submission
+              </h4>
+            </div>
+
+            <div className="p-3 bg-stone-50 dark:bg-stone-900 rounded-2xl text-xs text-stone-600 dark:text-stone-300">
+              Item: <strong className="text-stone-900 dark:text-white">{reviewDeclineTarget.title}</strong>
+            </div>
+
+            <div>
+              <label className="text-xs font-bold text-stone-700 dark:text-stone-300 block mb-1">
+                Creator Feedback (admin_feedback) *
+              </label>
+              <textarea
+                rows={4}
+                value={reviewFeedback}
+                onChange={e => {
+                  setReviewFeedback(e.target.value);
+                  if (reviewFeedbackError) setReviewFeedbackError(null);
+                }}
+                placeholder="Explain clearly what needs to be fixed before resubmitting..."
+                className="w-full px-3 py-2 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-xs outline-none focus:border-rose-500"
+              />
+            </div>
+
+            {reviewFeedbackError && (
+              <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs">
+                {reviewFeedbackError}
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                disabled={reviewActionBusy}
+                onClick={() => {
+                  setReviewDeclineTarget(null);
+                  setReviewFeedback('');
+                  setReviewFeedbackError(null);
+                }}
+                className="px-4 py-2 rounded-full border border-stone-200 dark:border-stone-700 text-xs font-bold text-stone-600 hover:bg-stone-100 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={reviewActionBusy}
+                onClick={async () => {
+                  const trimmed = reviewFeedback.trim();
+                  if (!trimmed) {
+                    setReviewFeedbackError('Feedback is required when declining a submission.');
+                    return;
+                  }
+                  setReviewActionBusy(true);
+                  setReviewFeedbackError(null);
+                  try {
+                    if (reviewDeclineTarget.kind === 'stay') {
+                      await api.moderateReviewQueueStay(reviewDeclineTarget.id, 'decline', trimmed);
+                    } else {
+                      await api.moderateReviewQueueTripDating(reviewDeclineTarget.id, 'decline', trimmed);
+                    }
+                    showToast?.(`Declined "${reviewDeclineTarget.title}" with creator feedback.`);
+                    setReviewDeclineTarget(null);
+                    setReviewFeedback('');
+                    loadAdminData();
+                  } catch (err: any) {
+                    setReviewFeedbackError(err.message || 'Decline failed.');
+                  } finally {
+                    setReviewActionBusy(false);
+                  }
+                }}
+                className="px-5 py-2 rounded-full bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow-md cursor-pointer disabled:opacity-50"
+              >
+                {reviewActionBusy ? 'Submitting...' : 'Confirm Decline'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* REVIEW QUEUE FULL-RES PHOTO LIGHTBOX */}
+      {reviewPhotoLightbox && (
+        <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="relative max-w-3xl w-full bg-neutral-950 border border-neutral-800 rounded-3xl p-4 space-y-3">
+            <div className="flex items-center justify-between text-xs text-white">
+              <span className="font-bold">
+                {reviewPhotoLightbox.title} — Photo {reviewPhotoLightbox.idx + 1} / {reviewPhotoLightbox.photos.length}
+              </span>
+              <button
+                type="button"
+                onClick={() => setReviewPhotoLightbox(null)}
+                className="p-1.5 rounded-full bg-neutral-800 hover:bg-neutral-700 text-white cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="relative flex items-center justify-center bg-black rounded-2xl overflow-hidden max-h-[75vh]">
+              <img
+                src={reviewPhotoLightbox.photos[reviewPhotoLightbox.idx]}
+                alt=""
+                className="max-h-[72vh] max-w-full object-contain"
+              />
+            </div>
+            {reviewPhotoLightbox.photos.length > 1 && (
+              <div className="flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setReviewPhotoLightbox(prev =>
+                      prev
+                        ? {
+                            ...prev,
+                            idx: (prev.idx - 1 + prev.photos.length) % prev.photos.length,
+                          }
+                        : null
+                    )
+                  }
+                  className="px-3 py-1.5 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-white text-xs font-bold cursor-pointer"
+                >
+                  Previous
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setReviewPhotoLightbox(prev =>
+                      prev
+                        ? {
+                            ...prev,
+                            idx: (prev.idx + 1) % prev.photos.length,
+                          }
+                        : null
+                    )
+                  }
+                  className="px-3 py-1.5 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-white text-xs font-bold cursor-pointer"
+                >
+                  Next
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* TRIP DATING MODAL PROMPT (No window.prompt) */}
+      {datingModalPrompt && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-[#15171e] text-stone-900 dark:text-stone-100 rounded-3xl p-6 max-w-md w-full shadow-2xl border border-stone-200 dark:border-stone-800 space-y-4">
+            <h4 className="text-base font-extrabold">
+              {datingModalPrompt.kind === 'reject_request'
+                ? `Reject Request for ${datingModalPrompt.label}`
+                : `Suspend Profile: ${datingModalPrompt.label}`}
+            </h4>
+            <textarea
+              rows={3}
+              value={datingModalReason}
+              onChange={e => setDatingModalReason(e.target.value)}
+              placeholder="Enter reason..."
+              className="w-full px-3 py-2 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-xs outline-none focus:border-rose-500"
+            />
+            <div className="flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setDatingModalPrompt(null)}
+                className="px-4 py-2 rounded-full border border-stone-200 dark:border-stone-700 text-xs font-bold cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={actionLoading}
+                onClick={async () => {
+                  try {
+                    setActionLoading(true);
+                    if (datingModalPrompt.kind === 'reject_request') {
+                      if (!datingModalReason.trim()) return;
+                      await api.rejectAdminTripDatingRequest(datingModalPrompt.id, datingModalReason.trim());
+                      showToast?.(`Rejected request for ${datingModalPrompt.label}`);
+                    } else {
+                      await api.moderateAdminTripDatingProfile(
+                        datingModalPrompt.id,
+                        'suspended',
+                        datingModalReason.trim() || undefined
+                      );
+                      showToast?.(`Suspended profile for ${datingModalPrompt.label}.`);
+                    }
+                    setDatingModalPrompt(null);
+                    setDatingModalReason('');
+                    loadAdminData();
+                  } catch (err: any) {
+                    showToast?.(err.message || 'Action failed');
+                  } finally {
+                    setActionLoading(false);
+                  }
+                }}
+                className="px-5 py-2 rounded-full bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold cursor-pointer disabled:opacity-50"
+              >
+                Confirm
               </button>
             </div>
           </div>

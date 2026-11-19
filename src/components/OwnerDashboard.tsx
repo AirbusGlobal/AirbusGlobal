@@ -1370,7 +1370,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                   s.moderationState ||
                   (s.status === 'live' && s.isApprovedByAdmin !== false
                     ? 'APPROVED'
-                    : s.status === 'rejected'
+                    : (s.status as string) === 'rejected'
                     ? 'DECLINED'
                     : 'PENDING');
                 const isExpired = modState === 'APPROVED' && (s.status === 'expired' || !isPlanActive);

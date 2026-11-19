@@ -3769,8 +3769,11 @@ class DatabaseStore {
           if (!this.isStayApprovedPublic(s)) return false;
           if (s.isPlusVVVIP && !canSeePlus) return false;
           if (s.ownerEmail) {
-            const plan = this.getHostPlan(s.ownerEmail);
-            if (plan.status !== 'active' || (plan.expiresAt > 0 && plan.expiresAt <= Date.now())) return false;
+            const ownerUser = this.findUserByEmail(s.ownerEmail);
+            if (!ownerUser || ownerUser.role !== 'admin') {
+              const plan = this.getHostPlan(s.ownerEmail);
+              if (plan.status !== 'active' || (plan.expiresAt > 0 && plan.expiresAt <= Date.now())) return false;
+            }
           }
           return true;
         });
@@ -3961,8 +3964,10 @@ class DatabaseStore {
       if (!isOwner) return undefined;
     }
     if (s.ownerEmail) {
+      const ownerUser = this.findUserByEmail(s.ownerEmail);
+      const isAdminOwner = Boolean(ownerUser && ownerUser.role === 'admin');
       const plan = this.getHostPlan(s.ownerEmail);
-      const isExpired = plan.status !== 'active' || (plan.expiresAt > 0 && plan.expiresAt < Date.now());
+      const isExpired = !isAdminOwner && (plan.status !== 'active' || (plan.expiresAt > 0 && plan.expiresAt < Date.now()));
       return this.hydrateStayAudio(
         {
           ...s,

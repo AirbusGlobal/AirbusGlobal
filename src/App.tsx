@@ -253,9 +253,11 @@ export default function App() {
     const canViewPlus = Boolean(
       user &&
         (user.role === 'admin' ||
-          user.isVVVIP ||
-          user.isPlusVVVIP ||
-          (user.vvvipExpiresAt && user.vvvipExpiresAt > Date.now()))
+          (user.role === 'guest'
+            ? user.isVVVIP &&
+              user.vvvipSubscription?.status === 'active' &&
+              user.vvvipSubscription.expiresAt > Date.now()
+            : user.isVVVIP))
     );
 
     const applyRealtimeEvent = (evt: { id?: string; type: 'stay' | 'trip_dating'; item: any; createdAt?: number }) => {
@@ -312,7 +314,14 @@ export default function App() {
         es?.close();
       } catch {}
     };
-  }, [user?.email, user?.role, user?.isVVVIP, user?.isPlusVVVIP, user?.vvvipExpiresAt, isOnAdminRoute]);
+  }, [
+    user?.email,
+    user?.role,
+    user?.isVVVIP,
+    user?.vvvipSubscription?.status,
+    user?.vvvipSubscription?.expiresAt,
+    isOnAdminRoute,
+  ]);
 
   const handleLoadMoreStays = async () => {
     if (!staysHasMore || !staysNextCursor || loadingMoreStays) return;
@@ -1403,7 +1412,7 @@ export default function App() {
               setAuthModalOpen(true);
             }}
             userWalletBalance={walletBalance}
-            onWalletBalanceUpdated={bal => setWalletBalance(bal)}
+            onWalletBalanceUpdated={(bal: number) => setWalletBalance(bal)}
             onOpenWalletDeposit={() => {
               setPlanWalletMode(true);
               setPlanModalOpen(true);
