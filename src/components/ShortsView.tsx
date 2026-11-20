@@ -43,6 +43,7 @@ import {
 import { api } from '../api';
 import { VerifiedBadge } from './VerifiedBadge';
 import { SHORTS_Z_INDEX, SHORTS_ZONES, SHORTS_TOUCH_TARGET } from '../config/shortsLayoutConfig';
+import { SharedVideoPlayer } from './shared/SharedVideoPlayer';
 
 interface ShortsViewProps {
   stays: Stay[];
@@ -788,13 +789,17 @@ export const ShortsView: React.FC<ShortsViewProps> = ({
               allowFullScreen
             />
           ) : currentItem.videoUrl ? (
-            <video
-              ref={videoRef}
+            <SharedVideoPlayer
+              externalRef={videoRef}
               src={currentItem.videoUrl}
               poster={currentItem.thumbnailUrl}
+              compact
+              controls={false}
               playsInline
               preload="auto"
               muted={isMuted}
+              className="w-full h-full"
+              videoClassName="w-full h-full object-cover cursor-pointer"
               onClick={togglePlay}
               onPlay={() => {
                 setIsPlaying(true);
@@ -805,14 +810,11 @@ export const ShortsView: React.FC<ShortsViewProps> = ({
               }}
               onPause={() => setIsPlaying(false)}
               onEnded={handleVideoEnded}
-              onTimeUpdate={() => {
-                if (!videoRef.current || !videoRef.current.duration) return;
-                setCurrentTimeSec(videoRef.current.currentTime);
-                setPlaybackProgress(
-                  Math.min(100, (videoRef.current.currentTime / videoRef.current.duration) * 100)
-                );
+              onTimeUpdate={(cur, dur) => {
+                if (!dur) return;
+                setCurrentTimeSec(cur);
+                setPlaybackProgress(Math.min(100, (cur / dur) * 100));
               }}
-              className="w-full h-full object-cover cursor-pointer"
             />
           ) : (
             <img

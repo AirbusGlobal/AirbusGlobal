@@ -33,6 +33,7 @@ import {
   playNotificationChime,
   isNotificationSupported,
 } from '../utils/notifications';
+import { SharedVideoPlayer } from './shared/SharedVideoPlayer';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -82,147 +83,26 @@ const compressImageFile = (file: File): Promise<string> => {
   });
 };
 
-// Client-Side 9:16 Video Compression & Optimization
-const compressVideoFile = (file: File): Promise<{
-  compressedUrl: string;
-  originalMb: number;
-  compressedMb: number;
-  savings: number;
-  duration: number;
-}> => {
-  const originalMb = Number((file.size / (1024 * 1024)).toFixed(1));
-  const rawUrl = URL.createObjectURL(file);
-
-  return new Promise((resolve) => {
+// Lightweight browser metadata probe before server-side FFmpeg transcoding
+const probeVideoDuration = (file: File): Promise<number> =>
+  new Promise((resolve) => {
+    const rawUrl = URL.createObjectURL(file);
     const video = document.createElement('video');
-    video.preload = 'auto';
-    video.src = rawUrl;
+    video.preload = 'metadata';
     video.muted = true;
     video.playsInline = true;
-
-    video.onloadedmetadata = () => {
-      const dur = Math.min(60, Math.round(video.duration) || 60);
-      const canvas = document.createElement('canvas');
-      canvas.width = 540;
-      canvas.height = 960; // 9:16 standard mobile resolution
-      const ctx = canvas.getContext('2d');
-
-      const isSupported =
-        typeof MediaRecorder !== 'undefined' &&
-        typeof (canvas as any).captureStream === 'function';
-
-      if (!isSupported || !ctx) {
-        resolve({
-          compressedUrl: rawUrl,
-          originalMb,
-          compressedMb: Math.max(0.5, Number((originalMb * 0.45).toFixed(1))),
-          savings: 55,
-          duration: dur,
-        });
-        return;
-      }
-
+    const finish = (dur: number) => {
       try {
-        const stream = (canvas as any).captureStream(24);
-        let mimeType = 'video/webm;codecs=vp8';
-        if (!MediaRecorder.isTypeSupported(mimeType)) {
-          mimeType = 'video/webm';
-          if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = '';
-        }
-
-        const options: MediaRecorderOptions = {
-          videoBitsPerSecond: 1200000, // 1.2 Mbps optimized for storage
-        };
-        if (mimeType) options.mimeType = mimeType;
-
-        const recorder = new MediaRecorder(stream, options);
-        const chunks: Blob[] = [];
-
-        recorder.ondataavailable = (e) => {
-          if (e.data && e.data.size > 0) chunks.push(e.data);
-        };
-
-        recorder.onstop = () => {
-          const finalBlob = new Blob(chunks, { type: mimeType || 'video/webm' });
-          const compressedMb = Number((finalBlob.size / (1024 * 1024)).toFixed(1));
-          const savings = Math.max(15, Math.round(((originalMb - compressedMb) / Math.max(originalMb, 0.1)) * 100));
-          const compressedUrl = URL.createObjectURL(finalBlob);
-          resolve({
-            compressedUrl,
-            originalMb,
-            compressedMb,
-            savings,
-            duration: dur,
-          });
-        };
-
-        recorder.start(100);
-        video.currentTime = 0;
-        video.play().catch(() => {});
-
-        const sampleDuration = Math.min(dur, 6);
-        let animId: number;
-
-        const drawFrame = () => {
-          if (video.currentTime >= sampleDuration || video.ended) {
-            cancelAnimationFrame(animId);
-            video.pause();
-            if (recorder.state !== 'inactive') {
-              recorder.stop();
-            }
-            return;
-          }
-
-          // Center-crop to 9:16
-          const vw = video.videoWidth || 540;
-          const vh = video.videoHeight || 960;
-          const targetAspect = 9 / 16;
-          const currentAspect = vw / vh;
-          let sx = 0, sy = 0, sw = vw, sh = vh;
-
-          if (currentAspect > targetAspect) {
-            sw = vh * targetAspect;
-            sx = (vw - sw) / 2;
-          } else {
-            sh = vw / targetAspect;
-            sy = (vh - sh) / 2;
-          }
-
-          ctx.drawImage(video, sx, sy, sw, sh, 0, 0, 540, 960);
-          animId = requestAnimationFrame(drawFrame);
-        };
-
-        animId = requestAnimationFrame(drawFrame);
-
-        setTimeout(() => {
-          if (recorder.state !== 'inactive') {
-            cancelAnimationFrame(animId);
-            video.pause();
-            recorder.stop();
-          }
-        }, (sampleDuration + 1) * 1000);
-      } catch (err) {
-        resolve({
-          compressedUrl: rawUrl,
-          originalMb,
-          compressedMb: Math.max(0.5, Number((originalMb * 0.4).toFixed(1))),
-          savings: 60,
-          duration: dur,
-        });
-      }
+        URL.revokeObjectURL(rawUrl);
+      } catch {}
+      resolve(dur);
     };
-
-    video.onerror = () => {
-      resolve({
-        compressedUrl: rawUrl,
-        originalMb,
-        compressedMb: originalMb,
-        savings: 0,
-        duration: 30,
-      });
+    video.onloadedmetadata = () => {
+      finish(Math.round(video.duration) || 0);
     };
+    video.onerror = () => finish(0);
+    video.src = rawUrl;
   });
-};
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
   isOpen,
@@ -393,24 +273,39 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     if (!files || files.length === 0) return;
 
     if (videos.length >= 2) {
-      setMediaError('A single user can upload maximum 2 videos (9:16 vertical, max 60s). Please remove a video first.');
+      setMediaError('A single user can upload maximum 2 videos (max 60s, 150MB). Please remove a video first.');
       return;
     }
 
     const file = files[0];
-    setCompressingVideo(true);
+    if (file.size > 150 * 1024 * 1024) {
+      setMediaError('Video file exceeds 150MB limit.');
+      return;
+    }
 
+    setCompressingVideo(true);
     try {
-      const res = await compressVideoFile(file);
+      const duration = await probeVideoDuration(file);
+      if (duration > 65) {
+        setMediaError('Video duration exceeds 60 seconds limit.');
+        return;
+      }
+
+      const uploaded = await api.uploadMediaWithProgress(file, 'video', file.name);
+      const originalMb = Number((file.size / (1024 * 1024)).toFixed(2));
+      const storedBytes = uploaded.mediaAsset?.size_bytes || uploaded.bytes || file.size;
+      const compressedMb = Number((storedBytes / (1024 * 1024)).toFixed(2));
+      const savings = Math.max(0, Math.round(((originalMb - compressedMb) / Math.max(originalMb, 0.1)) * 100));
+
       setVideoCompressionStats({
-        originalMb: res.originalMb,
-        compressedMb: res.compressedMb,
-        savings: res.savings,
+        originalMb,
+        compressedMb,
+        savings,
       });
-      setVideos(prev => [...prev, res.compressedUrl].slice(0, 2));
-      showToast?.(`Video compressed & optimized to 9:16! (-${res.savings}% size reduction)`);
+      setVideos(prev => [...prev, uploaded.url].slice(0, 2));
+      showToast?.('Video uploaded & optimized to MP4 (H.264)!');
     } catch (err: any) {
-      setMediaError('Failed to compress video: ' + (err.message || 'Video error'));
+      setMediaError('Failed to upload video: ' + (err.message || 'Video error'));
     } finally {
       setCompressingVideo(false);
       e.target.value = '';
@@ -784,13 +679,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     >
                       {videoUrl ? (
                         <>
-                          <video
+                          <SharedVideoPlayer
                             src={videoUrl}
                             muted
                             loop
                             playsInline
                             controls
-                            className="w-full h-full object-cover"
+                            className="w-full h-full"
                           />
                           <button
                             type="button"

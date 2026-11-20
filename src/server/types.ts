@@ -84,6 +84,7 @@ export interface DatabaseSchema {
     createdAt: number;
   }>;
   isSingleAdminRegistered?: boolean;
+  media_assets?: import('../types').MediaAsset[];
   appliedMigrations?: Array<{ id: string; appliedAt: number; snapshot?: unknown }>;
   idempotencyCache?: Record<string, { status: number; response: unknown; createdAt: number }>;
 }

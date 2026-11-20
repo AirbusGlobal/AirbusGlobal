@@ -55,6 +55,9 @@ import {
   TripDatingIntention,
 } from '../../types';
 import { api } from '../../api';
+import { SharedVideoPlayer } from '../shared/SharedVideoPlayer';
+import { InfiniteFeed } from '../shared/InfiniteFeed';
+import { formatEATDateTime } from '../../utils/time';
 
 interface TripDatingPageProps {
   currentUser?: any;
@@ -314,6 +317,7 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
   });
 
   const [profiles, setProfiles] = useState<TripDatingProfile[]>([]);
+  const [availableCities, setAvailableCities] = useState<string[]>(['Nairobi', 'Mombasa', 'Nakuru', 'Eldoret', 'Kisumu']);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -375,6 +379,7 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
     age: 26,
     dob: '1998-05-15',
     city: 'Nairobi',
+    city_custom: '',
     location: 'Westlands, Nairobi',
     description: '',
     lookingFor: '',
@@ -406,6 +411,7 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
 
   // State for 9:16 Video Upload (Max 2 videos, compressed & server persisted)
   interface VideoItemState {
+    mediaId?: string;
     url: string;
     duration: number;
     thumbnail: string;
@@ -767,7 +773,7 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
   const [activeCountdowns, setActiveCountdowns] = useState<Record<string, number>>({});
   const [copiedPhone, setCopiedPhone] = useState<string | null>(null);
 
-  // Fetch profiles (keyset cursor pagination, newest first)
+  // Fetch profiles (keyset cursor pagination, published_at DESC - newest approved first)
   const loadProfiles = async (cursor?: string, append = false) => {
     try {
       if (append) {
@@ -776,16 +782,19 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
         setLoading(true);
       }
       setError(null);
-      const res = await api.getTripDatingProfiles({
+      const res = await api.getTripDatingFeed({
         gender: selectedGender,
         city: selectedCity,
         search: searchQuery,
         intention: selectedIntention,
         sessionId,
-        limit: 20,
+        limit: 12,
         cursor,
       });
       const incoming = res.profiles || [];
+      if (Array.isArray(res.availableCities) && res.availableCities.length > 0) {
+        setAvailableCities(res.availableCities);
+      }
       setProfiles(prev => {
         if (!append) return incoming;
         const existing = new Set(prev.map(p => p.id));
@@ -833,6 +842,14 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
   }, [selectedGender, selectedCity, selectedIntention]);
 
   useEffect(() => {
+    api.getTripDatingCities().then(res => {
+      if (Array.isArray(res?.cities) && res.cities.length > 0) {
+        setAvailableCities(res.cities);
+      }
+    }).catch(() => {});
+  }, []);
+
+  useEffect(() => {
     loadMySubmissions();
   }, [sessionId, currentUser?.email]);
 
@@ -846,9 +863,18 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
       const isApproved =
         item.moderationState === 'APPROVED' || (!item.moderationState && item.status === 'active');
       if (isApproved && item.status === 'active') {
+        const displayCity = item.city_custom || item.city || '';
+        if (displayCity) {
+          setAvailableCities(prev => {
+            if (prev.some(c => c.toLowerCase() === displayCity.toLowerCase())) return prev;
+            return [...prev, displayCity];
+          });
+        }
         const matchesGender = selectedGender === 'all' || item.gender === selectedGender;
         const matchesCity =
-          selectedCity === 'all' || (item.city || '').toLowerCase() === selectedCity.toLowerCase();
+          selectedCity === 'all' ||
+          displayCity.toLowerCase() === selectedCity.toLowerCase() ||
+          (item.city || '').toLowerCase() === selectedCity.toLowerCase();
         const matchesIntention =
           selectedIntention === 'all' || item.datingIntention === selectedIntention;
         if (matchesGender && matchesCity && matchesIntention) {
@@ -1051,157 +1077,68 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
     });
   };
 
-  // Client-Side Video Compression: Downscales 9:16 vertical video to 540x960 1.2 Mbps for small lightweight streaming
-  const compressVideoFile = (file: File): Promise<{
-    compressedUrl: string;
-    compressedBlob?: Blob;
-    originalMb: number;
-    compressedMb: number;
-    savings: number;
-    duration: number;
-  }> => {
+  // Probe local video metadata cleanly without re-encoding or dropping audio tracks
+  const probeVideoMetadata = (file: File): Promise<{ duration: number; originalMb: number; thumbnail: string }> => {
     const originalMb = Number((file.size / (1024 * 1024)).toFixed(1));
     const rawUrl = URL.createObjectURL(file);
 
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       const video = document.createElement('video');
-      video.preload = 'auto';
-      video.src = rawUrl;
+      video.preload = 'metadata';
       video.muted = true;
       video.playsInline = true;
+      video.src = rawUrl;
+
+      let settled = false;
+      const cleanup = () => {
+        try {
+          URL.revokeObjectURL(rawUrl);
+        } catch {}
+      };
+
+      const finish = (dur: number, thumb: string) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve({ duration: dur, originalMb, thumbnail: thumb });
+      };
 
       video.onloadedmetadata = () => {
-        const dur = Math.min(60, Math.round(video.duration) || 60);
-
-        const canvas = document.createElement('canvas');
-        canvas.width = 540;
-        canvas.height = 960;
-        const ctx = canvas.getContext('2d');
-
-        let stream: MediaStream | null = null;
+        const dur = Number.isFinite(video.duration) && video.duration > 0 ? Math.round(video.duration) : 60;
+        const seekTime = Math.min(0.5, Math.max(0, dur / 4));
         try {
-          stream = (canvas as any).captureStream ? (canvas as any).captureStream(24) : null;
-        } catch (e) {
-          stream = null;
+          video.currentTime = seekTime;
+        } catch {
+          finish(dur, '');
         }
+      };
 
-        let mimeType = 'video/webm;codecs=vp8';
-        if (typeof MediaRecorder !== 'undefined' && !MediaRecorder.isTypeSupported(mimeType)) {
-          mimeType = 'video/webm';
-        }
-
-        if (!stream || typeof MediaRecorder === 'undefined' || !MediaRecorder.isTypeSupported(mimeType)) {
-          const targetMb = Math.max(1.2, Number((originalMb * 0.32).toFixed(1)));
-          resolve({
-            compressedUrl: rawUrl,
-            compressedBlob: file,
-            originalMb,
-            compressedMb: Math.min(originalMb, targetMb),
-            savings: Math.max(45, Math.round((1 - targetMb / (originalMb || 1)) * 100)),
-            duration: dur,
-          });
-          return;
-        }
-
+      video.onseeked = () => {
+        const dur = Number.isFinite(video.duration) && video.duration > 0 ? Math.round(video.duration) : 60;
+        let thumb = '';
         try {
-          const recorder = new MediaRecorder(stream, {
-            mimeType,
-            videoBitsPerSecond: 1_200_000,
-          });
-          const chunks: Blob[] = [];
-
-          recorder.ondataavailable = (e) => {
-            if (e.data && e.data.size > 0) chunks.push(e.data);
-          };
-
-          recorder.onstop = () => {
-            const compressedBlob = new Blob(chunks, { type: mimeType });
-            const compMb = Number((compressedBlob.size / (1024 * 1024)).toFixed(1));
-            const compUrl = URL.createObjectURL(compressedBlob);
-            try { URL.revokeObjectURL(rawUrl); } catch {}
-            const savings = Math.max(15, Math.round(((originalMb - compMb) / (originalMb || 1)) * 100));
-            resolve({
-              compressedUrl: compUrl,
-              compressedBlob,
-              originalMb,
-              compressedMb: compMb || Math.round(originalMb * 0.35 * 10) / 10,
-              savings: savings > 0 ? savings : 55,
-              duration: dur,
-            });
-          };
-
-          recorder.start(100);
-          video.currentTime = 0;
-          video.playbackRate = 2.0;
-          video.play().catch(() => {});
-
-          const renderFrame = () => {
-            if (video.paused || video.ended || video.currentTime >= dur) {
-              if (recorder.state === 'recording') {
-                recorder.stop();
-              }
-              return;
-            }
-            if (ctx) {
-              ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-            }
-            requestAnimationFrame(renderFrame);
-          };
-          renderFrame();
-
-          setTimeout(() => {
-            if (recorder.state === 'recording') {
-              recorder.stop();
-            }
-          }, 10000);
-        } catch (err) {
-          const targetMb = Math.max(1.2, Number((originalMb * 0.35).toFixed(1)));
-          resolve({
-            compressedUrl: rawUrl,
-            compressedBlob: file,
-            originalMb,
-            compressedMb: Math.min(originalMb, targetMb),
-            savings: 60,
-            duration: dur,
-          });
-        }
+          const canvas = document.createElement('canvas');
+          canvas.width = video.videoWidth || 360;
+          canvas.height = video.videoHeight || 640;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            thumb = canvas.toDataURL('image/jpeg', 0.85);
+          }
+        } catch {}
+        finish(dur, thumb);
       };
 
       video.onerror = () => {
-        resolve({
-          compressedUrl: rawUrl,
-          compressedBlob: file,
-          originalMb,
-          compressedMb: originalMb,
-          savings: 0,
-          duration: 60,
-        });
+        if (settled) return;
+        settled = true;
+        cleanup();
+        reject(new Error('Could not read video file. Please upload a valid MP4, MOV, or WebM video.'));
       };
-    });
-  };
 
-  // Helper to capture poster thumbnail
-  const captureVideoThumbnail = (videoUrl: string): Promise<string> => {
-    return new Promise((resolve) => {
-      const tempVideo = document.createElement('video');
-      tempVideo.src = videoUrl;
-      tempVideo.currentTime = 0.5;
-      tempVideo.onseeked = () => {
-        try {
-          const canvas = document.createElement('canvas');
-          canvas.width = tempVideo.videoWidth || 360;
-          canvas.height = tempVideo.videoHeight || 640;
-          const ctx = canvas.getContext('2d');
-          if (ctx) {
-            ctx.drawImage(tempVideo, 0, 0, canvas.width, canvas.height);
-            resolve(canvas.toDataURL('image/jpeg', 0.85));
-            return;
-          }
-        } catch (e) {}
-        resolve('');
-      };
-      tempVideo.onerror = () => resolve('');
-      setTimeout(() => resolve(''), 3000);
+      window.setTimeout(() => {
+        finish(60, '');
+      }, 4500);
     });
   };
 
@@ -1289,50 +1226,53 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
     }
   };
 
-  // 9:16 Vertical Video Upload Mechanics (Uploads immediately to server with progress bar)
+  // 9:16 Vertical Video Upload Mechanics (Chunked upload with retries + server FFmpeg H.264/AAC faststart)
   const processVideoUpload = async (file: File) => {
     setVideoUploadError(null);
-    if (!file.type.startsWith('video/')) {
+    const validExts = ['mp4', 'mov', 'webm', 'm4v'];
+    const ext = file.name.split('.').pop()?.toLowerCase() || '';
+    if (!file.type.startsWith('video/') && !validExts.includes(ext)) {
       setVideoUploadError('Please select a valid video file (MP4, QuickTime MOV, or WebM).');
       return;
     }
-    if (file.size > 100 * 1024 * 1024) {
-      setVideoUploadError('Video file exceeds 100MB size limit.');
+    if (file.size > 150 * 1024 * 1024) {
+      setVideoUploadError('Video file exceeds 150MB size limit.');
       return;
     }
 
     try {
       setCompressingVideo(true);
-      setVideoUploadState({ uploading: true, progress: 5, error: null, lastFile: file });
-      const res = await compressVideoFile(file);
-      setCompressionStats({
-        originalMb: res.originalMb,
-        compressedMb: res.compressedMb,
-        savings: res.savings,
-      });
+      setVideoUploadState({ uploading: true, progress: 4, error: null, lastFile: file });
 
-      const dur = Math.round(res.duration || 60);
-      const thumb = await captureVideoThumbnail(res.compressedUrl);
-      const uploadBlob = res.compressedBlob || file;
-      try {
-        if (res.compressedUrl.startsWith('blob:')) URL.revokeObjectURL(res.compressedUrl);
-      } catch {}
-
-      const uploaded = await api.uploadMediaWithProgress(uploadBlob, 'video', file.name, pct => {
+      const meta = await probeVideoMetadata(file);
+      const uploaded = await api.uploadMediaWithProgress(file, 'video', file.name, pct => {
         setVideoUploadState(prev => ({ ...prev, uploading: true, progress: pct }));
       });
+
       const effectiveUrl = uploaded.url;
+      const serverDuration = uploaded.duration ? Math.round(uploaded.duration) : meta.duration;
+      const effectiveDur = Math.min(60, serverDuration || 60);
+      const effectiveThumb = uploaded.posterUrl || meta.thumbnail || '';
+      const serverMb = Number((uploaded.bytes / (1024 * 1024)).toFixed(1));
+      const savingsPct = Math.max(0, Math.round(((meta.originalMb - serverMb) / (meta.originalMb || 1)) * 100));
+
+      setCompressionStats({
+        originalMb: meta.originalMb,
+        compressedMb: serverMb,
+        savings: savingsPct,
+      });
       setSessionUploadedMediaUrls(prev => [...prev, effectiveUrl]);
 
-      const newVidItem = {
+      const newVidItem: VideoItemState = {
+        mediaId: uploaded.id,
         url: effectiveUrl,
-        duration: Math.min(60, dur),
-        thumbnail: thumb,
+        duration: effectiveDur,
+        thumbnail: effectiveThumb,
         filter: regForm.videoFilter || 'normal',
         trimStart: 0,
-        trimEnd: Math.min(60, dur),
-        originalSizeMb: res.originalMb,
-        compressedSizeMb: res.compressedMb,
+        trimEnd: effectiveDur,
+        originalSizeMb: meta.originalMb,
+        compressedSizeMb: serverMb,
         isCompressed: true,
       };
 
@@ -1346,17 +1286,17 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
         setRegForm(prev => ({
           ...prev,
           videoUrl: effectiveUrl,
-          videoDuration: Math.min(60, dur),
-          videoThumbnail: thumb,
+          videoDuration: effectiveDur,
+          videoThumbnail: effectiveThumb,
           videoTrimStart: 0,
-          videoTrimEnd: Math.min(60, dur),
+          videoTrimEnd: effectiveDur,
         }));
       }
 
       setRawVideoUrl(effectiveUrl);
-      setRawVideoDuration(dur);
+      setRawVideoDuration(serverDuration);
 
-      if (dur > 60) {
+      if (serverDuration > 60) {
         setTrimStart(0);
         setTrimEnd(60);
         setTrimPlayhead(0);
@@ -1504,6 +1444,7 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
       age: 26,
       dob: '1998-05-15',
       city: 'Nairobi',
+      city_custom: '',
       location: 'Westlands, Nairobi',
       description: '',
       lookingFor: '',
@@ -1538,13 +1479,17 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
     const fb = item.full_body_photo || item.primaryPhoto || photosList[0] || '';
     setFullBodyPhoto(fb);
     setFullBodyVerified(Boolean(fb));
+    const builtInCities = ['Nairobi', 'Mombasa', 'Nakuru', 'Eldoret', 'Kisumu'];
+    const rawCity = (item.city || 'Nairobi').trim();
+    const isCustom = Boolean(item.city_custom) || !builtInCities.includes(rawCity);
     setRegForm({
       fullName: item.fullName || '',
       phoneNumber: item.phoneNumber && !item.phoneNumber.includes('•') ? item.phoneNumber : '',
       gender: item.gender || 'female',
       age: item.age || 26,
       dob: item.dob || '1998-05-15',
-      city: item.city || 'Nairobi',
+      city: isCustom ? 'Other' : rawCity,
+      city_custom: isCustom ? (item.city_custom || rawCity) : '',
       location: item.location || 'Westlands, Nairobi',
       description: item.description || '',
       lookingFor: item.lookingFor || '',
@@ -1558,6 +1503,7 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
       videoTrimEnd: item.videoTrimEnd || item.videoDuration || 60,
     });
     const vidList: VideoItemState[] = (item.videos && item.videos.length > 0 ? item.videos : item.videoUrl ? [item.videoUrl] : []).map((vUrl, idx) => ({
+      mediaId: ((item.videoMediaIds && item.videoMediaIds[idx]) || (idx === 0 ? item.videoMediaId : undefined)) || undefined,
       url: vUrl,
       duration: (item.videoDurations && item.videoDurations[idx]) || item.videoDuration || 60,
       thumbnail: (item.videoThumbnails && item.videoThumbnails[idx]) || item.videoThumbnail || '',
@@ -1582,9 +1528,23 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
       setRegSuccess(null);
 
       if (photoUploadState.uploading || videoUploadState.uploading || compressingVideo) {
-        setRegError('Please wait for media uploads to reach 100% before submitting.');
+        setRegError('Please wait for media uploads and processing to reach 100% before submitting.');
         setRegistering(false);
         return;
+      }
+
+      if (regForm.city === 'Other') {
+        const customTrimmed = regForm.city_custom.trim();
+        if (
+          customTrimmed.length < 2 ||
+          customTrimmed.length > 60 ||
+          /[<>]/.test(customTrimmed) ||
+          !/^[A-Za-zÀ-ÿ\s'-]{2,60}$/.test(customTrimmed)
+        ) {
+          setRegError('Custom city must be 2–60 characters using letters, spaces, hyphens, or apostrophes only.');
+          setRegistering(false);
+          return;
+        }
       }
 
       if (!fullBodyVerified || !fullBodyPhoto) {
@@ -1595,6 +1555,7 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
 
       const sanitizedPhotos = [fullBodyPhoto, ...regForm.photos.filter(p => p !== fullBodyPhoto)].slice(0, 3);
       const finalVideos = regVideos.map(v => v.url).filter(Boolean).slice(0, 2);
+      const finalMediaIds = regVideos.map(v => v.mediaId).filter(Boolean) as string[];
       const finalDurations = regVideos.map(v => v.duration).slice(0, 2);
       const finalThumbnails = regVideos.map(v => v.thumbnail).slice(0, 2);
       const primaryVideo = regVideos[0];
@@ -1608,9 +1569,12 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
 
       const payload = {
         ...regForm,
+        city_custom: regForm.city === 'Other' ? regForm.city_custom.trim() : undefined,
         photos: sanitizedPhotos,
         primaryPhoto: fullBodyPhoto,
         videos: finalVideos.length > 0 ? finalVideos : (effectiveVideoUrl ? [effectiveVideoUrl] : undefined),
+        videoMediaId: primaryVideo?.mediaId,
+        videoMediaIds: finalMediaIds.length > 0 ? finalMediaIds : undefined,
         videoDurations: finalDurations.length > 0 ? finalDurations : undefined,
         videoThumbnails: finalThumbnails.length > 0 ? finalThumbnails : undefined,
         videoUrl: effectiveVideoUrl,
@@ -1656,7 +1620,7 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
     setTimeout(() => setCopiedPhone(null), 2500);
   };
 
-  // Filter and Proximity-Sort Profiles
+  // Filter and Sort Profiles (Keep approved published_at DESC order at top; sort by proximity only when distance filter active)
   const userCoords = getCoordinatesForCity(userCurrentCity);
 
   const displayedProfiles = profiles
@@ -1690,12 +1654,13 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
       return true;
     })
     .sort((a, b) => {
-      // Proximity: closest dates display more prominently when distance or city filter is active
       if (filterDistance !== 'all') {
         return a.distanceKm - b.distanceKm;
       }
-      // Otherwise sort by AI Match Score
-      return b.matchScore.score - a.matchScore.score;
+      // Newly approved posts stay at #1 (top of feed)
+      const pubA = a.published_at || a.reviewed_at || a.createdAt || 0;
+      const pubB = b.published_at || b.reviewed_at || b.createdAt || 0;
+      return pubB - pubA;
     });
 
   return (
@@ -1939,11 +1904,11 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
                 }`}
               >
                 <option value="all">All Kenya</option>
-                <option value="Nairobi">Nairobi</option>
-                <option value="Mombasa">Mombasa</option>
-                <option value="Nakuru">Nakuru</option>
-                <option value="Eldoret">Eldoret</option>
-                <option value="Kisumu">Kisumu</option>
+                {availableCities.map(cityOption => (
+                  <option key={cityOption} value={cityOption}>
+                    {cityOption}
+                  </option>
+                ))}
               </select>
 
               {/* Filter by Distance Dropdown */}
@@ -2092,7 +2057,23 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
 
         {/* Endless Discovery Vertical Feed */}
         {!loading && !error && displayedProfiles.length > 0 && (
-          <div className="space-y-8">
+          <InfiniteFeed
+            hasMore={Boolean(hasMore && nextCursor)}
+            isLoading={loading}
+            isLoadingMore={loadingMore}
+            maxAutoPages={5}
+            loadMoreLabel="Load more profiles"
+            onLoadMore={() => {
+              if (nextCursor) return loadProfiles(nextCursor, true);
+            }}
+            jumpToFooterClassName={`inline-flex items-center gap-1.5 text-xs font-semibold underline-offset-4 hover:underline transition ${
+              bgTheme === 'facebook_like'
+                ? 'text-white/90 hover:text-white'
+                : bgTheme === 'facebook'
+                ? 'text-[#1877F2] hover:text-[#1256B8]'
+                : 'text-rose-300 hover:text-rose-200'
+            }`}
+          >
             {displayedProfiles.map(profile => {
               const countdownSeconds = activeCountdowns[profile.id] || 0;
               const isLocallyUnlocked = profile.isUnlocked || countdownSeconds > 0;
@@ -2100,7 +2081,7 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
               return (
                 <article
                   key={profile.id}
-                  className={`border rounded-3xl overflow-hidden transition relative ${
+                  className={`feed-snap-card border rounded-3xl overflow-hidden transition relative ${
                     isFacebookBg
                       ? 'bg-white border-[#DADDE1] shadow-md hover:border-[#BCC0C4]'
                       : 'bg-neutral-900/90 border-neutral-800 shadow-2xl hover:border-neutral-700/80'
@@ -2772,24 +2753,7 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
                 </article>
               );
             })}
-
-            {hasMore && nextCursor && (
-              <div className="pt-4 flex justify-center">
-                <button
-                  type="button"
-                  disabled={loadingMore}
-                  onClick={() => loadProfiles(nextCursor, true)}
-                  className={`px-6 py-2.5 rounded-full text-xs font-bold transition shadow-md cursor-pointer disabled:opacity-50 ${
-                    isFacebookBg
-                      ? 'bg-white text-[#1877F2] border border-[#CED0D4] hover:bg-[#F0F2F5]'
-                      : 'bg-neutral-900 hover:bg-neutral-800 text-white border border-neutral-700'
-                  }`}
-                >
-                  {loadingMore ? 'Loading more profiles...' : 'Load More Profiles'}
-                </button>
-              </div>
-            )}
-          </div>
+          </InfiniteFeed>
         )}
       </div>
 
@@ -3273,7 +3237,13 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
                         <label className="block text-neutral-300 font-medium mb-1">City</label>
                         <select
                           value={regForm.city}
-                          onChange={e => setRegForm({ ...regForm, city: e.target.value })}
+                          onChange={e =>
+                            setRegForm(prev => ({
+                              ...prev,
+                              city: e.target.value,
+                              city_custom: e.target.value === 'Other' ? prev.city_custom : '',
+                            }))
+                          }
                           className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-neutral-200 focus:outline-none focus:border-rose-500"
                         >
                           <option value="Nairobi">Nairobi</option>
@@ -3281,9 +3251,31 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
                           <option value="Nakuru">Nakuru</option>
                           <option value="Eldoret">Eldoret</option>
                           <option value="Kisumu">Kisumu</option>
+                          <option value="Other">Other (type your city)</option>
                         </select>
                       </div>
                     </div>
+
+                    {regForm.city === 'Other' && (
+                      <div>
+                        <label className="block text-neutral-300 font-medium mb-1">
+                          Type Your City *
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          minLength={2}
+                          maxLength={60}
+                          placeholder="e.g. Diani, Nanyuki, Naivasha"
+                          value={regForm.city_custom}
+                          onChange={e => setRegForm({ ...regForm, city_custom: e.target.value })}
+                          className="w-full bg-neutral-950 border border-rose-500/50 rounded-xl px-3 py-2 text-neutral-200 focus:outline-none focus:border-rose-500"
+                        />
+                        <p className="text-[10px] text-neutral-400 mt-1">
+                          2–60 characters, letters, spaces, hyphens, or apostrophes only.
+                        </p>
+                      </div>
+                    )}
 
                     <div>
                       <label className="block text-neutral-300 font-medium mb-1">
@@ -3799,22 +3791,18 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
                         {/* Interactive Range Player Preview with active segment loop */}
                         <div className="flex flex-col sm:flex-row items-center gap-4">
                           <div className="relative aspect-[9/16] w-28 sm:w-32 rounded-xl overflow-hidden bg-black border border-neutral-700 shadow-xl shrink-0 group">
-                            <video
-                              ref={trimVideoRef}
+                            <SharedVideoPlayer
+                              externalRef={trimVideoRef}
                               src={rawVideoUrl}
+                              controls={false}
                               playsInline
                               muted
+                              trimStart={trimStart}
+                              trimEnd={trimEnd}
                               style={{ filter: getVideoFilterCss(regForm.videoFilter) }}
-                              className="w-full h-full object-cover"
-                              onTimeUpdate={() => {
-                                if (trimVideoRef.current) {
-                                  const curr = trimVideoRef.current.currentTime;
-                                  setTrimPlayhead(curr);
-                                  if (curr >= trimEnd) {
-                                    trimVideoRef.current.currentTime = trimStart;
-                                  }
-                                }
-                              }}
+                              className="w-full h-full"
+                              videoClassName="w-full h-full object-cover"
+                              onTimeUpdate={curr => setTrimPlayhead(curr)}
                             />
                             <button
                               type="button"
@@ -3980,15 +3968,17 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
                         <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-3 flex flex-col sm:flex-row items-center gap-4">
                           {/* 9:16 Preview Player Container with Active Aesthetic Filter */}
                           <div className="relative aspect-[9/16] w-36 sm:w-40 rounded-2xl overflow-hidden bg-black border-2 border-rose-500/60 shadow-xl shrink-0 group">
-                            <video
+                            <SharedVideoPlayer
                               key={(activeVideoSlot === 0 ? (regVideos[0]?.url || regForm.videoUrl) : regVideos[1]?.url) + regForm.videoFilter}
                               src={activeVideoSlot === 0 ? (regVideos[0]?.url || regForm.videoUrl) : regVideos[1]?.url}
                               poster={activeVideoSlot === 0 ? (regVideos[0]?.thumbnail || regForm.videoThumbnail) : regVideos[1]?.thumbnail}
+                              controls
                               playsInline
                               muted={previewVideoMuted}
                               loop
                               style={{ filter: getVideoFilterCss(regForm.videoFilter) }}
-                              className="w-full h-full object-cover"
+                              className="w-full h-full"
+                              videoClassName="w-full h-full object-cover"
                               onPlay={() => setPreviewVideoPlaying(true)}
                               onPause={() => setPreviewVideoPlaying(false)}
                             />
@@ -4374,42 +4364,33 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
       {watchingVideoProfile && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md p-2 sm:p-4 animate-in fade-in duration-200">
           <div className="relative w-full max-w-[380px] sm:max-w-[420px] aspect-[9/16] max-h-[92vh] rounded-3xl overflow-hidden bg-black border border-neutral-700/60 shadow-2xl flex flex-col justify-between">
-            {/* Native Video Element with Aesthetic Filter and Trim Loop */}
-            <video
-              ref={watchVideoRef}
+            {/* Shared Video Player with Range streaming, Retry fallback, Aesthetic Filter and Trim Loop */}
+            <SharedVideoPlayer
+              externalRef={watchVideoRef}
               src={watchingVideoProfile.videoUrl || (watchingVideoProfile.videos && watchingVideoProfile.videos[0])}
               poster={watchingVideoProfile.videoThumbnail || watchingVideoProfile.primaryPhoto}
+              controls={false}
               autoPlay
               playsInline
+              preload="metadata"
               loop={!watchingVideoProfile.videoTrimEnd}
               muted={watchVideoMuted}
+              trimStart={watchingVideoProfile.videoTrimStart}
+              trimEnd={watchingVideoProfile.videoTrimEnd}
               style={{ filter: getVideoFilterCss(watchingVideoProfile.videoFilter) }}
-              onLoadedMetadata={() => {
-                if (watchVideoRef.current) {
-                  if (typeof watchingVideoProfile.videoTrimStart === 'number' && watchingVideoProfile.videoTrimStart > 0) {
-                    watchVideoRef.current.currentTime = watchingVideoProfile.videoTrimStart;
-                  }
-                  setWatchVideoDuration(
-                    watchingVideoProfile.videoDuration ||
+              className="absolute inset-0 w-full h-full"
+              videoClassName="w-full h-full object-cover cursor-pointer"
+              onLoadedMetadata={dur => {
+                setWatchVideoDuration(
+                  watchingVideoProfile.videoDuration ||
                     (watchingVideoProfile.videoTrimEnd && watchingVideoProfile.videoTrimStart !== undefined
                       ? watchingVideoProfile.videoTrimEnd - watchingVideoProfile.videoTrimStart
-                      : watchVideoRef.current.duration || 60)
-                  );
-                }
+                      : dur || 60)
+                );
               }}
-              onTimeUpdate={() => {
-                if (watchVideoRef.current) {
-                  const cur = watchVideoRef.current.currentTime;
-                  setWatchVideoCurrentTime(cur);
-
-                  // If video has trim bounds, loop seamlessly within the trimmed segment
-                  const trimStart = watchingVideoProfile.videoTrimStart ?? 0;
-                  const trimEnd = watchingVideoProfile.videoTrimEnd;
-                  if (typeof trimEnd === 'number' && trimEnd > trimStart && cur >= trimEnd) {
-                    watchVideoRef.current.currentTime = trimStart;
-                  }
-                }
-              }}
+              onTimeUpdate={cur => setWatchVideoCurrentTime(cur)}
+              onPlay={() => setWatchVideoPlaying(true)}
+              onPause={() => setWatchVideoPlaying(false)}
               onClick={() => {
                 if (watchVideoRef.current) {
                   if (watchVideoPlaying) {
@@ -4421,7 +4402,6 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
                   }
                 }
               }}
-              className="absolute inset-0 w-full h-full object-cover cursor-pointer"
             />
 
             {/* Top Bar Overlay */}
@@ -4949,13 +4929,16 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
                 </div>
               ) : (
                 mySubmissions.map(sub => {
+                  const rawMod = String(sub.moderationState || '').toUpperCase();
                   const modState =
-                    sub.moderationState ||
-                    (sub.status === 'active'
+                    rawMod === 'APPROVED' || sub.status === 'active'
                       ? 'APPROVED'
-                      : sub.status === 'rejected'
+                      : rawMod === 'DECLINED' || sub.status === 'rejected'
                       ? 'DECLINED'
-                      : 'PENDING');
+                      : rawMod === 'DRAFT'
+                      ? 'DRAFT'
+                      : 'PENDING_REVIEW';
+                  const reasonText = sub.decline_reason || sub.admin_feedback;
                   return (
                     <div
                       key={sub.id}
@@ -4973,7 +4956,7 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
                               {sub.fullName}, {sub.age}
                             </div>
                             <div className="text-[11px] text-neutral-400">
-                              {sub.city} · Submitted {new Date(sub.createdAt).toLocaleDateString()}
+                              {sub.city_custom || sub.city} · Submitted {formatEATDateTime(sub.createdAt)}
                             </div>
                           </div>
                         </div>
@@ -4984,6 +4967,8 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
                               ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-700/60'
                               : modState === 'DECLINED'
                               ? 'bg-red-950/80 text-red-300 border border-red-700/60'
+                              : modState === 'DRAFT'
+                              ? 'bg-neutral-800 text-neutral-300 border border-neutral-700'
                               : 'bg-amber-950/80 text-amber-300 border border-amber-700/60'
                           }`}
                         >
@@ -4991,15 +4976,17 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
                             ? 'Approved · Live'
                             : modState === 'DECLINED'
                             ? 'Declined'
-                            : 'Pending Admin Review'}
+                            : modState === 'DRAFT'
+                            ? 'Draft'
+                            : 'Pending Review'}
                         </span>
                       </div>
 
                       {modState === 'DECLINED' && (
                         <div className="p-3 rounded-xl bg-red-950/40 border border-red-800/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                           <div className="text-xs text-red-200 space-y-0.5">
-                            <div className="font-bold text-red-300">Admin Feedback</div>
-                            <div>{sub.admin_feedback || 'Please update your media or bio to comply with community guidelines.'}</div>
+                            <div className="font-bold text-red-300">Decline Reason</div>
+                            <div>{reasonText || 'Please update your media or bio to comply with community guidelines.'}</div>
                           </div>
                           <button
                             type="button"

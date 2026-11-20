@@ -42,9 +42,14 @@ import {
   DormantOwner,
   TripDatingProfile,
   TripDatingProfileStatus,
+  TripDatingUnifiedStatus,
+  TripDatingAdminCounts,
   TripDatingPaymentRequest,
   TripDatingContactUnlock,
   TripDatingStats,
+  MediaAsset,
+  MediaAssetType,
+  MediaAssetStatus,
   SnappAddCampaign,
   PaymentRecordType,
   PaymentRecordMethod,
@@ -1875,79 +1880,187 @@ class DatabaseStore {
 
   public runStartupMigrations() {
     if (!this.data.appliedMigrations) this.data.appliedMigrations = [];
-    const migrationId = 'v1_moderation_pipeline_sync';
-    if (this.data.appliedMigrations.some(m => m.id === migrationId)) {
-      return;
-    }
 
-    const staysSnapshot = (this.data.stays || []).map(s => ({
-      id: s.id,
-      status: s.status,
-      isApprovedByAdmin: s.isApprovedByAdmin,
-      moderationStatus: s.moderationStatus,
-      moderationState: s.moderationState,
-      admin_feedback: s.admin_feedback,
-      reviewed_at: s.reviewed_at,
-      reviewed_by: s.reviewed_by,
-    }));
-    const tdpSnapshot = (this.data.tripDatingProfiles || []).map(p => ({
-      id: p.id,
-      status: p.status,
-      moderationState: p.moderationState,
-      admin_feedback: p.admin_feedback,
-      reviewed_at: p.reviewed_at,
-      reviewed_by: p.reviewed_by,
-    }));
+    // Migration v1: Sync stays & legacy trip dating moderation state fields
+    const migrationV1 = 'v1_moderation_pipeline_sync';
+    if (!this.data.appliedMigrations.some(m => m.id === migrationV1)) {
+      const staysSnapshot = (this.data.stays || []).map(s => ({
+        id: s.id,
+        status: s.status,
+        isApprovedByAdmin: s.isApprovedByAdmin,
+        moderationStatus: s.moderationStatus,
+        moderationState: s.moderationState,
+        admin_feedback: s.admin_feedback,
+        reviewed_at: s.reviewed_at,
+        reviewed_by: s.reviewed_by,
+      }));
+      const tdpSnapshot = (this.data.tripDatingProfiles || []).map(p => ({
+        id: p.id,
+        status: p.status,
+        moderationState: p.moderationState,
+        admin_feedback: p.admin_feedback,
+        reviewed_at: p.reviewed_at,
+        reviewed_by: p.reviewed_by,
+      }));
 
-    (this.data.stays || []).forEach(s => {
-      if (!s.moderationState) {
-        if (s.status === 'review' || s.moderationStatus === 'pending' || (!s.isApprovedByAdmin && s.status !== 'live')) {
-          if (s.moderationStatus === 'rejected' || s.moderationStatus === 'suspended' || s.status === 'delisted') {
+      (this.data.stays || []).forEach(s => {
+        if (!s.moderationState) {
+          if (s.status === 'review' || s.moderationStatus === 'pending' || (!s.isApprovedByAdmin && s.status !== 'live')) {
+            if (s.moderationStatus === 'rejected' || s.moderationStatus === 'suspended' || s.status === 'delisted') {
+              s.moderationState = 'DECLINED';
+            } else {
+              s.moderationState = 'PENDING';
+              s.status = 'review';
+              s.isApprovedByAdmin = false;
+              s.moderationStatus = 'pending';
+            }
+          } else if (s.moderationStatus === 'rejected' || s.moderationStatus === 'suspended') {
             s.moderationState = 'DECLINED';
           } else {
-            s.moderationState = 'PENDING';
-            s.status = 'review';
-            s.isApprovedByAdmin = false;
-            s.moderationStatus = 'pending';
+            s.moderationState = 'APPROVED';
+            s.isApprovedByAdmin = true;
+            s.moderationStatus = 'approved';
           }
-        } else if (s.moderationStatus === 'rejected' || s.moderationStatus === 'suspended') {
-          s.moderationState = 'DECLINED';
-        } else {
-          s.moderationState = 'APPROVED';
-          s.isApprovedByAdmin = true;
-          s.moderationStatus = 'approved';
         }
-      }
-      if (s.admin_feedback === undefined) s.admin_feedback = s.moderationReason || null;
-      if (s.reviewed_at === undefined) s.reviewed_at = null;
-      if (s.reviewed_by === undefined) s.reviewed_by = null;
-    });
+        if (s.admin_feedback === undefined) s.admin_feedback = s.moderationReason || null;
+        if (s.reviewed_at === undefined) s.reviewed_at = null;
+        if (s.reviewed_by === undefined) s.reviewed_by = null;
+      });
 
-    (this.data.tripDatingProfiles || []).forEach(p => {
-      if (!p.moderationState) {
-        if (p.status === 'pending' || p.fullBodyModerationStatus === 'pending_review') {
-          p.moderationState = 'PENDING';
-          p.status = 'pending';
-        } else if (p.status === 'rejected' || p.status === 'suspended' || p.status === 'removed' || p.fullBodyModerationStatus === 'rejected') {
-          p.moderationState = 'DECLINED';
+      (this.data.tripDatingProfiles || []).forEach(p => {
+        if (!p.moderationState) {
+          if (p.status === 'pending' || p.fullBodyModerationStatus === 'pending_review') {
+            p.moderationState = 'PENDING';
+            p.status = 'pending';
+          } else if (p.status === 'rejected' || p.status === 'suspended' || p.status === 'removed' || p.fullBodyModerationStatus === 'rejected') {
+            p.moderationState = 'DECLINED';
+          } else {
+            p.moderationState = 'APPROVED';
+            p.status = 'active';
+            p.fullBodyModerationStatus = 'approved';
+          }
+        }
+        if (p.admin_feedback === undefined) p.admin_feedback = p.removalReason || null;
+        if (p.reviewed_at === undefined) p.reviewed_at = null;
+        if (p.reviewed_by === undefined) p.reviewed_by = null;
+      });
+
+      this.data.appliedMigrations.push({
+        id: migrationV1,
+        appliedAt: Date.now(),
+        snapshot: { staysSnapshot, tdpSnapshot },
+      });
+      this.save();
+      logger.info('migration_applied', { migrationId: migrationV1 });
+    }
+
+    // Migration v2: Unified Trip Dating status enum (DRAFT/PENDING_REVIEW/APPROVED/DECLINED),
+    // backfill published_at, city_custom, decline_reason, and seed media_assets index
+    const migrationV2 = 'v2_trip_dating_status_and_feed_sync';
+    if (!this.data.appliedMigrations.some(m => m.id === migrationV2)) {
+      const builtInCities = new Set(['nairobi', 'mombasa', 'nakuru', 'eldoret', 'kisumu']);
+      const tdpV2Snapshot = (this.data.tripDatingProfiles || []).map(p => ({
+        id: p.id,
+        status: p.status,
+        moderationState: p.moderationState,
+        published_at: p.published_at,
+        decline_reason: p.decline_reason,
+        admin_feedback: p.admin_feedback,
+        city_custom: p.city_custom,
+      }));
+      const prevMediaAssetIds = (this.data.media_assets || []).map(m => m.id);
+
+      if (!this.data.media_assets) this.data.media_assets = [];
+
+      (this.data.tripDatingProfiles || []).forEach(p => {
+        const rawStatus = String(p.status || '').trim().toUpperCase();
+        const rawMod = String(p.moderationState || '').trim().toUpperCase();
+
+        let unified: TripDatingUnifiedStatus = 'PENDING_REVIEW';
+        if (rawStatus === 'DRAFT' || rawMod === 'DRAFT') {
+          unified = 'DRAFT';
+        } else if (
+          rawStatus === 'DECLINED' ||
+          rawStatus === 'REJECTED' ||
+          rawStatus === 'REMOVED' ||
+          rawStatus === 'SUSPENDED' ||
+          rawMod === 'DECLINED'
+        ) {
+          unified = 'DECLINED';
+        } else if (
+          rawStatus === 'APPROVED' ||
+          rawStatus === 'ACTIVE' ||
+          rawMod === 'APPROVED'
+        ) {
+          unified = 'APPROVED';
         } else {
-          p.moderationState = 'APPROVED';
-          p.status = 'active';
+          unified = 'PENDING_REVIEW';
+        }
+
+        p.status = unified;
+        p.moderationState = unified;
+
+        if (unified === 'APPROVED') {
+          p.published_at = p.published_at || p.reviewed_at || p.createdAt || Date.now();
           p.fullBodyModerationStatus = 'approved';
+          p.full_body_verified = true;
+          p.decline_reason = null;
+          p.admin_feedback = null;
+        } else if (unified === 'DECLINED') {
+          const reason = p.decline_reason || p.admin_feedback || p.removalReason || 'Declined by administrator.';
+          p.decline_reason = reason;
+          p.admin_feedback = reason;
+          p.published_at = null;
+        } else {
+          p.published_at = null;
         }
-      }
-      if (p.admin_feedback === undefined) p.admin_feedback = p.removalReason || null;
-      if (p.reviewed_at === undefined) p.reviewed_at = null;
-      if (p.reviewed_by === undefined) p.reviewed_by = null;
-    });
 
-    this.data.appliedMigrations.push({
-      id: migrationId,
-      appliedAt: Date.now(),
-      snapshot: { staysSnapshot, tdpSnapshot },
-    });
-    this.save();
-    logger.info('migration_applied', { migrationId });
+        const cleanCity = (p.city || '').trim();
+        if (cleanCity && !builtInCities.has(cleanCity.toLowerCase())) {
+          p.city_custom = p.city_custom || cleanCity;
+        } else {
+          p.city_custom = null;
+        }
+
+        // Register existing video URLs into media_assets if not yet indexed
+        const candidateVideos = [p.videoUrl, ...(p.videos || [])].filter(
+          (u): u is string => typeof u === 'string' && u.trim().length > 0
+        );
+        candidateVideos.forEach((vUrl, idx) => {
+          const existing = this.data.media_assets!.find(a => a.url === vUrl);
+          if (!existing) {
+            const assetId = `ma_${p.id}_${idx}_${crypto.randomBytes(3).toString('hex')}`;
+            this.data.media_assets!.push({
+              id: assetId,
+              owner_id: p.ownerEmail || p.userId || 'system',
+              type: 'VIDEO',
+              storage_key: vUrl.startsWith('/uploads/') ? vUrl.replace(/^\/uploads\//, '') : vUrl,
+              url: vUrl,
+              mime: vUrl.endsWith('.webm') ? 'video/webm' : 'video/mp4',
+              size_bytes: 0,
+              duration: p.videoDurations?.[idx] || p.videoDuration || 60,
+              status: 'READY',
+              poster_url: p.videoThumbnails?.[idx] || p.videoThumbnail || p.primaryPhoto,
+              created_at: p.createdAt || Date.now(),
+            });
+            if (idx === 0 && !p.videoMediaId) {
+              p.videoMediaId = assetId;
+            }
+          } else if (idx === 0 && !p.videoMediaId) {
+            p.videoMediaId = existing.id;
+          }
+        });
+      });
+
+      this.data.appliedMigrations.push({
+        id: migrationV2,
+        appliedAt: Date.now(),
+        snapshot: { tdpV2Snapshot, prevMediaAssetIds },
+      });
+      this.invalidateFeedCache('trip_dating');
+      this.save();
+      logger.info('migration_applied', { migrationId: migrationV2 });
+    }
   }
 
   public rollbackMigration(migrationId: string): boolean {
@@ -1967,6 +2080,16 @@ class DatabaseStore {
         const p = (this.data.tripDatingProfiles || []).find(pr => pr.id === orig.id);
         if (p) Object.assign(p, orig);
       });
+    }
+    if (snap?.tdpV2Snapshot) {
+      snap.tdpV2Snapshot.forEach((orig: any) => {
+        const p = (this.data.tripDatingProfiles || []).find(pr => pr.id === orig.id);
+        if (p) Object.assign(p, orig);
+      });
+    }
+    if (Array.isArray(snap?.prevMediaAssetIds) && Array.isArray(this.data.media_assets)) {
+      const keep = new Set(snap.prevMediaAssetIds);
+      this.data.media_assets = this.data.media_assets.filter(a => keep.has(a.id));
     }
     this.data.appliedMigrations.splice(idx, 1);
     this.invalidateFeedCache();
@@ -2854,6 +2977,7 @@ class DatabaseStore {
       tripDatingProfiles: SEED_TRIP_DATING_PROFILES,
       tripDatingPaymentRequests: [],
       tripDatingContactUnlocks: [],
+      media_assets: [],
       localGuides: SEED_LOCAL_GUIDES,
       neighborhoodArticles: SEED_NEIGHBORHOOD_ARTICLES,
       blackFridaySubscribers: [],
@@ -7414,17 +7538,229 @@ class DatabaseStore {
     return (this.data.auditLogs || []).slice().sort((a, b) => b.createdAt - a.createdAt);
   }
 
+  // --- GLOBAL MEDIA ASSETS ---
+
+  public createMediaAsset(input: {
+    id?: string;
+    owner_id: string;
+    type: MediaAssetType;
+    storage_key: string;
+    url: string;
+    mime: string;
+    size_bytes: number;
+    duration?: number;
+    width?: number;
+    height?: number;
+    status: MediaAssetStatus;
+    poster_url?: string;
+    error_message?: string;
+  }): MediaAsset {
+    if (!this.data.media_assets) this.data.media_assets = [];
+    const now = Date.now();
+    const asset: MediaAsset = {
+      id: input.id || `ma_${now.toString(36)}_${crypto.randomBytes(4).toString('hex')}`,
+      owner_id: input.owner_id || 'anon',
+      type: input.type,
+      storage_key: input.storage_key,
+      url: input.url,
+      mime: input.mime,
+      size_bytes: input.size_bytes,
+      duration: input.duration,
+      width: input.width,
+      height: input.height,
+      status: input.status,
+      poster_url: input.poster_url,
+      error_message: input.error_message,
+      created_at: now,
+      updated_at: now,
+    };
+    this.data.media_assets.unshift(asset);
+    this.save();
+    return asset;
+  }
+
+  public updateMediaAsset(id: string, updates: Partial<MediaAsset>): MediaAsset | null {
+    if (!this.data.media_assets) this.data.media_assets = [];
+    const asset = this.data.media_assets.find(a => a.id === id);
+    if (!asset) return null;
+    Object.assign(asset, updates, { id: asset.id, updated_at: Date.now() });
+    this.save();
+    return asset;
+  }
+
+  public getMediaAssetById(id: string): MediaAsset | null {
+    return (this.data.media_assets || []).find(a => a.id === id) || null;
+  }
+
+  public getMediaAssetByUrl(url: string): MediaAsset | null {
+    if (!url) return null;
+    return (this.data.media_assets || []).find(a => a.url === url) || null;
+  }
+
+  public assertMediaAssetsReady(assetIds: Array<string | undefined | null>) {
+    for (const rawId of assetIds) {
+      if (!rawId || typeof rawId !== 'string') continue;
+      const asset = this.getMediaAssetById(rawId.trim());
+      if (!asset) {
+        throw new Error(`Referenced media asset (${rawId}) was not found.`);
+      }
+      if (asset.status === 'UPLOADING' || asset.status === 'PROCESSING') {
+        throw new Error('Please wait for your uploaded media to finish processing before submitting.');
+      }
+      if (asset.status === 'FAILED') {
+        throw new Error(asset.error_message || 'Your uploaded video failed processing. Please remove or retry it before submitting.');
+      }
+    }
+  }
+
   // --- TRIP DATING: A Dating Services Near You ---
 
-  private isTripDatingApprovedPublic(p: TripDatingProfile): boolean {
-    if (p.moderationState) {
-      return p.moderationState === 'APPROVED' && p.status === 'active';
+  private readonly BUILT_IN_TRIP_DATING_CITIES = ['Nairobi', 'Mombasa', 'Nakuru', 'Eldoret', 'Kisumu'];
+  private tripDatingCountListeners = new Set<(counts: TripDatingAdminCounts) => void>();
+
+  public subscribeTripDatingCounts(listener: (counts: TripDatingAdminCounts) => void): () => void {
+    this.tripDatingCountListeners.add(listener);
+    return () => {
+      this.tripDatingCountListeners.delete(listener);
+    };
+  }
+
+  private emitTripDatingCountsUpdate() {
+    const counts = this.getTripDatingAdminCounts();
+    this.tripDatingCountListeners.forEach(fn => {
+      try {
+        fn(counts);
+      } catch {}
+    });
+  }
+
+  public normalizeTripDatingStatus(p: Pick<TripDatingProfile, 'status' | 'moderationState' | 'fullBodyModerationStatus'>): TripDatingUnifiedStatus {
+    const rawStatus = String(p.status || '').trim().toUpperCase();
+    const rawMod = String(p.moderationState || '').trim().toUpperCase();
+    if (rawStatus === 'DRAFT' || rawMod === 'DRAFT') return 'DRAFT';
+    if (
+      rawStatus === 'DECLINED' ||
+      rawStatus === 'REJECTED' ||
+      rawStatus === 'REMOVED' ||
+      rawStatus === 'SUSPENDED' ||
+      rawMod === 'DECLINED' ||
+      p.fullBodyModerationStatus === 'rejected'
+    ) {
+      return 'DECLINED';
     }
-    return (
-      p.status === 'active' &&
-      Boolean(p.full_body_verified) &&
-      (p.fullBodyModerationStatus === 'approved' || p.fullBodyModerationStatus === undefined)
+    if (rawStatus === 'APPROVED' || rawStatus === 'ACTIVE' || rawMod === 'APPROVED') {
+      return 'APPROVED';
+    }
+    return 'PENDING_REVIEW';
+  }
+
+  private isTripDatingApprovedPublic(p: TripDatingProfile): boolean {
+    return this.normalizeTripDatingStatus(p) === 'APPROVED';
+  }
+
+  public validateAndNormalizeCity(cityInput: string, cityCustomInput?: string | null): {
+    city: string;
+    city_custom: string | null;
+  } {
+    const rawCity = (cityInput || '').trim();
+    const rawCustom = (cityCustomInput || '').trim();
+    const isOtherChoice = /^other(\s*\(.*\))?$/i.test(rawCity);
+
+    // Check if city matches one of the 5 built-in cities case-insensitively
+    if (!isOtherChoice) {
+      const builtInMatch = this.BUILT_IN_TRIP_DATING_CITIES.find(
+        c => c.toLowerCase() === rawCity.toLowerCase()
+      );
+      if (builtInMatch) {
+        return { city: builtInMatch, city_custom: null };
+      }
+    }
+
+    const candidateRaw = isOtherChoice ? rawCustom : (rawCustom || rawCity);
+    if (!candidateRaw) {
+      throw new Error('Please enter your city name when selecting "Other (type your city)".');
+    }
+    if (/<[^>]*>/.test(candidateRaw)) {
+      throw new Error('City name cannot contain HTML or special markup characters.');
+    }
+
+    const collapsed = candidateRaw.replace(/\s+/g, ' ').trim();
+    if (collapsed.length < 2 || collapsed.length > 60) {
+      throw new Error('Custom city must be between 2 and 60 characters long.');
+    }
+    if (!/^[A-Za-zÀ-ÿ\s'-]{2,60}$/.test(collapsed)) {
+      throw new Error("City name may only contain letters, spaces, hyphens, and apostrophes.");
+    }
+
+    // If they typed one of the 5 built-in cities under Other, normalize to the canonical built-in city
+    const builtInMatch = this.BUILT_IN_TRIP_DATING_CITIES.find(
+      c => c.toLowerCase() === collapsed.toLowerCase()
     );
+    if (builtInMatch) {
+      return { city: builtInMatch, city_custom: null };
+    }
+
+    // Reuse existing custom city case-insensitively if an identical custom city already exists
+    const existingMatch = (this.data.tripDatingProfiles || [])
+      .map(p => (p.city_custom || p.city || '').trim())
+      .find(existing => existing && existing.toLowerCase() === collapsed.toLowerCase());
+
+    const canonicalCustom =
+      existingMatch ||
+      collapsed
+        .split(' ')
+        .map(w => (w ? w[0].toUpperCase() + w.slice(1) : w))
+        .join(' ');
+
+    return {
+      city: canonicalCustom,
+      city_custom: canonicalCustom,
+    };
+  }
+
+  public getTripDatingAvailableCities(onlyApproved = true): string[] {
+    const profiles = (this.data.tripDatingProfiles || []).filter(p =>
+      onlyApproved ? this.isTripDatingApprovedPublic(p) : true
+    );
+    const seen = new Set(this.BUILT_IN_TRIP_DATING_CITIES.map(c => c.toLowerCase()));
+    const customCities: string[] = [];
+    for (const p of profiles) {
+      const c = (p.city_custom || p.city || '').trim();
+      if (!c) continue;
+      if (!seen.has(c.toLowerCase())) {
+        seen.add(c.toLowerCase());
+        customCities.push(c);
+      }
+    }
+    customCities.sort((a, b) => a.localeCompare(b));
+    return [...this.BUILT_IN_TRIP_DATING_CITIES, ...customCities];
+  }
+
+  private hydrateTripDatingMedia(p: TripDatingProfile): TripDatingProfile {
+    let videoUrl = p.videoUrl;
+    let videoThumbnail = p.videoThumbnail;
+    let videoDuration = p.videoDuration;
+    if (p.videoMediaId) {
+      const asset = this.getMediaAssetById(p.videoMediaId);
+      if (asset && asset.status === 'READY' && asset.url) {
+        videoUrl = asset.url;
+        videoThumbnail = asset.poster_url || videoThumbnail || p.primaryPhoto;
+        videoDuration = asset.duration || videoDuration;
+      }
+    }
+    const videos = Array.isArray(p.videos) && p.videos.length > 0
+      ? p.videos
+      : (videoUrl ? [videoUrl] : p.videos);
+    return {
+      ...p,
+      videoUrl,
+      videoThumbnail,
+      videoDuration,
+      videos,
+      status: this.normalizeTripDatingStatus(p),
+      moderationState: this.normalizeTripDatingStatus(p),
+      decline_reason: p.decline_reason ?? p.admin_feedback ?? null,
+    };
   }
 
   public getTripDatingProfiles(
@@ -7438,7 +7774,7 @@ class DatabaseStore {
     }
 
     const now = Date.now();
-    let profiles = [...this.data.tripDatingProfiles];
+    let profiles = [...this.data.tripDatingProfiles].map(p => this.hydrateTripDatingMedia(p));
 
     if (!query?.showAllStatuses) {
       profiles = profiles.filter(p => this.isTripDatingApprovedPublic(p));
@@ -7449,7 +7785,14 @@ class DatabaseStore {
     }
 
     if (query?.city && query.city !== 'all') {
-      profiles = profiles.filter(p => p.city.toLowerCase().includes(query.city!.toLowerCase()) || p.location.toLowerCase().includes(query.city!.toLowerCase()));
+      const targetCity = query.city.toLowerCase().trim();
+      profiles = profiles.filter(
+        p =>
+          p.city.toLowerCase() === targetCity ||
+          (p.city_custom && p.city_custom.toLowerCase() === targetCity) ||
+          p.city.toLowerCase().includes(targetCity) ||
+          p.location.toLowerCase().includes(targetCity)
+      );
     }
 
     if (query?.intention && query.intention !== 'all') {
@@ -7458,9 +7801,10 @@ class DatabaseStore {
 
     if (query?.search && query.search.trim()) {
       const q = query.search.toLowerCase().trim();
-      profiles = profiles.filter(p => 
+      profiles = profiles.filter(p =>
         p.fullName.toLowerCase().includes(q) ||
         p.city.toLowerCase().includes(q) ||
+        (p.city_custom || '').toLowerCase().includes(q) ||
         p.location.toLowerCase().includes(q) ||
         p.description.toLowerCase().includes(q) ||
         p.lookingFor.toLowerCase().includes(q)
@@ -7468,11 +7812,12 @@ class DatabaseStore {
     }
 
     profiles.sort((a, b) => {
-      const diff = (b.createdAt || 0) - (a.createdAt || 0);
+      const aTs = a.published_at || a.reviewed_at || a.createdAt || 0;
+      const bTs = b.published_at || b.reviewed_at || b.createdAt || 0;
+      const diff = bTs - aTs;
       return diff !== 0 ? diff : b.id.localeCompare(a.id);
     });
 
-    // Mask phone numbers unless active 10-minute unlock exists
     return profiles.map(p => {
       const activeUnlock = this.checkActiveContactUnlock(p.id, viewerEmail, clientSessionId);
       const isLikedByViewer = viewerEmail ? (p.likedByUserEmails || []).includes(viewerEmail) : false;
@@ -7489,7 +7834,7 @@ class DatabaseStore {
 
       return {
         ...p,
-        phoneNumber: '+254 7•• ••• •••', // Securely masked
+        phoneNumber: '+254 7•• ••• •••',
         isUnlocked: false,
         unlockExpiresAt: undefined,
         isLikedByViewer,
@@ -7501,13 +7846,21 @@ class DatabaseStore {
     viewerEmail?: string,
     clientSessionId?: string,
     query?: { gender?: string; city?: string; search?: string; intention?: string; cursor?: string; limit?: number }
-  ): { profiles: TripDatingProfile[]; nextCursor: string | null; hasMore: boolean; totalCount: number } {
-    const limit = Math.min(50, Math.max(1, Number(query?.limit) || 20));
+  ): {
+    profiles: TripDatingProfile[];
+    nextCursor: string | null;
+    hasMore: boolean;
+    totalCount: number;
+    availableCities: string[];
+  } {
+    const limit = Math.min(50, Math.max(1, Number(query?.limit) || 15));
     const isCacheable =
       (!query?.gender || query.gender === 'all') &&
       (!query?.city || query.city === 'all') &&
       (!query?.intention || query.intention === 'all') &&
       !query?.search;
+
+    const getFeedSortTs = (p: TripDatingProfile) => p.published_at || p.reviewed_at || p.createdAt || 0;
 
     let baseApproved: TripDatingProfile[];
     if (
@@ -7521,12 +7874,22 @@ class DatabaseStore {
         this.data.tripDatingProfiles = SEED_TRIP_DATING_PROFILES;
         this.save();
       }
-      let list = this.data.tripDatingProfiles.filter(p => this.isTripDatingApprovedPublic(p));
+      let list = this.data.tripDatingProfiles
+        .filter(p => this.isTripDatingApprovedPublic(p))
+        .map(p => this.hydrateTripDatingMedia(p));
+
       if (query?.gender && query.gender !== 'all') {
         list = list.filter(p => p.gender.toLowerCase() === query.gender!.toLowerCase());
       }
       if (query?.city && query.city !== 'all') {
-        list = list.filter(p => p.city.toLowerCase().includes(query.city!.toLowerCase()) || p.location.toLowerCase().includes(query.city!.toLowerCase()));
+        const targetCity = query.city.toLowerCase().trim();
+        list = list.filter(
+          p =>
+            p.city.toLowerCase() === targetCity ||
+            (p.city_custom && p.city_custom.toLowerCase() === targetCity) ||
+            p.city.toLowerCase().includes(targetCity) ||
+            p.location.toLowerCase().includes(targetCity)
+        );
       }
       if (query?.intention && query.intention !== 'all') {
         list = list.filter(p => p.datingIntention === query.intention);
@@ -7536,13 +7899,14 @@ class DatabaseStore {
         list = list.filter(p =>
           p.fullName.toLowerCase().includes(q) ||
           p.city.toLowerCase().includes(q) ||
+          (p.city_custom || '').toLowerCase().includes(q) ||
           p.location.toLowerCase().includes(q) ||
           p.description.toLowerCase().includes(q) ||
           p.lookingFor.toLowerCase().includes(q)
         );
       }
       list.sort((a, b) => {
-        const diff = (b.createdAt || 0) - (a.createdAt || 0);
+        const diff = getFeedSortTs(b) - getFeedSortTs(a);
         return diff !== 0 ? diff : b.id.localeCompare(a.id);
       });
       baseApproved = list;
@@ -7557,7 +7921,7 @@ class DatabaseStore {
       const cursorTs = Number(tsStr);
       if (Number.isFinite(cursorTs)) {
         filtered = baseApproved.filter(p => {
-          const ts = p.createdAt || 0;
+          const ts = getFeedSortTs(p);
           return ts < cursorTs || (ts === cursorTs && p.id.localeCompare(cursorId) < 0);
         });
       }
@@ -7567,7 +7931,7 @@ class DatabaseStore {
     const pageSlice = filtered.slice(0, limit);
     const hasMore = filtered.length > limit;
     const last = pageSlice[pageSlice.length - 1];
-    const nextCursor = hasMore && last ? `${last.createdAt || 0}|${last.id}` : null;
+    const nextCursor = hasMore && last ? `${getFeedSortTs(last)}|${last.id}` : null;
 
     const hydrated = pageSlice.map(p => {
       const activeUnlock = this.checkActiveContactUnlock(p.id, viewerEmail, clientSessionId);
@@ -7595,6 +7959,7 @@ class DatabaseStore {
       nextCursor,
       hasMore,
       totalCount: baseApproved.length,
+      availableCities: this.getTripDatingAvailableCities(true),
     };
   }
 
@@ -7612,6 +7977,7 @@ class DatabaseStore {
         if (cleanSess && p.clientSessionId === cleanSess) return true;
         return false;
       })
+      .map(p => this.hydrateTripDatingMedia(p))
       .sort((a, b) => {
         const diff = (b.createdAt || 0) - (a.createdAt || 0);
         return diff !== 0 ? diff : b.id.localeCompare(a.id);
@@ -7620,8 +7986,9 @@ class DatabaseStore {
 
   public getTripDatingProfileById(id: string, viewerEmail?: string, clientSessionId?: string, allowUnapproved = false) {
     if (!this.data.tripDatingProfiles) this.data.tripDatingProfiles = SEED_TRIP_DATING_PROFILES;
-    const profile = this.data.tripDatingProfiles.find(p => p.id === id);
-    if (!profile) return null;
+    const rawProfile = this.data.tripDatingProfiles.find(p => p.id === id);
+    if (!rawProfile) return null;
+    const profile = this.hydrateTripDatingMedia(rawProfile);
 
     const isOwner = Boolean(
       (viewerEmail && ((profile.ownerEmail || '').toLowerCase() === viewerEmail.toLowerCase() || (profile.userId || '').toLowerCase() === viewerEmail.toLowerCase())) ||
@@ -7699,6 +8066,7 @@ class DatabaseStore {
     dob?: string;
     country?: string;
     city: string;
+    city_custom?: string | null;
     location: string;
     description: string;
     lookingFor: string;
@@ -7711,12 +8079,16 @@ class DatabaseStore {
     videoUrl?: string;
     videoDuration?: number;
     videoThumbnail?: string;
+    videoMediaId?: string | null;
+    videoMediaIds?: string[];
+    mediaAssetIds?: string[];
     videoFilter?: string;
     videoTrimStart?: number;
     videoTrimEnd?: number;
     full_body_photo?: string;
     full_body_verified?: boolean;
     fullBodyModerationStatus?: 'pending_review' | 'approved' | 'rejected';
+    status?: TripDatingUnifiedStatus;
     userId?: string;
     ownerEmail?: string;
     clientSessionId?: string;
@@ -7731,11 +8103,19 @@ class DatabaseStore {
       data.full_body_photo,
     ]);
 
+    this.assertMediaAssetsReady([
+      data.videoMediaId,
+      ...(data.videoMediaIds || []),
+      ...(data.mediaAssetIds || []),
+    ]);
+
     this.assertTripDatingContentSafe({
       fullName: data.fullName,
       description: data.description,
       lookingFor: data.lookingFor,
     });
+
+    const normalizedCity = this.validateAndNormalizeCity(data.city, data.city_custom);
 
     // Validate photos (maximum 4, default 3)
     const sanitizedPhotos = (data.photos || []).filter(p => typeof p === 'string' && p.trim().length > 0).slice(0, 4);
@@ -7745,28 +8125,40 @@ class DatabaseStore {
 
     const fullBodyPhoto = data.full_body_photo || sanitizedPhotos[0];
 
-    // Validate and sanitize 9:16 vertical video (max 60 seconds)
-    const effectiveVideoUrl = (data.videoUrl && typeof data.videoUrl === 'string' && data.videoUrl.trim().length > 0)
+    // Hydrate video reference from media_assets if videoMediaId provided
+    const primaryAsset = data.videoMediaId ? this.getMediaAssetById(data.videoMediaId) : null;
+    const secondaryAssets = (data.videoMediaIds || [])
+      .map(id => this.getMediaAssetById(id))
+      .filter((a): a is MediaAsset => Boolean(a));
+
+    const effectiveVideoUrl = primaryAsset?.url || (data.videoUrl && typeof data.videoUrl === 'string' && data.videoUrl.trim().length > 0
       ? data.videoUrl.trim()
-      : (Array.isArray(data.videos) && data.videos.length > 0 ? data.videos[0] : undefined);
+      : (Array.isArray(data.videos) && data.videos.length > 0 ? data.videos[0] : undefined));
 
-    const effectiveDuration = data.videoDuration !== undefined
-      ? Math.min(60, Math.max(1, Math.round(Number(data.videoDuration)) || 60))
-      : (Array.isArray(data.videoDurations) && data.videoDurations.length > 0 ? Math.min(60, Number(data.videoDurations[0]) || 60) : 60);
+    const effectiveDuration = primaryAsset?.duration
+      ? Math.min(60, Math.max(1, Math.round(primaryAsset.duration)))
+      : (data.videoDuration !== undefined
+          ? Math.min(60, Math.max(1, Math.round(Number(data.videoDuration)) || 60))
+          : (Array.isArray(data.videoDurations) && data.videoDurations.length > 0 ? Math.min(60, Number(data.videoDurations[0]) || 60) : 60));
 
-    const effectiveThumbnail = (data.videoThumbnail && typeof data.videoThumbnail === 'string' && data.videoThumbnail.trim().length > 0)
+    const effectiveThumbnail = primaryAsset?.poster_url || (data.videoThumbnail && typeof data.videoThumbnail === 'string' && data.videoThumbnail.trim().length > 0
       ? data.videoThumbnail.trim()
-      : (Array.isArray(data.videoThumbnails) && data.videoThumbnails.length > 0 ? data.videoThumbnails[0] : fullBodyPhoto);
+      : (Array.isArray(data.videoThumbnails) && data.videoThumbnails.length > 0 ? data.videoThumbnails[0] : fullBodyPhoto));
 
-    let sanitizedVideos = Array.isArray(data.videos)
-      ? data.videos.filter(v => typeof v === 'string' && v.trim().length > 0).slice(0, 2)
-      : undefined;
+    let sanitizedVideos = secondaryAssets.length > 0
+      ? secondaryAssets.map(a => a.url).slice(0, 2)
+      : (Array.isArray(data.videos)
+          ? data.videos.filter(v => typeof v === 'string' && v.trim().length > 0).slice(0, 2)
+          : undefined);
     if (effectiveVideoUrl && (!sanitizedVideos || sanitizedVideos.length === 0)) {
       sanitizedVideos = [effectiveVideoUrl];
     }
-    const sanitizedDurations = sanitizedVideos ? sanitizedVideos.map(() => effectiveDuration) : undefined;
-    const sanitizedThumbnails = effectiveThumbnail ? [effectiveThumbnail] : undefined;
+    const sanitizedDurations = sanitizedVideos ? sanitizedVideos.map((_, idx) => secondaryAssets[idx]?.duration || effectiveDuration) : undefined;
+    const sanitizedThumbnails = secondaryAssets.length > 0
+      ? secondaryAssets.map(a => a.poster_url || effectiveThumbnail)
+      : (effectiveThumbnail ? [effectiveThumbnail] : undefined);
 
+    const initialStatus: TripDatingUnifiedStatus = data.status === 'DRAFT' ? 'DRAFT' : 'PENDING_REVIEW';
     const now = Date.now();
     const newProfile: TripDatingProfile = {
       id: 'tdp_' + now.toString(36) + '_' + Math.random().toString(36).slice(2, 6),
@@ -7779,8 +8171,9 @@ class DatabaseStore {
       age: Math.max(18, Math.min(99, Number(data.age) || 25)),
       dob: data.dob,
       country: data.country || 'Kenya',
-      city: data.city.trim() || 'Nairobi',
-      location: data.location.trim() || 'Nairobi',
+      city: normalizedCity.city,
+      city_custom: normalizedCity.city_custom,
+      location: (data.location || normalizedCity.city).trim(),
       description: data.description.trim(),
       lookingFor: data.lookingFor.trim(),
       datingIntention: data.datingIntention || 'dating_companionship',
@@ -7789,6 +8182,9 @@ class DatabaseStore {
       videoUrl: effectiveVideoUrl,
       videoDuration: effectiveVideoUrl ? effectiveDuration : undefined,
       videoThumbnail: effectiveVideoUrl ? effectiveThumbnail : undefined,
+      videoMediaId: primaryAsset?.id || data.videoMediaId || null,
+      videoMediaIds: secondaryAssets.length > 0 ? secondaryAssets.map(a => a.id) : data.videoMediaIds,
+      mediaAssetIds: data.mediaAssetIds,
       videoFilter: data.videoFilter || undefined,
       videoTrimStart: data.videoTrimStart !== undefined ? Number(data.videoTrimStart) : undefined,
       videoTrimEnd: data.videoTrimEnd !== undefined ? Number(data.videoTrimEnd) : undefined,
@@ -7798,14 +8194,16 @@ class DatabaseStore {
       full_body_photo: fullBodyPhoto,
       full_body_verified: data.full_body_verified !== undefined ? Boolean(data.full_body_verified) : true,
       fullBodyModerationStatus: 'pending_review',
-      moderationState: 'PENDING',
+      moderationState: initialStatus,
       admin_feedback: null,
+      decline_reason: null,
       reviewed_at: null,
       reviewed_by: null,
+      published_at: null,
       likes: 0,
       likedByUserEmails: [],
       views: 0,
-      status: 'pending', // Mandatory Admin Review before going live
+      status: initialStatus,
       createdAt: now,
       updatedAt: now,
     };
@@ -7817,28 +8215,31 @@ class DatabaseStore {
       id: 'aud_tdp_' + now,
       action: 'trip_dating_profile_submitted',
       actorEmail: data.ownerEmail || data.userId || 'guest@airbus.ke',
-      details: `Submitted Trip Dating profile for ${newProfile.fullName} (${newProfile.city}) for Admin Review.`,
+      details: `Submitted Trip Dating profile for ${newProfile.fullName} (${newProfile.city}) with status ${initialStatus}.`,
       createdAt: now,
     });
 
-    this.data.users
-      .filter(u => u.role === 'admin')
-      .forEach(admin => {
-        this.createNotification({
-          id: 'notif_tdp_rev_' + now + '_' + Math.random().toString(36).slice(2, 5),
-          userEmail: admin.email,
-          title: 'New Trip Dating Post Pending Review',
-          message: `${newProfile.fullName} (${newProfile.city}) submitted a Trip Dating profile for Admin approval.`,
-          read: false,
-          link: '/#admin',
-          type: 'system',
-          createdAt: now,
+    if (initialStatus === 'PENDING_REVIEW') {
+      this.data.users
+        .filter(u => u.role === 'admin')
+        .forEach(admin => {
+          this.createNotification({
+            id: 'notif_tdp_rev_' + now + '_' + Math.random().toString(36).slice(2, 5),
+            userEmail: admin.email,
+            title: 'New Trip Dating Post Pending Review',
+            message: `${newProfile.fullName} (${newProfile.city}) submitted a Trip Dating profile for Admin approval.`,
+            read: false,
+            link: '/#admin',
+            type: 'system',
+            createdAt: now,
+          });
         });
-      });
+    }
 
     this.save();
+    this.emitTripDatingCountsUpdate();
     return {
-      profile: newProfile,
+      profile: this.hydrateTripDatingMedia(newProfile),
       message: 'Submitted for Admin Review. Your Trip Dating post will go live once approved.',
     };
   }
@@ -7870,11 +8271,26 @@ class DatabaseStore {
       updates.full_body_photo,
     ]);
 
+    this.assertMediaAssetsReady([
+      updates.videoMediaId,
+      ...(updates.videoMediaIds || []),
+      ...(updates.mediaAssetIds || []),
+    ]);
+
     this.assertTripDatingContentSafe({
       fullName: updates.fullName ?? current.fullName,
       description: updates.description ?? current.description,
       lookingFor: updates.lookingFor ?? current.lookingFor,
     });
+
+    if (updates.city !== undefined || updates.city_custom !== undefined) {
+      const normalizedCity = this.validateAndNormalizeCity(
+        updates.city ?? current.city,
+        updates.city_custom !== undefined ? updates.city_custom : current.city_custom
+      );
+      updates.city = normalizedCity.city;
+      updates.city_custom = normalizedCity.city_custom;
+    }
 
     if (updates.photos && updates.photos.length > 4) {
       updates.photos = updates.photos.slice(0, 4);
@@ -7885,14 +8301,16 @@ class DatabaseStore {
       ...current,
       ...safeUpdates,
       id: current.id,
-      createdAt: current.createdAt, // Preserve original timestamp
-      moderationState: 'PENDING',
-      status: 'pending',
+      createdAt: current.createdAt,
+      moderationState: 'PENDING_REVIEW',
+      status: 'PENDING_REVIEW',
       fullBodyModerationStatus: 'pending_review',
       admin_feedback: null,
+      decline_reason: null,
       removalReason: undefined,
       reviewed_at: null,
       reviewed_by: null,
+      published_at: null,
       updatedAt: Date.now(),
     };
 
@@ -7915,7 +8333,8 @@ class DatabaseStore {
       });
 
     this.save();
-    return updated;
+    this.emitTripDatingCountsUpdate();
+    return this.hydrateTripDatingMedia(updated);
   }
 
   public updateTripDatingProfile(id: string, updates: Partial<TripDatingProfile>, _actorEmail?: string) {
@@ -8184,58 +8603,208 @@ class DatabaseStore {
     return unlock || null;
   }
 
-  public adminModerateTripDatingProfile(profileId: string, status: TripDatingProfileStatus, reason?: string, adminEmail?: string) {
+  public getTripDatingAdminCounts(): TripDatingAdminCounts {
     if (!this.data.tripDatingProfiles) this.data.tripDatingProfiles = SEED_TRIP_DATING_PROFILES;
-    const profile = this.data.tripDatingProfiles.find(p => p.id === profileId);
-    if (!profile) throw new Error('Dating profile not found');
+    if (!this.data.tripDatingPaymentRequests) this.data.tripDatingPaymentRequests = [];
+    const profiles = this.data.tripDatingProfiles;
+    let pending = 0;
+    let approved = 0;
+    let declined = 0;
+    let draft = 0;
+    for (const p of profiles) {
+      const st = this.normalizeTripDatingStatus(p);
+      if (st === 'PENDING_REVIEW') pending += 1;
+      else if (st === 'APPROVED') approved += 1;
+      else if (st === 'DECLINED') declined += 1;
+      else if (st === 'DRAFT') draft += 1;
+    }
+    const pendingPayments = this.data.tripDatingPaymentRequests.filter(r => r.status === 'pending').length;
+    return {
+      pending,
+      approved,
+      declined,
+      draft,
+      total: profiles.length,
+      pendingPayments,
+    };
+  }
 
-    const now = Date.now();
-    const cleanAdmin = adminEmail || 'admin@airbus.ke';
+  public getAdminTripDatingSubmissions(opts: {
+    status?: string;
+    page?: number;
+    limit?: number;
+  }): {
+    submissions: Array<TripDatingProfile & { videoAsset?: MediaAsset | null }>;
+    counts: TripDatingAdminCounts;
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  } {
+    if (!this.data.tripDatingProfiles) this.data.tripDatingProfiles = SEED_TRIP_DATING_PROFILES;
+    const requestedStatus = String(opts.status || 'PENDING_REVIEW').trim().toUpperCase();
+    const page = Math.max(1, Number(opts.page) || 1);
+    const limit = Math.min(50, Math.max(1, Number(opts.limit) || 20));
 
-    if (status === 'active') {
-      profile.status = 'active';
-      profile.moderationState = 'APPROVED';
-      profile.fullBodyModerationStatus = 'approved';
-      profile.full_body_verified = true;
-      profile.admin_feedback = null;
-      profile.removalReason = undefined;
-      profile.reviewed_at = now;
-      profile.reviewed_by = cleanAdmin;
-    } else {
-      const cleanReason = (reason || '').trim();
-      if ((status === 'rejected' || status === 'suspended') && !cleanReason) {
-        throw new Error('Admin feedback explaining why the submission was declined is required.');
-      }
-      profile.status = status;
-      profile.moderationState = 'DECLINED';
-      profile.fullBodyModerationStatus = 'rejected';
-      profile.admin_feedback = cleanReason || 'Declined by administrator.';
-      profile.removalReason = profile.admin_feedback;
-      profile.reviewed_at = now;
-      profile.reviewed_by = cleanAdmin;
+    let list = this.data.tripDatingProfiles.map(p => this.hydrateTripDatingMedia(p));
+    if (requestedStatus !== 'ALL') {
+      const normalizedTarget: TripDatingUnifiedStatus =
+        requestedStatus === 'PENDING' ? 'PENDING_REVIEW'
+        : requestedStatus === 'ACTIVE' ? 'APPROVED'
+        : requestedStatus === 'REJECTED' ? 'DECLINED'
+        : (['DRAFT', 'PENDING_REVIEW', 'APPROVED', 'DECLINED'].includes(requestedStatus)
+            ? (requestedStatus as TripDatingUnifiedStatus)
+            : 'PENDING_REVIEW');
+      list = list.filter(p => this.normalizeTripDatingStatus(p) === normalizedTarget);
     }
 
+    if (requestedStatus === 'PENDING_REVIEW' || requestedStatus === 'PENDING') {
+      list.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0) || a.id.localeCompare(b.id));
+    } else {
+      list.sort((a, b) => {
+        const bTs = b.published_at || b.reviewed_at || b.updatedAt || b.createdAt || 0;
+        const aTs = a.published_at || a.reviewed_at || a.updatedAt || a.createdAt || 0;
+        return bTs - aTs || b.id.localeCompare(a.id);
+      });
+    }
+
+    const total = list.length;
+    const totalPages = Math.max(1, Math.ceil(total / limit));
+    const offset = (page - 1) * limit;
+    const sliced = list.slice(offset, offset + limit).map(p => ({
+      ...p,
+      videoAsset: p.videoMediaId
+        ? this.getMediaAssetById(p.videoMediaId)
+        : (p.videoUrl ? this.getMediaAssetByUrl(p.videoUrl) : null),
+    }));
+
+    return {
+      submissions: sliced,
+      counts: this.getTripDatingAdminCounts(),
+      page,
+      limit,
+      total,
+      totalPages,
+    };
+  }
+
+  public approveTripDatingSubmission(
+    profileId: string,
+    adminEmail: string
+  ): { profile: TripDatingProfile; alreadyApproved: boolean } {
+    if (!this.data.tripDatingProfiles) this.data.tripDatingProfiles = SEED_TRIP_DATING_PROFILES;
+    const profile = this.data.tripDatingProfiles.find(p => p.id === profileId);
+    if (!profile) throw new Error('Trip Dating submission not found.');
+
+    const currentStatus = this.normalizeTripDatingStatus(profile);
+    if (currentStatus === 'APPROVED') {
+      return { profile: this.hydrateTripDatingMedia(profile), alreadyApproved: true };
+    }
+
+    const now = Date.now();
+    const cleanAdmin = (adminEmail || 'admin@airbus.ke').trim();
+
+    profile.status = 'APPROVED';
+    profile.moderationState = 'APPROVED';
+    profile.fullBodyModerationStatus = 'approved';
+    profile.full_body_verified = true;
+    profile.admin_feedback = null;
+    profile.decline_reason = null;
+    profile.removalReason = undefined;
+    profile.reviewed_at = now;
+    profile.reviewed_by = cleanAdmin;
+    profile.published_at = now;
     profile.updatedAt = now;
+
     this.invalidateFeedCache('trip_dating');
 
     this.createAuditLog({
-      id: 'aud_mod_tdp_' + now,
-      action: `trip_dating_profile_${status}`,
+      id: 'aud_tdp_app_' + now + '_' + Math.random().toString(36).slice(2, 5),
+      action: 'trip_dating_profile_approved',
       actorEmail: cleanAdmin,
-      details: `Admin changed status of ${profile.fullName} to ${status} (${profile.moderationState}). Feedback: ${profile.admin_feedback || 'Approved'}`,
+      details: `Admin approved Trip Dating submission ${profile.fullName} (${profile.id}) -> APPROVED, published_at=${new Date(now).toISOString()}`,
+      createdAt: now,
+    });
+
+    this.save();
+
+    const hydrated = this.hydrateTripDatingMedia(profile);
+    this.emitFeedApproved('trip_dating', {
+      ...hydrated,
+      phoneNumber: '+254 7•• ••• •••',
+      isUnlocked: false,
+    });
+    this.emitTripDatingCountsUpdate();
+
+    // Notify submitter AFTER post is committed & emitted to feed
+    const ownerEmail = profile.ownerEmail || (profile.userId && profile.userId.includes('@') ? profile.userId : undefined);
+    if (ownerEmail) {
+      this.createNotification({
+        id: 'notif_tdp_app_' + now + '_' + Math.random().toString(36).slice(2, 5),
+        userEmail: ownerEmail,
+        title: 'Trip Dating Post Approved & Live!',
+        message: `Your Trip Dating post for ${profile.fullName} has been approved and is now at the top of the Trip Dating feed!`,
+        read: false,
+        link: '/#trip-dating',
+        type: 'system',
+        createdAt: now,
+      });
+      this.save();
+    }
+
+    return { profile: hydrated, alreadyApproved: false };
+  }
+
+  public declineTripDatingSubmission(
+    profileId: string,
+    adminEmail: string,
+    reason: string
+  ): { profile: TripDatingProfile; alreadyDeclined: boolean } {
+    if (!this.data.tripDatingProfiles) this.data.tripDatingProfiles = SEED_TRIP_DATING_PROFILES;
+    const profile = this.data.tripDatingProfiles.find(p => p.id === profileId);
+    if (!profile) throw new Error('Trip Dating submission not found.');
+
+    const cleanReason = (reason || '').trim();
+    if (cleanReason.length < 10 || cleanReason.length > 500) {
+      throw new Error('Decline reason is required and must be between 10 and 500 characters.');
+    }
+
+    const currentStatus = this.normalizeTripDatingStatus(profile);
+    if (currentStatus === 'DECLINED' && (profile.decline_reason || profile.admin_feedback) === cleanReason) {
+      return { profile: this.hydrateTripDatingMedia(profile), alreadyDeclined: true };
+    }
+
+    const now = Date.now();
+    const cleanAdmin = (adminEmail || 'admin@airbus.ke').trim();
+
+    profile.status = 'DECLINED';
+    profile.moderationState = 'DECLINED';
+    profile.fullBodyModerationStatus = 'rejected';
+    profile.decline_reason = cleanReason;
+    profile.admin_feedback = cleanReason;
+    profile.removalReason = cleanReason;
+    profile.reviewed_at = now;
+    profile.reviewed_by = cleanAdmin;
+    profile.published_at = null;
+    profile.updatedAt = now;
+
+    this.invalidateFeedCache('trip_dating');
+
+    this.createAuditLog({
+      id: 'aud_tdp_dec_' + now + '_' + Math.random().toString(36).slice(2, 5),
+      action: 'trip_dating_profile_declined',
+      actorEmail: cleanAdmin,
+      details: `Admin declined Trip Dating submission ${profile.fullName} (${profile.id}) -> DECLINED. Reason: ${cleanReason}`,
       createdAt: now,
     });
 
     const ownerEmail = profile.ownerEmail || (profile.userId && profile.userId.includes('@') ? profile.userId : undefined);
     if (ownerEmail) {
       this.createNotification({
-        id: 'notif_tdp_mod_' + now,
+        id: 'notif_tdp_dec_' + now + '_' + Math.random().toString(36).slice(2, 5),
         userEmail: ownerEmail,
-        title: status === 'active' ? 'Trip Dating Post Approved!' : 'Trip Dating Post Declined',
-        message:
-          status === 'active'
-            ? `Your Trip Dating post for ${profile.fullName} has been approved and is now live!`
-            : `Your Trip Dating post was declined: ${profile.admin_feedback}`,
+        title: 'Trip Dating Post Declined',
+        message: `Your Trip Dating post was declined: ${cleanReason}`,
         read: false,
         link: '/#trip-dating',
         type: 'system',
@@ -8244,14 +8813,18 @@ class DatabaseStore {
     }
 
     this.save();
-    if (status === 'active') {
-      this.emitFeedApproved('trip_dating', {
-        ...profile,
-        phoneNumber: '+254 7•• ••• •••',
-        isUnlocked: false,
-      });
+    this.emitTripDatingCountsUpdate();
+    return { profile: this.hydrateTripDatingMedia(profile), alreadyDeclined: false };
+  }
+
+  public adminModerateTripDatingProfile(profileId: string, status: TripDatingProfileStatus, reason?: string, adminEmail?: string) {
+    const cleanAdmin = adminEmail || 'admin@airbus.ke';
+    if (status === 'active' || status === 'APPROVED') {
+      return this.approveTripDatingSubmission(profileId, cleanAdmin).profile;
     }
-    return profile;
+    const cleanReason = (reason || '').trim();
+    const effectiveReason = cleanReason || (status === 'removed' ? 'Removed by administrator for policy violation.' : '');
+    return this.declineTripDatingSubmission(profileId, cleanAdmin, effectiveReason).profile;
   }
 
   public getAdminReviewQueue(): {
@@ -8269,7 +8842,8 @@ class DatabaseStore {
       });
 
     const tripDating = (this.data.tripDatingProfiles || [])
-      .filter(p => p.moderationState === 'PENDING' || (!p.moderationState && p.status === 'pending'))
+      .filter(p => this.normalizeTripDatingStatus(p) === 'PENDING_REVIEW')
+      .map(p => this.hydrateTripDatingMedia(p))
       .sort((a, b) => {
         const diff = (a.createdAt || 0) - (b.createdAt || 0);
         return diff !== 0 ? diff : a.id.localeCompare(b.id);
@@ -8327,18 +8901,20 @@ class DatabaseStore {
     const profiles = this.data.tripDatingProfiles;
     const reqs = this.data.tripDatingPaymentRequests;
     const unlocks = this.data.tripDatingContactUnlocks;
-
+    const counts = this.getTripDatingAdminCounts();
     const approvedCount = reqs.filter(r => r.status === 'approved').length;
 
     return {
       totalMembers: profiles.length,
-      activeProfiles: profiles.filter(p => p.status === 'active').length,
+      activeProfiles: counts.approved,
+      pendingProfiles: counts.pending,
+      declinedProfiles: counts.declined,
       suspendedProfiles: profiles.filter(p => p.status === 'suspended').length,
       removedProfiles: profiles.filter(p => p.status === 'removed').length,
       totalViews: profiles.reduce((sum, p) => sum + (p.views || 0), 0),
       totalLikes: profiles.reduce((sum, p) => sum + (p.likes || 0), 0),
       totalContactRequests: reqs.length,
-      pendingApprovals: reqs.filter(r => r.status === 'pending').length,
+      pendingApprovals: counts.pendingPayments,
       approvedPayments: approvedCount,
       rejectedPayments: reqs.filter(r => r.status === 'rejected').length,
       successfulUnlocks: unlocks.length,

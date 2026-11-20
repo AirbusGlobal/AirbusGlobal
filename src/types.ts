@@ -1082,10 +1082,39 @@ export interface StayWeatherInfo {
   forecast: WeatherForecastDay[];
 }
 
+// --- GLOBAL MEDIA ASSETS ---
+export type MediaAssetType = 'VIDEO' | 'IMAGE';
+export type MediaAssetStatus = 'UPLOADING' | 'PROCESSING' | 'READY' | 'FAILED';
+
+export interface MediaAsset {
+  id: string;
+  owner_id: string;
+  type: MediaAssetType;
+  storage_key: string;
+  url: string;
+  mime: string;
+  size_bytes: number;
+  duration?: number;
+  width?: number;
+  height?: number;
+  status: MediaAssetStatus;
+  poster_url?: string;
+  error_message?: string;
+  created_at: number;
+  updated_at?: number;
+}
+
 // --- TRIP DATING: A Dating Services Near You ---
 export type TripDatingGender = 'male' | 'female' | 'other';
 export type TripDatingIntention = 'serious_relationship' | 'dating_companionship' | 'travel_partner' | 'friendship';
-export type TripDatingProfileStatus = 'pending' | 'active' | 'rejected' | 'suspended' | 'removed';
+export type TripDatingUnifiedStatus = 'DRAFT' | 'PENDING_REVIEW' | 'APPROVED' | 'DECLINED';
+export type TripDatingProfileStatus =
+  | TripDatingUnifiedStatus
+  | 'pending'
+  | 'active'
+  | 'rejected'
+  | 'suspended'
+  | 'removed';
 
 export interface TripDatingProfile {
   id: string;
@@ -1099,6 +1128,7 @@ export interface TripDatingProfile {
   dob?: string;
   country: string;
   city: string;
+  city_custom?: string | null;
   location: string;
   description: string;
   lookingFor: string;
@@ -1111,16 +1141,21 @@ export interface TripDatingProfile {
   videoUrl?: string; // 9:16 vertical video walkthrough / intro (max 60 seconds)
   videoThumbnail?: string;
   videoDuration?: number;
+  videoMediaId?: string | null;
+  videoMediaIds?: string[];
+  mediaAssetIds?: string[];
   videoFilter?: string; // Aesthetic filter name e.g. 'Warm Sunset', 'Neon Night', 'Vintage Grain'
   videoTrimStart?: number; // Trim segment start time in seconds
   videoTrimEnd?: number; // Trim segment end time in seconds
   full_body_photo?: string; // Optional/verified full-body photo
   full_body_verified: boolean;
   fullBodyModerationStatus?: 'pending_review' | 'approved' | 'rejected';
-  moderationState?: ModerationState;
+  moderationState?: ModerationState | TripDatingUnifiedStatus;
   admin_feedback?: string | null;
+  decline_reason?: string | null;
   reviewed_at?: number | null;
   reviewed_by?: string | null;
+  published_at?: number | null;
   likes: number;
   likedByUserEmails?: string[];
   views: number;
@@ -1160,9 +1195,20 @@ export interface TripDatingContactUnlock {
   expiresAt: number; // exactly 10 minutes from approval
 }
 
+export interface TripDatingAdminCounts {
+  pending: number;
+  approved: number;
+  declined: number;
+  draft: number;
+  total: number;
+  pendingPayments: number;
+}
+
 export interface TripDatingStats {
   totalMembers: number;
   activeProfiles: number;
+  pendingProfiles?: number;
+  declinedProfiles?: number;
   suspendedProfiles: number;
   removedProfiles: number;
   totalViews: number;

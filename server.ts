@@ -8,7 +8,7 @@ import { GoogleGenAI } from '@google/genai';
 import { db, hashPassword, PLANS, SESSION_IDLE_TIMEOUT_MS, validatePasswordStrength } from './src/server/db';
 import { User, Stay, StayCategory, Booking, ChatThread, ChatMessage, PaymentRecordType, PaymentRecordMethod, ShortIntentType } from './src/types';
 import { audioLibraryService } from './src/server/services/audioLibraryService';
-import { mediaProcessingService } from './src/server/services/mediaProcessingService';
+import { CHUNK_UPLOADS_DIR, mediaProcessingService, VIDEOS_OUTPUT_DIR } from './src/server/services/mediaProcessingService';
 import { shortJobQueue } from './src/server/services/shortJobQueue';
 import { SHORTS_TIER_CONFIG, AUDIO_UPLOAD_CONFIG } from './src/config/shortsTierConfig';
 import { apiRateLimiter, logger, opsMetrics, requestIdMiddleware, walletMutex } from './src/server/services/ops';
@@ -39,13 +39,116 @@ const PORT = !Number.isNaN(cliPort)
 app.use(express.json({ limit: '65mb' }));
 app.use(requestIdMiddleware);
 
-// Serve generated Shorts, thumbnails, raw media, and free-source audio assets
+// Serve generated Shorts, thumbnails, raw media, transcoded videos, and free-source audio assets
+// with explicit HTTP 206 Range streaming, Content-Type, Accept-Ranges, and CORS headers
 const uploadsRoot = path.resolve(process.cwd(), 'uploads');
 const RAW_UPLOADS_DIR = path.resolve(uploadsRoot, 'raw');
-if (!fs.existsSync(uploadsRoot)) fs.mkdirSync(uploadsRoot, { recursive: true });
-if (!fs.existsSync(RAW_UPLOADS_DIR)) fs.mkdirSync(RAW_UPLOADS_DIR, { recursive: true });
-app.use('/uploads', express.static(uploadsRoot));
-app.use('/AirbusGlobal/uploads', express.static(uploadsRoot));
+for (const dir of [uploadsRoot, RAW_UPLOADS_DIR, VIDEOS_OUTPUT_DIR, CHUNK_UPLOADS_DIR]) {
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+}
+
+function getUploadMimeType(filePath: string): string {
+  const ext = path.extname(filePath).toLowerCase();
+  if (ext === '.mp4' || ext === '.m4v') return 'video/mp4';
+  if (ext === '.webm') return 'video/webm';
+  if (ext === '.mov') return 'video/quicktime';
+  if (ext === '.jpg' || ext === '.jpeg') return 'image/jpeg';
+  if (ext === '.png') return 'image/png';
+  if (ext === '.webp') return 'image/webp';
+  if (ext === '.mp3') return 'audio/mpeg';
+  if (ext === '.m4a') return 'audio/mp4';
+  if (ext === '.wav') return 'audio/wav';
+  if (ext === '.ogg') return 'audio/ogg';
+  return 'application/octet-stream';
+}
+
+function serveUploadsWithRange(req: express.Request, res: express.Response, next: express.NextFunction) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Range, Content-Type, Authorization');
+  res.setHeader('Access-Control-Expose-Headers', 'Content-Range, Accept-Ranges, Content-Length');
+
+  if (req.method === 'OPTIONS') {
+    return res.status(204).end();
+  }
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    return next();
+  }
+
+  let cleanRel = '';
+  try {
+    cleanRel = decodeURIComponent(req.path || '').replace(/^\/+/, '');
+  } catch {
+    return res.status(400).end();
+  }
+  if (!cleanRel || cleanRel.includes('..')) {
+    return next();
+  }
+
+  const resolved = path.resolve(uploadsRoot, cleanRel);
+  if (!resolved.startsWith(uploadsRoot + path.sep) || !fs.existsSync(resolved)) {
+    return next();
+  }
+  const stat = fs.statSync(resolved);
+  if (!stat.isFile()) {
+    return next();
+  }
+
+  const mime = getUploadMimeType(resolved);
+  const total = stat.size;
+  res.setHeader('Content-Type', mime);
+  res.setHeader('Accept-Ranges', 'bytes');
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+
+  const rangeHeader = req.headers.range;
+  if (rangeHeader && /^bytes=\d*-\d*$/i.test(rangeHeader.trim())) {
+    const [rawStart, rawEnd] = rangeHeader.trim().replace(/^bytes=/i, '').split('-');
+    let start = rawStart ? parseInt(rawStart, 10) : 0;
+    let end = rawEnd ? parseInt(rawEnd, 10) : total - 1;
+
+    if (!rawStart && rawEnd) {
+      const suffixLen = parseInt(rawEnd, 10);
+      start = Math.max(0, total - suffixLen);
+      end = total - 1;
+    }
+
+    if (Number.isNaN(start) || Number.isNaN(end) || start > end || start >= total) {
+      res.setHeader('Content-Range', `bytes */${total}`);
+      return res.status(416).end();
+    }
+
+    end = Math.min(end, total - 1);
+    const chunkSize = end - start + 1;
+    res.status(206);
+    res.setHeader('Content-Range', `bytes ${start}-${end}/${total}`);
+    res.setHeader('Content-Length', String(chunkSize));
+
+    if (req.method === 'HEAD') {
+      return res.end();
+    }
+    const stream = fs.createReadStream(resolved, { start, end });
+    stream.on('error', () => {
+      if (!res.headersSent) res.status(500).end();
+      else res.end();
+    });
+    return stream.pipe(res);
+  }
+
+  res.status(200);
+  res.setHeader('Content-Length', String(total));
+  if (req.method === 'HEAD') {
+    return res.end();
+  }
+  const stream = fs.createReadStream(resolved);
+  stream.on('error', () => {
+    if (!res.headersSent) res.status(500).end();
+    else res.end();
+  });
+  return stream.pipe(res);
+}
+
+app.use('/uploads', serveUploadsWithRange, express.static(uploadsRoot));
+app.use('/AirbusGlobal/uploads', serveUploadsWithRange, express.static(uploadsRoot));
 
 // Normalize /AirbusGlobal/api into /api so both paths work seamlessly
 app.use((req, res, next) => {
@@ -134,18 +237,167 @@ app.get('/api/health', (req, res) => {
 });
 
 // -----------------------------------------------------------------------------
-// CONFIRMED PERSISTENT MEDIA UPLOAD & CLEANUP (No blob: URLs)
+// CONFIRMED PERSISTENT MEDIA UPLOAD, CHUNKED UPLOAD & TRANSCODING (No blob: URLs)
 // -----------------------------------------------------------------------------
 const rawMediaUploadParser = express.raw({
   type: ['video/*', 'image/*', 'application/octet-stream'],
-  limit: '52mb',
+  limit: '155mb',
 });
 
-app.post('/api/uploads/media', rawMediaUploadParser, (req, res) => {
+const rawChunkUploadParser = express.raw({
+  type: ['application/octet-stream', 'video/*', 'image/*'],
+  limit: '25mb',
+});
+
+interface ChunkUploadSession {
+  uploadId: string;
+  ownerId: string;
+  kind: 'photo' | 'video';
+  mime: string;
+  filename: string;
+  totalBytes: number;
+  totalChunks: number;
+  receivedChunks: Set<number>;
+  tempDir: string;
+  createdAt: number;
+}
+const activeChunkUploads = new Map<string, ChunkUploadSession>();
+
+async function finalizeUploadedMediaBuffer(params: {
+  buffer?: Buffer;
+  inputFilePath?: string;
+  kind: 'photo' | 'video';
+  mime: string;
+  ownerId: string;
+  requestId?: string;
+}): Promise<{
+  url: string;
+  posterUrl?: string;
+  id: string;
+  mediaAsset: any;
+  kind: 'photo' | 'video';
+  bytes: number;
+  mime: string;
+  duration?: number;
+  width?: number;
+  height?: number;
+  status: string;
+}> {
+  if (!fs.existsSync(RAW_UPLOADS_DIR)) fs.mkdirSync(RAW_UPLOADS_DIR, { recursive: true });
+  const { kind, mime, ownerId, requestId } = params;
+
+  const assetId = `ma_${Date.now().toString(36)}_${crypto.randomBytes(4).toString('hex')}`;
+  if (kind === 'photo') {
+    const ext = mime === 'image/png' ? 'png' : mime === 'image/webp' ? 'webp' : 'jpg';
+    const fileName = `img_${Date.now()}_${crypto.randomBytes(5).toString('hex')}.${ext}`;
+    const fullPath = path.join(RAW_UPLOADS_DIR, fileName);
+    let sizeBytes = 0;
+    if (params.buffer) {
+      fs.writeFileSync(fullPath, params.buffer);
+      sizeBytes = params.buffer.length;
+    } else if (params.inputFilePath) {
+      fs.copyFileSync(params.inputFilePath, fullPath);
+      sizeBytes = fs.statSync(fullPath).size;
+      try { fs.unlinkSync(params.inputFilePath); } catch {}
+    }
+    const url = `/uploads/raw/${fileName}`;
+    const asset = db.createMediaAsset({
+      id: assetId,
+      owner_id: ownerId,
+      type: 'IMAGE',
+      storage_key: `raw/${fileName}`,
+      url,
+      mime,
+      size_bytes: sizeBytes,
+      status: 'READY',
+    });
+    logger.info('media_upload_saved', { requestId, kind, mime, bytes: sizeBytes, url, assetId, actor: ownerId });
+    return { url, id: asset.id, mediaAsset: asset, kind, bytes: sizeBytes, mime, status: 'READY' };
+  }
+
+  // VIDEO: save raw file -> create PROCESSING asset -> transcode to web-safe H.264/AAC MP4 + poster -> mark READY
+  const rawExt = mime === 'video/webm' ? 'webm' : mime === 'video/quicktime' ? 'mov' : 'mp4';
+  const rawTempName = `raw_${assetId}.${rawExt}`;
+  const rawTempPath = params.inputFilePath || path.join(RAW_UPLOADS_DIR, rawTempName);
+  let inputBytes = 0;
+  if (params.buffer) {
+    fs.writeFileSync(rawTempPath, params.buffer);
+    inputBytes = params.buffer.length;
+  } else if (fs.existsSync(rawTempPath)) {
+    inputBytes = fs.statSync(rawTempPath).size;
+  }
+
+  db.createMediaAsset({
+    id: assetId,
+    owner_id: ownerId,
+    type: 'VIDEO',
+    storage_key: `videos/${assetId}.mp4`,
+    url: '',
+    mime: 'video/mp4',
+    size_bytes: inputBytes,
+    status: 'PROCESSING',
+  });
+
+  try {
+    const transcoded = await mediaProcessingService.transcodeUploadedVideo({
+      inputPath: rawTempPath,
+      assetId,
+    });
+    try {
+      if (fs.existsSync(rawTempPath)) fs.unlinkSync(rawTempPath);
+    } catch {}
+
+    const asset = db.updateMediaAsset(assetId, {
+      storage_key: transcoded.storageKey,
+      url: transcoded.url,
+      poster_url: transcoded.posterUrl,
+      mime: transcoded.mime,
+      size_bytes: transcoded.sizeBytes,
+      duration: transcoded.duration,
+      width: transcoded.width,
+      height: transcoded.height,
+      status: 'READY',
+      error_message: undefined,
+    });
+
+    logger.info('media_video_transcoded', {
+      requestId,
+      assetId,
+      url: transcoded.url,
+      posterUrl: transcoded.posterUrl,
+      duration: transcoded.duration,
+      sizeBytes: transcoded.sizeBytes,
+      actor: ownerId,
+    });
+
+    return {
+      url: transcoded.url,
+      posterUrl: transcoded.posterUrl,
+      id: assetId,
+      mediaAsset: asset,
+      kind: 'video',
+      bytes: transcoded.sizeBytes,
+      mime: transcoded.mime,
+      duration: transcoded.duration,
+      width: transcoded.width,
+      height: transcoded.height,
+      status: 'READY',
+    };
+  } catch (err: any) {
+    try {
+      if (fs.existsSync(rawTempPath)) fs.unlinkSync(rawTempPath);
+    } catch {}
+    const msg = err?.message || 'Video transcoding failed.';
+    db.updateMediaAsset(assetId, { status: 'FAILED', error_message: msg });
+    throw new Error(msg);
+  }
+}
+
+app.post('/api/uploads/media', rawMediaUploadParser, async (req, res) => {
   const user = getAuthUser(req);
   const clientSessionId = (req.headers['x-client-session'] as string) || '';
-  const rlKey = `upload:${user?.email || clientSessionId || req.ip || 'anon'}`;
-  const rl = apiRateLimiter.check(rlKey, 60, 60_000);
+  const ownerId = user?.email || clientSessionId || 'anon';
+  const rl = apiRateLimiter.check(`upload:${ownerId || req.ip || 'anon'}`, 60, 60_000);
   if (!rl.allowed) {
     return res.status(429).json({
       error: `Too many media uploads. Please retry in ${rl.retryAfterSec}s.`,
@@ -153,10 +405,6 @@ app.post('/api/uploads/media', rawMediaUploadParser, (req, res) => {
   }
 
   try {
-    if (!fs.existsSync(RAW_UPLOADS_DIR)) {
-      fs.mkdirSync(RAW_UPLOADS_DIR, { recursive: true });
-    }
-
     const reqId = (req as any).requestId;
     const isBinaryBuffer = Buffer.isBuffer(req.body);
     let buffer: Buffer;
@@ -201,10 +449,10 @@ app.post('/api/uploads/media', rawMediaUploadParser, (req, res) => {
       return res.status(400).json({ error: 'Uploaded media file is empty.' });
     }
 
-    const maxBytes = kind === 'video' ? 50 * 1024 * 1024 : 5 * 1024 * 1024;
+    const maxBytes = kind === 'video' ? 150 * 1024 * 1024 : 5 * 1024 * 1024;
     if (buffer.length > maxBytes) {
       return res.status(400).json({
-        error: `${kind === 'video' ? 'Video' : 'Photo'} exceeds maximum allowed size (${kind === 'video' ? '50MB' : '5MB'}).`,
+        error: `${kind === 'video' ? 'Video' : 'Photo'} exceeds maximum allowed size (${kind === 'video' ? '150MB' : '5MB'}).`,
       });
     }
 
@@ -215,39 +463,136 @@ app.post('/api/uploads/media', rawMediaUploadParser, (req, res) => {
       return res.status(400).json({ error: 'Only MP4, WebM, and MOV videos are permitted.' });
     }
 
-    const ext =
-      mime === 'image/png' ? 'png'
-      : mime === 'image/webp' ? 'webp'
-      : mime === 'video/webm' ? 'webm'
-      : mime === 'video/quicktime' ? 'mov'
-      : kind === 'video' ? 'mp4'
-      : 'jpg';
-
-    const prefix = kind === 'video' ? 'vid' : 'img';
-    const fileName = `${prefix}_${Date.now()}_${crypto.randomBytes(5).toString('hex')}.${ext}`;
-    const fullPath = path.join(RAW_UPLOADS_DIR, fileName);
-    fs.writeFileSync(fullPath, buffer);
-
-    const url = `/uploads/raw/${fileName}`;
-    logger.info('media_upload_saved', {
+    const result = await finalizeUploadedMediaBuffer({
+      buffer,
+      kind,
+      mime,
+      ownerId,
       requestId: reqId,
-      kind,
-      mime,
-      bytes: buffer.length,
-      url,
-      actor: user?.email || clientSessionId || 'anon',
     });
-
-    return res.status(201).json({
-      url,
-      kind,
-      bytes: buffer.length,
-      mime,
-    });
+    return res.status(201).json(result);
   } catch (err: any) {
     logger.error('media_upload_failed', { error: err?.message });
     return res.status(400).json({ error: err?.message || 'Media upload failed.' });
   }
+});
+
+// Resumable / Chunked Upload Endpoints for Large Video Files (up to 150MB)
+app.post('/api/uploads/media/init', (req, res) => {
+  const user = getAuthUser(req);
+  const clientSessionId = (req.headers['x-client-session'] as string) || '';
+  const ownerId = user?.email || clientSessionId || 'anon';
+  const { filename, mime, totalBytes, totalChunks, kind } = req.body || {};
+  const resolvedKind: 'photo' | 'video' =
+    kind === 'video' || String(mime || '').startsWith('video/') || /\.(mp4|mov|webm)$/i.test(String(filename || ''))
+      ? 'video'
+      : 'photo';
+
+  const normalizedMime = String(mime || (resolvedKind === 'video' ? 'video/mp4' : 'image/jpeg')).toLowerCase();
+  if (resolvedKind === 'video' && !['video/mp4', 'video/webm', 'video/quicktime', 'video/x-m4v'].includes(normalizedMime)) {
+    return res.status(400).json({ error: 'Only MP4, MOV, and WebM videos are supported.' });
+  }
+  const bytes = Number(totalBytes) || 0;
+  const maxBytes = resolvedKind === 'video' ? 150 * 1024 * 1024 : 5 * 1024 * 1024;
+  if (bytes <= 0 || bytes > maxBytes) {
+    return res.status(400).json({ error: `Invalid file size. Max allowed is ${resolvedKind === 'video' ? '150MB' : '5MB'}.` });
+  }
+
+  const uploadId = `up_${Date.now().toString(36)}_${crypto.randomBytes(5).toString('hex')}`;
+  const tempDir = path.join(CHUNK_UPLOADS_DIR, uploadId);
+  fs.mkdirSync(tempDir, { recursive: true });
+
+  activeChunkUploads.set(uploadId, {
+    uploadId,
+    ownerId,
+    kind: resolvedKind,
+    mime: normalizedMime,
+    filename: String(filename || `${uploadId}.mp4`),
+    totalBytes: bytes,
+    totalChunks: Math.max(1, Number(totalChunks) || 1),
+    receivedChunks: new Set<number>(),
+    tempDir,
+    createdAt: Date.now(),
+  });
+
+  return res.status(201).json({ uploadId, kind: resolvedKind });
+});
+
+app.put('/api/uploads/media/chunk/:uploadId', rawChunkUploadParser, (req, res) => {
+  const session = activeChunkUploads.get(req.params.uploadId);
+  if (!session) {
+    return res.status(404).json({ error: 'Upload session not found or expired. Please restart upload.' });
+  }
+  const chunkIndex = Number(req.query.index ?? req.headers['x-chunk-index']);
+  if (!Number.isInteger(chunkIndex) || chunkIndex < 0 || chunkIndex >= session.totalChunks) {
+    return res.status(400).json({ error: 'Invalid chunk index.' });
+  }
+  if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+    return res.status(400).json({ error: 'Empty chunk payload.' });
+  }
+
+  const chunkPath = path.join(session.tempDir, `part_${String(chunkIndex).padStart(6, '0')}`);
+  fs.writeFileSync(chunkPath, req.body);
+  session.receivedChunks.add(chunkIndex);
+
+  return res.json({
+    uploadId: session.uploadId,
+    chunkIndex,
+    receivedCount: session.receivedChunks.size,
+    totalChunks: session.totalChunks,
+  });
+});
+
+app.post('/api/uploads/media/complete/:uploadId', async (req, res) => {
+  const session = activeChunkUploads.get(req.params.uploadId);
+  if (!session) {
+    return res.status(404).json({ error: 'Upload session not found or already completed.' });
+  }
+  if (session.receivedChunks.size < session.totalChunks) {
+    return res.status(400).json({
+      error: `Upload incomplete: received ${session.receivedChunks.size} of ${session.totalChunks} chunks.`,
+    });
+  }
+
+  const ext = session.mime === 'video/webm' ? 'webm' : session.mime === 'video/quicktime' ? 'mov' : session.kind === 'video' ? 'mp4' : 'jpg';
+  const assembledPath = path.join(session.tempDir, `assembled.${ext}`);
+  try {
+    const outFd = fs.openSync(assembledPath, 'w');
+    try {
+      for (let i = 0; i < session.totalChunks; i += 1) {
+        const partPath = path.join(session.tempDir, `part_${String(i).padStart(6, '0')}`);
+        const data = fs.readFileSync(partPath);
+        fs.writeSync(outFd, data);
+      }
+    } finally {
+      fs.closeSync(outFd);
+    }
+
+    const result = await finalizeUploadedMediaBuffer({
+      inputFilePath: assembledPath,
+      kind: session.kind,
+      mime: session.mime,
+      ownerId: session.ownerId,
+      requestId: (req as any).requestId,
+    });
+    activeChunkUploads.delete(session.uploadId);
+    try {
+      fs.rmSync(session.tempDir, { recursive: true, force: true });
+    } catch {}
+    return res.status(201).json(result);
+  } catch (err: any) {
+    activeChunkUploads.delete(session.uploadId);
+    try {
+      fs.rmSync(session.tempDir, { recursive: true, force: true });
+    } catch {}
+    return res.status(400).json({ error: err?.message || 'Chunked upload transcoding failed.' });
+  }
+});
+
+app.get('/api/media/:id', (req, res) => {
+  const asset = db.getMediaAssetById(req.params.id);
+  if (!asset) return res.status(404).json({ error: 'Media asset not found.' });
+  return res.json({ mediaAsset: asset });
 });
 
 app.post('/api/uploads/cleanup', (req, res) => {
@@ -1431,21 +1776,23 @@ app.post('/api/admin/review-queue/trip-dating/:id', (req, res) => {
   if (!user || user.role !== 'admin') {
     return res.status(403).json({ error: 'Admin access required.' });
   }
-  const { action, admin_feedback } = req.body || {};
+  const { action, admin_feedback, reason } = req.body || {};
   if (action !== 'approve' && action !== 'decline') {
     return res.status(400).json({ error: 'action must be approve or decline.' });
   }
-  if (action === 'decline' && (!admin_feedback || !String(admin_feedback).trim())) {
-    return res.status(400).json({ error: 'Decline feedback explaining why the Trip Dating post was declined is strictly required.' });
+  const finalReason = String(reason ?? admin_feedback ?? '').trim();
+  if (action === 'decline' && (finalReason.length < 10 || finalReason.length > 500)) {
+    return res.status(400).json({
+      error: 'Decline reason explaining why the Trip Dating post was declined is strictly required (10–500 characters).',
+    });
   }
   try {
-    const profile = db.adminModerateTripDatingProfile(
-      req.params.id,
-      action === 'approve' ? 'active' : 'rejected',
-      admin_feedback,
-      user.email
-    );
-    return res.json({ profile });
+    if (action === 'approve') {
+      const result = db.approveTripDatingSubmission(req.params.id, user.email);
+      return res.json(result);
+    }
+    const result = db.declineTripDatingSubmission(req.params.id, user.email, finalReason);
+    return res.json(result);
   } catch (err: any) {
     return res.status(400).json({ error: err.message || 'Review action failed.' });
   }
@@ -3805,6 +4152,13 @@ app.get('/api/realtime/feed', (req, res) => {
     res.write(`event: feed_update\ndata: ${JSON.stringify(evt)}\n\n`);
   });
 
+  const unsubscribeCounts =
+    viewerUser?.role === 'admin'
+      ? db.subscribeTripDatingCounts(counts => {
+          res.write(`event: trip_dating_counts\ndata: ${JSON.stringify(counts)}\n\n`);
+        })
+      : () => {};
+
   const keepalive = setInterval(() => {
     res.write(': keepalive\n\n');
   }, 25000);
@@ -3812,6 +4166,7 @@ app.get('/api/realtime/feed', (req, res) => {
   req.on('close', () => {
     clearInterval(keepalive);
     unsubscribe();
+    unsubscribeCounts();
   });
 });
 
@@ -3827,6 +4182,31 @@ app.get('/api/realtime/feed/missed', (req, res) => {
 // Tagline: "Trip Dating – A Dating Services Near You. FREE TO JOIN. ENDLESS TO DISCOVER. KES 50 TO CONNECT."
 // -----------------------------------------------------------------------------
 
+app.get('/api/trip-dating/feed', (req, res) => {
+  try {
+    const user = getAuthUser(req);
+    const clientSessionId = (req.headers['x-client-session'] as string) || (req.query.sessionId as string) || '';
+    const { gender, city, search, intention, cursor, limit } = req.query;
+
+    const result = db.queryTripDatingFeed(user?.email, clientSessionId, {
+      gender: gender as string,
+      city: city as string,
+      search: search as string,
+      intention: intention as string,
+      cursor: typeof cursor === 'string' ? cursor : undefined,
+      limit: limit ? parseInt(limit as string, 10) : 15,
+    });
+
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Failed to fetch Trip Dating feed' });
+  }
+});
+
+app.get('/api/trip-dating/cities', (_req, res) => {
+  return res.json({ cities: db.getTripDatingAvailableCities(true) });
+});
+
 app.get('/api/trip-dating/profiles', (req, res) => {
   try {
     const user = getAuthUser(req);
@@ -3839,7 +4219,7 @@ app.get('/api/trip-dating/profiles', (req, res) => {
       search: search as string,
       intention: intention as string,
       cursor: typeof cursor === 'string' ? cursor : undefined,
-      limit: limit ? parseInt(limit as string, 10) : 20,
+      limit: limit ? parseInt(limit as string, 10) : 15,
     });
 
     return res.json(result);
@@ -3880,7 +4260,7 @@ app.get('/api/trip-dating/profiles/:id', (req, res) => {
   }
 });
 
-// Registration with Mandatory Admin Review (starts in PENDING) & Uploaded Media Support
+// Registration with Mandatory Admin Review (starts in PENDING_REVIEW) & Uploaded Media Support
 app.post('/api/trip-dating/profiles', (req, res) => {
   try {
     const user = getAuthUser(req);
@@ -3897,6 +4277,7 @@ app.post('/api/trip-dating/profiles', (req, res) => {
       age,
       dob,
       city,
+      city_custom,
       location,
       description,
       lookingFor,
@@ -3909,11 +4290,15 @@ app.post('/api/trip-dating/profiles', (req, res) => {
       videoUrl,
       videoDuration,
       videoThumbnail,
+      videoMediaId,
+      videoMediaIds,
+      mediaAssetIds,
       videoFilter,
       videoTrimStart,
       videoTrimEnd,
       full_body_photo,
       full_body_verified,
+      status,
     } = req.body;
 
     if (!fullName || !phoneNumber || !city || !description || !gender) {
@@ -3965,7 +4350,8 @@ app.post('/api/trip-dating/profiles', (req, res) => {
       dob,
       country: 'Kenya',
       city,
-      location: location || city,
+      city_custom,
+      location: location || city_custom || city,
       description,
       lookingFor: lookingFor || 'Genuine companionship and fun dates',
       datingIntention,
@@ -3977,11 +4363,15 @@ app.post('/api/trip-dating/profiles', (req, res) => {
       videoUrl: typeof videoUrl === 'string' && videoUrl.trim() ? videoUrl.trim() : undefined,
       videoDuration: videoUrl ? Math.min(60, Math.max(1, Math.round(effectiveDur))) : undefined,
       videoThumbnail: typeof videoThumbnail === 'string' && videoThumbnail.trim() ? videoThumbnail.trim() : undefined,
+      videoMediaId: typeof videoMediaId === 'string' ? videoMediaId : undefined,
+      videoMediaIds: Array.isArray(videoMediaIds) ? videoMediaIds : undefined,
+      mediaAssetIds: Array.isArray(mediaAssetIds) ? mediaAssetIds : undefined,
       videoFilter: typeof videoFilter === 'string' && videoFilter.trim() ? videoFilter.trim() : undefined,
       videoTrimStart: videoTrimStart !== undefined ? Number(videoTrimStart) : undefined,
       videoTrimEnd: videoTrimEnd !== undefined ? Number(videoTrimEnd) : undefined,
       full_body_photo: bodyPhoto,
       full_body_verified: full_body_verified !== undefined ? Boolean(full_body_verified) : true,
+      status: status === 'DRAFT' ? 'DRAFT' : 'PENDING_REVIEW',
       userId: user?.id || user?.email,
       ownerEmail: user?.email,
       clientSessionId,
@@ -4137,6 +4527,59 @@ app.post('/api/trip-dating/reports', (req, res) => {
 
 // --- ADMIN TRIP DATING MANAGEMENT ROUTES ---
 
+app.get('/api/admin/trip-dating/counts', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required.' });
+  }
+  return res.json(db.getTripDatingAdminCounts());
+});
+
+app.get('/api/admin/trip-dating/submissions', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required.' });
+  }
+  const status = typeof req.query.status === 'string' ? req.query.status : 'PENDING_REVIEW';
+  const page = req.query.page ? parseInt(String(req.query.page), 10) : 1;
+  const limit = req.query.limit ? parseInt(String(req.query.limit), 10) : 20;
+  return res.json(db.getAdminTripDatingSubmissions({ status, page, limit }));
+});
+
+app.post('/api/admin/trip-dating/:id/approve', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required.' });
+  }
+  try {
+    const result = db.approveTripDatingSubmission(req.params.id, user.email);
+    return res.json(result);
+  } catch (err: any) {
+    const status = /not found/i.test(err?.message || '') ? 404 : 400;
+    return res.status(status).json({ error: err.message || 'Approval failed.' });
+  }
+});
+
+app.post('/api/admin/trip-dating/:id/decline', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required.' });
+  }
+  const rawReason = String(req.body?.reason ?? req.body?.admin_feedback ?? '').trim();
+  if (rawReason.length < 10 || rawReason.length > 500) {
+    return res.status(400).json({
+      error: 'A decline reason between 10 and 500 characters is strictly required.',
+    });
+  }
+  try {
+    const result = db.declineTripDatingSubmission(req.params.id, user.email, rawReason);
+    return res.json(result);
+  } catch (err: any) {
+    const status = /not found/i.test(err?.message || '') ? 404 : 400;
+    return res.status(status).json({ error: err.message || 'Decline failed.' });
+  }
+});
+
 app.get('/api/admin/trip-dating/requests', (req, res) => {
   const user = getAuthUser(req);
   if (!user || user.role !== 'admin') {
@@ -4193,8 +4636,9 @@ app.get('/api/admin/trip-dating/stats', (req, res) => {
     return res.status(403).json({ error: 'Admin access required.' });
   }
   const stats = db.getTripDatingStats();
+  const counts = db.getTripDatingAdminCounts();
   const allProfiles = db.getTripDatingProfiles(user.email, undefined, { showAllStatuses: true });
-  return res.json({ stats, profiles: allProfiles });
+  return res.json({ stats, counts, profiles: allProfiles });
 });
 
 // -----------------------------------------------------------------------------

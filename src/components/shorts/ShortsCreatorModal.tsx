@@ -17,6 +17,7 @@ import { Post, ShortAudioConfig, ShortJob, Stay, StayCategory, User } from '../.
 import { api } from '../../api';
 import { SHORTS_Z_INDEX } from '../../config/shortsLayoutConfig';
 import { ShortsAudioPickerSheet } from './ShortsAudioPickerSheet';
+import { SharedVideoPlayer } from '../shared/SharedVideoPlayer';
 
 interface ShortsCreatorModalProps {
   isOpen: boolean;
@@ -357,14 +358,14 @@ export const ShortsCreatorModal: React.FC<ShortsCreatorModalProps> = ({
               {activeJob.state === 'ready' && activeJob.outputVideoUrl && (
                 <div className="space-y-3">
                   <div className="relative mx-auto w-full max-w-[230px] aspect-[9/16] bg-black rounded-2xl overflow-hidden border border-stone-700">
-                    <video
+                    <SharedVideoPlayer
                       src={activeJob.outputVideoUrl}
                       poster={activeJob.outputThumbnailUrl}
                       controls
                       autoPlay
                       loop
                       playsInline
-                      className="w-full h-full object-cover"
+                      className="w-full h-full"
                     />
                     {autoCaptionsEnabled && activeJob.captions[0] && (
                       <div className="pointer-events-none absolute bottom-12 inset-x-3 text-center">

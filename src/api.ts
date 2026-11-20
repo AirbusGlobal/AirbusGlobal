@@ -47,6 +47,8 @@ import {
   ListingAudioConfig,
   ShortIntentType,
   ShortAnalyticsRecord,
+  MediaAsset,
+  TripDatingAdminCounts,
 } from './types';
 import { isAdminRoute } from './config/adminRoute';
 
@@ -773,22 +775,118 @@ export const api = {
     });
   },
 
-  uploadMediaWithProgress(
+  async uploadMediaWithProgress(
     file: File | Blob,
     kind: 'photo' | 'video',
     filename?: string,
     onProgress?: (pct: number) => void
-  ): Promise<{ url: string; kind: 'photo' | 'video'; bytes: number; mime: string }> {
+  ): Promise<{
+    id?: string;
+    url: string;
+    posterUrl?: string;
+    status?: string;
+    duration?: number;
+    width?: number;
+    height?: number;
+    mediaAsset?: MediaAsset;
+    kind: 'photo' | 'video';
+    bytes: number;
+    mime: string;
+  }> {
+    const token = this.getToken();
+    const sessionId =
+      typeof window !== 'undefined'
+        ? window.localStorage.getItem('trip_dating_session_id') ||
+          window.localStorage.getItem('airbus_dating_session_id') ||
+          ''
+        : '';
+    const resolvedName =
+      filename || (file instanceof File ? file.name : `${kind}.${kind === 'video' ? 'mp4' : 'jpg'}`);
+    const resolvedMime = file.type || (kind === 'video' ? 'video/mp4' : 'image/jpeg');
+
+    const CHUNK_THRESHOLD = 4 * 1024 * 1024;
+    if (kind === 'video' && file.size > CHUNK_THRESHOLD) {
+      const initUrl = API_BASE_URL ? `${API_BASE_URL}/api/uploads/media/init` : '/api/uploads/media/init';
+      const initRes = await fetch(initUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...(sessionId ? { 'x-client-session': sessionId } : {}),
+        },
+        body: JSON.stringify({
+          filename: resolvedName,
+          mime: resolvedMime,
+          size: file.size,
+          kind,
+        }),
+      });
+      const initData = await initRes.json().catch(() => ({}));
+      if (!initRes.ok || !initData.uploadId) {
+        throw new Error(initData.error || `Failed to initialize video upload (${initRes.status})`);
+      }
+
+      const chunkSize = Number(initData.chunkSize || 4 * 1024 * 1024);
+      const totalChunks = Math.ceil(file.size / chunkSize);
+
+      for (let idx = 0; idx < totalChunks; idx++) {
+        const start = idx * chunkSize;
+        const end = Math.min(file.size, start + chunkSize);
+        const slice = file.slice(start, end);
+        let attempt = 0;
+        let uploadedChunk = false;
+        while (attempt < 3 && !uploadedChunk) {
+          attempt++;
+          try {
+            const chunkUrl = API_BASE_URL
+              ? `${API_BASE_URL}/api/uploads/media/chunk/${encodeURIComponent(initData.uploadId)}?index=${idx}`
+              : `/api/uploads/media/chunk/${encodeURIComponent(initData.uploadId)}?index=${idx}`;
+            const chunkRes = await fetch(chunkUrl, {
+              method: 'PUT',
+              headers: {
+                'Content-Type': 'application/octet-stream',
+                ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                ...(sessionId ? { 'x-client-session': sessionId } : {}),
+              },
+              body: slice,
+            });
+            if (!chunkRes.ok) {
+              const errBody = await chunkRes.json().catch(() => ({}));
+              throw new Error(errBody.error || `Chunk ${idx + 1} upload failed (${chunkRes.status})`);
+            }
+            uploadedChunk = true;
+            onProgress?.(Math.min(92, Math.round(((idx + 1) / totalChunks) * 90)));
+          } catch (err) {
+            if (attempt >= 3) throw err;
+            await new Promise(r => setTimeout(r, 400 * attempt));
+          }
+        }
+      }
+
+      onProgress?.(94);
+      const completeUrl = API_BASE_URL
+        ? `${API_BASE_URL}/api/uploads/media/complete/${encodeURIComponent(initData.uploadId)}`
+        : `/api/uploads/media/complete/${encodeURIComponent(initData.uploadId)}`;
+      const completeRes = await fetch(completeUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...(sessionId ? { 'x-client-session': sessionId } : {}),
+        },
+        body: JSON.stringify({}),
+      });
+      const completeData = await completeRes.json().catch(() => ({}));
+      if (!completeRes.ok || !completeData.url) {
+        throw new Error(completeData.error || `Video processing failed (${completeRes.status})`);
+      }
+      onProgress?.(100);
+      return completeData;
+    }
+
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       const targetUrl = API_BASE_URL ? `${API_BASE_URL}/api/uploads/media` : '/api/uploads/media';
-      const token = this.getToken();
-      const sessionId =
-        typeof window !== 'undefined'
-          ? window.localStorage.getItem('trip_dating_session_id') || ''
-          : '';
-      const resolvedName = filename || (file instanceof File ? file.name : `${kind}.${kind === 'video' ? 'mp4' : 'jpg'}`);
-      const resolvedMime = file.type || (kind === 'video' ? 'video/mp4' : 'image/jpeg');
 
       xhr.open('POST', targetUrl, true);
       xhr.setRequestHeader('Content-Type', 'application/octet-stream');
@@ -800,7 +898,7 @@ export const api = {
 
       xhr.upload.onprogress = e => {
         if (e.lengthComputable && onProgress) {
-          onProgress(Math.min(99, Math.round((e.loaded / e.total) * 100)));
+          onProgress(Math.min(kind === 'video' ? 92 : 99, Math.round((e.loaded / e.total) * 100)));
         }
       };
 
@@ -823,8 +921,12 @@ export const api = {
     });
   },
 
+  async getMediaAsset(id: string): Promise<{ media: MediaAsset }> {
+    return this.request<{ media: MediaAsset }>(`/api/media/${encodeURIComponent(id)}`);
+  },
+
   async cleanupUploadedMedia(urls: string[]): Promise<{ removed: number }> {
-    const clean = urls.filter(u => typeof u === 'string' && u.startsWith('/uploads/raw/'));
+    const clean = urls.filter(u => typeof u === 'string' && u.startsWith('/uploads/'));
     if (clean.length === 0) return { removed: 0 };
     return this.request<{ removed: number }>('/api/uploads/cleanup', {
       method: 'POST',
@@ -1580,6 +1682,37 @@ export const api = {
   },
 
   // --- TRIP DATING: A Dating Services Near You ---
+  async getTripDatingFeed(params?: {
+    gender?: string;
+    city?: string;
+    search?: string;
+    intention?: string;
+    sessionId?: string;
+    cursor?: string;
+    limit?: number;
+  }): Promise<{
+    profiles: TripDatingProfile[];
+    nextCursor?: string | null;
+    hasMore?: boolean;
+    totalCount?: number;
+    availableCities?: string[];
+  }> {
+    const searchParams = new URLSearchParams();
+    if (params?.gender && params.gender !== 'all') searchParams.set('gender', params.gender);
+    if (params?.city && params.city !== 'all') searchParams.set('city', params.city);
+    if (params?.search) searchParams.set('search', params.search);
+    if (params?.intention && params.intention !== 'all') searchParams.set('intention', params.intention);
+    if (params?.sessionId) searchParams.set('sessionId', params.sessionId);
+    if (params?.cursor) searchParams.set('cursor', params.cursor);
+    if (params?.limit) searchParams.set('limit', String(params.limit));
+    const qs = searchParams.toString();
+    return this.request(`/api/trip-dating/feed${qs ? '?' + qs : ''}`);
+  },
+
+  async getTripDatingCities(): Promise<{ cities: string[] }> {
+    return this.request<{ cities: string[] }>('/api/trip-dating/cities');
+  },
+
   async getTripDatingProfiles(params?: {
     gender?: string;
     city?: string;
@@ -1593,6 +1726,7 @@ export const api = {
     nextCursor?: string | null;
     hasMore?: boolean;
     totalCount?: number;
+    availableCities?: string[];
   }> {
     const searchParams = new URLSearchParams();
     if (params?.gender && params.gender !== 'all') searchParams.set('gender', params.gender);
@@ -1653,6 +1787,7 @@ export const api = {
     age: number;
     dob?: string;
     city: string;
+    city_custom?: string | null;
     location?: string;
     description: string;
     lookingFor?: string;
@@ -1663,6 +1798,8 @@ export const api = {
     videoDurations?: number[];
     videoThumbnails?: string[];
     videoUrl?: string;
+    videoMediaId?: string;
+    videoMediaIds?: string[];
     videoDuration?: number;
     videoThumbnail?: string;
     videoFilter?: string;
@@ -1762,6 +1899,52 @@ export const api = {
 
   async getAdminTripDatingStats(): Promise<{ stats: TripDatingStats; profiles: TripDatingProfile[] }> {
     return this.request('/api/admin/trip-dating/stats');
+  },
+
+  async getAdminTripDatingCounts(): Promise<{ counts: TripDatingAdminCounts }> {
+    return this.request<{ counts: TripDatingAdminCounts }>('/api/admin/trip-dating/counts');
+  },
+
+  async getAdminTripDatingSubmissions(params?: {
+    status?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<{
+    submissions: TripDatingProfile[];
+    counts: TripDatingAdminCounts;
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  }> {
+    const sp = new URLSearchParams();
+    if (params?.status) sp.set('status', params.status);
+    if (params?.page) sp.set('page', String(params.page));
+    if (params?.limit) sp.set('limit', String(params.limit));
+    const qs = sp.toString();
+    return this.request(`/api/admin/trip-dating/submissions${qs ? '?' + qs : ''}`);
+  },
+
+  async approveAdminTripDatingSubmission(id: string): Promise<{
+    profile: TripDatingProfile;
+    counts: TripDatingAdminCounts;
+    alreadyApproved?: boolean;
+  }> {
+    return this.request(`/api/admin/trip-dating/${encodeURIComponent(id)}/approve`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+  },
+
+  async declineAdminTripDatingSubmission(id: string, reason: string): Promise<{
+    profile: TripDatingProfile;
+    counts: TripDatingAdminCounts;
+    alreadyDeclined?: boolean;
+  }> {
+    return this.request(`/api/admin/trip-dating/${encodeURIComponent(id)}/decline`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
   },
 
   // Media Removal (Host or Admin)

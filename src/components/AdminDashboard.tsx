@@ -21,6 +21,7 @@ import {
   Review,
   PlusServiceRequest,
   LocalServiceProvider,
+  TripDatingAdminCounts,
 } from '../types';
 import {
   ShieldCheck,
@@ -68,6 +69,8 @@ import {
 } from 'lucide-react';
 import { api } from '../api';
 import { ListingMediaViewer } from './ListingMediaViewer';
+import { SharedVideoPlayer } from './shared/SharedVideoPlayer';
+import { formatEATDateTime } from '../utils/time';
 
 interface AdminDashboardProps {
   adminUser: User;
@@ -225,6 +228,23 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [datingRequests, setDatingRequests] = useState<TripDatingPaymentRequest[]>([]);
   const [datingProfiles, setDatingProfiles] = useState<TripDatingProfile[]>([]);
   const [datingStats, setDatingStats] = useState<TripDatingStats | null>(null);
+  const [tripDatingCounts, setTripDatingCounts] = useState<TripDatingAdminCounts>({
+    pending: 0,
+    approved: 0,
+    declined: 0,
+    draft: 0,
+    total: 0,
+    pendingPayments: 0,
+  });
+  const [tdStatusTab, setTdStatusTab] = useState<'PENDING_REVIEW' | 'APPROVED' | 'DECLINED' | 'ALL'>('PENDING_REVIEW');
+  const [tdPage, setTdPage] = useState(1);
+  const [tdSubmissions, setTdSubmissions] = useState<TripDatingProfile[]>([]);
+  const [tdTotalPages, setTdTotalPages] = useState(1);
+  const [tdLoading, setTdLoading] = useState(false);
+  const [tdActionBusyId, setTdActionBusyId] = useState<string | null>(null);
+  const [tdDeclineTarget, setTdDeclineTarget] = useState<{ id: string; fullName: string } | null>(null);
+  const [tdDeclineReason, setTdDeclineReason] = useState('');
+  const [tdDeclineError, setTdDeclineError] = useState<string | null>(null);
   const [plusRequests, setPlusRequests] = useState<PlusServiceRequest[]>([]);
   const [plusLinkInputs, setPlusLinkInputs] = useState<Record<string, { providerName: string; providerContact: string; adminNote: string }>>({});
   const [localProvidersAdmin, setLocalProvidersAdmin] = useState<LocalServiceProvider[]>([]);
@@ -376,6 +396,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     };
   };
 
+  const loadTripDatingSubmissions = (
+    status: 'PENDING_REVIEW' | 'APPROVED' | 'DECLINED' | 'ALL' = tdStatusTab,
+    page = tdPage
+  ) => {
+    setTdLoading(true);
+    api
+      .getAdminTripDatingSubmissions({ status, page, limit: 10 })
+      .then(res => {
+        if (Array.isArray(res?.submissions)) setTdSubmissions(res.submissions);
+        if (res?.counts) setTripDatingCounts(res.counts);
+        if (typeof res?.totalPages === 'number') setTdTotalPages(Math.max(1, res.totalPages));
+      })
+      .catch(() => {})
+      .finally(() => setTdLoading(false));
+  };
+
   const loadAdminData = () => {
     api.getPaymentRecords().then(res => {
       if (Array.isArray(res?.payments)) setAllPayments(res.payments);
@@ -403,6 +439,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       if (res?.stats) setDatingStats(res.stats);
       setDatingProfiles(Array.isArray(res?.profiles) ? res.profiles : []);
     }).catch(() => {});
+    api.getAdminTripDatingCounts().then(res => {
+      if (res?.counts) setTripDatingCounts(res.counts);
+    }).catch(() => {});
+    loadTripDatingSubmissions(tdStatusTab, tdPage);
     api.getAdminListingMedia({ type: mediaTypeFilter, flaggedOnly: mediaFlaggedOnly, search: mediaSearch }).then(res => {
       if (Array.isArray(res?.media)) setListingMediaList(res.media);
     }).catch(() => {});
@@ -477,9 +517,30 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       api.getAdminReviewQueue().then(res => {
         if (res) setReviewQueue(normalizeReviewQueue(res));
       }).catch(() => {});
+      api.getAdminTripDatingCounts().then(res => {
+        if (res?.counts) setTripDatingCounts(res.counts);
+      }).catch(() => {});
     }, 8000);
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    loadTripDatingSubmissions(tdStatusTab, tdPage);
+  }, [tdStatusTab, tdPage]);
+
+  useEffect(() => {
+    const onTdCounts = (e: Event) => {
+      const evt = e as CustomEvent<TripDatingAdminCounts>;
+      if (evt.detail) {
+        setTripDatingCounts(evt.detail);
+        if (tab === 'trip-dating') {
+          loadTripDatingSubmissions(tdStatusTab, tdPage);
+        }
+      }
+    };
+    window.addEventListener('airbus:trip-dating-counts', onTdCounts as EventListener);
+    return () => window.removeEventListener('airbus:trip-dating-counts', onTdCounts as EventListener);
+  }, [tab, tdStatusTab, tdPage]);
 
   const currentPaymentsList = allPayments.length > 0 ? allPayments : payments;
   const pendingPayments = currentPaymentsList.filter(p => p.status === 'pending');
@@ -740,7 +801,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           }`}
         >
           <Flame className="w-4 h-4 text-rose-500" />
-          <span>Trip Dating ({datingRequests.filter(r => r.status === 'pending').length})</span>
+          <span>Trip Dating ({tripDatingCounts.pending})</span>
         </button>
 
         <button
@@ -969,13 +1030,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         <div className="space-y-1.5">
                           <div className="text-[11px] font-bold text-stone-500 uppercase">Video Tour</div>
                           {stay.videoUrl ? (
-                            <video
+                            <SharedVideoPlayer
                               src={stay.videoUrl}
                               poster={stay.thumbnailUrl || stay.media?.video?.thumbnail}
                               controls
                               playsInline
                               preload="metadata"
-                              className="w-full max-h-72 rounded-2xl bg-black border border-stone-200 dark:border-stone-800 object-contain"
+                              className="w-full h-64 rounded-2xl border border-stone-200 dark:border-stone-800"
+                              videoClassName="w-full h-full object-contain"
                             />
                           ) : (
                             <div className="h-36 rounded-2xl border border-dashed border-stone-300 dark:border-stone-700 flex items-center justify-center text-xs text-stone-400">
@@ -1113,13 +1175,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         <div className="space-y-1.5">
                           <div className="text-[11px] font-bold text-stone-500 uppercase">9:16 Video</div>
                           {profileVideo ? (
-                            <video
+                            <SharedVideoPlayer
                               src={profileVideo}
                               poster={profile.videoThumbnail || profile.primaryPhoto}
                               controls
                               playsInline
                               preload="metadata"
-                              className="w-full max-h-72 rounded-2xl bg-black border border-stone-200 dark:border-stone-800 object-contain"
+                              className="w-full h-72 rounded-2xl border border-stone-200 dark:border-stone-800"
+                              videoClassName="w-full h-full object-contain"
                             />
                           ) : (
                             <div className="h-36 rounded-2xl border border-dashed border-stone-300 dark:border-stone-700 flex items-center justify-center text-xs text-stone-400">
@@ -4033,9 +4096,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </div>
 
             <div className="p-3.5 bg-white dark:bg-[#15171e] rounded-2xl border border-stone-200 dark:border-stone-800 text-center">
-              <span className="text-[11px] font-medium text-stone-500 dark:text-stone-400 block mb-0.5">Pending Unlocks</span>
+              <span className="text-[11px] font-medium text-stone-500 dark:text-stone-400 block mb-0.5">Pending Submissions</span>
               <span className="text-xl font-black text-amber-500">
-                {datingRequests.filter(r => r.status === 'pending').length}
+                {tripDatingCounts.pending}
               </span>
             </div>
 
@@ -4045,6 +4108,245 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 KES {(datingStats?.totalRevenueKes || datingRequests.filter(r => r.status === 'approved').length * 50).toLocaleString()}
               </span>
             </div>
+          </div>
+
+          {/* SECTION 0: TRIP DATING SUBMISSIONS MODERATION QUEUE (Pending Review / Approved / Declined) */}
+          <div className="bg-white dark:bg-[#15171e] rounded-2xl border border-stone-200 dark:border-stone-800 p-5 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h4 className="font-bold text-stone-900 dark:text-white flex items-center gap-2">
+                  <Flame className="w-4 h-4 text-rose-500" />
+                  Trip Dating Submissions Review &amp; Moderation
+                </h4>
+                <p className="text-xs text-stone-500 dark:text-stone-400">
+                  Review submitted profiles, inspect photos &amp; videos, approve live to the top of the feed, or decline with a mandatory 10–500 char reason.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => loadTripDatingSubmissions(tdStatusTab, tdPage)}
+                className="px-3 py-1.5 rounded-xl border border-stone-200 dark:border-stone-700 text-xs font-bold text-stone-700 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800 inline-flex items-center gap-1.5 cursor-pointer"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>Refresh</span>
+              </button>
+            </div>
+
+            {/* Status Filter Sub-Tabs */}
+            <div className="flex flex-wrap items-center gap-2 border-b border-stone-200 dark:border-stone-800 pb-3">
+              {([
+                { id: 'PENDING_REVIEW', label: `Pending Review (${tripDatingCounts.pending})`, activeCls: 'bg-amber-500 text-stone-950' },
+                { id: 'APPROVED', label: `Approved (${tripDatingCounts.approved})`, activeCls: 'bg-emerald-600 text-white' },
+                { id: 'DECLINED', label: `Declined (${tripDatingCounts.declined})`, activeCls: 'bg-rose-600 text-white' },
+                { id: 'ALL', label: `All (${tripDatingCounts.total})`, activeCls: 'bg-stone-900 dark:bg-white text-white dark:text-stone-950' },
+              ] as const).map(st => (
+                <button
+                  key={st.id}
+                  type="button"
+                  onClick={() => {
+                    setTdStatusTab(st.id);
+                    setTdPage(1);
+                  }}
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-extrabold transition cursor-pointer ${
+                    tdStatusTab === st.id
+                      ? `${st.activeCls} shadow-sm`
+                      : 'bg-stone-100 dark:bg-stone-900 text-stone-600 dark:text-stone-300 hover:bg-stone-200 dark:hover:bg-stone-800'
+                  }`}
+                >
+                  {st.label}
+                </button>
+              ))}
+            </div>
+
+            {tdLoading ? (
+              <div className="py-10 text-center text-xs text-stone-400">Loading submissions...</div>
+            ) : tdSubmissions.length === 0 ? (
+              <div className="py-10 text-center text-xs text-stone-400">
+                No Trip Dating submissions in {tdStatusTab.replace(/_/g, ' ')}.
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {tdSubmissions.map(sub => {
+                  const subPhotos = Array.from(
+                    new Set(
+                      [sub.full_body_photo, sub.primaryPhoto, ...(sub.photos || [])].filter(Boolean) as string[]
+                    )
+                  );
+                  const subVideo = sub.videoUrl || sub.videos?.[0];
+                  const modState = sub.moderationState || 'PENDING_REVIEW';
+                  const isBusy = tdActionBusyId === sub.id;
+
+                  return (
+                    <div
+                      key={sub.id}
+                      className="p-4 rounded-2xl border border-stone-200 dark:border-stone-800 bg-stone-50/70 dark:bg-stone-900/50 space-y-3"
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="space-y-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span
+                              className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase ${
+                                modState === 'APPROVED'
+                                  ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                                  : modState === 'DECLINED'
+                                  ? 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
+                                  : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                              }`}
+                            >
+                              {modState}
+                            </span>
+                            {sub.city_custom && (
+                              <span className="px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 text-[10px] font-bold">
+                                Custom City: {sub.city_custom}
+                              </span>
+                            )}
+                            <span className="text-[11px] text-stone-500">
+                              Submitted (EAT): <strong>{formatEATDateTime(sub.createdAt)}</strong>
+                            </span>
+                            {(sub.published_at || sub.reviewed_at) && (
+                              <span className="text-[11px] text-stone-500">
+                                · Reviewed (EAT): <strong>{formatEATDateTime(sub.published_at || sub.reviewed_at)}</strong>
+                              </span>
+                            )}
+                          </div>
+                          <h5 className="text-base font-extrabold text-stone-900 dark:text-white">
+                            {sub.fullName} · {sub.gender}, {sub.age} yrs
+                          </h5>
+                          <p className="text-xs text-stone-600 dark:text-stone-300">
+                            City: <strong>{sub.city_custom || sub.city}</strong> · Location: {sub.location} · Intention: {sub.datingIntention?.replace(/_/g, ' ')} · Contact: {sub.phoneNumber}
+                          </p>
+                          <p className="text-[11px] text-stone-500">
+                            Submitter: {sub.ownerEmail || sub.clientSessionId || 'Anonymous Session'}
+                          </p>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          {modState !== 'APPROVED' && (
+                            <button
+                              type="button"
+                              disabled={isBusy}
+                              onClick={async () => {
+                                setTdActionBusyId(sub.id);
+                                try {
+                                  const res = await api.approveAdminTripDatingSubmission(sub.id);
+                                  if (res?.counts) setTripDatingCounts(res.counts);
+                                  showToast?.(`Approved ${sub.fullName}. Live at top of Trip Dating feed!`);
+                                  loadTripDatingSubmissions(tdStatusTab, tdPage);
+                                  api.getAdminReviewQueue().then(r => r && setReviewQueue(normalizeReviewQueue(r))).catch(() => {});
+                                } catch (err: any) {
+                                  showToast?.(err.message || 'Approval failed');
+                                } finally {
+                                  setTdActionBusyId(null);
+                                }
+                              }}
+                              className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                            >
+                              <CheckCircle2 className="w-4 h-4" />
+                              <span>{isBusy ? 'Approving...' : 'Approve'}</span>
+                            </button>
+                          )}
+
+                          {modState !== 'DECLINED' && (
+                            <button
+                              type="button"
+                              disabled={isBusy}
+                              onClick={() => {
+                                setTdDeclineTarget({ id: sub.id, fullName: sub.fullName });
+                                setTdDeclineReason('');
+                                setTdDeclineError(null);
+                              }}
+                              className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-extrabold flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                            >
+                              <XCircle className="w-4 h-4" />
+                              <span>Decline</span>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="text-xs text-stone-700 dark:text-stone-300 bg-white dark:bg-stone-950 p-3 rounded-xl border border-stone-200 dark:border-stone-800 space-y-1">
+                        <div><strong>Bio:</strong> {sub.description}</div>
+                        {sub.lookingFor && <div><strong>Looking for:</strong> {sub.lookingFor}</div>}
+                        {modState === 'DECLINED' && (sub.decline_reason || sub.admin_feedback) && (
+                          <div className="text-rose-600 dark:text-rose-400 pt-1">
+                            <strong>Decline reason:</strong> {sub.decline_reason || sub.admin_feedback}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-1.5">
+                          <div className="text-[11px] font-bold text-stone-500 uppercase">Video</div>
+                          {subVideo ? (
+                            <SharedVideoPlayer
+                              src={subVideo}
+                              poster={sub.videoThumbnail || sub.primaryPhoto}
+                              controls
+                              playsInline
+                              preload="metadata"
+                              className="w-full h-64 rounded-2xl border border-stone-200 dark:border-stone-800"
+                              videoClassName="w-full h-full object-contain"
+                            />
+                          ) : (
+                            <div className="h-32 rounded-2xl border border-dashed border-stone-300 dark:border-stone-700 flex items-center justify-center text-xs text-stone-400">
+                              No video uploaded
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <div className="text-[11px] font-bold text-stone-500 uppercase">
+                            Photos ({subPhotos.length}) — Click to enlarge
+                          </div>
+                          <div className="grid grid-cols-3 gap-2">
+                            {subPhotos.map((pUrl, pIdx) => (
+                              <button
+                                key={pIdx}
+                                type="button"
+                                onClick={() =>
+                                  setReviewPhotoLightbox({
+                                    title: sub.fullName,
+                                    photos: subPhotos,
+                                    idx: pIdx,
+                                  })
+                                }
+                                className="aspect-[3/4] rounded-xl overflow-hidden border border-stone-200 dark:border-stone-700 hover:ring-2 hover:ring-rose-500 cursor-pointer"
+                              >
+                                <img src={pUrl} alt="" className="w-full h-full object-cover" />
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {tdTotalPages > 1 && (
+              <div className="flex items-center justify-between pt-2 border-t border-stone-200 dark:border-stone-800 text-xs">
+                <button
+                  type="button"
+                  disabled={tdPage <= 1 || tdLoading}
+                  onClick={() => setTdPage(p => Math.max(1, p - 1))}
+                  className="px-3 py-1.5 rounded-xl border border-stone-200 dark:border-stone-700 font-bold disabled:opacity-40 cursor-pointer"
+                >
+                  Previous
+                </button>
+                <span className="text-stone-500 font-semibold">
+                  Page {tdPage} of {tdTotalPages}
+                </span>
+                <button
+                  type="button"
+                  disabled={tdPage >= tdTotalPages || tdLoading}
+                  onClick={() => setTdPage(p => Math.min(tdTotalPages, p + 1))}
+                  className="px-3 py-1.5 rounded-xl border border-stone-200 dark:border-stone-700 font-bold disabled:opacity-40 cursor-pointer"
+                >
+                  Next
+                </button>
+              </div>
+            )}
           </div>
 
           {/* SECTION 1: KES 50 CONTACT UNLOCK LOGS & LEGACY REQUESTS */}
@@ -4948,13 +5250,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     setReviewFeedbackError('Feedback is required when declining a submission.');
                     return;
                   }
+                  if (reviewDeclineTarget.kind === 'trip_dating' && (trimmed.length < 10 || trimmed.length > 500)) {
+                    setReviewFeedbackError('Decline reason must be between 10 and 500 characters.');
+                    return;
+                  }
                   setReviewActionBusy(true);
                   setReviewFeedbackError(null);
                   try {
                     if (reviewDeclineTarget.kind === 'stay') {
                       await api.moderateReviewQueueStay(reviewDeclineTarget.id, 'decline', trimmed);
                     } else {
-                      await api.moderateReviewQueueTripDating(reviewDeclineTarget.id, 'decline', trimmed);
+                      await api.declineAdminTripDatingSubmission(reviewDeclineTarget.id, trimmed);
                     }
                     showToast?.(`Declined "${reviewDeclineTarget.title}" with creator feedback.`);
                     setReviewDeclineTarget(null);
@@ -4969,6 +5275,96 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 className="px-5 py-2 rounded-full bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow-md cursor-pointer disabled:opacity-50"
               >
                 {reviewActionBusy ? 'Submitting...' : 'Confirm Decline'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TRIP DATING DECLINE MODAL (10–500 CHAR REASON REQUIRED) */}
+      {tdDeclineTarget && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-[#15171e] text-stone-900 dark:text-stone-100 rounded-3xl p-6 max-w-md w-full shadow-2xl border border-stone-200 dark:border-stone-800 space-y-4">
+            <div className="flex items-center gap-2 text-rose-600">
+              <XCircle className="w-6 h-6" />
+              <h4 className="text-base font-extrabold text-stone-900 dark:text-white">
+                Decline Trip Dating Submission
+              </h4>
+            </div>
+
+            <div className="p-3 bg-stone-50 dark:bg-stone-900 rounded-2xl text-xs text-stone-600 dark:text-stone-300">
+              Member: <strong className="text-stone-900 dark:text-white">{tdDeclineTarget.fullName}</strong>
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs font-bold text-stone-700 dark:text-stone-300">
+                  Decline Reason (10–500 characters) *
+                </label>
+                <span className="text-[11px] font-mono text-stone-500">
+                  {tdDeclineReason.trim().length}/500
+                </span>
+              </div>
+              <textarea
+                rows={4}
+                maxLength={500}
+                value={tdDeclineReason}
+                onChange={e => {
+                  setTdDeclineReason(e.target.value);
+                  if (tdDeclineError) setTdDeclineError(null);
+                }}
+                placeholder="Explain clearly why this submission was declined (min 10 chars)..."
+                className="w-full px-3 py-2 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-xs outline-none focus:border-rose-500"
+              />
+            </div>
+
+            {tdDeclineError && (
+              <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs">
+                {tdDeclineError}
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                disabled={tdActionBusyId === tdDeclineTarget.id}
+                onClick={() => {
+                  setTdDeclineTarget(null);
+                  setTdDeclineReason('');
+                  setTdDeclineError(null);
+                }}
+                className="px-4 py-2 rounded-full border border-stone-200 dark:border-stone-700 text-xs font-bold text-stone-600 hover:bg-stone-100 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={tdActionBusyId === tdDeclineTarget.id}
+                onClick={async () => {
+                  const trimmed = tdDeclineReason.trim();
+                  if (trimmed.length < 10 || trimmed.length > 500) {
+                    setTdDeclineError('Decline reason must be between 10 and 500 characters.');
+                    return;
+                  }
+                  setTdActionBusyId(tdDeclineTarget.id);
+                  setTdDeclineError(null);
+                  try {
+                    const res = await api.declineAdminTripDatingSubmission(tdDeclineTarget.id, trimmed);
+                    if (res?.counts) setTripDatingCounts(res.counts);
+                    showToast?.(`Declined "${tdDeclineTarget.fullName}" and sent reason.`);
+                    setTdDeclineTarget(null);
+                    setTdDeclineReason('');
+                    loadTripDatingSubmissions(tdStatusTab, tdPage);
+                    api.getAdminReviewQueue().then(r => r && setReviewQueue(normalizeReviewQueue(r))).catch(() => {});
+                  } catch (err: any) {
+                    setTdDeclineError(err.message || 'Decline failed.');
+                  } finally {
+                    setTdActionBusyId(null);
+                  }
+                }}
+                className="px-5 py-2 rounded-full bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow-md cursor-pointer disabled:opacity-50"
+              >
+                {tdActionBusyId === tdDeclineTarget.id ? 'Declining...' : 'Confirm Decline'}
               </button>
             </div>
           </div>

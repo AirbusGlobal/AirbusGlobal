@@ -36,6 +36,7 @@ import { PersistentAdCard } from './components/PersistentAdCard';
 import { SettingsModal } from './components/SettingsModal';
 import { TripDatingPage } from './components/trip-dating/TripDatingPage';
 import { Footer } from './components/Footer';
+import { ScrollToTop } from './components/shared/ScrollToTop';
 import { CollectionsPage, CollectionSlug } from './components/CollectionsPage';
 import { Lock, Clock } from 'lucide-react';
 import {
@@ -352,6 +353,11 @@ export default function App() {
       es.addEventListener('feed_update', (e: MessageEvent) => {
         try {
           applyRealtimeEvent(JSON.parse(e.data));
+        } catch {}
+      });
+      es.addEventListener('trip_dating_counts', (e: MessageEvent) => {
+        try {
+          window.dispatchEvent(new CustomEvent('airbus:trip-dating-counts', { detail: JSON.parse(e.data) }));
         } catch {}
       });
       es.addEventListener('open', () => {
@@ -1539,16 +1545,19 @@ export default function App() {
 
       {/* Airbnb-Mimic Mega Footer with dynamic category tabs & Kenyan destinations (hidden in fullscreen Shorts player) */}
       {currentTab !== 'shorts' && (
-        <Footer
-          onNavigate={handleNavigate}
-          currency={currency}
-          onCurrencyChange={setCurrency}
-          onOpenTripFinder={() => setTripFinderOpen(true)}
-          onOpenPlans={() => {
-            setPlanWalletMode(false);
-            setPlanModalOpen(true);
-          }}
-        />
+        <>
+          <Footer
+            onNavigate={handleNavigate}
+            currency={currency}
+            onCurrencyChange={setCurrency}
+            onOpenTripFinder={() => setTripFinderOpen(true)}
+            onOpenPlans={() => {
+              setPlanWalletMode(false);
+              setPlanModalOpen(true);
+            }}
+          />
+          <ScrollToTop />
+        </>
       )}
 
       {/* MODALS */}

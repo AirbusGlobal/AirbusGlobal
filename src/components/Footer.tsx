@@ -108,7 +108,10 @@ export const Footer: React.FC<FooterProps> = ({
   ];
 
   return (
-    <footer className="bg-stone-100 dark:bg-[#111318] text-stone-700 dark:text-stone-300 border-t border-stone-200 dark:border-stone-800 transition-colors pt-10 pb-8 mt-16 text-xs">
+    <footer
+      id="app-footer"
+      className="footer-snap-end bg-stone-100 dark:bg-[#111318] text-stone-700 dark:text-stone-300 border-t border-stone-200 dark:border-stone-800 transition-colors pt-10 pb-8 mt-16 text-xs"
+    >
       <div className="max-w-7xl mx-auto px-4 space-y-10">
         {/* Dynamic Inspiration Tabs: Destinations / Experiences / Services */}
         <div className="pb-8 border-b border-stone-200 dark:border-stone-800 space-y-4">

@@ -182,20 +182,45 @@
   transform: translateY(0);
 }
 
-/* Custom scrollbars */
+/* Custom scrollbars (visible, thin, draggable across browsers) */
+html {
+  scroll-behavior: smooth;
+  scroll-snap-type: y proximity;
+  overflow-x: clip;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(120, 120, 128, 0.5) transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto !important;
+    scroll-snap-type: none !important;
+  }
+}
+
+.feed-snap-card {
+  scroll-snap-align: start;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 420px;
+}
+
+.footer-snap-end {
+  scroll-snap-align: end;
+}
+
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(150, 150, 150, 0.3);
+  background: rgba(120, 120, 128, 0.45);
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(150, 150, 150, 0.5);
+  background: rgba(120, 120, 128, 0.72);
 }
 
 /* Dark mode filter for OpenStreetMap tiles without requiring third-party API keys */
@@ -230,4 +255,5 @@
     animation: none;
   }
 }
+
 

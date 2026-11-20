@@ -4509,13 +4509,17 @@
       "likes": 0,
       "likedByUserEmails": [],
       "views": 0,
-      "status": "active",
+      "status": "APPROVED",
       "createdAt": 1794233834412,
       "updatedAt": 1794233834412,
       "moderationState": "APPROVED",
       "admin_feedback": null,
       "reviewed_at": null,
-      "reviewed_by": null
+      "reviewed_by": null,
+      "published_at": 1794233834412,
+      "decline_reason": null,
+      "city_custom": null,
+      "videoMediaId": "ma_tdp_mw9chz1o_v3yd_0_eb805d"
     },
     {
       "id": "tdp_mw9c3qg4_m1vu",
@@ -4552,13 +4556,17 @@
       "likes": 0,
       "likedByUserEmails": [],
       "views": 0,
-      "status": "active",
+      "status": "APPROVED",
       "createdAt": 1794233170084,
       "updatedAt": 1794233170084,
       "moderationState": "APPROVED",
       "admin_feedback": null,
       "reviewed_at": null,
-      "reviewed_by": null
+      "reviewed_by": null,
+      "published_at": 1794233170084,
+      "decline_reason": null,
+      "city_custom": null,
+      "videoMediaId": "ma_tdp_mw9c3qg4_m1vu_0_7bc0ef"
     },
     {
       "id": "tdp_mw23f936_umtm",
@@ -4583,13 +4591,16 @@
       "likes": 0,
       "likedByUserEmails": [],
       "views": 0,
-      "status": "active",
+      "status": "APPROVED",
       "createdAt": 1793795327682,
       "updatedAt": 1793795327682,
       "moderationState": "APPROVED",
       "admin_feedback": null,
       "reviewed_at": null,
-      "reviewed_by": null
+      "reviewed_by": null,
+      "published_at": 1793795327682,
+      "decline_reason": null,
+      "city_custom": null
     },
     {
       "id": "tdp_1",
@@ -4619,7 +4630,7 @@
         "guest@airbus.ke"
       ],
       "views": 310,
-      "status": "active",
+      "status": "APPROVED",
       "createdAt": 1792585706976,
       "updatedAt": 1793622506976,
       "videos": [
@@ -4637,7 +4648,11 @@
       "moderationState": "APPROVED",
       "admin_feedback": null,
       "reviewed_at": null,
-      "reviewed_by": null
+      "reviewed_by": null,
+      "published_at": 1792585706976,
+      "decline_reason": null,
+      "city_custom": null,
+      "videoMediaId": "ma_tdp_mw9chz1o_v3yd_0_eb805d"
     },
     {
       "id": "tdp_2",
@@ -4666,13 +4681,16 @@
       "likes": 67,
       "likedByUserEmails": [],
       "views": 480,
-      "status": "active",
+      "status": "APPROVED",
       "createdAt": 1792067306976,
       "updatedAt": 1793363306976,
       "moderationState": "APPROVED",
       "admin_feedback": null,
       "reviewed_at": null,
-      "reviewed_by": null
+      "reviewed_by": null,
+      "published_at": 1792067306976,
+      "decline_reason": null,
+      "city_custom": null
     },
     {
       "id": "tdp_3",
@@ -4703,13 +4721,16 @@
         "guest@airbus.ke"
       ],
       "views": 620,
-      "status": "active",
+      "status": "APPROVED",
       "createdAt": 1792931306976,
       "updatedAt": 1793708906976,
       "moderationState": "APPROVED",
       "admin_feedback": null,
       "reviewed_at": null,
-      "reviewed_by": null
+      "reviewed_by": null,
+      "published_at": 1792931306976,
+      "decline_reason": null,
+      "city_custom": null
     },
     {
       "id": "tdp_4",
@@ -4737,13 +4758,16 @@
       "likes": 38,
       "likedByUserEmails": [],
       "views": 295,
-      "status": "active",
+      "status": "APPROVED",
       "createdAt": 1792240106976,
       "updatedAt": 1793536106976,
       "moderationState": "APPROVED",
       "admin_feedback": null,
       "reviewed_at": null,
-      "reviewed_by": null
+      "reviewed_by": null,
+      "published_at": 1792240106976,
+      "decline_reason": null,
+      "city_custom": null
     },
     {
       "id": "tdp_5",
@@ -4771,13 +4795,16 @@
       "likes": 54,
       "likedByUserEmails": [],
       "views": 410,
-      "status": "active",
+      "status": "APPROVED",
       "createdAt": 1792758506976,
       "updatedAt": 1793622506976,
       "moderationState": "APPROVED",
       "admin_feedback": null,
       "reviewed_at": null,
-      "reviewed_by": null
+      "reviewed_by": null,
+      "published_at": 1792758506976,
+      "decline_reason": null,
+      "city_custom": null
     },
     {
       "id": "tdp_6",
@@ -4805,13 +4832,16 @@
       "likes": 31,
       "likedByUserEmails": [],
       "views": 220,
-      "status": "active",
+      "status": "APPROVED",
       "createdAt": 1793104106976,
       "updatedAt": 1793708906976,
       "moderationState": "APPROVED",
       "admin_feedback": null,
       "reviewed_at": null,
-      "reviewed_by": null
+      "reviewed_by": null,
+      "published_at": 1793104106976,
+      "decline_reason": null,
+      "city_custom": null
     }
   ],
   "tripDatingPaymentRequests": [],
@@ -6137,7 +6167,7 @@
       "paymentId": "pay_demo_1",
       "payment_id": "pay_demo_1",
       "paymentMethod": "wallet",
-      "impressions": 1425,
+      "impressions": 1426,
       "clicks": 86,
       "startsAt": 1793543326423,
       "endsAt": 1796135326423,
@@ -8194,8 +8224,99 @@
           }
         ]
       }
+    },
+    {
+      "id": "v2_trip_dating_status_and_feed_sync",
+      "appliedAt": 1795176738118,
+      "snapshot": {
+        "tdpV2Snapshot": [
+          {
+            "id": "tdp_mw9chz1o_v3yd",
+            "status": "active",
+            "moderationState": "APPROVED",
+            "admin_feedback": null
+          },
+          {
+            "id": "tdp_mw9c3qg4_m1vu",
+            "status": "active",
+            "moderationState": "APPROVED",
+            "admin_feedback": null
+          },
+          {
+            "id": "tdp_mw23f936_umtm",
+            "status": "active",
+            "moderationState": "APPROVED",
+            "admin_feedback": null
+          },
+          {
+            "id": "tdp_1",
+            "status": "active",
+            "moderationState": "APPROVED",
+            "admin_feedback": null
+          },
+          {
+            "id": "tdp_2",
+            "status": "active",
+            "moderationState": "APPROVED",
+            "admin_feedback": null
+          },
+          {
+            "id": "tdp_3",
+            "status": "active",
+            "moderationState": "APPROVED",
+            "admin_feedback": null
+          },
+          {
+            "id": "tdp_4",
+            "status": "active",
+            "moderationState": "APPROVED",
+            "admin_feedback": null
+          },
+          {
+            "id": "tdp_5",
+            "status": "active",
+            "moderationState": "APPROVED",
+            "admin_feedback": null
+          },
+          {
+            "id": "tdp_6",
+            "status": "active",
+            "moderationState": "APPROVED",
+            "admin_feedback": null
+          }
+        ],
+        "prevMediaAssetIds": []
+      }
     }
   ],
   "plusServiceRequests": [],
-  "localProviders": []
+  "localProviders": [],
+  "media_assets": [
+    {
+      "id": "ma_tdp_mw9chz1o_v3yd_0_eb805d",
+      "owner_id": "u_guest",
+      "type": "VIDEO",
+      "storage_key": "https://assets.mixkit.co/videos/preview/mixkit-young-woman-talking-on-video-call-with-her-phone-41525-large.mp4",
+      "url": "https://assets.mixkit.co/videos/preview/mixkit-young-woman-talking-on-video-call-with-her-phone-41525-large.mp4",
+      "mime": "video/mp4",
+      "size_bytes": 0,
+      "duration": 60,
+      "status": "READY",
+      "poster_url": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=600",
+      "created_at": 1794233834412
+    },
+    {
+      "id": "ma_tdp_mw9c3qg4_m1vu_0_7bc0ef",
+      "owner_id": "u_guest",
+      "type": "VIDEO",
+      "storage_key": "https://assets.mixkit.co/videos/preview/mixkit-woman-enjoying-a-sunny-day-in-a-park-41528-large.mp4",
+      "url": "https://assets.mixkit.co/videos/preview/mixkit-woman-enjoying-a-sunny-day-in-a-park-41528-large.mp4",
+      "mime": "video/mp4",
+      "size_bytes": 0,
+      "duration": 60,
+      "status": "READY",
+      "poster_url": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=800&q=80",
+      "created_at": 1794233170084
+    }
+  ]
 }

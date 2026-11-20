@@ -24,6 +24,7 @@ import {
   Percent,
 } from 'lucide-react';
 import { VerifiedBadge } from './VerifiedBadge';
+import { SharedVideoPlayer } from './shared/SharedVideoPlayer';
 
 interface StayCardProps {
   stay: Stay;
@@ -150,16 +151,20 @@ export const StayCard: React.FC<StayCardProps> = ({
 
         {/* Video Element for MP4 / MOV */}
         {effectiveVideoUrl && !stay.youtubeVideoId && (
-          <video
-            ref={videoRef}
+          <SharedVideoPlayer
+            externalRef={videoRef}
             src={effectiveVideoUrl}
+            poster={effectiveThumbnail}
+            compact
+            controls={false}
             loop
             muted={isMuted}
             playsInline
             preload="metadata"
-            className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${
+            className={`absolute inset-0 w-full h-full transition-opacity duration-300 ${
               isVideoPlaying ? 'opacity-100' : 'opacity-0'
             }`}
+            videoClassName="w-full h-full object-cover"
           />
         )}
 

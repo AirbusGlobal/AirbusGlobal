@@ -14,6 +14,7 @@ import {
   ShortAudioConfig,
 } from '../types';
 import { api } from '../api';
+import { SharedVideoPlayer } from './shared/SharedVideoPlayer';
 import {
   Plus,
   CreditCard,
@@ -612,8 +613,8 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
       return;
     }
 
-    if (file.size > 50 * 1024 * 1024) {
-      setVideoUploadState({ uploading: false, progress: 0, error: 'Video file size exceeds 50MB limit. Please upload a shorter tour video.', failedFile: null });
+    if (file.size > 150 * 1024 * 1024) {
+      setVideoUploadState({ uploading: false, progress: 0, error: 'Video file size exceeds 150MB limit. Please upload a shorter tour video.', failedFile: null });
       return;
     }
 
@@ -2681,12 +2682,12 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                     >
                       <div className="relative aspect-[9/16] max-h-80 bg-black overflow-hidden">
                         {post.videoUrl ? (
-                          <video
+                          <SharedVideoPlayer
                             src={post.videoUrl}
                             poster={post.coverUrl}
                             controls
                             playsInline
-                            className="w-full h-full object-cover"
+                            className="w-full h-full"
                           />
                         ) : (
                           <img
@@ -3344,7 +3345,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                         ) : videoPreviewUrl ? (
                           <div className="space-y-3" onClick={e => e.stopPropagation()}>
                             <div className="relative aspect-video max-w-sm mx-auto rounded-2xl overflow-hidden bg-black shadow-lg">
-                              <video src={videoPreviewUrl} controls className="w-full h-full object-cover" />
+                              <SharedVideoPlayer src={videoPreviewUrl} controls playsInline className="w-full h-full" />
                             </div>
                             <div className="text-xs text-emerald-600 dark:text-emerald-400 font-bold flex items-center justify-center gap-1">
                               <CheckCircle2 className="w-4 h-4" />

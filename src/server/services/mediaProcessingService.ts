@@ -10,9 +10,11 @@ const execFileAsync = promisify(execFile);
 
 export const SHORTS_OUTPUT_DIR = path.resolve(process.cwd(), 'uploads', 'shorts');
 export const RAW_UPLOADS_DIR = path.resolve(process.cwd(), 'uploads', 'raw');
+export const VIDEOS_OUTPUT_DIR = path.resolve(process.cwd(), 'uploads', 'videos');
+export const CHUNK_UPLOADS_DIR = path.resolve(process.cwd(), 'uploads', 'chunks');
 
 function ensureMediaDirs() {
-  for (const dir of [SHORTS_OUTPUT_DIR, RAW_UPLOADS_DIR, AUDIO_UPLOADS_DIR]) {
+  for (const dir of [SHORTS_OUTPUT_DIR, RAW_UPLOADS_DIR, VIDEOS_OUTPUT_DIR, CHUNK_UPLOADS_DIR, AUDIO_UPLOADS_DIR]) {
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }
@@ -488,6 +490,125 @@ export class MediaProcessingService {
         : (job.sourceType === 'photo' ? job.sourceFiles[0] : 'https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?auto=format&fit=crop&w=800&q=80'),
       outputDurationSec: Math.round(videoDurationSec),
       captions,
+    };
+  }
+
+  /**
+   * Transcodes any uploaded MP4/MOV/WebM into web-safe H.264 + AAC MP4 with +faststart
+   * and extracts a JPEG poster frame. Throws a clear error if the file is unreadable/corrupt.
+   */
+  public async transcodeUploadedVideo(params: {
+    inputPath: string;
+    assetId: string;
+    maxDurationSec?: number;
+  }): Promise<{
+    url: string;
+    storageKey: string;
+    posterUrl: string;
+    mime: string;
+    sizeBytes: number;
+    duration: number;
+    width: number;
+    height: number;
+  }> {
+    ensureMediaDirs();
+    const { inputPath, assetId, maxDurationSec } = params;
+
+    // Probe input stream strictly first (detect corrupt or non-video files)
+    let probe: VideoProbeInfo;
+    try {
+      const { stdout } = await execFileAsync('ffprobe', [
+        '-v', 'error',
+        '-show_entries', 'stream=codec_type,width,height:format=duration',
+        '-of', 'json',
+        inputPath,
+      ], { timeout: 20000 });
+      const parsed = JSON.parse(stdout);
+      const videoStream = (parsed.streams || []).find((s: any) => s.codec_type === 'video');
+      const audioStream = (parsed.streams || []).find((s: any) => s.codec_type === 'audio');
+      if (!videoStream) {
+        throw new Error('Uploaded file contains no playable video stream.');
+      }
+      probe = {
+        width: Number(videoStream.width || 720),
+        height: Number(videoStream.height || 1280),
+        duration: Math.max(0.5, Number(parsed.format?.duration || 1)),
+        hasAudio: Boolean(audioStream),
+      };
+    } catch (err: any) {
+      throw new Error(
+        err?.message?.includes('video stream')
+          ? err.message
+          : 'Unable to read uploaded video file. Please upload a valid MP4, MOV, or WebM video.'
+      );
+    }
+
+    const outFilename = `${assetId}.mp4`;
+    const posterFilename = `${assetId}_poster.jpg`;
+    const outPath = path.join(VIDEOS_OUTPUT_DIR, outFilename);
+    const posterPath = path.join(VIDEOS_OUTPUT_DIR, posterFilename);
+
+    const ffArgs = [
+      '-y',
+      '-i', inputPath,
+      ...(maxDurationSec ? ['-t', String(maxDurationSec)] : []),
+      '-vf', "scale='min(1280,iw)':'min(1920,ih)':force_original_aspect_ratio=decrease,pad=ceil(iw/2)*2:ceil(ih/2)*2",
+      '-c:v', 'libx264',
+      '-preset', 'veryfast',
+      '-crf', '23',
+      '-pix_fmt', 'yuv420p',
+      '-profile:v', 'main',
+      '-level', '4.0',
+      ...(probe.hasAudio ? ['-c:a', 'aac', '-b:a', '128k', '-ac', '2'] : ['-an']),
+      '-movflags', '+faststart',
+      outPath,
+    ];
+
+    try {
+      await execFileAsync('ffmpeg', ffArgs, { timeout: 180000 });
+    } catch (err: any) {
+      try {
+        if (fs.existsSync(outPath)) fs.unlinkSync(outPath);
+      } catch {}
+      throw new Error('Video transcoding failed. Please re-export as MP4/MOV/WebM and try again.');
+    }
+
+    // Extract poster frame at ~0.5s (or 10% for ultra-short clips)
+    const seekSec = Math.min(0.5, Math.max(0.05, probe.duration * 0.1));
+    try {
+      await execFileAsync('ffmpeg', [
+        '-y',
+        '-ss', seekSec.toFixed(2),
+        '-i', outPath,
+        '-vframes', '1',
+        '-q:v', '3',
+        posterPath,
+      ], { timeout: 15000 });
+    } catch {
+      // Fallback: try frame 0
+      try {
+        await execFileAsync('ffmpeg', [
+          '-y',
+          '-i', outPath,
+          '-vframes', '1',
+          '-q:v', '3',
+          posterPath,
+        ], { timeout: 15000 });
+      } catch {}
+    }
+
+    const outProbe = await this.probeVideo(outPath);
+    const stat = fs.statSync(outPath);
+
+    return {
+      url: `/uploads/videos/${outFilename}`,
+      storageKey: `videos/${outFilename}`,
+      posterUrl: fs.existsSync(posterPath) ? `/uploads/videos/${posterFilename}` : '',
+      mime: 'video/mp4',
+      sizeBytes: stat.size,
+      duration: Math.max(1, Math.round(outProbe.duration || probe.duration)),
+      width: outProbe.width || probe.width,
+      height: outProbe.height || probe.height,
     };
   }
 }

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
@@ -103,13 +104,16 @@ describe('AirBus Platform End-to-End Integrity Suite', () => {
       fs.writeFileSync(DB_FILE, dbSnapshotRaw, 'utf-8');
     }
     for (const relUrl of createdUploadFiles) {
-      const base = path.basename(relUrl);
-      const target = path.join(RAW_UPLOADS_DIR, base);
-      if (fs.existsSync(target)) {
-        try {
-          fs.unlinkSync(target);
-        } catch {
-          // ignore cleanup failure
+      const cleaned = relUrl.startsWith('/uploads/')
+        ? path.resolve(process.cwd(), relUrl.replace(/^\//, ''))
+        : path.join(RAW_UPLOADS_DIR, path.basename(relUrl));
+      for (const candidate of [cleaned, path.join(RAW_UPLOADS_DIR, path.basename(relUrl))]) {
+        if (fs.existsSync(candidate)) {
+          try {
+            fs.unlinkSync(candidate);
+          } catch {
+            // ignore cleanup failure
+          }
         }
       }
     }
@@ -488,8 +492,8 @@ describe('AirBus Platform End-to-End Integrity Suite', () => {
     });
     assert.equal(createTd.status, 201);
     const td = createTd.data.profile;
-    assert.equal(td.moderationState, 'PENDING');
-    assert.equal(td.status, 'pending');
+    assert.equal(td.moderationState, 'PENDING_REVIEW');
+    assert.equal(td.status, 'PENDING_REVIEW');
 
     // Non-approved Trip Dating profile cannot be unlocked
     const lockedAttempt = await apiJson('/api/trip-dating/unlock', {
@@ -520,7 +524,7 @@ describe('AirBus Platform End-to-End Integrity Suite', () => {
     assert.equal(declined.data.profile.moderationState, 'DECLINED');
     assert.equal(declined.data.profile.admin_feedback, 'Add a clearer bio line.');
 
-    // Resubmit -> PENDING, admin_feedback cleared, createdAt preserved
+    // Resubmit -> PENDING_REVIEW, admin_feedback cleared, createdAt preserved
     const resubmitted = await apiJson<{ profile: any }>(`/api/trip-dating/profiles/${td.id}/resubmit`, {
       method: 'POST',
       token: guestToken,
@@ -530,7 +534,7 @@ describe('AirBus Platform End-to-End Integrity Suite', () => {
     assert.equal(resubmitted.status, 200);
     assert.equal(resubmitted.data.profile.createdAt, td.createdAt);
     assert.equal(resubmitted.data.profile.admin_feedback, null);
-    assert.equal(resubmitted.data.profile.moderationState, 'PENDING');
+    assert.equal(resubmitted.data.profile.moderationState, 'PENDING_REVIEW');
 
     // Approve -> live in public feed & unlockable
     const approved = await apiJson<{ profile: any }>(`/api/admin/review-queue/trip-dating/${td.id}`, {
@@ -540,7 +544,7 @@ describe('AirBus Platform End-to-End Integrity Suite', () => {
     });
     assert.equal(approved.status, 200);
     assert.equal(approved.data.profile.moderationState, 'APPROVED');
-    assert.equal(approved.data.profile.status, 'active');
+    assert.equal(approved.data.profile.status, 'APPROVED');
 
     const publicTdApproved = await apiJson<{ profiles: any[] }>('/api/trip-dating/profiles?limit=20');
     assert.ok(publicTdApproved.data.profiles.some(p => p.id === td.id));
@@ -725,5 +729,214 @@ describe('AirBus Platform End-to-End Integrity Suite', () => {
       body: { portal: 'owner', username: hostUsername, password: `${hostPassword}_wrong` },
     });
     assert.equal(wrongPass.status, 401);
+  });
+
+  it('14. Trip Dating City Other canonicalization, Admin counts/approve/decline, feed top placement, v2 migration, & chunked video transcode + 206 Range streaming', async () => {
+    // a) Admin Trip Dating authorization guards
+    const unauthCounts = await apiJson('/api/admin/trip-dating/counts', { token: guestToken });
+    assert.equal(unauthCounts.status, 403);
+    const unauthSubs = await apiJson('/api/admin/trip-dating/submissions?status=PENDING_REVIEW', { token: guestToken });
+    assert.equal(unauthSubs.status, 403);
+    const unauthApprove = await apiJson('/api/admin/trip-dating/nonexistent/approve', { method: 'POST', token: guestToken });
+    assert.equal(unauthApprove.status, 403);
+
+    // b) Chunked video upload with real tiny MP4 + FFmpeg faststart transcode + 206 Range streaming
+    const tmpMp4 = path.join('/tmp', `airbus_test_${Date.now()}.mp4`);
+    execFileSync(
+      'ffmpeg',
+      ['-y', '-f', 'lavfi', '-i', 'color=c=navy:s=320x240:d=1', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', tmpMp4],
+      { stdio: 'ignore' }
+    );
+    const mp4Buf = fs.readFileSync(tmpMp4);
+    try { fs.unlinkSync(tmpMp4); } catch {}
+    assert.ok(mp4Buf.length > 512, 'Generated test MP4 must be non-empty');
+
+    const splitAt = Math.floor(mp4Buf.length / 2);
+    const chunk0 = mp4Buf.subarray(0, splitAt);
+    const chunk1 = mp4Buf.subarray(splitAt);
+
+    const initRes = await apiJson<{ uploadId: string; kind: string }>('/api/uploads/media/init', {
+      method: 'POST',
+      token: guestToken,
+      body: {
+        filename: 'trip-preview.mp4',
+        mime: 'video/mp4',
+        totalBytes: mp4Buf.length,
+        totalChunks: 2,
+        kind: 'video',
+      },
+    });
+    assert.equal(initRes.status, 201);
+    const { uploadId } = initRes.data;
+
+    for (const [idx, buf] of [[0, chunk0], [1, chunk1]] as Array<[number, Buffer]>) {
+      const putRes = await fetch(`${baseUrl}/api/uploads/media/chunk/${uploadId}?index=${idx}`, {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${guestToken}`,
+          'Content-Type': 'application/octet-stream',
+          'x-chunk-index': String(idx),
+        },
+        body: new Uint8Array(buf),
+      });
+      assert.equal(putRes.status, 200, `Chunk ${idx} upload must succeed`);
+    }
+
+    const completeRes = await apiJson<{ url: string; posterUrl?: string; mediaAsset?: any }>(
+      `/api/uploads/media/complete/${uploadId}`,
+      { method: 'POST', token: guestToken }
+    );
+    assert.equal(completeRes.status, 201);
+    assert.ok(completeRes.data.url.startsWith('/uploads/'), `Expected /uploads URL, got ${completeRes.data.url}`);
+    createdUploadFiles.push(completeRes.data.url);
+    if (completeRes.data.posterUrl) createdUploadFiles.push(completeRes.data.posterUrl);
+    assert.equal(completeRes.data.mediaAsset?.status, 'READY');
+    assert.ok(
+      completeRes.data.mediaAsset?.poster_url || completeRes.data.posterUrl,
+      'Expected extracted video posterUrl'
+    );
+
+    // Verify HTTP 206 Partial Content Range streaming
+    const rangeRes = await fetch(`${baseUrl}${completeRes.data.url}`, {
+      headers: { Range: 'bytes=0-511' },
+    });
+    assert.equal(rangeRes.status, 206, 'Video Range request must return HTTP 206 Partial Content');
+    assert.equal(rangeRes.headers.get('accept-ranges'), 'bytes');
+    assert.match(rangeRes.headers.get('content-range') || '', /^bytes 0-511\/\d+$/);
+    const rangedBytes = await rangeRes.arrayBuffer();
+    assert.equal(rangedBytes.byteLength, 512);
+
+    // c) Upload test photo & validate City "Other (type your city)"
+    const tinyPngDataUrl =
+      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+    const photoUp = await apiJson<{ url: string }>('/api/uploads/media', {
+      method: 'POST',
+      token: guestToken,
+      body: { dataUrl: tinyPngDataUrl, filename: 'td_other.png', kind: 'photo' },
+    });
+    assert.equal(photoUp.status, 201);
+    createdUploadFiles.push(photoUp.data.url);
+
+    const basePayload = {
+      fullName: 'Zawadi M.',
+      phoneNumber: '+254722889900',
+      gender: 'female',
+      age: 27,
+      city: 'Other',
+      description: 'Sunset dhow trips and coastal coffee spots.',
+      lookingFor: 'Easygoing weekend traveler',
+      datingIntention: 'dating_companionship',
+      primaryPhoto: photoUp.data.url,
+      full_body_photo: photoUp.data.url,
+      photos: [photoUp.data.url],
+      videoMediaId: completeRes.data.mediaAsset.id,
+      videoUrl: completeRes.data.url,
+      videoThumbnail: completeRes.data.posterUrl,
+    };
+
+    for (const badCustomCity of ['A', '<script>alert(1)</script>', 'Diani 123!', '']) {
+      const badRes = await apiJson('/api/trip-dating/profiles', {
+        method: 'POST',
+        token: guestToken,
+        body: { ...basePayload, city_custom: badCustomCity },
+      });
+      assert.equal(badRes.status, 400, `Invalid custom city "${badCustomCity}" must return 400`);
+    }
+
+    const clientSess = `td14_${Date.now()}`;
+    const createSub1 = await apiJson<{ profile: any }>('/api/trip-dating/profiles', {
+      method: 'POST',
+      token: guestToken,
+      headers: { 'x-client-session': clientSess },
+      body: { ...basePayload, city_custom: '  Diani Beach  ' },
+    });
+    assert.equal(createSub1.status, 201);
+    const sub1 = createSub1.data.profile;
+    assert.equal(sub1.city, 'Diani Beach');
+    assert.equal(sub1.city_custom, 'Diani Beach');
+    assert.equal(sub1.moderationState, 'PENDING_REVIEW');
+
+    // Second submission with lowercase spacing should reuse canonical "Diani Beach"
+    const createSub2 = await apiJson<{ profile: any }>('/api/trip-dating/profiles', {
+      method: 'POST',
+      token: guestToken,
+      headers: { 'x-client-session': clientSess },
+      body: { ...basePayload, fullName: 'Tariq N.', gender: 'male', city_custom: '  diani beach ' },
+    });
+    assert.equal(createSub2.status, 201);
+    const sub2 = createSub2.data.profile;
+    assert.equal(sub2.city, 'Diani Beach');
+
+    // d) Admin counts + pending visibility (never 0 while pending exists)
+    const countsBefore = await apiJson<{ pending: number; approved: number; declined: number; total: number }>(
+      '/api/admin/trip-dating/counts',
+      { token: adminToken }
+    );
+    assert.equal(countsBefore.status, 200);
+    assert.ok(countsBefore.data.pending >= 2, `Expected pending >= 2, got ${countsBefore.data.pending}`);
+
+    const pendingPage = await apiJson<{ submissions: any[]; counts: any }>(
+      '/api/admin/trip-dating/submissions?status=PENDING_REVIEW&page=1&limit=20',
+      { token: adminToken }
+    );
+    assert.equal(pendingPage.status, 200);
+    assert.ok(pendingPage.data.submissions.some(p => p.id === sub1.id));
+    assert.ok(pendingPage.data.submissions.some(p => p.id === sub2.id));
+
+    // e) Decline enforces 10–500 chars and excludes declined profile from public feed
+    const shortDecline = await apiJson(`/api/admin/trip-dating/${sub2.id}/decline`, {
+      method: 'POST',
+      token: adminToken,
+      body: { reason: 'Too short' },
+    });
+    assert.equal(shortDecline.status, 400);
+
+    const validDecline = await apiJson<{ profile: any }>(`/api/admin/trip-dating/${sub2.id}/decline`, {
+      method: 'POST',
+      token: adminToken,
+      body: { reason: 'Please add two clearer full-body photos before approval.' },
+    });
+    assert.equal(validDecline.status, 200);
+    assert.equal(validDecline.data.profile.moderationState, 'DECLINED');
+    assert.equal(validDecline.data.profile.decline_reason, 'Please add two clearer full-body photos before approval.');
+
+    const feedBeforeApprove = await apiJson<{ profiles: any[] }>('/api/trip-dating/feed?limit=20');
+    assert.equal(feedBeforeApprove.status, 200);
+    assert.equal(feedBeforeApprove.data.profiles.some(p => p.id === sub2.id), false, 'Declined post must never reach feed');
+    assert.equal(feedBeforeApprove.data.profiles.some(p => p.id === sub1.id), false, 'Pending post must never reach feed');
+
+    // f) Approve -> idempotent, sets published_at, appears #1 at top of /api/trip-dating/feed, city in /cities
+    const approve1 = await apiJson<{ profile: any; alreadyApproved?: boolean; counts: any }>(
+      `/api/admin/trip-dating/${sub1.id}/approve`,
+      { method: 'POST', token: adminToken }
+    );
+    assert.equal(approve1.status, 200);
+    assert.equal(approve1.data.profile.moderationState, 'APPROVED');
+    assert.ok(approve1.data.profile.published_at, 'published_at must be set on approval');
+
+    const approveRepeat = await apiJson<{ profile: any; alreadyApproved?: boolean }>(
+      `/api/admin/trip-dating/${sub1.id}/approve`,
+      { method: 'POST', token: adminToken }
+    );
+    assert.equal(approveRepeat.status, 200);
+    assert.equal(approveRepeat.data.alreadyApproved, true);
+
+    const feedAfterApprove = await apiJson<{ profiles: any[] }>('/api/trip-dating/feed?limit=20');
+    assert.equal(feedAfterApprove.status, 200);
+    assert.equal(
+      feedAfterApprove.data.profiles[0]?.id,
+      sub1.id,
+      'Newly approved Trip Dating submission must appear #1 at top of feed'
+    );
+
+    const citiesRes = await apiJson<{ cities: string[] }>('/api/trip-dating/cities');
+    assert.equal(citiesRes.status, 200);
+    assert.ok(citiesRes.data.cities.includes('Diani Beach'), 'Approved custom city must appear in /api/trip-dating/cities');
+
+    // g) v2 migration rollback + idempotent re-run
+    const v2RolledBack = db.rollbackMigration('v2_trip_dating_status_and_feed_sync');
+    assert.equal(typeof v2RolledBack, 'boolean');
+    db.runStartupMigrations();
+    db.runStartupMigrations();
   });
 });

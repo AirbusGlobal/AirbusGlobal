@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { ListingMedia } from '../types';
 import { VerifiedBadge } from './VerifiedBadge';
+import { SharedVideoPlayer } from './shared/SharedVideoPlayer';
 
 export interface ListingMediaViewerProps {
   media?: ListingMedia;
@@ -372,23 +373,24 @@ export const ListingMediaViewer: React.FC<ListingMediaViewerProps> = ({
               </div>
             ) : (
               <>
-                <video
-                  ref={videoRef}
+                <SharedVideoPlayer
+                  externalRef={videoRef}
                   src={effectiveVideoUrl}
                   poster={effectiveVideoPoster}
+                  compact
+                  controls={false}
                   autoPlay={autoPlay}
                   muted={isMuted}
                   loop
                   playsInline
-                  onLoadedMetadata={() => {
-                    if (videoRef.current) {
-                      setDuration(videoRef.current.duration || 0);
-                    }
+                  preload="metadata"
+                  className="w-full h-full"
+                  videoClassName="w-full h-full object-cover cursor-pointer"
+                  onLoadedMetadata={(dur) => {
+                    setDuration(dur || videoRef.current?.duration || 0);
                   }}
-                  onTimeUpdate={() => {
-                    if (videoRef.current) {
-                      setCurrentTime(videoRef.current.currentTime || 0);
-                    }
+                  onTimeUpdate={(cur) => {
+                    setCurrentTime(cur || videoRef.current?.currentTime || 0);
                   }}
                   onLoadedData={() => {
                     setVideoLoading(false);
@@ -400,7 +402,6 @@ export const ListingMediaViewer: React.FC<ListingMediaViewerProps> = ({
                   }}
                   onPlay={() => setIsPlaying(true)}
                   onPause={() => setIsPlaying(false)}
-                  className="w-full h-full object-cover cursor-pointer"
                   onClick={handleTogglePlay}
                 />
 
