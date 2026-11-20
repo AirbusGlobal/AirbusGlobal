@@ -76,12 +76,19 @@ import {
   ListingAudioConfig,
   ShortAnalyticsRecord,
   ShortIntentType,
+  AirBusCollectionId,
+  AdminWalletPurpose,
+  AdminWalletEntry,
+  WalletYearArchive,
+  AdminWalletRollupBucket,
+  ListingCollectionJoin,
 } from './types';
 import { PLANS, AMENITY_GROUPS } from '../constants';
 import { audioLibraryService, FREE_AUDIO_LICENSES } from './services/audioLibraryService';
 import { shortJobQueue } from './services/shortJobQueue';
 import { AUDIO_UPLOAD_CONFIG, getShortsTierRules } from '../config/shortsTierConfig';
 import { logger } from './services/ops';
+import { getEATParts } from '../utils/time';
 
 export const DEFAULT_SETTINGS: PlatformSettings = {
   adPricePerDay: 100,
@@ -1802,20 +1809,23 @@ class DatabaseStore {
   private publicFeedCache: {
     stays?: { key: string; ts: number; data: any };
     tripDating?: { key: string; ts: number; data: any };
+    collections?: Record<string, { ts: number; data: any }>;
   } = {};
 
   constructor() {
     this.data = this.load();
     this.runStartupMigrations();
+    this.checkAndRunAutoYearEndArchive();
     this.ensurePortalCredentialSeeds();
     this.checkAllExpirations();
     this.checkUpcomingCheckinReminders();
     this.initShortServices();
   }
 
-  public invalidateFeedCache(type?: 'stay' | 'trip_dating') {
-    if (!type || type === 'stay') {
+  public invalidateFeedCache(type?: 'stay' | 'trip_dating' | 'collection') {
+    if (!type || type === 'stay' || type === 'collection') {
       this.publicFeedCache.stays = undefined;
+      this.publicFeedCache.collections = undefined;
     }
     if (!type || type === 'trip_dating') {
       this.publicFeedCache.tripDating = undefined;
@@ -2061,6 +2071,95 @@ class DatabaseStore {
       this.save();
       logger.info('migration_applied', { migrationId: migrationV2 });
     }
+
+    // Migration v3: Backfill AirBus listing published_at/publishState, listing_collections join table,
+    // Stay video MediaAsset index, and Admin Wallet entries + EAT rollups.
+    const migrationV3 = 'v3_airbus_listings_collections_and_admin_wallet';
+    if (!this.data.appliedMigrations.some(m => m.id === migrationV3)) {
+      const staysV3Snapshot = (this.data.stays || []).map(s => ({
+        id: s.id,
+        status: s.status,
+        publishState: s.publishState,
+        published_at: s.published_at,
+        approved_by: s.approved_by,
+        videoMediaId: s.videoMediaId,
+        collections: s.collections ? [...s.collections] : undefined,
+      }));
+      const prevJoinIds = (this.data.listing_collections || []).map(j => `${j.listing_id}:${j.collection_id}`);
+      const prevAdminEntryIds = (this.data.admin_wallet_entries || []).map(e => e.id);
+      const prevMediaAssetIdsV3 = (this.data.media_assets || []).map(m => m.id);
+
+      if (!this.data.listing_collections) this.data.listing_collections = [];
+      if (!this.data.media_assets) this.data.media_assets = [];
+      if (!this.data.transactional_outbox) this.data.transactional_outbox = [];
+
+      for (const s of this.data.stays || []) {
+        const isLiveApproved =
+          !s.isDelisted &&
+          (s.status === 'live' || s.status === 'PUBLISHED') &&
+          s.isApprovedByAdmin !== false &&
+          s.moderationState !== 'PENDING' &&
+          s.moderationState !== 'DECLINED';
+        if (isLiveApproved) {
+          s.status = 'live';
+          s.publishState = 'PUBLISHED';
+          s.moderationState = 'APPROVED';
+          s.moderationStatus = 'approved';
+          s.isApprovedByAdmin = true;
+          s.published_at = s.published_at || s.reviewed_at || s.createdAt || Date.now();
+          s.approved_by = s.approved_by || s.reviewed_by || 'admin@airbus.ke';
+        } else if (s.moderationState === 'DECLINED' || s.isDelisted) {
+          s.publishState = 'DECLINED';
+          s.published_at = null;
+        } else {
+          s.publishState = 'PENDING_REVIEW';
+          s.published_at = null;
+        }
+
+        // Index existing direct stay video URLs into media_assets if not indexed
+        const vUrl = s.media?.video?.url || s.videoUrl || '';
+        if (vUrl && !vUrl.includes('youtube.com') && !vUrl.includes('youtu.be')) {
+          const existing = this.data.media_assets.find(a => a.url === vUrl);
+          if (existing) {
+            s.videoMediaId = s.videoMediaId || existing.id;
+            if (s.media?.video) s.media.video.mediaId = existing.id;
+          } else {
+            const assetId = `ma_${s.id}_${crypto.randomBytes(3).toString('hex')}`;
+            this.data.media_assets.push({
+              id: assetId,
+              owner_id: s.ownerEmail || s.owner || 'system',
+              type: 'VIDEO',
+              storage_key: vUrl.startsWith('/uploads/') ? vUrl.replace(/^\/uploads\//, '') : vUrl,
+              url: vUrl,
+              mime: vUrl.endsWith('.webm') ? 'video/webm' : 'video/mp4',
+              size_bytes: s.media?.video?.size || 0,
+              duration: s.media?.video?.duration || 60,
+              status: 'READY',
+              poster_url: s.media?.video?.thumbnail || s.thumbnailUrl || s.images?.[0],
+              created_at: s.createdAt || Date.now(),
+            });
+            s.videoMediaId = assetId;
+            if (s.media?.video) s.media.video.mediaId = assetId;
+          }
+        }
+
+        // Sync listing_collections join rows from stay flags
+        const colIds = this.extractCollectionIdsFromStay(s);
+        this.syncListingCollections(s.id, colIds, false);
+      }
+
+      // Backfill Admin Wallet entries from existing approved payments/ledger
+      this.backfillAdminWalletEntries();
+
+      this.data.appliedMigrations.push({
+        id: migrationV3,
+        appliedAt: Date.now(),
+        snapshot: { staysV3Snapshot, prevJoinIds, prevAdminEntryIds, prevMediaAssetIdsV3 },
+      });
+      this.invalidateFeedCache();
+      this.save();
+      logger.info('migration_applied', { migrationId: migrationV3 });
+    }
   }
 
   public rollbackMigration(migrationId: string): boolean {
@@ -2074,6 +2173,27 @@ class DatabaseStore {
         const s = (this.data.stays || []).find(st => st.id === orig.id);
         if (s) Object.assign(s, orig);
       });
+    }
+    if (snap?.staysV3Snapshot) {
+      snap.staysV3Snapshot.forEach((orig: any) => {
+        const s = (this.data.stays || []).find(st => st.id === orig.id);
+        if (s) Object.assign(s, orig);
+      });
+    }
+    if (Array.isArray(snap?.prevJoinIds) && Array.isArray(this.data.listing_collections)) {
+      const keepJoins = new Set(snap.prevJoinIds);
+      this.data.listing_collections = this.data.listing_collections.filter(j =>
+        keepJoins.has(`${j.listing_id}:${j.collection_id}`)
+      );
+    }
+    if (Array.isArray(snap?.prevAdminEntryIds) && Array.isArray(this.data.admin_wallet_entries)) {
+      const keepEntries = new Set(snap.prevAdminEntryIds);
+      this.data.admin_wallet_entries = this.data.admin_wallet_entries.filter(e => keepEntries.has(e.id));
+      this.rebuildAdminWalletRollups();
+    }
+    if (Array.isArray(snap?.prevMediaAssetIdsV3) && Array.isArray(this.data.media_assets)) {
+      const keepMedia = new Set(snap.prevMediaAssetIdsV3);
+      this.data.media_assets = this.data.media_assets.filter(a => keepMedia.has(a.id));
     }
     if (snap?.tdpSnapshot) {
       snap.tdpSnapshot.forEach((orig: any) => {
@@ -3925,15 +4045,63 @@ class DatabaseStore {
   }
 
   // --- Stays & Powerful Search ---
-  private isStayApprovedPublic(s: Stay): boolean {
+  private getStayPublishTimestamp(s: Stay): number {
+    return Number(s.published_at || s.reviewed_at || s.createdAt || 0);
+  }
+
+  public isStayApprovedPublic(s: Stay): boolean {
     if (s.isDelisted) return false;
-    if (s.moderationState) {
-      if (s.moderationState !== 'APPROVED') return false;
-    }
+    if (s.moderationState && s.moderationState !== 'APPROVED') return false;
     if (s.moderationStatus && s.moderationStatus !== 'approved') return false;
     if (s.isApprovedByAdmin === false) return false;
-    if (s.status !== 'live') return false;
+    if (s.status !== 'live' && s.status !== 'PUBLISHED') return false;
     return true;
+  }
+
+  public checkStayLiveStatus(stayId: string, viewerUser?: User | null) {
+    const raw = (this.data.stays || []).find(s => s.id === stayId);
+    if (!raw) {
+      return {
+        exists: false,
+        inPublicFeed: false,
+        reasons: ['Listing not found.'],
+      };
+    }
+    const reasons: string[] = [];
+    if (raw.isDelisted) reasons.push('Listing is marked delisted.');
+    if (raw.moderationState && raw.moderationState !== 'APPROVED') {
+      reasons.push(`Moderation state is ${raw.moderationState}.`);
+    }
+    if (raw.status !== 'live' && raw.status !== 'PUBLISHED') {
+      reasons.push(`Status is ${raw.status}.`);
+    }
+    let ownerPlanActive = true;
+    if (raw.ownerEmail) {
+      const ownerUser = this.findUserByEmail(raw.ownerEmail);
+      if (!ownerUser || ownerUser.role !== 'admin') {
+        const plan = this.getHostPlan(raw.ownerEmail);
+        ownerPlanActive = plan.status === 'active' && (plan.expiresAt === 0 || plan.expiresAt > Date.now());
+        if (!ownerPlanActive) reasons.push('Host subscription plan is not active.');
+      }
+    }
+    const feed = this.getStays({ viewerUser: viewerUser || ({ role: 'admin', email: 'admin@airbus.ke', id: 'admin', name: 'Admin', idVerified: true, createdAt: 0 } as User), includeVVVIP: true });
+    const feedIndex = feed.findIndex(s => s.id === stayId);
+    return {
+      exists: true,
+      id: raw.id,
+      title: raw.title,
+      status: raw.status,
+      publishState: raw.publishState || (this.isStayApprovedPublic(raw) ? 'PUBLISHED' : 'PENDING_REVIEW'),
+      moderationState: raw.moderationState,
+      published_at: raw.published_at || null,
+      approved_by: raw.approved_by || raw.reviewed_by || null,
+      ownerPlanActive,
+      isPlusVVVIP: Boolean(raw.isPlusVVVIP),
+      collections: this.getListingCollectionIds(raw.id),
+      inPublicFeed: feedIndex >= 0,
+      feedRank: feedIndex >= 0 ? feedIndex + 1 : null,
+      reasons,
+    };
   }
 
   public getStays(filter?: {
@@ -4056,7 +4224,7 @@ class DatabaseStore {
           if (aBoosted && !bBoosted) return -1;
           if (!aBoosted && bBoosted) return 1;
         }
-        const diff = (b.createdAt || 0) - (a.createdAt || 0);
+        const diff = this.getStayPublishTimestamp(b) - this.getStayPublishTimestamp(a);
         if (diff !== 0) return diff;
         return b.id.localeCompare(a.id);
       });
@@ -4124,7 +4292,7 @@ class DatabaseStore {
       const cursorTs = Number(tsStr);
       if (Number.isFinite(cursorTs)) {
         filtered = fullList.filter(s => {
-          const ts = s.createdAt || 0;
+          const ts = this.getStayPublishTimestamp(s);
           return ts < cursorTs || (ts === cursorTs && s.id.localeCompare(cursorId) < 0);
         });
       }
@@ -4133,7 +4301,7 @@ class DatabaseStore {
     const page = filtered.slice(0, limit);
     const hasMore = filtered.length > limit;
     const last = page[page.length - 1];
-    const nextCursor = hasMore && last ? `${last.createdAt || 0}|${last.id}` : null;
+    const nextCursor = hasMore && last ? `${this.getStayPublishTimestamp(last)}|${last.id}` : null;
 
     return {
       stays: page,
@@ -4350,6 +4518,25 @@ class DatabaseStore {
       stay.media?.video?.url,
       ...(stay.media?.photos?.map(p => p.url) || []),
     ]);
+    const refMediaId = stay.videoMediaId || stay.media?.video?.mediaId;
+    if (refMediaId) {
+      this.assertMediaAssetsReady([refMediaId]);
+      const asset = this.getMediaAssetById(refMediaId);
+      if (asset) {
+        stay.videoMediaId = asset.id;
+        stay.videoUrl = asset.url;
+        if (stay.media?.video) {
+          stay.media.video.url = asset.url;
+          stay.media.video.mediaId = asset.id;
+          if (!stay.media.video.thumbnail && asset.poster_url) {
+            stay.media.video.thumbnail = asset.poster_url;
+          }
+        }
+        if (!stay.thumbnailUrl && asset.poster_url) {
+          stay.thumbnailUrl = asset.poster_url;
+        }
+      }
+    }
     this.normalizeStayMedia(stay);
     if (!stay.hasVideo && !stay.hasPhotos) {
       throw new Error('At least one media type is required (one video tour or at least one photo).');
@@ -4363,6 +4550,9 @@ class DatabaseStore {
     stay.isApprovedByAdmin = false;
     stay.moderationStatus = 'pending';
     stay.moderationState = 'PENDING';
+    stay.publishState = 'PENDING_REVIEW';
+    stay.published_at = null;
+    stay.approved_by = null;
     stay.admin_feedback = null;
     stay.moderationReason = undefined;
     stay.reviewed_at = null;
@@ -4370,7 +4560,11 @@ class DatabaseStore {
     stay.isDelisted = false;
     if (!stay.createdAt) stay.createdAt = Date.now();
 
+    const colIds = this.extractCollectionIdsFromStay(stay);
+    stay.collections = colIds;
+
     this.data.stays.unshift(stay);
+    this.syncListingCollections(stay.id, colIds, false);
     this.invalidateFeedCache('stay');
 
     this.data.users
@@ -4389,7 +4583,7 @@ class DatabaseStore {
       });
 
     this.save();
-    return stay;
+    return this.hydrateStayAudio(stay);
   }
 
   public updateStay(id: string, updates: Partial<Stay>): Stay | null {
@@ -4402,7 +4596,22 @@ class DatabaseStore {
       updates.media?.video?.url,
       ...(updates.media?.photos?.map(p => p.url) || []),
     ]);
+    const refMediaId = updates.videoMediaId || updates.media?.video?.mediaId;
+    if (refMediaId) {
+      this.assertMediaAssetsReady([refMediaId]);
+    }
     Object.assign(s, updates);
+    if (refMediaId) {
+      const asset = this.getMediaAssetById(refMediaId);
+      if (asset) {
+        s.videoMediaId = asset.id;
+        s.videoUrl = asset.url;
+        if (s.media?.video) {
+          s.media.video.mediaId = asset.id;
+          s.media.video.url = asset.url;
+        }
+      }
+    }
     this.normalizeStayMedia(s);
     if (!s.hasVideo && !s.hasPhotos) {
       throw new Error('Listing must retain at least one media type (video or at least one photo).');
@@ -4410,6 +4619,8 @@ class DatabaseStore {
     if (s.media?.photos && s.media.photos.length > 30) {
       throw new Error('Maximum 30 photos allowed per listing.');
     }
+    const colIds = updates.collections ? updates.collections : this.extractCollectionIdsFromStay(s);
+    this.syncListingCollections(s.id, colIds, false);
     this.invalidateFeedCache('stay');
     this.save();
     return this.hydrateStayAudio(s);
@@ -4428,11 +4639,27 @@ class DatabaseStore {
       updates.media?.video?.url,
       ...(updates.media?.photos?.map(p => p.url) || []),
     ]);
+    const refMediaId = updates.videoMediaId || updates.media?.video?.mediaId;
+    if (refMediaId) {
+      this.assertMediaAssetsReady([refMediaId]);
+    }
 
     const preservedCreatedAt = s.createdAt;
     const { createdAt: _ignoreCreatedAt, id: _ignoreId, ...safeUpdates } = updates as any;
     Object.assign(s, safeUpdates);
     s.createdAt = preservedCreatedAt; // Preserve original submission timestamp
+
+    if (refMediaId) {
+      const asset = this.getMediaAssetById(refMediaId);
+      if (asset) {
+        s.videoMediaId = asset.id;
+        s.videoUrl = asset.url;
+        if (s.media?.video) {
+          s.media.video.mediaId = asset.id;
+          s.media.video.url = asset.url;
+        }
+      }
+    }
 
     this.normalizeStayMedia(s);
     if (!s.hasVideo && !s.hasPhotos) {
@@ -4442,9 +4669,14 @@ class DatabaseStore {
       throw new Error('Maximum 30 photos allowed per listing.');
     }
 
+    const colIds = updates.collections ? updates.collections : this.extractCollectionIdsFromStay(s);
+    this.syncListingCollections(s.id, colIds, false);
+
     s.moderationState = 'PENDING';
     s.moderationStatus = 'pending';
     s.status = 'review';
+    s.publishState = 'PENDING_REVIEW';
+    s.published_at = null;
     s.isApprovedByAdmin = false;
     s.isDelisted = false;
     s.admin_feedback = null;
@@ -5079,6 +5311,9 @@ class DatabaseStore {
           ? 'boost'
           : 'advert';
 
+      const walletPurpose: AdminWalletPurpose = this.mapTypeToWalletPurpose(opts.type);
+      const uniquePaymentCode = `WLT_${paymentId.slice(-8).toUpperCase()}_${opts.referenceId.slice(-4).toUpperCase()}`;
+
       const payment: PaymentRecord = {
         id: paymentId,
         userId: cleanUserId,
@@ -5095,11 +5330,13 @@ class DatabaseStore {
         amount_kes: intAmount,
         amount: intAmount,
         approvedAmount: intAmount,
+        walletPurpose,
         approvedBy: 'admin@airbus.ke',
         approvedAt: now,
         status: 'approved',
         referenceId: opts.referenceId,
         reference_id: opts.referenceId,
+        reference: uniquePaymentCode,
         planTier: opts.planTier,
         plan_tier: opts.planTier,
         durationDays: opts.durationDays,
@@ -5164,6 +5401,7 @@ class DatabaseStore {
           : opts.type === 'vvvip'
           ? 'vvvip'
           : 'subscription';
+      const fiscalYear = getEATParts(now).year;
       this.data.ledgerEntries.unshift({
         id: 'ledg_' + now + '_' + Math.random().toString(36).slice(2, 6),
         fromWallet: cleanUserId,
@@ -5171,8 +5409,31 @@ class DatabaseStore {
         amount: intAmount,
         type: mappedLedgerType,
         referenceId: opts.referenceId,
+        paymentCode: uniquePaymentCode,
+        purpose: walletPurpose,
+        fiscalYear,
+        depositorName: payer?.name || payer?.username || cleanUserId,
+        depositorRole: payer?.role || 'guest',
+        approvingAdmin: 'admin@airbus.ke',
         description: opts.note || `Wallet payment of KES ${intAmount} for ${opts.type}`,
         createdAt: now,
+      });
+
+      this.recordAdminWalletEntry({
+        id: 'awe_' + paymentId,
+        sourceKind: 'SERVICE_REVENUE',
+        depositorName: payer?.name || payer?.username || cleanUserId,
+        depositorId: cleanUserId,
+        depositorRole: payer?.role || 'guest',
+        timestampUtc: now,
+        fiscalYear,
+        paymentCode: uniquePaymentCode,
+        amount: intAmount,
+        purpose: walletPurpose,
+        subPurpose: opts.type,
+        approvingAdmin: 'admin@airbus.ke',
+        description: opts.note || `${walletPurpose} payment from ${cleanUserId}`,
+        relatedPaymentId: paymentId,
       });
 
       this.createAuditLog({
@@ -5199,6 +5460,7 @@ class DatabaseStore {
     planTier?: StayCategory;
     durationDays?: number;
     period?: 'monthly' | 'annual';
+    purpose?: AdminWalletPurpose;
   }): PaymentRecord {
     const allowedMpesaTypes: PaymentRecordType[] = ['deposit', 'wallet', 'wallet_topup', 'mpesa_deposit', 'trip_dating'];
     if (!allowedMpesaTypes.includes(opts.type)) {
@@ -5225,6 +5487,8 @@ class DatabaseStore {
     const resolvedKind: PaymentRecord['kind'] =
       opts.type === 'trip_dating' ? 'trip_dating' : 'deposit';
 
+    const walletPurpose: AdminWalletPurpose = opts.purpose || (opts.type === 'trip_dating' ? 'TRIP_DATING' : 'OTHER');
+
     const now = Date.now();
     const paymentId = 'pay_dep_' + now + '_' + Math.random().toString(36).substring(2, 6);
     const payment: PaymentRecord = {
@@ -5243,6 +5507,7 @@ class DatabaseStore {
       amount_kes: intAmount,
       amount: intAmount,
       claimedAmount: intAmount,
+      walletPurpose,
       status: 'pending',
       referenceId: cleanCode,
       reference_id: cleanCode,
@@ -5303,16 +5568,30 @@ class DatabaseStore {
       throw new Error('Admin cannot edit the deposit amount. If the M-Pesa SMS amount does not match KES ' + submittedAmount + ', reject this deposit so the user can resubmit.');
     }
 
+    const paymentCode = String(p.mpesaCode || p.reference || p.referenceId || p.id).trim().toUpperCase();
+    // Reject duplicate payment code in Admin Wallet ledger
+    const alreadyRecordedCode = (this.data.admin_wallet_entries || []).some(
+      e => e.sourceKind === 'APPROVED_DEPOSIT' && e.paymentCode.toUpperCase() === paymentCode && e.relatedPaymentId !== p.id
+    );
+    if (alreadyRecordedCode) {
+      throw new Error(`Duplicate payment code (${paymentCode}) has already been recorded in the Admin Wallet.`);
+    }
+
     return this.runAtomicWalletTransaction(() => {
       const now = Date.now();
       const hostEmail = (p.userId || p.hostEmail || '').toLowerCase().trim();
       const finalApprovedAmount = submittedAmount;
+      const payerUser = this.findUserByEmail(hostEmail);
+      const fiscalYear = getEATParts(now).year;
+      const resolvedPurpose: AdminWalletPurpose =
+        p.walletPurpose || this.mapTypeToWalletPurpose(String(p.type || p.kind || 'deposit'));
 
       p.status = 'approved';
       p.approvedAmount = finalApprovedAmount;
       p.amount = finalApprovedAmount;
       p.amountKes = finalApprovedAmount;
       p.amountSc = finalApprovedAmount;
+      p.walletPurpose = resolvedPurpose;
       p.approvedBy = adminEmail;
       p.approved_by = adminEmail;
       p.approvedAt = now;
@@ -5338,8 +5617,8 @@ class DatabaseStore {
           direction: 'credit',
           amount: finalApprovedAmount,
           type: 'wallet_topup',
-          reference: p.mpesaCode || p.id,
-          note: `Deposit (M-Pesa) Till 943210 approved (Code: ${p.mpesaCode || p.id})`,
+          reference: paymentCode,
+          note: `Deposit (M-Pesa) Till 943210 approved (Code: ${paymentCode})`,
           relatedPaymentId: p.id,
         });
       } else if (p.type === 'trip_dating' || p.kind === 'trip_dating') {
@@ -5354,21 +5633,38 @@ class DatabaseStore {
         });
       }
 
+      // Record once in the unified Admin Wallet ledger with depositor metadata, UTC timestamp, unique payment code, purpose, and approving admin
+      this.recordAdminWalletEntry({
+        id: 'awe_dep_' + p.id,
+        sourceKind: 'APPROVED_DEPOSIT',
+        depositorName: payerUser?.name || payerUser?.username || p.userName || hostEmail,
+        depositorId: payerUser?.id || hostEmail,
+        depositorRole: payerUser?.role || p.userRole || 'guest',
+        timestampUtc: now,
+        fiscalYear,
+        paymentCode,
+        amount: finalApprovedAmount,
+        purpose: resolvedPurpose,
+        subPurpose: p.type || p.kind || 'deposit',
+        approvingAdmin: adminEmail,
+        description: `Approved M-Pesa Deposit (${paymentCode}) from ${payerUser?.name || hostEmail}`,
+        relatedPaymentId: p.id,
+      });
+
       this.createAuditLog({
         id: 'aud_' + now,
         action: 'payment_approve',
         actorEmail: adminEmail,
-        details: `Approved ${p.type || p.kind} (KES ${finalApprovedAmount}, method ${p.method}) for ${hostEmail}`,
+        details: `Approved ${p.type || p.kind} (KES ${finalApprovedAmount}, code ${paymentCode}) for ${hostEmail}`,
         createdAt: now,
       });
 
-      const payerUser = this.findUserByEmail(hostEmail);
       const isGuest = payerUser?.role === 'guest';
       this.createNotification({
         id: 'notif_' + now,
         userEmail: hostEmail,
         title: 'Wallet Deposit Approved!',
-        message: `Your M-Pesa deposit of KES ${finalApprovedAmount.toLocaleString()} (Ref: ${p.mpesaCode || p.id}) was approved and credited to your wallet.`,
+        message: `Your M-Pesa deposit of KES ${finalApprovedAmount.toLocaleString()} (Ref: ${paymentCode}) was approved and credited to your wallet.`,
         read: false,
         link: isGuest ? '/#guest' : '/#owner',
         type: 'payment',
@@ -5377,6 +5673,7 @@ class DatabaseStore {
 
       this.save();
       this.emitWalletUpdate(hostEmail);
+      this.emitWalletUpdate('admin@airbus.ke');
       return p;
     });
   }
@@ -9128,6 +9425,9 @@ class DatabaseStore {
 
     if (action === 'approve') {
       stay.status = 'live';
+      stay.publishState = 'PUBLISHED';
+      stay.published_at = now;
+      stay.approved_by = adminEmail;
       stay.isApprovedByAdmin = true;
       stay.moderationStatus = 'approved';
       stay.moderationState = 'APPROVED';
@@ -9136,11 +9436,15 @@ class DatabaseStore {
       stay.admin_feedback = null;
       stay.reviewed_at = now;
       stay.reviewed_by = adminEmail;
+      const colIds = this.extractCollectionIdsFromStay(stay);
+      this.syncListingCollections(stay.id, colIds, false);
     } else if (action === 'reject') {
       if (!rawReason) {
         throw new Error('Admin feedback explaining why the listing was declined is required.');
       }
       stay.status = 'delisted';
+      stay.publishState = 'DECLINED';
+      stay.published_at = null;
       stay.isApprovedByAdmin = false;
       stay.moderationStatus = 'rejected';
       stay.moderationState = 'DECLINED';
@@ -9151,6 +9455,8 @@ class DatabaseStore {
       stay.isDelisted = true;
     } else if (action === 'suspend') {
       stay.status = 'delisted';
+      stay.publishState = 'DECLINED';
+      stay.published_at = null;
       stay.moderationStatus = 'suspended';
       stay.moderationState = 'DECLINED';
       stay.moderationReason = cleanReason;
@@ -9160,6 +9466,9 @@ class DatabaseStore {
       stay.isDelisted = true;
     } else if (action === 'unsuspend' || action === 'relist') {
       stay.status = 'live';
+      stay.publishState = 'PUBLISHED';
+      stay.published_at = stay.published_at || now;
+      stay.approved_by = stay.approved_by || adminEmail;
       stay.isApprovedByAdmin = true;
       stay.moderationStatus = 'approved';
       stay.moderationState = 'APPROVED';
@@ -9168,8 +9477,12 @@ class DatabaseStore {
       stay.admin_feedback = null;
       stay.reviewed_at = now;
       stay.reviewed_by = adminEmail;
+      const colIds = this.extractCollectionIdsFromStay(stay);
+      this.syncListingCollections(stay.id, colIds, false);
     } else if (action === 'delist') {
       stay.status = 'delisted';
+      stay.publishState = 'DECLINED';
+      stay.published_at = null;
       stay.moderationState = 'DECLINED';
       stay.isDelisted = true;
       stay.moderationReason = cleanReason;
@@ -9178,9 +9491,8 @@ class DatabaseStore {
       stay.reviewed_by = adminEmail;
     }
 
-    this.invalidateFeedCache('stay');
-
-    this.createAuditLog({
+    if (!this.data.auditLogs) this.data.auditLogs = [];
+    this.data.auditLogs.unshift({
       id: 'aud_' + now,
       action: `stay_${action}`,
       actorEmail: adminEmail,
@@ -9188,8 +9500,12 @@ class DatabaseStore {
       createdAt: now,
     });
 
+    // Transactional outbox: stage notification & SSE event inside the state change before commit
+    if (!this.data.transactional_outbox) this.data.transactional_outbox = [];
+    let stagedNotif: NotificationItem | null = null;
+    const outboxIds: string[] = [];
     if (stay.ownerEmail) {
-      this.createNotification({
+      stagedNotif = {
         id: 'notif_' + now,
         userEmail: stay.ownerEmail,
         title: `Listing ${action === 'approve' ? 'Approved & Published' : action === 'reject' ? 'Declined' : action === 'unsuspend' ? 'Restored' : 'Moderated'}`,
@@ -9198,11 +9514,53 @@ class DatabaseStore {
         link: '/#owner',
         type: 'system',
         createdAt: now,
+      };
+      const obNotifId = `ob_notif_${now}_${stay.id}`;
+      outboxIds.push(obNotifId);
+      this.data.transactional_outbox.unshift({
+        id: obNotifId,
+        kind: 'stay_approved_notification',
+        stayId: stay.id,
+        payload: stagedNotif,
+        status: 'pending',
+        createdAt: now,
       });
     }
 
+    // Commit atomic state change FIRST before flushing notifications, caches, or SSE
     this.save();
+
+    if (stagedNotif) {
+      if (!this.data.notifications) this.data.notifications = [];
+      this.data.notifications.unshift(stagedNotif);
+    }
     const hydrated = this.hydrateStayAudio({ ...stay, isVerified: stay.isVerified !== false });
+    if (action === 'approve' || action === 'unsuspend' || action === 'relist') {
+      const obSseId = `ob_sse_${now}_${stay.id}`;
+      outboxIds.push(obSseId);
+      this.data.transactional_outbox.unshift({
+        id: obSseId,
+        kind: 'stay_approved_sse',
+        stayId: stay.id,
+        payload: { id: stay.id, published_at: stay.published_at },
+        status: 'delivered',
+        createdAt: now,
+        deliveredAt: Date.now(),
+      });
+    }
+    this.data.transactional_outbox.forEach(ob => {
+      if (outboxIds.includes(ob.id)) {
+        ob.status = 'delivered';
+        ob.deliveredAt = Date.now();
+      }
+    });
+    if (this.data.transactional_outbox.length > 500) {
+      this.data.transactional_outbox.length = 500;
+    }
+
+    this.invalidateFeedCache('stay');
+    this.save();
+
     if (action === 'approve' || action === 'unsuspend' || action === 'relist') {
       this.emitFeedApproved('stay', hydrated);
     }
@@ -9927,14 +10285,171 @@ class DatabaseStore {
     return true;
   }
 
+  // --- Listing Collections Join Table Helpers ---
+  public extractCollectionIdsFromStay(stay: Partial<Stay>): AirBusCollectionId[] {
+    const valid = new Set<AirBusCollectionId>(['black-friday', 'work', 'local', 'worldwide', 'escapes', 'plus']);
+    const result = new Set<AirBusCollectionId>();
+    if (Array.isArray(stay.collections)) {
+      stay.collections.forEach(c => {
+        if (valid.has(c)) result.add(c);
+      });
+    }
+    if (stay.blackFridayOptIn) result.add('black-friday');
+    if (stay.isAirbusWork) result.add('work');
+    if (stay.isLocalGuideExperience) result.add('local');
+    if (stay.isWorldWide) result.add('worldwide');
+    if (stay.isEscapeOffer) result.add('escapes');
+    if (stay.isPlusVVVIP) result.add('plus');
+    return Array.from(result);
+  }
+
+  public syncListingCollections(stayId: string, collectionIds: AirBusCollectionId[], persist = true) {
+    if (!this.data.listing_collections) this.data.listing_collections = [];
+    const valid = new Set<AirBusCollectionId>(['black-friday', 'work', 'local', 'worldwide', 'escapes', 'plus']);
+    const deduped = Array.from(new Set(collectionIds.filter(c => valid.has(c))));
+
+    // Remove existing links for this stay and replace cleanly (removes unlinked rows, prevents duplicates)
+    this.data.listing_collections = this.data.listing_collections.filter(j => j.listing_id !== stayId);
+    const now = Date.now();
+    for (const cid of deduped) {
+      this.data.listing_collections.push({
+        listing_id: stayId,
+        collection_id: cid,
+        created_at: now,
+      });
+    }
+
+    const stay = (this.data.stays || []).find(s => s.id === stayId);
+    if (stay) {
+      stay.collections = deduped;
+      stay.blackFridayOptIn = deduped.includes('black-friday');
+      stay.isAirbusWork = deduped.includes('work');
+      stay.isLocalGuideExperience = deduped.includes('local');
+      stay.isWorldWide = deduped.includes('worldwide');
+      stay.isEscapeOffer = deduped.includes('escapes');
+      stay.isPlusVVVIP = deduped.includes('plus');
+    }
+
+    this.invalidateFeedCache('collection');
+    if (persist) this.save();
+  }
+
+  public getListingCollectionIds(stayId: string): AirBusCollectionId[] {
+    const joins = (this.data.listing_collections || []).filter(j => j.listing_id === stayId);
+    if (joins.length > 0) {
+      return Array.from(new Set(joins.map(j => j.collection_id)));
+    }
+    const stay = (this.data.stays || []).find(s => s.id === stayId);
+    return stay ? this.extractCollectionIdsFromStay(stay) : [];
+  }
+
+  public getCollectionListingsPaginated(
+    slug: string,
+    options?: { viewerUser?: User | null; cursor?: string; limit?: number }
+  ): {
+    collection: string;
+    locked: boolean;
+    requiresVVVIP?: boolean;
+    stays: Stay[];
+    nextCursor: string | null;
+    hasMore: boolean;
+    totalCount: number;
+    message?: string;
+  } {
+    this.checkAllExpirations();
+    const cleanSlug = slug.toLowerCase().trim() as AirBusCollectionId;
+    const dbViewer = options?.viewerUser ? this.findUserByEmail(options.viewerUser.email) || options.viewerUser : null;
+    const isActivePlus = this.isActivePlusMember(dbViewer);
+
+    if (cleanSlug === 'plus' && !isActivePlus && dbViewer?.role !== 'admin') {
+      return {
+        collection: 'plus',
+        locked: true,
+        requiresVVVIP: true,
+        stays: [],
+        nextCursor: null,
+        hasMore: false,
+        totalCount: 0,
+        message:
+          dbViewer && dbViewer.role === 'owner'
+            ? 'AirBus Plus is for Guests only and never uses a Host wallet.'
+            : 'AirBus Plus is Reserved VIP to VVVIP Guests.',
+      };
+    }
+
+    const joinedStayIds = new Set(
+      (this.data.listing_collections || [])
+        .filter(j => j.collection_id === cleanSlug)
+        .map(j => j.listing_id)
+    );
+
+    const allLive = this.getStays({ viewerUser: dbViewer, includeVVVIP: true });
+    // Cap each horizontal shelf cleanly at max 50 listings
+    const matching = allLive
+      .filter(s => {
+        if (cleanSlug === 'plus') return Boolean(s.isPlusVVVIP || joinedStayIds.has(s.id));
+        if (joinedStayIds.has(s.id)) return true;
+        if (cleanSlug === 'black-friday') return Boolean(s.blackFridayOptIn);
+        if (cleanSlug === 'work') return Boolean(s.isAirbusWork);
+        if (cleanSlug === 'escapes') return Boolean(s.isEscapeOffer);
+        if (cleanSlug === 'local') return Boolean(s.isLocalGuideExperience);
+        if (cleanSlug === 'worldwide') return Boolean(s.isWorldWide);
+        return false;
+      })
+      .slice(0, 50);
+
+    // Deduplicate by ID preserving published_at DESC order
+    const seen = new Set<string>();
+    const deduped: Stay[] = [];
+    for (const st of matching) {
+      if (!seen.has(st.id)) {
+        seen.add(st.id);
+        deduped.push(st);
+      }
+    }
+
+    const limit = Math.min(50, Math.max(1, Number(options?.limit) || 12));
+    let filtered = deduped;
+    if (options?.cursor && options.cursor.includes('|')) {
+      const [tsStr, cursorId] = options.cursor.split('|');
+      const cursorTs = Number(tsStr);
+      if (Number.isFinite(cursorTs)) {
+        filtered = deduped.filter(s => {
+          const ts = this.getStayPublishTimestamp(s);
+          return ts < cursorTs || (ts === cursorTs && s.id.localeCompare(cursorId) < 0);
+        });
+      }
+    }
+
+    const page = filtered.slice(0, limit);
+    const hasMore = filtered.length > limit;
+    const last = page[page.length - 1];
+    const nextCursor = hasMore && last ? `${this.getStayPublishTimestamp(last)}|${last.id}` : null;
+
+    return {
+      collection: cleanSlug,
+      locked: false,
+      requiresVVVIP: cleanSlug === 'plus',
+      stays: page,
+      nextCursor,
+      hasMore,
+      totalCount: deduped.length,
+    };
+  }
+
   public getCollectionData(slug: string, viewerUser?: User | null) {
     this.checkAllExpirations();
     const dbViewer = viewerUser ? this.findUserByEmail(viewerUser.email) || viewerUser : null;
     const isActivePlus = this.isActivePlusMember(dbViewer);
     const allLive = this.getStays({ viewerUser: dbViewer, includeVVVIP: true });
+    const joinedIds = new Set(
+      (this.data.listing_collections || [])
+        .filter(j => j.collection_id === slug)
+        .map(j => j.listing_id)
+    );
 
     if (slug === 'plus') {
-      if (!isActivePlus) {
+      if (!isActivePlus && dbViewer?.role !== 'admin') {
         return {
           collection: 'plus',
           locked: true,
@@ -9965,7 +10480,7 @@ class DatabaseStore {
         collection: 'plus',
         locked: false,
         requiresVVVIP: true,
-        stays: allLive.filter(s => Boolean(s.isPlusVVVIP)),
+        stays: allLive.filter(s => Boolean(s.isPlusVVVIP || joinedIds.has(s.id))),
         pendingApproval: false,
         membership: dbViewer
           ? {
@@ -9984,7 +10499,7 @@ class DatabaseStore {
       return {
         collection: 'black-friday',
         locked: false,
-        stays: allLive.filter(s => Boolean(s.blackFridayOptIn)),
+        stays: allLive.filter(s => Boolean(s.blackFridayOptIn || joinedIds.has(s.id))),
       };
     }
 
@@ -9993,7 +10508,7 @@ class DatabaseStore {
         collection: 'work',
         locked: false,
         stays: allLive.filter(s =>
-          Boolean(s.isAirbusWork || s.monthlyPrice || s.wifiSpeedMbps || s.features.some(f => f.toLowerCase().includes('workspace') || f.toLowerCase().includes('fiber')))
+          Boolean(joinedIds.has(s.id) || s.isAirbusWork || s.monthlyPrice || s.wifiSpeedMbps || s.features.some(f => f.toLowerCase().includes('workspace') || f.toLowerCase().includes('fiber')))
         ),
       };
     }
@@ -10002,7 +10517,7 @@ class DatabaseStore {
       return {
         collection: 'escapes',
         locked: false,
-        stays: allLive.filter(s => Boolean(s.isEscapeOffer)),
+        stays: allLive.filter(s => Boolean(s.isEscapeOffer || joinedIds.has(s.id))),
       };
     }
 
@@ -10010,7 +10525,7 @@ class DatabaseStore {
       return {
         collection: 'local',
         locked: false,
-        stays: allLive.filter(s => Boolean(s.isLocalGuideExperience || s.price <= 5000)),
+        stays: allLive.filter(s => Boolean(joinedIds.has(s.id) || s.isLocalGuideExperience || s.price <= 5000)),
         guides: this.data.localGuides || SEED_LOCAL_GUIDES,
         articles: this.data.neighborhoodArticles || SEED_NEIGHBORHOOD_ARTICLES,
         providers: this.getLocalProviders(false),
@@ -10021,7 +10536,7 @@ class DatabaseStore {
       return {
         collection: 'worldwide',
         locked: false,
-        stays: allLive.filter(s => Boolean(s.isWorldWide)),
+        stays: allLive.filter(s => Boolean(s.isWorldWide || joinedIds.has(s.id))),
       };
     }
 
@@ -10576,13 +11091,62 @@ class DatabaseStore {
           (hostEmail && viewerUser.email.toLowerCase() === hostEmail.toLowerCase()))
     );
 
+    // Hydrate video MediaAsset & Collections join rows cleanly
+    const asset = stay.videoMediaId
+      ? this.getMediaAssetById(stay.videoMediaId)
+      : stay.videoUrl
+      ? this.getMediaAssetByUrl(stay.videoUrl)
+      : null;
+    const resolvedVideoUrl =
+      (asset && asset.status === 'READY' && asset.url) || stay.videoUrl || stay.media?.video?.url || '';
+    const resolvedPoster =
+      stay.media?.video?.thumbnail || asset?.poster_url || stay.thumbnailUrl || stay.images?.[0] || '';
+    const hydratedMedia = stay.media
+      ? {
+          ...stay.media,
+          video: stay.media.video
+            ? {
+                ...stay.media.video,
+                url: resolvedVideoUrl || stay.media.video.url,
+                mediaId: asset?.id || stay.videoMediaId || stay.media.video.mediaId || null,
+                thumbnail: stay.media.video.thumbnail || resolvedPoster,
+              }
+            : resolvedVideoUrl
+            ? {
+                url: resolvedVideoUrl,
+                mediaId: asset?.id || stay.videoMediaId || null,
+                thumbnail: resolvedPoster,
+                duration: asset?.duration || 60,
+                size: asset?.size_bytes || 0,
+              }
+            : null,
+        }
+      : stay.media;
+    const collections = this.getListingCollectionIds(stay.id);
+
     const hasPlayableAudio = Boolean(
       saved && saved.mode !== 'none' && (saved.trackUrl || saved.voiceOverUrl)
     );
 
+    const baseHydrated: Stay = {
+      ...stay,
+      videoUrl: resolvedVideoUrl,
+      videoMediaId: asset?.id || stay.videoMediaId || null,
+      videoAsset: asset,
+      media: hydratedMedia,
+      collections,
+      publishState:
+        stay.publishState ||
+        (this.isStayApprovedPublic(stay)
+          ? 'PUBLISHED'
+          : stay.moderationState === 'DECLINED'
+          ? 'DECLINED'
+          : 'PENDING_REVIEW'),
+    };
+
     if (rules.listing_audio_enabled && hasPlayableAudio) {
       return {
-        ...stay,
+        ...baseHydrated,
         ownerTier: tier,
         listingAudioLocked: false,
         listingAudio: { ...saved!, active: true },
@@ -10591,7 +11155,7 @@ class DatabaseStore {
 
     // Host downgraded from Gold (or expired): preserve DB record, disable public playback, surface locked state to owner
     return {
-      ...stay,
+      ...baseHydrated,
       ownerTier: tier,
       listingAudioLocked: Boolean(hasPlayableAudio && !rules.listing_audio_enabled),
       listingAudio: isOwnerOrAdmin && saved ? { ...saved, active: false } : null,
@@ -10959,6 +11523,631 @@ class DatabaseStore {
       },
       byShort,
     };
+  }
+
+  // --- ADMIN WALLET (GRAND WALLET): RECORDING, EAT ROLLUPS, ARCHIVES & SPECIAL REFUND ---
+
+  private mapTypeToWalletPurpose(rawType?: string): AdminWalletPurpose {
+    const t = String(rawType || '').toLowerCase().trim();
+    if (t === 'subscription' || t === 'plan') return 'SUBSCRIPTION';
+    if (t === 'advert' || t === 'boost' || t === 'ad_payment' || t === 'ad_fee' || t === 'promotion') return 'ADVERTISING';
+    if (t === 'trip_dating') return 'TRIP_DATING';
+    if (t === 'vvvip' || t === 'airbus_plus') return 'AIRBUS_PLUS';
+    return 'OTHER';
+  }
+
+  private addEntryToRollups(entry: AdminWalletEntry) {
+    if (!this.data.admin_wallet_rollups) {
+      this.data.admin_wallet_rollups = { hour: {}, day: {}, month: {}, year: {} };
+    }
+    const parts = getEATParts(entry.timestampUtc);
+    const apply = (map: Record<string, AdminWalletRollupBucket>, key: string) => {
+      if (!map[key]) {
+        map[key] = { key, inflow: 0, refunds: 0, net: 0, count: 0 };
+      }
+      if (entry.sourceKind === 'SPECIAL_REFUND' || entry.amount < 0) {
+        const absAmt = Math.abs(entry.amount);
+        map[key].refunds += absAmt;
+        map[key].net -= absAmt;
+      } else {
+        map[key].inflow += entry.amount;
+        map[key].net += entry.amount;
+      }
+      map[key].count += 1;
+    };
+    apply(this.data.admin_wallet_rollups.hour, parts.hourKey);
+    apply(this.data.admin_wallet_rollups.day, parts.dayKey);
+    apply(this.data.admin_wallet_rollups.month, parts.monthKey);
+    apply(this.data.admin_wallet_rollups.year, parts.yearKey);
+  }
+
+  public rebuildAdminWalletRollups() {
+    this.data.admin_wallet_rollups = { hour: {}, day: {}, month: {}, year: {} };
+    for (const entry of this.data.admin_wallet_entries || []) {
+      this.addEntryToRollups(entry);
+    }
+  }
+
+  private recordAdminWalletEntry(entry: AdminWalletEntry) {
+    if (!this.data.admin_wallet_entries) this.data.admin_wallet_entries = [];
+    // Prevent duplicate recording by ID or paymentCode (for deposits)
+    if (this.data.admin_wallet_entries.some(e => e.id === entry.id)) return;
+    if (
+      entry.sourceKind === 'APPROVED_DEPOSIT' &&
+      this.data.admin_wallet_entries.some(
+        e => e.sourceKind === 'APPROVED_DEPOSIT' && e.paymentCode.toUpperCase() === entry.paymentCode.toUpperCase()
+      )
+    ) {
+      throw new Error(`Duplicate payment code ${entry.paymentCode} in Admin Wallet ledger.`);
+    }
+    this.data.admin_wallet_entries.unshift(entry);
+    this.addEntryToRollups(entry);
+  }
+
+  private backfillAdminWalletEntries() {
+    if (!this.data.admin_wallet_entries) this.data.admin_wallet_entries = [];
+    for (const p of this.data.paymentRecords || []) {
+      if (p.status !== 'approved') continue;
+      const amt = Math.floor(Number(p.approvedAmount ?? p.amountKes ?? p.amount ?? 0));
+      if (amt <= 0) continue;
+      const isDeposit =
+        p.method !== 'wallet' ||
+        ['deposit', 'wallet', 'wallet_topup', 'mpesa_deposit'].includes(String(p.type || p.kind || ''));
+      const ts = Number(p.approvedAt || p.approved_at || p.createdAt || Date.now());
+      const fiscalYear = getEATParts(ts).year;
+      const payer = this.findUserByEmail(p.userId || p.hostEmail || '');
+      const code = String(p.mpesaCode || p.reference || p.referenceId || p.id).trim().toUpperCase();
+      const id = isDeposit ? `awe_dep_${p.id}` : `awe_${p.id}`;
+      if (this.data.admin_wallet_entries.some(e => e.id === id)) continue;
+      if (
+        isDeposit &&
+        this.data.admin_wallet_entries.some(
+          e => e.sourceKind === 'APPROVED_DEPOSIT' && e.paymentCode.toUpperCase() === code
+        )
+      ) {
+        continue;
+      }
+      this.data.admin_wallet_entries.push({
+        id,
+        sourceKind: isDeposit ? 'APPROVED_DEPOSIT' : 'SERVICE_REVENUE',
+        depositorName: payer?.name || payer?.username || p.userName || p.userId,
+        depositorId: payer?.id || p.userId,
+        depositorRole: payer?.role || p.userRole || 'guest',
+        timestampUtc: ts,
+        fiscalYear,
+        paymentCode: code,
+        amount: amt,
+        purpose: p.walletPurpose || this.mapTypeToWalletPurpose(String(p.type || p.kind || '')),
+        subPurpose: String(p.type || p.kind || ''),
+        approvingAdmin: p.approvedBy || p.approved_by || 'admin@airbus.ke',
+        description: isDeposit
+          ? `Approved M-Pesa Deposit (${code}) from ${payer?.name || p.userId}`
+          : `${this.mapTypeToWalletPurpose(String(p.type || p.kind || ''))} payment from ${p.userId}`,
+        relatedPaymentId: p.id,
+      });
+    }
+    this.data.admin_wallet_entries.sort((a, b) => b.timestampUtc - a.timestampUtc);
+    this.rebuildAdminWalletRollups();
+  }
+
+  public checkAndRunAutoYearEndArchive(referenceTs = Date.now()) {
+    const currentEatYear = getEATParts(referenceTs).year;
+    if (!this.data.wallet_year_archives) this.data.wallet_year_archives = [];
+    if (!this.data.last_archived_fiscal_year) {
+      this.data.last_archived_fiscal_year = currentEatYear;
+      return;
+    }
+    if (currentEatYear > this.data.last_archived_fiscal_year) {
+      for (let yr = this.data.last_archived_fiscal_year; yr < currentEatYear; yr += 1) {
+        try {
+          this.runYearEndWalletArchive(yr, 'system_jan1_eat_job');
+        } catch (err) {
+          logger.warn('auto_year_end_archive_error', { year: yr, error: String(err) });
+        }
+      }
+    }
+  }
+
+  public runYearEndWalletArchive(targetFiscalYear?: number, actorEmail = 'admin@airbus.ke'): WalletYearArchive {
+    if (!this.data.wallet_year_archives) this.data.wallet_year_archives = [];
+    const currentEatYear = getEATParts(Date.now()).year;
+    const yearToArchive = targetFiscalYear || currentEatYear - 1;
+
+    const existing = this.data.wallet_year_archives.find(a => a.fiscalYear === yearToArchive);
+    if (existing) return existing;
+
+    const priorArchive = this.data.wallet_year_archives
+      .filter(a => a.fiscalYear < yearToArchive)
+      .sort((a, b) => b.fiscalYear - a.fiscalYear)[0];
+    const openingCarryForward = priorArchive ? priorArchive.closingBalance : 0;
+
+    const yearEntries = (this.data.admin_wallet_entries || []).filter(e => e.fiscalYear === yearToArchive);
+    const monthlyMap: Record<string, { month: string; inflow: number; refunds: number; net: number; count: number }> = {};
+    const purposeBreakdown: Record<AdminWalletPurpose, number> = {
+      SUBSCRIPTION: 0,
+      ADVERTISING: 0,
+      TRIP_DATING: 0,
+      AIRBUS_PLUS: 0,
+      OTHER: 0,
+    };
+
+    let totalInflow = 0;
+    let totalSpecialRefunds = 0;
+
+    for (const e of yearEntries) {
+      const mKey = getEATParts(e.timestampUtc).monthKey;
+      if (!monthlyMap[mKey]) {
+        monthlyMap[mKey] = { month: mKey, inflow: 0, refunds: 0, net: 0, count: 0 };
+      }
+      if (e.sourceKind === 'SPECIAL_REFUND' || e.amount < 0) {
+        const absAmt = Math.abs(e.amount);
+        totalSpecialRefunds += absAmt;
+        monthlyMap[mKey].refunds += absAmt;
+        monthlyMap[mKey].net -= absAmt;
+      } else {
+        totalInflow += e.amount;
+        monthlyMap[mKey].inflow += e.amount;
+        monthlyMap[mKey].net += e.amount;
+        purposeBreakdown[e.purpose] = (purposeBreakdown[e.purpose] || 0) + e.amount;
+      }
+      monthlyMap[mKey].count += 1;
+    }
+
+    const netTotal = totalInflow - totalSpecialRefunds;
+    const closingBalance = openingCarryForward + netTotal;
+    const monthlyTotals = Object.values(monthlyMap).sort((a, b) => a.month.localeCompare(b.month));
+    const archivedAtUtc = Date.now();
+    const checksumPayload = JSON.stringify({
+      yearToArchive,
+      totalInflow,
+      totalSpecialRefunds,
+      netTotal,
+      closingBalance,
+      count: yearEntries.length,
+    });
+    const checksum = crypto.createHash('sha256').update(checksumPayload).digest('hex').slice(0, 16);
+
+    const archive: WalletYearArchive = {
+      id: `arch_${yearToArchive}`,
+      fiscalYear: yearToArchive,
+      archivedAtUtc,
+      monthlyTotals,
+      purposeBreakdown,
+      totalInflow,
+      totalSpecialRefunds,
+      netTotal,
+      transactionCount: yearEntries.length,
+      closingBalance,
+      openingCarryForward,
+      checksum,
+    };
+
+    this.data.wallet_year_archives.unshift(archive);
+    this.data.last_archived_fiscal_year = Math.max(this.data.last_archived_fiscal_year || 0, yearToArchive + 1);
+    this.createAuditLog({
+      id: `aud_arch_${archivedAtUtc}`,
+      action: 'admin_wallet_year_archive',
+      actorEmail,
+      details: `Archived fiscal year ${yearToArchive} EAT (Net: KES ${netTotal}, Closing Balance Carry-Forward: KES ${closingBalance}, Checksum: ${checksum})`,
+      createdAt: archivedAtUtc,
+    });
+    this.save();
+    return archive;
+  }
+
+  public getAdminWalletArchives() {
+    this.checkAndRunAutoYearEndArchive();
+    return (this.data.wallet_year_archives || []).slice().sort((a, b) => b.fiscalYear - a.fiscalYear);
+  }
+
+  public getAdminWalletArchiveByYear(year: number): WalletYearArchive | null {
+    this.checkAndRunAutoYearEndArchive();
+    return (this.data.wallet_year_archives || []).find(a => a.fiscalYear === year) || null;
+  }
+
+  public getAdminWalletSummary(fiscalYearParam?: number) {
+    this.checkAndRunAutoYearEndArchive();
+    const currentEatYear = getEATParts(Date.now()).year;
+    const activeYear = fiscalYearParam || currentEatYear;
+    const entries = this.data.admin_wallet_entries || [];
+    const currentYearEntries = entries.filter(e => e.fiscalYear === activeYear);
+
+    let ytdDeposits = 0;
+    let ytdServiceRevenue = 0;
+    let ytdSpecialRefunds = 0;
+    for (const e of currentYearEntries) {
+      if (e.sourceKind === 'SPECIAL_REFUND' || e.amount < 0) {
+        ytdSpecialRefunds += Math.abs(e.amount);
+      } else if (e.sourceKind === 'APPROVED_DEPOSIT') {
+        ytdDeposits += e.amount;
+      } else {
+        ytdServiceRevenue += e.amount;
+      }
+    }
+
+    let lifetimeInflow = 0;
+    let lifetimeSpecialRefunds = 0;
+    for (const e of entries) {
+      if (e.sourceKind === 'SPECIAL_REFUND' || e.amount < 0) {
+        lifetimeSpecialRefunds += Math.abs(e.amount);
+      } else {
+        lifetimeInflow += e.amount;
+      }
+    }
+
+    const adminCashBalance = this.getWalletBalance('admin@airbus.ke');
+    const priorArchive = (this.data.wallet_year_archives || [])
+      .filter(a => a.fiscalYear < activeYear)
+      .sort((a, b) => b.fiscalYear - a.fiscalYear)[0];
+    const carryForwardBalance = priorArchive ? priorArchive.closingBalance : 0;
+    const reconciliation = this.getWalletReconciliation();
+
+    return {
+      currentEatYear,
+      selectedFiscalYear: activeYear,
+      adminWalletBalance: adminCashBalance,
+      carryForwardBalance,
+      yearToDate: {
+        fiscalYear: activeYear,
+        approvedDeposits: ytdDeposits,
+        serviceRevenue: ytdServiceRevenue,
+        totalCredits: ytdDeposits + ytdServiceRevenue,
+        specialRefunds: ytdSpecialRefunds,
+        netReported: ytdDeposits + ytdServiceRevenue - ytdSpecialRefunds,
+        transactionCount: currentYearEntries.length,
+      },
+      lifetime: {
+        totalCredits: lifetimeInflow,
+        totalSpecialRefunds: lifetimeSpecialRefunds,
+        reconciledNet: lifetimeInflow - lifetimeSpecialRefunds,
+        transactionCount: entries.length,
+      },
+      reconciliation: {
+        mismatches: reconciliation.mismatches,
+        userWalletsSum: reconciliation.userWalletsSum,
+        adminBalance: reconciliation.adminBalance,
+      },
+      archivesCount: (this.data.wallet_year_archives || []).length,
+    };
+  }
+
+  public getAdminWalletTotals(opts: {
+    granularity?: 'hour' | 'day' | 'month' | 'year';
+    from?: string;
+    to?: string;
+    fiscalYear?: number;
+  }) {
+    const granularity = opts.granularity || 'day';
+    const entries = (this.data.admin_wallet_entries || []).filter(e => {
+      if (opts.fiscalYear && e.fiscalYear !== opts.fiscalYear) return false;
+      const dayKey = getEATParts(e.timestampUtc).dayKey;
+      if (opts.from && dayKey < opts.from) return false;
+      if (opts.to && dayKey > opts.to) return false;
+      return true;
+    });
+
+    // Use cached rollups when unfiltered by custom date range, else aggregate filtered entries in EAT
+    const buckets: Record<string, AdminWalletRollupBucket> = {};
+    if (!opts.from && !opts.to && !opts.fiscalYear && this.data.admin_wallet_rollups?.[granularity]) {
+      Object.entries(this.data.admin_wallet_rollups[granularity]).forEach(([k, v]) => {
+        buckets[k] = { ...v };
+      });
+    } else {
+      for (const e of entries) {
+        const parts = getEATParts(e.timestampUtc);
+        const key =
+          granularity === 'hour'
+            ? parts.hourKey
+            : granularity === 'month'
+            ? parts.monthKey
+            : granularity === 'year'
+            ? parts.yearKey
+            : parts.dayKey;
+        if (!buckets[key]) {
+          buckets[key] = { key, inflow: 0, refunds: 0, net: 0, count: 0 };
+        }
+        if (e.sourceKind === 'SPECIAL_REFUND' || e.amount < 0) {
+          const abs = Math.abs(e.amount);
+          buckets[key].refunds += abs;
+          buckets[key].net -= abs;
+        } else {
+          buckets[key].inflow += e.amount;
+          buckets[key].net += e.amount;
+        }
+        buckets[key].count += 1;
+      }
+    }
+
+    const sorted = Object.values(buckets).sort((a, b) => b.key.localeCompare(a.key));
+    return {
+      granularity,
+      timezone: 'Africa/Nairobi',
+      periods: sorted,
+    };
+  }
+
+  public getAdminWalletBreakdown(opts: { from?: string; to?: string; fiscalYear?: number }) {
+    const entries = (this.data.admin_wallet_entries || []).filter(e => {
+      if (e.sourceKind === 'SPECIAL_REFUND' || e.amount < 0) return false;
+      if (opts.fiscalYear && e.fiscalYear !== opts.fiscalYear) return false;
+      const dayKey = getEATParts(e.timestampUtc).dayKey;
+      if (opts.from && dayKey < opts.from) return false;
+      if (opts.to && dayKey > opts.to) return false;
+      return true;
+    });
+
+    const totals: Record<AdminWalletPurpose, { amount: number; count: number }> = {
+      SUBSCRIPTION: { amount: 0, count: 0 },
+      ADVERTISING: { amount: 0, count: 0 },
+      TRIP_DATING: { amount: 0, count: 0 },
+      AIRBUS_PLUS: { amount: 0, count: 0 },
+      OTHER: { amount: 0, count: 0 },
+    };
+
+    let grandTotal = 0;
+    for (const e of entries) {
+      const p: AdminWalletPurpose = totals[e.purpose] ? e.purpose : 'OTHER';
+      totals[p].amount += e.amount;
+      totals[p].count += 1;
+      grandTotal += e.amount;
+    }
+
+    return {
+      timezone: 'Africa/Nairobi',
+      fiscalYear: opts.fiscalYear || null,
+      grandTotal,
+      breakdown: totals,
+    };
+  }
+
+  public getAdminWalletLedger(opts: {
+    q?: string;
+    purpose?: string;
+    role?: string;
+    sourceKind?: string;
+    fiscalYear?: number;
+    from?: string;
+    to?: string;
+    page?: number;
+    limit?: number;
+  }) {
+    let list = (this.data.admin_wallet_entries || []).slice();
+    if (opts.fiscalYear) {
+      list = list.filter(e => e.fiscalYear === opts.fiscalYear);
+    }
+    if (opts.purpose && opts.purpose !== 'ALL') {
+      list = list.filter(e => e.purpose === opts.purpose);
+    }
+    if (opts.role && opts.role !== 'ALL') {
+      list = list.filter(e => e.depositorRole === opts.role);
+    }
+    if (opts.sourceKind && opts.sourceKind !== 'ALL') {
+      list = list.filter(e => e.sourceKind === opts.sourceKind);
+    }
+    if (opts.from || opts.to) {
+      list = list.filter(e => {
+        const dayKey = getEATParts(e.timestampUtc).dayKey;
+        if (opts.from && dayKey < opts.from) return false;
+        if (opts.to && dayKey > opts.to) return false;
+        return true;
+      });
+    }
+    if (opts.q && opts.q.trim()) {
+      const needle = opts.q.toLowerCase().trim();
+      list = list.filter(e =>
+        `${e.paymentCode} ${e.depositorName} ${e.depositorId} ${e.depositorRole} ${e.purpose} ${e.approvingAdmin} ${e.description}`
+          .toLowerCase()
+          .includes(needle)
+      );
+    }
+
+    const total = list.length;
+    const limit = Math.min(200, Math.max(1, Number(opts.limit) || 25));
+    const page = Math.max(1, Number(opts.page) || 1);
+    const totalPages = Math.max(1, Math.ceil(total / limit));
+    const offset = (page - 1) * limit;
+
+    return {
+      entries: list.slice(offset, offset + limit),
+      total,
+      page,
+      limit,
+      totalPages,
+    };
+  }
+
+  public exportAdminWalletCsv(opts: {
+    q?: string;
+    purpose?: string;
+    role?: string;
+    sourceKind?: string;
+    fiscalYear?: number;
+    from?: string;
+    to?: string;
+  }): string {
+    const res = this.getAdminWalletLedger({ ...opts, page: 1, limit: 10000 });
+    const escape = (v: unknown) => {
+      const str = String(v ?? '');
+      return `"${str.replace(/"/g, '""')}"`;
+    };
+    const header = [
+      'Entry ID',
+      'Kind',
+      'Timestamp (UTC)',
+      'Timestamp (EAT)',
+      'Fiscal Year (EAT)',
+      'Payment Code',
+      'Purpose',
+      'Amount (KES)',
+      'Depositor Name',
+      'Depositor ID',
+      'Depositor Role',
+      'Approving Admin',
+      'Description',
+    ].join(',');
+    const rows = res.entries.map(e =>
+      [
+        escape(e.id),
+        escape(e.sourceKind),
+        escape(new Date(e.timestampUtc).toISOString()),
+        escape(getEATParts(e.timestampUtc).hourKey + ' EAT'),
+        escape(e.fiscalYear),
+        escape(e.paymentCode),
+        escape(e.purpose),
+        escape(e.amount),
+        escape(e.depositorName),
+        escape(e.depositorId),
+        escape(e.depositorRole),
+        escape(e.approvingAdmin),
+        escape(e.description),
+      ].join(',')
+    );
+    return [header, ...rows].join('\n');
+  }
+
+  public executeSpecialRefund(opts: {
+    adminEmail: string;
+    adminPassword: string;
+    reason: string;
+    caseReference: string;
+    originalPaymentCode: string;
+    amount: number;
+  }): { entry: AdminWalletEntry; adminBalance: number; reconciledNet: number } {
+    const admin = this.findUserByEmail(opts.adminEmail);
+    if (!admin || admin.role !== 'admin') {
+      throw new Error('Administrator account required.');
+    }
+    if (!opts.adminPassword || admin.passwordHash !== hashPassword(String(opts.adminPassword))) {
+      throw new Error('Admin password re-authentication failed.');
+    }
+
+    const cleanReason = String(opts.reason || '').trim();
+    const cleanCase = String(opts.caseReference || '').trim();
+    const cleanOrigCode = String(opts.originalPaymentCode || '').trim().toUpperCase();
+    const intAmount = Math.floor(Number(opts.amount));
+
+    if (cleanReason.length < 5) {
+      throw new Error('A clear written reason (at least 5 characters) is required for a Special Refund.');
+    }
+    if (!cleanCase) {
+      throw new Error('A user, case, or phone reference is required.');
+    }
+    if (!cleanOrigCode) {
+      throw new Error('Original payment code is required.');
+    }
+    if (!Number.isInteger(intAmount) || intAmount <= 0) {
+      throw new Error('Refund amount must be a positive whole integer in KES.');
+    }
+
+    // Locate original credit/deposit by paymentCode
+    const origCredits = (this.data.admin_wallet_entries || []).filter(
+      e => e.sourceKind !== 'SPECIAL_REFUND' && e.paymentCode.toUpperCase() === cleanOrigCode
+    );
+    if (origCredits.length === 0) {
+      throw new Error(`No approved deposit or payment found for code ${cleanOrigCode}.`);
+    }
+    const totalOriginalCredit = origCredits.reduce((sum, e) => sum + e.amount, 0);
+    const priorRefundsOnCode = (this.data.admin_wallet_entries || [])
+      .filter(e => e.sourceKind === 'SPECIAL_REFUND' && e.originalPaymentCode?.toUpperCase() === cleanOrigCode)
+      .reduce((sum, e) => sum + Math.abs(e.amount), 0);
+    const maxExcessOnCode = Math.max(0, totalOriginalCredit - priorRefundsOnCode);
+
+    if (intAmount > maxExcessOnCode) {
+      throw new Error(
+        `Special Refund of KES ${intAmount.toLocaleString()} exceeds remaining refundable excess of KES ${maxExcessOnCode.toLocaleString()} for code ${cleanOrigCode}.`
+      );
+    }
+
+    const adminAvail = this.getWalletBalance('admin@airbus.ke');
+    if (intAmount > adminAvail) {
+      throw new Error(
+        `Insufficient Admin Wallet balance (KES ${adminAvail.toLocaleString()}) to cover Special Refund of KES ${intAmount.toLocaleString()}.`
+      );
+    }
+
+    return this.runAtomicWalletTransaction(() => {
+      const now = Date.now();
+      const fiscalYear = getEATParts(now).year;
+      const refundCode = `SREF_${cleanOrigCode}_${now.toString(36).toUpperCase().slice(-5)}`;
+
+      // Atomic ledger debit from admin@airbus.ke -> external refund payout so wallet invariants stay 0 diff
+      const adminWallet = this.ensureWallet('admin@airbus.ke');
+      adminWallet.balance = Math.floor(adminWallet.balance) - intAmount;
+      adminWallet.lifetimeSpent = (adminWallet.lifetimeSpent || 0) + intAmount;
+      adminWallet.updatedAt = now;
+      this.data.wallets['admin@airbus.ke'] = adminWallet.balance;
+
+      if (!this.data.walletTransactions) this.data.walletTransactions = [];
+      this.data.walletTransactions.unshift({
+        id: `wtx_sref_${now}`,
+        walletId: 'admin@airbus.ke',
+        wallet_id: 'admin@airbus.ke',
+        direction: 'debit',
+        amount: intAmount,
+        amountSc: intAmount,
+        amount_sc: intAmount,
+        type: 'SPECIAL_REFUND',
+        reference: refundCode,
+        note: `Special Refund (${cleanOrigCode} / Case: ${cleanCase}): ${cleanReason}`,
+        createdAt: now,
+        created_at: now,
+      });
+
+      if (!this.data.ledgerEntries) this.data.ledgerEntries = [];
+      this.data.ledgerEntries.unshift({
+        id: `ledg_sref_${now}`,
+        fromWallet: 'admin@airbus.ke',
+        toWallet: 'withdrawal_payout',
+        amount: intAmount,
+        type: 'SPECIAL_REFUND',
+        referenceId: cleanOrigCode,
+        paymentCode: refundCode,
+        purpose: origCredits[0].purpose,
+        fiscalYear,
+        depositorName: origCredits[0].depositorName,
+        depositorRole: origCredits[0].depositorRole,
+        approvingAdmin: admin.email,
+        description: `SPECIAL REFUND on ${cleanOrigCode} (Ref: ${cleanCase}) — ${cleanReason}`,
+        createdAt: now,
+      });
+
+      const refundEntry: AdminWalletEntry = {
+        id: `awe_sref_${now}_${crypto.randomBytes(2).toString('hex')}`,
+        sourceKind: 'SPECIAL_REFUND',
+        depositorName: origCredits[0].depositorName,
+        depositorId: origCredits[0].depositorId,
+        depositorRole: origCredits[0].depositorRole,
+        timestampUtc: now,
+        fiscalYear,
+        paymentCode: refundCode,
+        amount: -intAmount,
+        purpose: origCredits[0].purpose,
+        subPurpose: 'SPECIAL_REFUND',
+        approvingAdmin: admin.email,
+        description: `SPECIAL REFUND (${cleanCase}) on ${cleanOrigCode}: ${cleanReason}`,
+        caseReference: cleanCase,
+        reason: cleanReason,
+        originalPaymentCode: cleanOrigCode,
+      };
+      this.recordAdminWalletEntry(refundEntry);
+
+      this.createAuditLog({
+        id: `aud_sref_${now}`,
+        action: 'admin_wallet_special_refund',
+        actorEmail: admin.email,
+        details: `Executed SPECIAL_REFUND of KES ${intAmount} against ${cleanOrigCode} (Case: ${cleanCase}). Reason: ${cleanReason}`,
+        createdAt: now,
+      });
+
+      this.save();
+      this.emitWalletUpdate('admin@airbus.ke');
+      const summary = this.getAdminWalletSummary(fiscalYear);
+      return {
+        entry: refundEntry,
+        adminBalance: adminWallet.balance,
+        reconciledNet: summary.lifetime.reconciledNet,
+      };
+    });
   }
 }
 

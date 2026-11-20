@@ -23,6 +23,7 @@ import {
   Building,
   PhoneCall,
   Lock,
+  Wallet,
 } from 'lucide-react';
 import { User, Currency } from '../types';
 
@@ -39,6 +40,7 @@ interface MobileMenuDrawerProps {
   onOpenTripFinder?: () => void;
   onOpenPlans?: () => void;
   onOpenSettings?: () => void;
+  onOpenAdminWallet?: () => void;
 }
 
 export const MobileMenuDrawer: React.FC<MobileMenuDrawerProps> = ({
@@ -54,6 +56,7 @@ export const MobileMenuDrawer: React.FC<MobileMenuDrawerProps> = ({
   onOpenTripFinder,
   onOpenPlans,
   onOpenSettings,
+  onOpenAdminWallet,
 }) => {
   const [openSection, setOpenSection] = useState<'destinations' | 'hosting' | 'support' | 'legal' | null>(null);
 
@@ -277,6 +280,22 @@ export const MobileMenuDrawer: React.FC<MobileMenuDrawerProps> = ({
                 Free
               </span>
             </button>
+
+            {user?.role === 'admin' && onOpenAdminWallet && (
+              <button
+                onClick={() => {
+                  onOpenAdminWallet();
+                  onClose();
+                }}
+                className="w-full flex items-center justify-between p-2.5 rounded-2xl text-xs font-extrabold bg-amber-500/15 border border-amber-500/30 text-amber-700 dark:text-amber-300 hover:bg-amber-500/25 transition cursor-pointer"
+              >
+                <div className="flex items-center gap-2.5">
+                  <Wallet className="w-4 h-4" />
+                  <span>My Admin Wallet</span>
+                </div>
+                <ChevronRight className="w-4 h-4 opacity-70" />
+              </button>
+            )}
 
             {(!user || user.role === 'owner') && (
               <button

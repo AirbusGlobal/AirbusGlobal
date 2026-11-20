@@ -42,6 +42,7 @@ interface HeaderProps {
   onOpenSettings?: () => void;
   walletBalance?: number;
   onOpenWallet?: () => void;
+  onOpenAdminWallet?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -65,6 +66,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenSettings,
   walletBalance,
   onOpenWallet,
+  onOpenAdminWallet,
 }) => {
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -329,19 +331,36 @@ export const Header: React.FC<HeaderProps> = ({
                       onClick={handleDashboardClick}
                       className="mt-2 w-full text-center py-1.5 bg-stone-900 dark:bg-white text-white dark:text-stone-900 rounded-lg font-bold hover:opacity-90 transition-opacity cursor-pointer text-xs"
                     >
-                      Open {user.role === 'owner' ? 'Host Dashboard' : 'Guest Dashboard'}
+                      Open {user.role === 'owner' ? 'Host Dashboard' : user.role === 'admin' ? 'Admin Console' : 'Guest Dashboard'}
                     </button>
+                    {user.role === 'admin' && onOpenAdminWallet && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onOpenAdminWallet();
+                          setProfileDropdownOpen(false);
+                        }}
+                        className="mt-1.5 w-full flex items-center justify-center gap-1.5 px-2.5 py-1.5 bg-amber-500/15 border border-amber-500/40 text-amber-700 dark:text-amber-300 rounded-lg font-extrabold hover:bg-amber-500/25 transition-colors cursor-pointer text-xs"
+                      >
+                        <Wallet className="w-3.5 h-3.5" />
+                        <span>My Admin Wallet</span>
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => {
-                        onOpenWallet?.();
+                        if (user.role === 'admin' && onOpenAdminWallet) {
+                          onOpenAdminWallet();
+                        } else {
+                          onOpenWallet?.();
+                        }
                         setProfileDropdownOpen(false);
                       }}
                       className="mt-1.5 w-full flex items-center justify-between px-2.5 py-1.5 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-500/30 text-emerald-800 dark:text-emerald-300 rounded-lg font-bold hover:bg-emerald-100 transition-colors cursor-pointer text-xs"
                     >
                       <span className="flex items-center gap-1.5">
                         <Wallet className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                        {user.role === 'owner' ? 'Host Wallet' : 'Guest Wallet'} (Till 943210)
+                        {user.role === 'owner' ? 'Host Wallet' : user.role === 'admin' ? 'Admin Wallet' : 'Guest Wallet'} (Till 943210)
                       </span>
                       <span className="font-mono text-emerald-700 dark:text-emerald-300">
                         KES {(walletBalance || 0).toLocaleString()}
@@ -675,8 +694,21 @@ export const Header: React.FC<HeaderProps> = ({
                 className="text-left py-1.5 text-stone-800 dark:text-stone-200 font-medium flex items-center gap-2"
               >
                 <UserIcon className="w-4 h-4" />
-                <span>Open Dashboard ({user.role === 'owner' ? 'Host Mode' : 'Guest Mode'})</span>
+                <span>Open Dashboard ({user.role === 'owner' ? 'Host Mode' : user.role === 'admin' ? 'Admin Console' : 'Guest Mode'})</span>
               </button>
+              {user.role === 'admin' && onOpenAdminWallet && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onOpenAdminWallet();
+                    setMobileMenuOpen(false);
+                  }}
+                  className="text-left py-1.5 text-amber-600 dark:text-amber-400 font-bold flex items-center gap-2"
+                >
+                  <Wallet className="w-4 h-4" />
+                  <span>My Admin Wallet</span>
+                </button>
+              )}
               {onOpenSettings && (
                 <button
                   type="button"

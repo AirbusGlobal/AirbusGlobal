@@ -425,6 +425,8 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [videoPreviewUrl, setVideoPreviewUrl] = useState<string>('');
   const [videoUrl, setVideoUrl] = useState('');
+  const [videoMediaId, setVideoMediaId] = useState<string | null>(null);
+  const [videoPosterUrl, setVideoPosterUrl] = useState<string>('');
   const [youtubeInput, setYoutubeInput] = useState('');
   const [youtubeVideoId, setYoutubeVideoId] = useState<string | null>(null);
   const [isDraggingVideo, setIsDraggingVideo] = useState(false);
@@ -543,15 +545,21 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
       setYoutubeVideoId(s.youtubeVideoId || extractYouTubeId(existingVideo));
       setVideoUrl('');
       setVideoPreviewUrl('');
+      setVideoMediaId(null);
+      setVideoPosterUrl('');
     } else if (existingVideo && !existingVideo.startsWith('blob:')) {
       setVideoSourceType('upload');
       setVideoUrl(existingVideo);
       setVideoPreviewUrl(existingVideo);
+      setVideoMediaId(s.videoMediaId || s.media?.video?.mediaId || null);
+      setVideoPosterUrl(s.media?.video?.thumbnail || s.thumbnailUrl || '');
       setYoutubeInput('');
       setYoutubeVideoId(null);
     } else {
       setVideoUrl('');
       setVideoPreviewUrl('');
+      setVideoMediaId(null);
+      setVideoPosterUrl('');
       setYoutubeInput('');
       setYoutubeVideoId(null);
     }
@@ -630,6 +638,8 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
       }
       setVideoPreviewUrl(uploaded.url);
       setVideoUrl(uploaded.url);
+      setVideoMediaId(uploaded.mediaAsset?.id || null);
+      setVideoPosterUrl(uploaded.posterUrl || uploaded.mediaAsset?.poster_url || '');
       setSessionRawUploads(prev => [...prev, uploaded.url]);
       setVideoUploadState({ uploading: false, progress: 100, error: null, failedFile: null });
       showToast?.('Tour video uploaded to server successfully.');
@@ -747,14 +757,23 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
       const coverPhoto = wizardPhotos.find(p => p.isCover) || wizardPhotos[0];
       const thumb = youtubeVideoId
         ? getYouTubeThumbnailUrl(youtubeVideoId)
-        : (coverPhoto?.url || 'https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?auto=format&fit=crop&w=800&q=80');
+        : (videoPosterUrl || coverPhoto?.url || 'https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?auto=format&fit=crop&w=800&q=80');
 
       const fullVideoUrl = youtubeVideoId
         ? `https://www.youtube.com/watch?v=${youtubeVideoId}`
         : (videoUrl || '');
 
+      const selectedCollections: Array<'black-friday' | 'work' | 'local' | 'worldwide' | 'escapes' | 'plus'> = [];
+      if (blackFridayOptIn) selectedCollections.push('black-friday');
+      if (isAirbusWork) selectedCollections.push('work');
+      if (isLocalGuideExperience) selectedCollections.push('local');
+      if (isWorldWide) selectedCollections.push('worldwide');
+      if (isEscapeOffer) selectedCollections.push('escapes');
+      if (isPlusVVVIP) selectedCollections.push('plus');
+
       const mediaPayload = {
         video: hasVideoInput ? {
+          mediaId: !youtubeVideoId ? (videoMediaId || undefined) : undefined,
           url: fullVideoUrl,
           thumbnail: thumb,
           duration: 60,
@@ -782,6 +801,8 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
         highlights: aiHighlights,
         description: desc,
         videoUrl: fullVideoUrl,
+        videoMediaId: !youtubeVideoId ? (videoMediaId || undefined) : undefined,
+        videoThumbnail: thumb,
         youtubeUrl: youtubeVideoId ? youtubeInput : undefined,
         youtubeVideoId: youtubeVideoId || undefined,
         thumbnailUrl: thumb,
@@ -799,6 +820,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
         depositAmount: depositRequired ? Number(depositAmount) : undefined,
         depositReason: depositRequired ? depositReason : undefined,
         depositRefundTerms: depositRequired ? depositRefundTerms : undefined,
+        collections: selectedCollections,
         blackFridayOptIn,
         blackFridayDiscountPercent: blackFridayOptIn ? 50 : undefined,
         isAirbusWork,
@@ -867,6 +889,8 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
       setVideoFile(null);
       setVideoPreviewUrl('');
       setVideoUrl('');
+      setVideoMediaId(null);
+      setVideoPosterUrl('');
       setYoutubeInput('');
       setYoutubeVideoId(null);
       setWelcomeGifts(['Kenyan Safari Kahawa & Fresh Ground Beans', 'Fresh Coconut Water & Tropical Basket']);
@@ -3009,6 +3033,11 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                   </div>
                 </div>
 
+                {/* No-Escrow & Zero Host Booking Fee Policy */}
+                <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/60 text-xs text-emerald-800 dark:text-emerald-200 font-medium">
+                  AirBus has no escrow, so we don&apos;t collect a host booking fee. You pay the host on arrival.
+                </div>
+
                 {/* AirBus Collections Placement Checkboxes */}
                 <div className="p-4 rounded-2xl bg-stone-50 dark:bg-stone-900/60 border border-stone-200 dark:border-stone-800 space-y-3">
                   <div>
@@ -3373,6 +3402,8 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                                   setVideoFile(null);
                                   setVideoPreviewUrl('');
                                   setVideoUrl('');
+                                  setVideoMediaId(null);
+                                  setVideoPosterUrl('');
                                 }}
                                 className="text-xs text-stone-500 hover:text-stone-700 font-semibold cursor-pointer"
                               >
@@ -3660,16 +3691,36 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                     <ListingMediaViewer
                       media={{
                         video: (mediaMode === 'both' || mediaMode === 'video') && (videoUrl || youtubeVideoId) ? {
+                          mediaId: !youtubeVideoId ? (videoMediaId || undefined) : undefined,
                           url: youtubeVideoId ? `https://www.youtube.com/watch?v=${youtubeVideoId}` : (videoUrl || ''),
-                          thumbnail: wizardPhotos[0]?.url || 'https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?auto=format&fit=crop&w=800&q=80',
+                          thumbnail:
+                            videoPosterUrl ||
+                            wizardPhotos[0]?.url ||
+                            'https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?auto=format&fit=crop&w=800&q=80',
                           duration: 60,
-                          size: 15000000,
+                          size: videoFile ? videoFile.size : 15000000,
                         } : null,
                         photos: (mediaMode === 'both' || mediaMode === 'photos') ? wizardPhotos : [],
                       }}
                       title={title || 'Stay Preview'}
                       aspectRatio="video"
                     />
+                  </div>
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-stone-300 pt-1">
+                    <span>
+                      Collections:{' '}
+                      {[
+                        blackFridayOptIn && 'Black Friday',
+                        isAirbusWork && 'AirBus Work',
+                        isLocalGuideExperience && 'Local Guide',
+                        isWorldWide && 'World Wide',
+                        isEscapeOffer && 'Escapes',
+                        isPlusVVVIP && 'AirBus Plus',
+                      ].filter(Boolean).join(', ') || 'Main Feed Only'}
+                    </span>
+                    <span className="text-emerald-300 font-semibold">
+                      AirBus has no escrow, so we don&apos;t collect a host booking fee. You pay the host on arrival.
+                    </span>
                   </div>
                 </div>
 
@@ -3846,7 +3897,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                       {/* Explicit Platform Disclaimer */}
                       <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-[10px] text-amber-800 dark:text-amber-300 leading-relaxed">
                         <strong>Platform Disclaimer: </strong>
-                        AirBus is not an escrow service. Deposits are collected and refunded directly between host and guest. AirBus does not hold deposit funds.
+                        AirBus has no escrow, so we don&apos;t collect a host booking fee. You pay the host on arrival. Deposits are collected and refunded directly between host and guest.
                       </div>
                     </div>
                   )}

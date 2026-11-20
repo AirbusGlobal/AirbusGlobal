@@ -85,6 +85,25 @@ export interface DatabaseSchema {
   }>;
   isSingleAdminRegistered?: boolean;
   media_assets?: import('../types').MediaAsset[];
+  listing_collections?: import('../types').ListingCollectionJoin[];
+  transactional_outbox?: Array<{
+    id: string;
+    kind: 'stay_approved_notification' | 'stay_approved_sse';
+    stayId: string;
+    payload: unknown;
+    status: 'pending' | 'delivered';
+    createdAt: number;
+    deliveredAt?: number;
+  }>;
+  admin_wallet_entries?: import('../types').AdminWalletEntry[];
+  wallet_year_archives?: import('../types').WalletYearArchive[];
+  admin_wallet_rollups?: {
+    hour: Record<string, import('../types').AdminWalletRollupBucket>;
+    day: Record<string, import('../types').AdminWalletRollupBucket>;
+    month: Record<string, import('../types').AdminWalletRollupBucket>;
+    year: Record<string, import('../types').AdminWalletRollupBucket>;
+  };
+  last_archived_fiscal_year?: number;
   appliedMigrations?: Array<{ id: string; appliedAt: number; snapshot?: unknown }>;
   idempotencyCache?: Record<string, { status: number; response: unknown; createdAt: number }>;
 }

@@ -1,7 +1,9 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Stay, Currency } from '../types';
 import { StayCard } from './StayCard';
 import { StayMap } from './StayMap';
+import { InfiniteFeed } from './shared/InfiniteFeed';
+import { api } from '../api';
 import {
   SlidersHorizontal,
   Zap,
@@ -16,6 +18,10 @@ import {
   Columns2,
   Map as MapIcon,
   Megaphone,
+  ChevronLeft,
+  ChevronRight,
+  Lock,
+  Loader2,
 } from 'lucide-react';
 
 interface HomeFeedProps {
@@ -27,6 +33,7 @@ interface HomeFeedProps {
   onBookNow: (stayId: string) => void;
   onChatHost: (stayId: string) => void;
   onNegotiate: (stayId: string) => void;
+  onNavigateCollection?: (slug: string) => void;
   currency: Currency;
   searchQuery: string;
   guestCount: number;
@@ -34,6 +41,15 @@ interface HomeFeedProps {
   loadingMore?: boolean;
   onLoadMore?: () => void;
 }
+
+const SHELF_META = [
+  { id: 'black-friday', label: 'AirBus Black Friday', emoji: '🏷️', badge: 'Up to 50% OFF' },
+  { id: 'work', label: 'AirBus Work', emoji: '💼', badge: 'Remote & Monthly' },
+  { id: 'escapes', label: 'AirBus Escapes', emoji: '🌴', badge: 'Weekend Offers' },
+  { id: 'local', label: 'AirBus Local', emoji: '🧭', badge: 'Local Guides' },
+  { id: 'worldwide', label: 'AirBus World Wide', emoji: '🌍', badge: 'Global Stays' },
+  { id: 'plus', label: 'AirBus Plus', emoji: '💎', badge: 'VVVIP Concierge' },
+] as const;
 
 const CATEGORY_TABS = [
   { id: 'all', emoji: '✨', label: 'All Stays' },
@@ -55,6 +71,7 @@ export const HomeFeed: React.FC<HomeFeedProps> = ({
   onBookNow,
   onChatHost,
   onNegotiate,
+  onNavigateCollection,
   currency,
   searchQuery,
   guestCount,
@@ -63,6 +80,94 @@ export const HomeFeed: React.FC<HomeFeedProps> = ({
   onLoadMore,
 }) => {
   const [hoveredStayId, setHoveredStayId] = useState<string | null>(null);
+
+  // Horizontal Collection Shelves state (fetches /api/airbus/collections/:id/listings)
+  const [shelves, setShelves] = useState<
+    Record<
+      string,
+      {
+        stays: Stay[];
+        nextCursor: string | null;
+        hasMore: boolean;
+        totalCount: number;
+        locked: boolean;
+        loading: boolean;
+        message?: string;
+      }
+    >
+  >({});
+  const shelfRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+  useEffect(() => {
+    let active = true;
+    const loadInitialShelves = async () => {
+      const results = await Promise.all(
+        SHELF_META.map(async meta => {
+          try {
+            const res = await api.getCollectionRowListings(meta.id, { limit: 12 });
+            return { id: meta.id, res };
+          } catch {
+            return {
+              id: meta.id,
+              res: { stays: [], nextCursor: null, hasMore: false, totalCount: 0, locked: false },
+            };
+          }
+        })
+      );
+      if (!active) return;
+      const next: typeof shelves = {};
+      results.forEach(({ id, res }) => {
+        next[id] = {
+          stays: res.stays || [],
+          nextCursor: res.nextCursor || null,
+          hasMore: Boolean(res.hasMore),
+          totalCount: Number(res.totalCount || res.stays?.length || 0),
+          locked: Boolean(res.locked),
+          loading: false,
+          message: res.message,
+        };
+      });
+      setShelves(next);
+    };
+    loadInitialShelves();
+    return () => {
+      active = false;
+    };
+  }, [stays.length]);
+
+  const handleLoadMoreShelf = async (id: string) => {
+    const cur = shelves[id];
+    if (!cur || cur.loading || !cur.hasMore || !cur.nextCursor || cur.stays.length >= 50) return;
+    setShelves(prev => ({ ...prev, [id]: { ...prev[id], loading: true } }));
+    try {
+      const res = await api.getCollectionRowListings(id, { cursor: cur.nextCursor, limit: 12 });
+      setShelves(prev => {
+        const existing = prev[id];
+        const existingIds = new Set(existing.stays.map(s => s.id));
+        const appended = (res.stays || []).filter(s => !existingIds.has(s.id));
+        const combined = [...existing.stays, ...appended].slice(0, 50);
+        return {
+          ...prev,
+          [id]: {
+            ...existing,
+            stays: combined,
+            nextCursor: combined.length >= 50 ? null : res.nextCursor,
+            hasMore: combined.length < 50 && Boolean(res.hasMore),
+            totalCount: res.totalCount,
+            loading: false,
+          },
+        };
+      });
+    } catch {
+      setShelves(prev => ({ ...prev, [id]: { ...prev[id], loading: false } }));
+    }
+  };
+
+  const scrollShelfBy = (id: string, dir: -1 | 1) => {
+    const el = shelfRefs.current[id];
+    if (!el) return;
+    el.scrollBy({ left: dir * 340, behavior: 'smooth' });
+  };
 
   // Discovery view switcher: 'split' | 'grid' | 'map'
   const [discoveryView, setDiscoveryView] = useState<'split' | 'grid' | 'map'>('split');
@@ -499,36 +604,34 @@ export const HomeFeed: React.FC<HomeFeedProps> = ({
                 </button>
               </div>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {filteredStays.map(s => (
-                  <StayCard
-                    key={s.id}
-                    stay={s}
-                    isSaved={savedStayIds.includes(s.id)}
-                    onToggleSave={onToggleSave}
-                    onSelectStay={onSelectStay}
-                    onCheckAvailability={onCheckAvailability}
-                    onBookNow={onBookNow}
-                    onChatHost={onChatHost}
-                    onNegotiate={onNegotiate}
-                    onHover={id => setHoveredStayId(id)}
-                    currency={currency}
-                  />
-                ))}
-              </div>
-            )}
-
-            {hasMore && onLoadMore && (
-              <div className="flex justify-center pt-2">
-                <button
-                  type="button"
-                  onClick={onLoadMore}
-                  disabled={loadingMore}
-                  className="px-6 py-2.5 rounded-full bg-stone-900 dark:bg-white text-white dark:text-stone-900 text-xs font-extrabold hover:opacity-90 transition-all shadow cursor-pointer disabled:opacity-50"
-                >
-                  {loadingMore ? 'Loading more stays...' : 'Load More Stays'}
-                </button>
-              </div>
+              <InfiniteFeed
+                hasMore={Boolean(hasMore && onLoadMore)}
+                isLoadingMore={Boolean(loadingMore)}
+                onLoadMore={onLoadMore || (() => {})}
+                maxAutoPages={5}
+                showJumpToFooter
+                footerHref="#app-footer"
+                loadMoreLabel="Load More Stays"
+              >
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {filteredStays.map(s => (
+                    <div key={s.id} className="feed-snap-card">
+                      <StayCard
+                        stay={s}
+                        isSaved={savedStayIds.includes(s.id)}
+                        onToggleSave={onToggleSave}
+                        onSelectStay={onSelectStay}
+                        onCheckAvailability={onCheckAvailability}
+                        onBookNow={onBookNow}
+                        onChatHost={onChatHost}
+                        onNegotiate={onNegotiate}
+                        onHover={id => setHoveredStayId(id)}
+                        currency={currency}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </InfiniteFeed>
             )}
 
             {/* Recommended for You Section */}
@@ -609,36 +712,34 @@ export const HomeFeed: React.FC<HomeFeedProps> = ({
               </button>
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-              {filteredStays.map(s => (
-                <StayCard
-                  key={s.id}
-                  stay={s}
-                  isSaved={savedStayIds.includes(s.id)}
-                  onToggleSave={onToggleSave}
-                  onSelectStay={onSelectStay}
-                  onCheckAvailability={onCheckAvailability}
-                  onBookNow={onBookNow}
-                  onChatHost={onChatHost}
-                  onNegotiate={onNegotiate}
-                  onHover={id => setHoveredStayId(id)}
-                  currency={currency}
-                />
-              ))}
-            </div>
-          )}
-
-          {hasMore && onLoadMore && (
-            <div className="flex justify-center pt-3">
-              <button
-                type="button"
-                onClick={onLoadMore}
-                disabled={loadingMore}
-                className="px-6 py-2.5 rounded-full bg-stone-900 dark:bg-white text-white dark:text-stone-900 text-xs font-extrabold hover:opacity-90 transition-all shadow cursor-pointer disabled:opacity-50"
-              >
-                {loadingMore ? 'Loading more stays...' : 'Load More Stays'}
-              </button>
-            </div>
+            <InfiniteFeed
+              hasMore={Boolean(hasMore && onLoadMore)}
+              isLoadingMore={Boolean(loadingMore)}
+              onLoadMore={onLoadMore || (() => {})}
+              maxAutoPages={5}
+              showJumpToFooter
+              footerHref="#app-footer"
+              loadMoreLabel="Load More Stays"
+            >
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                {filteredStays.map(s => (
+                  <div key={s.id} className="feed-snap-card">
+                    <StayCard
+                      stay={s}
+                      isSaved={savedStayIds.includes(s.id)}
+                      onToggleSave={onToggleSave}
+                      onSelectStay={onSelectStay}
+                      onCheckAvailability={onCheckAvailability}
+                      onBookNow={onBookNow}
+                      onChatHost={onChatHost}
+                      onNegotiate={onNegotiate}
+                      onHover={id => setHoveredStayId(id)}
+                      currency={currency}
+                    />
+                  </div>
+                ))}
+              </div>
+            </InfiniteFeed>
           )}
         </div>
       )}
@@ -683,6 +784,161 @@ export const HomeFeed: React.FC<HomeFeedProps> = ({
             />
           </div>
         </div>
+      )}
+
+      {/* Horizontal AirBus Collections Shelves */}
+      {discoveryView !== 'map' && (
+        <section aria-label="AirBus Collections" className="pt-6 border-t border-stone-200 dark:border-stone-800 space-y-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-base font-extrabold text-stone-900 dark:text-white flex items-center gap-2">
+                <Layers className="w-4 h-4 text-[#e4002b]" />
+                <span>Explore AirBus Collections</span>
+              </h2>
+              <p className="text-xs text-stone-500">
+                Swipe or scroll horizontally across curated AirBus collections (newest approved first).
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-6">
+            {SHELF_META.map(meta => {
+              const shelf = shelves[meta.id];
+              if (!shelf) return null;
+              if (!shelf.locked && shelf.stays.length === 0) return null;
+
+              return (
+                <div key={meta.id} className="space-y-2.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-base">{meta.emoji}</span>
+                      <h3 className="text-sm font-extrabold text-stone-900 dark:text-white">{meta.label}</h3>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-300">
+                        {meta.badge}
+                      </span>
+                      {!shelf.locked && (
+                        <span className="text-[11px] text-stone-400 font-semibold">
+                          ({shelf.totalCount})
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
+                      {!shelf.locked && shelf.stays.length > 0 && (
+                        <div className="hidden sm:flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => scrollShelfBy(meta.id, -1)}
+                            aria-label={`Scroll ${meta.label} left`}
+                            className="p-1.5 rounded-full border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 text-stone-600 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800 cursor-pointer"
+                          >
+                            <ChevronLeft className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => scrollShelfBy(meta.id, 1)}
+                            aria-label={`Scroll ${meta.label} right`}
+                            className="p-1.5 rounded-full border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 text-stone-600 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800 cursor-pointer"
+                          >
+                            <ChevronRight className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      )}
+                      {onNavigateCollection && (
+                        <button
+                          type="button"
+                          onClick={() => onNavigateCollection(meta.id)}
+                          className="text-xs font-bold text-[#e4002b] hover:underline px-2 py-1 cursor-pointer"
+                        >
+                          View all →
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {shelf.locked ? (
+                    <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-500/10 via-stone-900 to-purple-500/10 border border-amber-500/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-white">
+                      <div className="flex items-center gap-3">
+                        <Lock className="w-5 h-5 text-amber-400 shrink-0" />
+                        <div>
+                          <p className="text-xs font-extrabold">{meta.label} · Members Only</p>
+                          <p className="text-[11px] text-stone-300">
+                            {shelf.message || 'Unlock AirBus Plus VVVIP membership to browse exclusive stays.'}
+                          </p>
+                        </div>
+                      </div>
+                      {onNavigateCollection && (
+                        <button
+                          type="button"
+                          onClick={() => onNavigateCollection(meta.id)}
+                          className="px-4 py-1.5 rounded-full bg-amber-500 text-black text-xs font-extrabold cursor-pointer shrink-0"
+                        >
+                          Unlock AirBus Plus
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <div
+                      ref={el => {
+                        shelfRefs.current[meta.id] = el;
+                      }}
+                      tabIndex={0}
+                      aria-label={`${meta.label} horizontal listings shelf`}
+                      onKeyDown={e => {
+                        if (e.key === 'ArrowRight') {
+                          e.preventDefault();
+                          scrollShelfBy(meta.id, 1);
+                        } else if (e.key === 'ArrowLeft') {
+                          e.preventDefault();
+                          scrollShelfBy(meta.id, -1);
+                        }
+                      }}
+                      className="horizontal-shelf flex items-stretch gap-4 overflow-x-auto pb-3 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#e4002b]/50 rounded-2xl"
+                    >
+                      {shelf.stays.map(s => (
+                        <div
+                          key={`${meta.id}_${s.id}`}
+                          className="horizontal-shelf-card w-[270px] sm:w-[295px] shrink-0"
+                        >
+                          <StayCard
+                            stay={s}
+                            isSaved={savedStayIds.includes(s.id)}
+                            onToggleSave={onToggleSave}
+                            onSelectStay={onSelectStay}
+                            onCheckAvailability={onCheckAvailability}
+                            onBookNow={onBookNow}
+                            onChatHost={onChatHost}
+                            onNegotiate={onNegotiate}
+                            onHover={id => setHoveredStayId(id)}
+                            currency={currency}
+                          />
+                        </div>
+                      ))}
+
+                      {shelf.hasMore && shelf.stays.length < 50 && (
+                        <div className="horizontal-shelf-card w-[200px] shrink-0 flex items-center justify-center">
+                          <button
+                            type="button"
+                            disabled={shelf.loading}
+                            onClick={() => handleLoadMoreShelf(meta.id)}
+                            className="w-full h-full min-h-[220px] rounded-3xl border-2 border-dashed border-stone-300 dark:border-stone-700 hover:border-[#e4002b] bg-stone-50 dark:bg-stone-900/60 flex flex-col items-center justify-center gap-2 p-4 text-xs font-bold text-stone-700 dark:text-stone-300 hover:text-[#e4002b] transition cursor-pointer disabled:opacity-50"
+                          >
+                            {shelf.loading ? (
+                              <Loader2 className="w-5 h-5 animate-spin" />
+                            ) : (
+                              <ChevronRight className="w-5 h-5" />
+                            )}
+                            <span>{shelf.loading ? 'Loading more...' : 'Load more'}</span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </section>
       )}
     </div>
   );

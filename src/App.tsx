@@ -99,6 +99,7 @@ export default function App() {
   // Navigation & View
   const [currentTab, setCurrentTab] = useState<string>('home');
   const [isOnAdminRoute, setIsOnAdminRoute] = useState<boolean>(() => isAdminRoute());
+  const [adminInitialTab, setAdminInitialTab] = useState<'queue' | 'overview' | 'listings' | 'users' | 'payments' | 'treasury' | 'reports' | 'tickets' | 'audit' | 'trip-dating' | 'shorts-audio'>('queue');
   const [currency, setCurrency] = useState<Currency>('KES');
   const [searchQuery, setSearchQuery] = useState('');
   const [guestCount, setGuestCount] = useState(2);
@@ -326,8 +327,9 @@ export default function App() {
       }
       if (evt.type === 'stay') {
         const item = evt.item as Stay;
-        const modState = item.moderationState || (item.status === 'live' && item.isApprovedByAdmin !== false ? 'APPROVED' : 'PENDING');
-        if (modState === 'APPROVED' && item.status === 'live') {
+        const isLive = item.status === 'live' || item.status === 'PUBLISHED';
+        const modState = item.moderationState || (isLive && item.isApprovedByAdmin !== false ? 'APPROVED' : 'PENDING');
+        if (modState === 'APPROVED' && isLive) {
           if (!item.isPlusVVVIP || canViewPlus) {
             setStays(prev => {
               const filtered = prev.filter(s => s.id !== item.id);
@@ -939,7 +941,7 @@ export default function App() {
     const res = await api.updateStay(id, updates);
     const updated = res.stay;
     const isPubliclyVisible =
-      updated.status === 'live' &&
+      (updated.status === 'live' || updated.status === 'PUBLISHED') &&
       (updated.moderationState === 'APPROVED' || (!updated.moderationState && updated.isApprovedByAdmin !== false));
     setStays(prev =>
       isPubliclyVisible
@@ -1142,9 +1144,10 @@ export default function App() {
         >
           <AdminDashboard
             adminUser={user}
+            initialTab={adminInitialTab}
             metrics={adminOverview?.metrics || {
               totalStays: stays.length,
-              liveStays: stays.filter(s => s.status === 'live').length,
+              liveStays: stays.filter(s => s.status === 'live' || s.status === 'PUBLISHED').length,
               pendingReviews: 0,
               totalUsers: 0,
               pendingPayments: 0,
@@ -1247,6 +1250,12 @@ export default function App() {
             setPlanWalletMode(true);
             setPlanModalOpen(true);
           }}
+          onOpenAdminWallet={() => {
+            const basePrefix = window.location.pathname.startsWith('/AirbusGlobal') ? '/AirbusGlobal' : '';
+            window.history.pushState({}, '', `${basePrefix}${ADMIN_PORTAL_PATH}`);
+            setAdminInitialTab('treasury');
+            setIsOnAdminRoute(true);
+          }}
         />
       </div>
 
@@ -1265,6 +1274,7 @@ export default function App() {
             onBookNow={id => setActiveStayId(id)}
             onChatHost={id => setChatStayId(id)}
             onNegotiate={id => setNegotiateStayId(id)}
+            onNavigateCollection={slug => handleNavigate(`collection-${slug}`)}
             currency={currency}
             searchQuery={searchQuery}
             guestCount={guestCount}

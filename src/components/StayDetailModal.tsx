@@ -355,8 +355,8 @@ export const StayDetailModal: React.FC<StayDetailModalProps> = ({
   const nights = Math.max(1, Math.round((new Date(checkOut).getTime() - new Date(checkIn).getTime()) / 864e5));
   const subtotal = stay.price * nights;
   const cleaningFee = Math.round(stay.price * 0.15);
-  const serviceFee = Math.round(subtotal * 0.08);
-  const baseTotal = subtotal + cleaningFee + serviceFee;
+  const serviceFee = 0; // AirBus has no escrow, so we don't collect a host booking fee.
+  const baseTotal = subtotal + cleaningFee;
   const instalmentSurcharge = Math.round(baseTotal * 0.10);
   const totalWithSurcharge = baseTotal + instalmentSurcharge;
   const grandTotal = paymentType === 'instalments' ? totalWithSurcharge : baseTotal;
@@ -1421,10 +1421,6 @@ export const StayDetailModal: React.FC<StayDetailModalProps> = ({
                         <span>Cleaning fee (15%)</span>
                         <span>{formatMoney(cleaningFee)}</span>
                       </div>
-                      <div className="flex justify-between">
-                        <span>Service fee (8%)</span>
-                        <span>{formatMoney(serviceFee)}</span>
-                      </div>
                       {paymentType === 'instalments' && (
                         <div className="flex justify-between text-purple-600 dark:text-purple-400 font-semibold">
                           <span>Instalment Surcharge (+10%)</span>
@@ -1432,8 +1428,11 @@ export const StayDetailModal: React.FC<StayDetailModalProps> = ({
                         </div>
                       )}
                       <div className="flex justify-between font-extrabold text-stone-900 dark:text-white pt-1 border-t border-stone-200 dark:border-stone-800 text-sm">
-                        <span>Total (Pay at check-in)</span>
+                        <span>Total (Pay host on arrival)</span>
                         <span>{formatMoney(grandTotal)}</span>
+                      </div>
+                      <div className="mt-2 p-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/60 text-[11px] font-medium text-emerald-800 dark:text-emerald-200 leading-relaxed">
+                        AirBus has no escrow, so we don&apos;t collect a host booking fee. You pay the host on arrival.
                       </div>
                     </div>
 

@@ -1096,6 +1096,15 @@ app.get('/api/stays/my-submissions', (req, res) => {
   return res.json({ stays });
 });
 
+app.get('/api/stays/check-live/:id', (req, res) => {
+  const viewerUser = getAuthUser(req);
+  const status = db.checkStayLiveStatus(req.params.id, viewerUser);
+  if (!status.exists) {
+    return res.status(404).json(status);
+  }
+  return res.json(status);
+});
+
 app.get('/api/stays/:id', (req, res) => {
   const viewerUser = getAuthUser(req);
   const rawStay = db.getRaw().stays.find(s => s.id === req.params.id);
@@ -1112,10 +1121,11 @@ app.get('/api/stays/:id', (req, res) => {
         (stay.ownerEmail && viewerUser.email.toLowerCase() === stay.ownerEmail.toLowerCase()))
   );
   if (!isOwnerOrAdmin) {
+    const isLiveStatus = stay.status === 'live' || stay.status === 'PUBLISHED';
     const isApproved =
       stay.moderationState
-        ? stay.moderationState === 'APPROVED' && stay.status === 'live'
-        : stay.status === 'live' && stay.isApprovedByAdmin !== false;
+        ? stay.moderationState === 'APPROVED' && isLiveStatus
+        : isLiveStatus && stay.isApprovedByAdmin !== false;
     if (!isApproved || stay.isDelisted || stay.ownerSubscriptionExpired) {
       return res.status(404).json({ error: 'This listing is currently unavailable.' });
     }
@@ -1317,6 +1327,9 @@ app.post('/api/stays', (req, res) => {
     country,
     isEscapeOffer,
     isPlusVVVIP,
+    collections,
+    videoMediaId,
+    videoThumbnail,
   } = req.body;
 
   if (!title || !location || !price) {
@@ -1385,9 +1398,21 @@ app.post('/api/stays', (req, res) => {
     highlights: Array.isArray(highlights) ? highlights : [],
     description: description || '',
     videoUrl: videoUrl || (media?.video?.url || ''),
-    thumbnailUrl: thumbnailUrl || (images && images[0]) || (media?.photos && media.photos[0]?.url) || '',
+    videoMediaId: videoMediaId || media?.video?.mediaId || undefined,
+    thumbnailUrl: thumbnailUrl || videoThumbnail || (images && images[0]) || (media?.photos && media.photos[0]?.url) || '',
     images: Array.isArray(images) ? images : undefined,
-    media: media || undefined,
+    media: media
+      ? {
+          ...media,
+          video: media.video
+            ? {
+                ...media.video,
+                mediaId: media.video.mediaId || videoMediaId || undefined,
+                thumbnail: media.video.thumbnail || videoThumbnail || thumbnailUrl || undefined,
+              }
+            : undefined,
+        }
+      : undefined,
     youtubeUrl: youtubeUrl || undefined,
     youtubeVideoId: youtubeVideoId || undefined,
     source: affiliateLink ? 'External' : 'Direct',
@@ -1417,17 +1442,18 @@ app.post('/api/stays', (req, res) => {
     hostFollowerCount: 0,
     gradientHue: [Math.floor(Math.random() * 360), Math.floor(Math.random() * 360)],
     createdAt: Date.now(),
-    blackFridayOptIn: Boolean(blackFridayOptIn),
-    blackFridayDiscountPercent: Boolean(blackFridayOptIn) ? 50 : undefined,
-    isAirbusWork: Boolean(isAirbusWork),
-    monthlyPrice: Boolean(isAirbusWork) ? Math.round(Number(price) * 24) : undefined,
-    isLocalGuideExperience: Boolean(isLocalGuideExperience),
-    isWorldWide: Boolean(isWorldWide),
+    collections: Array.isArray(collections) ? collections : undefined,
+    blackFridayOptIn: Boolean(blackFridayOptIn) || (Array.isArray(collections) && collections.includes('black-friday')),
+    blackFridayDiscountPercent: (Boolean(blackFridayOptIn) || (Array.isArray(collections) && collections.includes('black-friday'))) ? 50 : undefined,
+    isAirbusWork: Boolean(isAirbusWork) || (Array.isArray(collections) && collections.includes('work')),
+    monthlyPrice: (Boolean(isAirbusWork) || (Array.isArray(collections) && collections.includes('work'))) ? Math.round(Number(price) * 24) : undefined,
+    isLocalGuideExperience: Boolean(isLocalGuideExperience) || (Array.isArray(collections) && collections.includes('local')),
+    isWorldWide: Boolean(isWorldWide) || (Array.isArray(collections) && collections.includes('worldwide')),
     country: String(country || '').trim() || undefined,
-    isEscapeOffer: Boolean(isEscapeOffer),
-    escapeOfferTitle: Boolean(isEscapeOffer) ? 'AirBus Escapes Special Offer' : undefined,
-    isPlusVVVIP: Boolean(isPlusVVVIP),
-    plusServices: Boolean(isPlusVVVIP)
+    isEscapeOffer: Boolean(isEscapeOffer) || (Array.isArray(collections) && collections.includes('escapes')),
+    escapeOfferTitle: (Boolean(isEscapeOffer) || (Array.isArray(collections) && collections.includes('escapes'))) ? 'AirBus Escapes Special Offer' : undefined,
+    isPlusVVVIP: Boolean(isPlusVVVIP) || (Array.isArray(collections) && collections.includes('plus')),
+    plusServices: (Boolean(isPlusVVVIP) || (Array.isArray(collections) && collections.includes('plus')))
       ? ['24/7 Butler or Chef', 'Airport Transfer', 'Hotel-Grade Hygiene']
       : undefined,
   };
@@ -1541,6 +1567,10 @@ app.patch('/api/stays/:id', (req, res) => {
     'localCurrency',
     'localCurrencyPrice',
     'blockedDates',
+    'collections',
+    'videoMediaId',
+    'publishState',
+    'published_at',
   ];
 
   if (req.body.lat !== undefined && (typeof req.body.lat !== 'number' || isNaN(req.body.lat))) {
@@ -1931,8 +1961,8 @@ app.post('/api/bookings', (req, res) => {
 
   const subtotal = stay.price * nights;
   const cleaningFee = Math.round(stay.price * 0.15);
-  const serviceFee = Math.round(subtotal * 0.08);
-  const baseTotal = subtotal + cleaningFee + serviceFee;
+  const serviceFee = 0; // AirBus has no escrow, so we don't collect a host booking fee.
+  const baseTotal = subtotal + cleaningFee;
   const surcharge = paymentType === 'instalments' ? Math.round(baseTotal * 0.10) : 0;
   const total = baseTotal + surcharge;
 
@@ -2654,7 +2684,7 @@ app.get('/api/admin/overview', (req, res) => {
   return res.json({
     metrics: {
       totalStays: stays.length,
-      liveStays: stays.filter(s => s.status === 'live').length,
+      liveStays: stays.filter(s => s.status === 'live' || s.status === 'PUBLISHED').length,
       pendingReviews: stays.filter(s => s.status === 'review').length,
       totalUsers: users.length,
       pendingPayments: payments.filter(p => p.status === 'pending').length,
@@ -2730,6 +2760,139 @@ app.get('/api/admin/wallets', (req, res) => {
     return res.status(403).json({ error: 'Admin access required.' });
   }
   return res.json(db.getAdminWalletsBreakdown());
+});
+
+app.get('/api/admin/wallet/summary', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required.' });
+  }
+  const fiscalYear = req.query.fiscalYear ? Number(req.query.fiscalYear) : undefined;
+  return res.json(db.getAdminWalletSummary(fiscalYear));
+});
+
+app.get('/api/admin/wallet/ledger', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required.' });
+  }
+  const result = db.getAdminWalletLedger({
+    q: typeof req.query.q === 'string' ? req.query.q : undefined,
+    purpose: typeof req.query.purpose === 'string' ? req.query.purpose : undefined,
+    role: typeof req.query.role === 'string' ? req.query.role : undefined,
+    sourceKind: typeof req.query.sourceKind === 'string' ? req.query.sourceKind : undefined,
+    fiscalYear: req.query.fiscalYear ? Number(req.query.fiscalYear) : undefined,
+    from: typeof req.query.from === 'string' ? req.query.from : undefined,
+    to: typeof req.query.to === 'string' ? req.query.to : undefined,
+    page: req.query.page ? Number(req.query.page) : 1,
+    limit: req.query.limit ? Number(req.query.limit) : 25,
+  });
+  return res.json(result);
+});
+
+app.get('/api/admin/wallet/totals', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required.' });
+  }
+  const gran = String(req.query.granularity || 'day').toLowerCase();
+  const granularity = (['hour', 'day', 'month', 'year'].includes(gran) ? gran : 'day') as 'hour' | 'day' | 'month' | 'year';
+  return res.json(
+    db.getAdminWalletTotals({
+      granularity,
+      from: typeof req.query.from === 'string' ? req.query.from : undefined,
+      to: typeof req.query.to === 'string' ? req.query.to : undefined,
+      fiscalYear: req.query.fiscalYear ? Number(req.query.fiscalYear) : undefined,
+    })
+  );
+});
+
+app.get('/api/admin/wallet/breakdown', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required.' });
+  }
+  return res.json(
+    db.getAdminWalletBreakdown({
+      from: typeof req.query.from === 'string' ? req.query.from : undefined,
+      to: typeof req.query.to === 'string' ? req.query.to : undefined,
+      fiscalYear: req.query.fiscalYear ? Number(req.query.fiscalYear) : undefined,
+    })
+  );
+});
+
+app.get('/api/admin/wallet/archives', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required.' });
+  }
+  return res.json({ archives: db.getAdminWalletArchives() });
+});
+
+app.get('/api/admin/wallet/archives/:year', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required.' });
+  }
+  const year = Number(req.params.year);
+  if (!Number.isInteger(year)) {
+    return res.status(400).json({ error: 'Invalid fiscal year.' });
+  }
+  const archive = db.getAdminWalletArchiveByYear(year);
+  if (!archive) return res.status(404).json({ error: `No archive found for fiscal year ${year}.` });
+  return res.json({ archive });
+});
+
+app.post('/api/admin/wallet/archives/run', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required.' });
+  }
+  const year = req.body?.fiscalYear ? Number(req.body.fiscalYear) : undefined;
+  const archive = db.runYearEndWalletArchive(year, user.email);
+  return res.json({ archive });
+});
+
+app.get('/api/admin/wallet/export', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required.' });
+  }
+  const csv = db.exportAdminWalletCsv({
+    q: typeof req.query.q === 'string' ? req.query.q : undefined,
+    purpose: typeof req.query.purpose === 'string' ? req.query.purpose : undefined,
+    role: typeof req.query.role === 'string' ? req.query.role : undefined,
+    sourceKind: typeof req.query.sourceKind === 'string' ? req.query.sourceKind : undefined,
+    fiscalYear: req.query.fiscalYear ? Number(req.query.fiscalYear) : undefined,
+    from: typeof req.query.from === 'string' ? req.query.from : undefined,
+    to: typeof req.query.to === 'string' ? req.query.to : undefined,
+  });
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', 'attachment; filename="airbus-admin-wallet-ledger.csv"');
+  return res.send(csv);
+});
+
+app.post('/api/admin/wallet/special-refund', async (req, res) => {
+  const user = getAuthUser(req);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required.' });
+  }
+  const { adminPassword, reason, caseReference, originalPaymentCode, amount } = req.body || {};
+  try {
+    const out = await walletMutex.withWalletLock('admin@airbus.ke', () =>
+      db.executeSpecialRefund({
+        adminEmail: user.email,
+        adminPassword: String(adminPassword || ''),
+        reason: String(reason || ''),
+        caseReference: String(caseReference || ''),
+        originalPaymentCode: String(originalPaymentCode || ''),
+        amount: Number(amount),
+      })
+    );
+    return res.json(out);
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'Special Refund failed.' });
+  }
 });
 
 app.get('/api/geocode', (req, res) => {
@@ -3334,7 +3497,7 @@ app.post('/api/wallet/topup', async (req, res) => {
   if (!rl.allowed) {
     return res.status(429).json({ error: `Rate limit exceeded. Retry in ${rl.retryAfterSec}s.` });
   }
-  const { amount, mpesaCode, phoneNumber, proofUrl } = req.body;
+  const { amount, mpesaCode, phoneNumber, proofUrl, purpose } = req.body;
   const numAmount = Number(amount);
   if (!Number.isInteger(numAmount) || numAmount < 10) {
     return res.status(400).json({ error: 'Minimum deposit amount is KES 10 (whole integer Ksh).' });
@@ -3368,6 +3531,7 @@ app.post('/api/wallet/topup', async (req, res) => {
       referenceId: cleanCode,
       phoneNumber: phoneNumber || user.phone || '',
       proofUrl: proofUrl || undefined,
+      walletPurpose: typeof purpose === 'string' ? purpose : undefined,
       status: 'pending',
       createdAt: Date.now(),
     })
@@ -3386,7 +3550,7 @@ app.post('/api/wallet/deposit', async (req, res) => {
   if (!rl.allowed) {
     return res.status(429).json({ error: `Rate limit exceeded. Retry in ${rl.retryAfterSec}s.` });
   }
-  const { amount, mpesaCode, phoneNumber, proofUrl } = req.body;
+  const { amount, mpesaCode, phoneNumber, proofUrl, purpose } = req.body;
   const numAmount = Number(amount);
   if (!Number.isInteger(numAmount) || numAmount < 10) {
     return res.status(400).json({ error: 'Deposit amount must be a whole integer Ksh (minimum KES 10).' });
@@ -3420,6 +3584,7 @@ app.post('/api/wallet/deposit', async (req, res) => {
       referenceId: cleanCode,
       phoneNumber: phoneNumber || user.phone || '',
       proofUrl: proofUrl || undefined,
+      walletPurpose: typeof purpose === 'string' ? purpose : undefined,
       status: 'pending',
       createdAt: Date.now(),
     })
@@ -4648,6 +4813,15 @@ app.get('/api/collections/:slug', (req, res) => {
   const viewerUser = getAuthUser(req);
   const slug = String(req.params.slug || '').toLowerCase();
   const data = db.getCollectionData(slug, viewerUser);
+  return res.json(data);
+});
+
+app.get('/api/airbus/collections/:id/listings', (req, res) => {
+  const viewerUser = getAuthUser(req);
+  const slug = String(req.params.id || '').toLowerCase();
+  const cursor = typeof req.query.cursor === 'string' ? req.query.cursor : undefined;
+  const limit = req.query.limit ? Number(req.query.limit) : 12;
+  const data = db.getCollectionListingsPaginated(slug, { viewerUser, cursor, limit });
   return res.json(data);
 });
 

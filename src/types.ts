@@ -68,8 +68,23 @@ export interface AuthSession {
 }
 
 export type StayCategory = 'Silver' | 'Diamond' | 'Gold';
-export type ListingStatus = 'live' | 'review' | 'paused' | 'expired' | 'delisted';
+export type ListingStatus = 'live' | 'PUBLISHED' | 'review' | 'paused' | 'expired' | 'delisted';
 export type ModerationState = 'PENDING' | 'APPROVED' | 'DECLINED';
+export type PublishState = 'DRAFT' | 'PENDING_REVIEW' | 'PUBLISHED' | 'DECLINED';
+
+export type AirBusCollectionId =
+  | 'black-friday'
+  | 'work'
+  | 'local'
+  | 'worldwide'
+  | 'escapes'
+  | 'plus';
+
+export interface ListingCollectionJoin {
+  listing_id: string;
+  collection_id: AirBusCollectionId;
+  created_at: number;
+}
 
 export interface BlockedDateRange {
   from: string;
@@ -113,6 +128,7 @@ export interface ListingPhoto {
 
 export interface ListingVideo {
   url: string;
+  mediaId?: string | null;
   thumbnail?: string;
   duration?: number;
   size?: number;
@@ -150,11 +166,17 @@ export interface Stay {
   hasPhotos?: boolean;
   moderationStatus?: 'approved' | 'pending' | 'rejected' | 'suspended';
   moderationState?: ModerationState;
+  publishState?: PublishState;
+  published_at?: number | null;
+  approved_by?: string | null;
   moderationReason?: string;
   admin_feedback?: string | null;
   reviewed_at?: number | null;
   reviewed_by?: string | null;
   mediaModerationStatus?: 'approved' | 'flagged' | 'clean';
+  videoMediaId?: string | null;
+  videoAsset?: MediaAsset | null;
+  collections?: AirBusCollectionId[];
   source: string;
   instantBook: boolean;
   isFeatured: boolean;
@@ -480,7 +502,8 @@ export interface PaymentRecord {
   amount: number; // Compatibility
   claimedAmount?: number;
   approvedAmount?: number;
-  purpose?: 'subscription' | 'wallet_topup' | 'advert' | 'trip_dating';
+  purpose?: 'subscription' | 'wallet_topup' | 'advert' | 'trip_dating' | AdminWalletPurpose;
+  walletPurpose?: AdminWalletPurpose;
   currency?: string;
   status: PaymentRecordStatus;
   referenceId: string; // advert_id, boost_id or subscription_id
@@ -893,6 +916,13 @@ export interface Post {
 }
 
 // --- Wallets & Ledger ---
+export type AdminWalletPurpose =
+  | 'SUBSCRIPTION'
+  | 'ADVERTISING'
+  | 'TRIP_DATING'
+  | 'AIRBUS_PLUS'
+  | 'OTHER';
+
 export type LedgerEntryType =
   | 'topup'
   | 'withdrawal'
@@ -906,7 +936,8 @@ export type LedgerEntryType =
   | 'trip_dating'
   | 'vvvip'
   | 'hold'
-  | 'release';
+  | 'release'
+  | 'SPECIAL_REFUND';
 
 export interface LedgerEntry {
   id: string;
@@ -915,9 +946,58 @@ export interface LedgerEntry {
   amount: number; // Integer KES
   type: LedgerEntryType;
   referenceId?: string;
+  paymentCode?: string;
+  purpose?: AdminWalletPurpose;
+  fiscalYear?: number;
+  depositorName?: string;
+  depositorRole?: UserRole;
+  approvingAdmin?: string;
   description: string;
   idempotencyKey?: string;
   createdAt: number;
+}
+
+export interface AdminWalletEntry {
+  id: string;
+  sourceKind: 'APPROVED_DEPOSIT' | 'SERVICE_REVENUE' | 'SPECIAL_REFUND';
+  depositorName: string;
+  depositorId: string;
+  depositorRole: UserRole;
+  timestampUtc: number;
+  fiscalYear: number; // Africa/Nairobi EAT year
+  paymentCode: string;
+  amount: number; // Integer KES (negative for SPECIAL_REFUND)
+  purpose: AdminWalletPurpose;
+  subPurpose?: string;
+  approvingAdmin: string;
+  description: string;
+  relatedPaymentId?: string;
+  caseReference?: string;
+  reason?: string;
+  originalPaymentCode?: string;
+}
+
+export interface WalletYearArchive {
+  id: string;
+  fiscalYear: number;
+  archivedAtUtc: number;
+  monthlyTotals: Array<{ month: string; inflow: number; refunds: number; net: number; count: number }>;
+  purposeBreakdown: Record<AdminWalletPurpose, number>;
+  totalInflow: number;
+  totalSpecialRefunds: number;
+  netTotal: number;
+  transactionCount: number;
+  closingBalance: number;
+  openingCarryForward: number;
+  checksum: string;
+}
+
+export interface AdminWalletRollupBucket {
+  key: string; // YYYY-MM-DD HH:00 | YYYY-MM-DD | YYYY-MM | YYYY
+  inflow: number;
+  refunds: number;
+  net: number;
+  count: number;
 }
 
 export interface ListingPromotion {

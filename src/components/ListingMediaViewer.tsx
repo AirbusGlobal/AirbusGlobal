@@ -38,6 +38,15 @@ export interface ListingMediaViewerProps {
   canManageMedia?: boolean;
 }
 
+export function extractYouTubeVideoId(url?: string): string | null {
+  if (!url || typeof url !== 'string') return null;
+  const trimmed = url.trim();
+  if (!trimmed) return null;
+  const match =
+    trimmed.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([A-Za-z0-9_-]{6,15})/i);
+  return match ? match[1] : null;
+}
+
 export const ListingMediaViewer: React.FC<ListingMediaViewerProps> = ({
   media,
   videoUrl,
@@ -55,8 +64,26 @@ export const ListingMediaViewer: React.FC<ListingMediaViewerProps> = ({
   canManageMedia = false,
 }) => {
   // 1. Normalize media sources (supports both new media schema and legacy videoUrl/images)
-  const effectiveVideoUrl = media?.video?.url || videoUrl || '';
-  const effectiveVideoPoster = media?.video?.thumbnail || thumbnailUrl || (images && images[0]) || '';
+  const rawVideoUrl = (media?.video?.url || videoUrl || '').trim();
+  const youtubeId = React.useMemo(() => extractYouTubeVideoId(rawVideoUrl), [rawVideoUrl]);
+  const [videoRetrySeed, setVideoRetrySeed] = useState<number>(0);
+  const [photoRetrySeeds, setPhotoRetrySeeds] = useState<Record<number, number>>({});
+
+  const effectiveVideoUrl = React.useMemo(() => {
+    if (!rawVideoUrl || youtubeId) return rawVideoUrl;
+    if (videoRetrySeed === 0 || rawVideoUrl.startsWith('blob:') || rawVideoUrl.startsWith('data:')) {
+      return rawVideoUrl;
+    }
+    const sep = rawVideoUrl.includes('?') ? '&' : '?';
+    return `${rawVideoUrl}${sep}_retry=${videoRetrySeed}`;
+  }, [rawVideoUrl, youtubeId, videoRetrySeed]);
+
+  const effectiveVideoPoster =
+    media?.video?.thumbnail ||
+    thumbnailUrl ||
+    (youtubeId ? `https://i.ytimg.com/vi/${youtubeId}/hqdefault.jpg` : '') ||
+    (images && images[0]) ||
+    '';
 
   const photosList: string[] = React.useMemo(() => {
     if (media?.photos && media.photos.length > 0) {
@@ -71,7 +98,7 @@ export const ListingMediaViewer: React.FC<ListingMediaViewerProps> = ({
     return [];
   }, [media?.photos, images, thumbnailUrl]);
 
-  const hasVideo = Boolean(effectiveVideoUrl.trim());
+  const hasVideo = Boolean(rawVideoUrl);
   const hasPhotos = photosList.length > 0;
 
   // Determine initial active mode based on available media
@@ -96,11 +123,22 @@ export const ListingMediaViewer: React.FC<ListingMediaViewerProps> = ({
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [isMuted, setIsMuted] = useState<boolean>(true);
-  const [videoLoading, setVideoLoading] = useState<boolean>(true);
+  const [videoLoading, setVideoLoading] = useState<boolean>(Boolean(rawVideoUrl && !youtubeId));
   const [videoError, setVideoError] = useState<boolean>(false);
   const [currentTime, setCurrentTime] = useState<number>(0);
   const [duration, setDuration] = useState<number>(0);
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
+
+  useEffect(() => {
+    setVideoError(false);
+    setVideoLoading(Boolean(rawVideoUrl && !youtubeId));
+  }, [rawVideoUrl, youtubeId]);
+
+  useEffect(() => {
+    if (!videoLoading || youtubeId) return;
+    const timer = window.setTimeout(() => setVideoLoading(false), 5000);
+    return () => window.clearTimeout(timer);
+  }, [videoLoading, effectiveVideoUrl, youtubeId]);
 
   // Auto-pause video when scrolled out of view or when switching browser tabs (Requirement 1.2)
   useEffect(() => {
@@ -337,7 +375,19 @@ export const ListingMediaViewer: React.FC<ListingMediaViewerProps> = ({
               </div>
             )}
 
-            {videoError ? (
+            {youtubeId ? (
+              <iframe
+                src={`https://www.youtube.com/embed/${youtubeId}?rel=0&modestbranding=1${autoPlay ? '&autoplay=1&mute=1' : ''}`}
+                title={`${title} Video Tour`}
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                allowFullScreen
+                className="w-full h-full border-0"
+                onLoad={() => {
+                  setVideoLoading(false);
+                  setVideoError(false);
+                }}
+              />
+            ) : videoError ? (
               <div className="flex flex-col items-center justify-center p-6 text-center text-stone-400 max-w-md">
                 <AlertCircle className="w-10 h-10 text-amber-500 mb-3" />
                 <p className="text-sm font-bold text-white mb-1">Video Tour could not be loaded</p>
@@ -350,9 +400,12 @@ export const ListingMediaViewer: React.FC<ListingMediaViewerProps> = ({
                     onClick={() => {
                       setVideoError(false);
                       setVideoLoading(true);
-                      if (videoRef.current) {
-                        videoRef.current.load();
-                      }
+                      setVideoRetrySeed(s => s + 1);
+                      window.setTimeout(() => {
+                        try {
+                          videoRef.current?.load();
+                        } catch {}
+                      }, 30);
                     }}
                     className="px-4 py-2 rounded-xl bg-stone-800 hover:bg-stone-700 text-white text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
                   >
@@ -388,6 +441,8 @@ export const ListingMediaViewer: React.FC<ListingMediaViewerProps> = ({
                   videoClassName="w-full h-full object-cover cursor-pointer"
                   onLoadedMetadata={(dur) => {
                     setDuration(dur || videoRef.current?.duration || 0);
+                    setVideoLoading(false);
+                    setVideoError(false);
                   }}
                   onTimeUpdate={(cur) => {
                     setCurrentTime(cur || videoRef.current?.currentTime || 0);
@@ -400,88 +455,92 @@ export const ListingMediaViewer: React.FC<ListingMediaViewerProps> = ({
                     setVideoLoading(false);
                     setVideoError(true);
                   }}
-                  onPlay={() => setIsPlaying(true)}
+                  onPlay={() => {
+                    setIsPlaying(true);
+                    setVideoLoading(false);
+                  }}
                   onPause={() => setIsPlaying(false)}
                   onClick={handleTogglePlay}
                 />
 
-                {/* Center Play/Pause Overlay indicator on hover or pause */}
-                <div
-                  onClick={handleTogglePlay}
-                  className={`absolute inset-0 flex items-center justify-center cursor-pointer transition-opacity duration-200 ${
-                    !isPlaying ? 'bg-black/35 opacity-100' : 'opacity-0 group-hover:opacity-100 bg-black/20'
-                  }`}
-                >
-                  <div className="w-16 h-16 rounded-full bg-black/60 backdrop-blur-md border border-white/20 flex items-center justify-center text-white shadow-2xl transition-transform transform group-hover:scale-110 active:scale-95">
-                    {isPlaying ? <Pause className="w-7 h-7" /> : <Play className="w-7 h-7 translate-x-0.5 text-white" />}
-                  </div>
-                </div>
-
-                {/* Bottom Video Progress Bar & Custom Controls Overlay */}
-                <div className="absolute bottom-0 inset-x-0 z-20 p-3 bg-gradient-to-t from-black/90 via-black/50 to-transparent flex flex-col gap-2 transition-opacity duration-200 opacity-90 group-hover:opacity-100">
-                  {/* Interactive Seek Bar */}
-                  <div
-                    onClick={handleSeek}
-                    className="w-full h-1.5 hover:h-2.5 bg-white/20 rounded-full overflow-hidden cursor-pointer transition-all relative"
-                    title="Seek video"
-                  >
+                {/* Center Play/Pause Overlay & Bottom Controls only for native video */}
+                {!youtubeId && !videoError && (
+                  <>
                     <div
-                      className="h-full bg-gradient-to-r from-[#e4002b] to-[#ff2e93] rounded-full transition-all"
-                      style={{
-                        width: duration > 0 ? `${(currentTime / duration) * 100}%` : '0%',
-                      }}
-                    />
-                  </div>
-
-                  {/* Controls Row */}
-                  <div className="flex items-center justify-between text-xs text-stone-300">
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={handleTogglePlay}
-                        className="p-1 rounded-lg hover:bg-white/10 text-white cursor-pointer"
-                        title={isPlaying ? 'Pause' : 'Play'}
-                      >
-                        {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={handleToggleMute}
-                        className="p-1 rounded-lg hover:bg-white/10 text-white cursor-pointer"
-                        title={isMuted ? 'Unmute' : 'Mute'}
-                      >
-                        {isMuted ? <VolumeX className="w-4 h-4 text-stone-400" /> : <Volume2 className="w-4 h-4 text-[#22d3ee]" />}
-                      </button>
-
-                      <span className="font-mono text-[11px] text-stone-300">
-                        {formatTime(currentTime)} / {formatTime(duration)}
-                      </span>
+                      onClick={handleTogglePlay}
+                      className={`absolute inset-0 flex items-center justify-center cursor-pointer transition-opacity duration-200 ${
+                        !isPlaying ? 'bg-black/35 opacity-100' : 'opacity-0 group-hover:opacity-100 bg-black/20'
+                      }`}
+                    >
+                      <div className="w-16 h-16 rounded-full bg-black/60 backdrop-blur-md border border-white/20 flex items-center justify-center text-white shadow-2xl transition-transform transform group-hover:scale-110 active:scale-95">
+                        {isPlaying ? <Pause className="w-7 h-7" /> : <Play className="w-7 h-7 translate-x-0.5 text-white" />}
+                      </div>
                     </div>
 
-                    <div className="flex items-center gap-2">
-                      {hasPhotos && (
-                        <button
-                          type="button"
-                          onClick={() => handleSwitchMode('photos')}
-                          className="bg-black/60 hover:bg-black/90 backdrop-blur-md px-3 py-1 rounded-full font-medium text-[11px] border border-white/10 text-white flex items-center gap-1.5 cursor-pointer"
-                        >
-                          <span>Photos ({photosList.length})</span>
-                          <ChevronRight className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-
-                      <button
-                        type="button"
-                        onClick={handleToggleFullscreen}
-                        className="p-1 rounded-lg hover:bg-white/10 text-white cursor-pointer"
-                        title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
+                    <div className="absolute bottom-0 inset-x-0 z-20 p-3 bg-gradient-to-t from-black/90 via-black/50 to-transparent flex flex-col gap-2 transition-opacity duration-200 opacity-90 group-hover:opacity-100">
+                      <div
+                        onClick={handleSeek}
+                        className="w-full h-1.5 hover:h-2.5 bg-white/20 rounded-full overflow-hidden cursor-pointer transition-all relative"
+                        title="Seek video"
                       >
-                        {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
-                      </button>
+                        <div
+                          className="h-full bg-gradient-to-r from-[#e4002b] to-[#ff2e93] rounded-full transition-all"
+                          style={{
+                            width: duration > 0 ? `${(currentTime / duration) * 100}%` : '0%',
+                          }}
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between text-xs text-stone-300">
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={handleTogglePlay}
+                            className="p-1 rounded-lg hover:bg-white/10 text-white cursor-pointer"
+                            title={isPlaying ? 'Pause' : 'Play'}
+                          >
+                            {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={handleToggleMute}
+                            className="p-1 rounded-lg hover:bg-white/10 text-white cursor-pointer"
+                            title={isMuted ? 'Unmute' : 'Mute'}
+                          >
+                            {isMuted ? <VolumeX className="w-4 h-4 text-stone-400" /> : <Volume2 className="w-4 h-4 text-[#22d3ee]" />}
+                          </button>
+
+                          <span className="font-mono text-[11px] text-stone-300">
+                            {formatTime(currentTime)} / {formatTime(duration)}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          {hasPhotos && (
+                            <button
+                              type="button"
+                              onClick={() => handleSwitchMode('photos')}
+                              className="bg-black/60 hover:bg-black/90 backdrop-blur-md px-3 py-1 rounded-full font-medium text-[11px] border border-white/10 text-white flex items-center gap-1.5 cursor-pointer"
+                            >
+                              <span>Photos ({photosList.length})</span>
+                              <ChevronRight className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={handleToggleFullscreen}
+                            className="p-1 rounded-lg hover:bg-white/10 text-white cursor-pointer"
+                            title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
+                          >
+                            {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+                          </button>
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                </div>
+                  </>
+                )}
               </>
             )}
           </div>
@@ -490,14 +549,46 @@ export const ListingMediaViewer: React.FC<ListingMediaViewerProps> = ({
           <div className="relative w-full h-full bg-stone-900 group">
             {photosList.length > 0 ? (
               <>
-                <img
-                  src={photosList[photoIndex]}
-                  alt={`${title} - Photo ${photoIndex + 1}`}
-                  onError={() => {
-                    setFailedPhotos(prev => ({ ...prev, [photoIndex]: true }));
-                  }}
-                  className="w-full h-full object-cover transition-opacity duration-300"
-                />
+                {failedPhotos[photoIndex] ? (
+                  <div className="flex flex-col items-center justify-center h-full p-6 text-center text-stone-300 bg-stone-950">
+                    <AlertCircle className="w-9 h-9 text-amber-400 mb-2" />
+                    <p className="text-xs font-bold text-white mb-1">Photo {photoIndex + 1} failed to load</p>
+                    <p className="text-[11px] text-stone-400 mb-3">
+                      Check your network or retry loading this image.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFailedPhotos(prev => ({ ...prev, [photoIndex]: false }));
+                        setPhotoRetrySeeds(prev => ({ ...prev, [photoIndex]: (prev[photoIndex] || 0) + 1 }));
+                      }}
+                      className="px-3.5 py-1.5 rounded-xl bg-stone-800 hover:bg-stone-700 text-white text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      <span>Retry Image</span>
+                    </button>
+                  </div>
+                ) : (
+                  <img
+                    src={
+                      photoRetrySeeds[photoIndex] && !photosList[photoIndex].startsWith('data:') && !photosList[photoIndex].startsWith('blob:')
+                        ? `${photosList[photoIndex]}${photosList[photoIndex].includes('?') ? '&' : '?'}_retry=${photoRetrySeeds[photoIndex]}`
+                        : photosList[photoIndex]
+                    }
+                    alt={`${title} - Photo ${photoIndex + 1}`}
+                    loading="lazy"
+                    decoding="async"
+                    onLoad={() => {
+                      setPhotoLoading(false);
+                      setFailedPhotos(prev => ({ ...prev, [photoIndex]: false }));
+                    }}
+                    onError={() => {
+                      setPhotoLoading(false);
+                      setFailedPhotos(prev => ({ ...prev, [photoIndex]: true }));
+                    }}
+                    className="w-full h-full object-cover transition-opacity duration-300"
+                  />
+                )}
 
                 {/* Left / Right Carousel Navigation (If multiple photos) */}
                 {photosList.length > 1 && (

@@ -938,6 +938,23 @@ export const api = {
     return this.request<{ stay: Stay }>(`/api/stays/${id}`);
   },
 
+  async checkStayLive(id: string): Promise<{
+    exists: boolean;
+    id?: string;
+    title?: string;
+    status?: string;
+    publishState?: string;
+    published_at?: number | null;
+    approved_by?: string | null;
+    ownerPlanActive?: boolean;
+    collections?: string[];
+    inPublicFeed: boolean;
+    feedRank?: number | null;
+    reasons: string[];
+  }> {
+    return this.request(`/api/stays/check-live/${encodeURIComponent(id)}`);
+  },
+
   async incrementViews(id: string): Promise<{ views: number }> {
     return this.request<{ views: number }>(`/api/stays/${id}/view`, { method: 'POST' });
   },
@@ -1193,6 +1210,163 @@ export const api = {
     totalRevenue: number;
   }> {
     return this.request('/api/admin/wallet/income-report');
+  },
+
+  async getAdminWalletSummary(fiscalYear?: number): Promise<{
+    currentEatYear: number;
+    selectedFiscalYear: number;
+    adminWalletBalance: number;
+    carryForwardBalance: number;
+    yearToDate: {
+      fiscalYear: number;
+      approvedDeposits: number;
+      serviceRevenue: number;
+      totalCredits: number;
+      specialRefunds: number;
+      netReported: number;
+      transactionCount: number;
+    };
+    lifetime: {
+      totalCredits: number;
+      totalSpecialRefunds: number;
+      reconciledNet: number;
+      transactionCount: number;
+    };
+    reconciliation: {
+      mismatches: number;
+      userWalletsSum: number;
+      adminBalance: number;
+    };
+    archivesCount: number;
+  }> {
+    const qs = fiscalYear ? `?fiscalYear=${encodeURIComponent(String(fiscalYear))}` : '';
+    return this.request(`/api/admin/wallet/summary${qs}`);
+  },
+
+  async getAdminWalletLedger(params?: {
+    q?: string;
+    purpose?: string;
+    role?: string;
+    sourceKind?: string;
+    fiscalYear?: number;
+    from?: string;
+    to?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<{
+    entries: import('./types').AdminWalletEntry[];
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  }> {
+    const sp = new URLSearchParams();
+    if (params?.q) sp.set('q', params.q);
+    if (params?.purpose && params.purpose !== 'ALL') sp.set('purpose', params.purpose);
+    if (params?.role && params.role !== 'ALL') sp.set('role', params.role);
+    if (params?.sourceKind && params.sourceKind !== 'ALL') sp.set('sourceKind', params.sourceKind);
+    if (params?.fiscalYear) sp.set('fiscalYear', String(params.fiscalYear));
+    if (params?.from) sp.set('from', params.from);
+    if (params?.to) sp.set('to', params.to);
+    if (params?.page) sp.set('page', String(params.page));
+    if (params?.limit) sp.set('limit', String(params.limit));
+    const qs = sp.toString() ? `?${sp.toString()}` : '';
+    return this.request(`/api/admin/wallet/ledger${qs}`);
+  },
+
+  async getAdminWalletTotals(params?: {
+    granularity?: 'hour' | 'day' | 'month' | 'year';
+    from?: string;
+    to?: string;
+    fiscalYear?: number;
+  }): Promise<{
+    granularity: 'hour' | 'day' | 'month' | 'year';
+    timezone: string;
+    periods: import('./types').AdminWalletRollupBucket[];
+  }> {
+    const sp = new URLSearchParams();
+    if (params?.granularity) sp.set('granularity', params.granularity);
+    if (params?.from) sp.set('from', params.from);
+    if (params?.to) sp.set('to', params.to);
+    if (params?.fiscalYear) sp.set('fiscalYear', String(params.fiscalYear));
+    const qs = sp.toString() ? `?${sp.toString()}` : '';
+    return this.request(`/api/admin/wallet/totals${qs}`);
+  },
+
+  async getAdminWalletBreakdown(params?: {
+    from?: string;
+    to?: string;
+    fiscalYear?: number;
+  }): Promise<{
+    timezone: string;
+    fiscalYear: number | null;
+    grandTotal: number;
+    breakdown: Record<import('./types').AdminWalletPurpose, { amount: number; count: number }>;
+  }> {
+    const sp = new URLSearchParams();
+    if (params?.from) sp.set('from', params.from);
+    if (params?.to) sp.set('to', params.to);
+    if (params?.fiscalYear) sp.set('fiscalYear', String(params.fiscalYear));
+    const qs = sp.toString() ? `?${sp.toString()}` : '';
+    return this.request(`/api/admin/wallet/breakdown${qs}`);
+  },
+
+  async getAdminWalletArchives(): Promise<{ archives: import('./types').WalletYearArchive[] }> {
+    return this.request('/api/admin/wallet/archives');
+  },
+
+  async getAdminWalletArchiveDetail(year: number): Promise<{ archive: import('./types').WalletYearArchive }> {
+    return this.request(`/api/admin/wallet/archives/${encodeURIComponent(String(year))}`);
+  },
+
+  async runAdminWalletArchive(fiscalYear?: number): Promise<{ archive: import('./types').WalletYearArchive }> {
+    return this.request('/api/admin/wallet/archives/run', {
+      method: 'POST',
+      body: JSON.stringify({ fiscalYear }),
+    });
+  },
+
+  async exportAdminWalletCsv(params?: {
+    q?: string;
+    purpose?: string;
+    role?: string;
+    sourceKind?: string;
+    fiscalYear?: number;
+    from?: string;
+    to?: string;
+  }): Promise<string> {
+    const sp = new URLSearchParams();
+    if (params?.q) sp.set('q', params.q);
+    if (params?.purpose && params.purpose !== 'ALL') sp.set('purpose', params.purpose);
+    if (params?.role && params.role !== 'ALL') sp.set('role', params.role);
+    if (params?.sourceKind && params.sourceKind !== 'ALL') sp.set('sourceKind', params.sourceKind);
+    if (params?.fiscalYear) sp.set('fiscalYear', String(params.fiscalYear));
+    if (params?.from) sp.set('from', params.from);
+    if (params?.to) sp.set('to', params.to);
+    const qs = sp.toString() ? `?${sp.toString()}` : '';
+    const token = getAuthToken();
+    const res = await fetch(`${API_BASE_URL || ''}/api/admin/wallet/export${qs}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new Error('Could not export Admin Wallet CSV.');
+    return res.text();
+  },
+
+  async executeAdminWalletSpecialRefund(payload: {
+    adminPassword: string;
+    reason: string;
+    caseReference: string;
+    originalPaymentCode: string;
+    amount: number;
+  }): Promise<{
+    entry: import('./types').AdminWalletEntry;
+    adminBalance: number;
+    reconciledNet: number;
+  }> {
+    return this.request('/api/admin/wallet/special-refund', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
   },
 
   async geocode(query: string): Promise<{
@@ -2153,6 +2327,26 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ billing: data?.billing || 'monthly', method: 'wallet' }),
     });
+  },
+
+  async getCollectionRowListings(
+    id: string,
+    params?: { cursor?: string; limit?: number }
+  ): Promise<{
+    collection: string;
+    locked: boolean;
+    requiresVVVIP?: boolean;
+    stays: Stay[];
+    nextCursor: string | null;
+    hasMore: boolean;
+    totalCount: number;
+    message?: string;
+  }> {
+    const sp = new URLSearchParams();
+    if (params?.cursor) sp.set('cursor', params.cursor);
+    if (params?.limit) sp.set('limit', String(params.limit));
+    const qs = sp.toString() ? `?${sp.toString()}` : '';
+    return this.request(`/api/airbus/collections/${encodeURIComponent(id)}/listings${qs}`);
   },
 
   async getPlusServiceRequests(): Promise<{ requests: import('./types').PlusServiceRequest[] }> {
