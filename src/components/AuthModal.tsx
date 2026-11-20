@@ -30,6 +30,18 @@ interface AuthModalProps {
   onAdminSetup?: (data: { name: string; email: string; password: string; setupKey: string }) => Promise<{ user: User }>;
 }
 
+function validatePassword(pw: string): string | null {
+  if (
+    pw.length < 8 ||
+    !/[a-zA-Z]/.test(pw) ||
+    !/[0-9]/.test(pw) ||
+    !/[^a-zA-Z0-9\s]/.test(pw)
+  ) {
+    return 'Password must be at least 8 characters and include a mix of letters, numbers, and other characters (e.g. !@#$%).';
+  }
+  return null;
+}
+
 export const AuthModal: React.FC<AuthModalProps> = ({
   isOpen,
   onClose,
@@ -60,6 +72,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [loginUsername, setLoginUsername] = useState('');
   const [loginEmail, setLoginEmail] = useState(adminPortalMode ? 'kamalahari93@gmail.com' : '');
   const [loginPassword, setLoginPassword] = useState('');
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
 
   // Public 3-failed-attempts Recovery state (Forgot Password or Forgot Username)
   const [failedAttempts, setFailedAttempts] = useState(0);
@@ -120,6 +133,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       }
       setLoginUsername('');
       setLoginPassword('');
+      setShowLoginPassword(false);
       setFailedAttempts(0);
       setShowRecoveryPrompt(false);
       setRecoveryMode('none');
@@ -129,6 +143,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       setRecNewUsername('');
       setError(null);
       setResetSuccess(null);
+      setRegisterUsername('');
+      setRegisterPassword('');
       setRegisterConfirmPassword('');
       setShowRegisterPassword(false);
       setShowRegisterConfirmPassword(false);
@@ -146,8 +162,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       setError('Please provide your admin email, master setup key, and new password.');
       return;
     }
-    if (resetNewPassword.length < 6) {
-      setError('New password must be at least 6 characters.');
+    const resetPwErr = validatePassword(resetNewPassword);
+    if (resetPwErr) {
+      setError(resetPwErr);
       return;
     }
     if (resetNewPassword !== resetConfirmPassword) {
@@ -205,15 +222,16 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       return;
     }
 
-    // Preserve exact username & password (no .trim() or .toLowerCase()) for exact case/punctuation matching
-    if (!loginUsername || !loginPassword) {
+    const cleanLoginUsername = loginUsername.trim();
+    // Preserve exact case/punctuation on username & password while ignoring accidental outer spaces on username
+    if (!cleanLoginUsername || !loginPassword) {
       setError('Please enter your exact username and password.');
       return;
     }
 
     setLoading(true);
     try {
-      const res = await api.loginPortal(selectedPortal, loginUsername, loginPassword);
+      const res = await api.loginPortal(selectedPortal, cleanLoginUsername, loginPassword);
       setFailedAttempts(0);
       setShowRecoveryPrompt(false);
       onLoginSuccess(res.user);
@@ -236,8 +254,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setError(null);
 
     if (recoveryMode === 'password') {
-      if (!recCurrentUsername || !recNewPassword || recNewPassword.length < 6) {
-        setError('Enter your exact current username and a new password (at least 6 characters).');
+      if (!recCurrentUsername.trim() || !recNewPassword) {
+        setError('Enter your exact current username and a new password.');
+        return;
+      }
+      const recPwErr = validatePassword(recNewPassword);
+      if (recPwErr) {
+        setError(recPwErr);
         return;
       }
     } else if (recoveryMode === 'username') {
@@ -252,7 +275,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       const res = await api.recoverCredential({
         portal: selectedPortal,
         mode: recoveryMode,
-        currentUsername: recCurrentUsername,
+        currentUsername: recCurrentUsername.trim(),
         newPassword: recNewPassword,
         currentPassword: recCurrentPassword,
         newUsername: recNewUsername,
@@ -278,8 +301,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         setError('Please fill in all registration fields.');
         return;
       }
-      if (registerPassword.length < 6) {
-        setError('Password must be at least 6 characters.');
+      const adminPwErr = validatePassword(registerPassword);
+      if (adminPwErr) {
+        setError(adminPwErr);
         return;
       }
       if (registerPassword !== registerConfirmPassword) {
@@ -325,8 +349,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       setError('Please choose a unique username and password.');
       return;
     }
-    if (registerPassword.length < 6) {
-      setError('Password must be at least 6 characters.');
+    const regPwErr = validatePassword(registerPassword);
+    if (regPwErr) {
+      setError(regPwErr);
       return;
     }
     if (registerPassword !== registerConfirmPassword) {
@@ -442,7 +467,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                         placeholder="••••••••"
                         className="neon-input"
                         required
-                        minLength={6}
+                        minLength={8}
                       />
                     </div>
                     <div>
@@ -456,7 +481,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                         placeholder="••••••••"
                         className="neon-input"
                         required
-                        minLength={6}
+                        minLength={8}
                       />
                     </div>
                   </div>
@@ -533,14 +558,24 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                         Forgot / Reset Password?
                       </button>
                     </div>
-                    <input
-                      type="password"
-                      value={loginPassword}
-                      onChange={e => setLoginPassword(e.target.value)}
-                      placeholder="••••••••"
-                      className="neon-input"
-                      required
-                    />
+                    <div className="relative">
+                      <input
+                        type={showLoginPassword ? 'text' : 'password'}
+                        value={loginPassword}
+                        onChange={e => setLoginPassword(e.target.value)}
+                        placeholder="••••••••"
+                        className="neon-input pr-10"
+                        required
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowLoginPassword(prev => !prev)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-200 cursor-pointer"
+                        aria-label={showLoginPassword ? 'Hide password' : 'Show password'}
+                      >
+                        {showLoginPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
                   </div>
 
                   {error && (
@@ -604,6 +639,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     type="button"
                     onClick={() => {
                       setSelectedPortal('guest');
+                      setShowLoginPassword(false);
                       setFailedAttempts(0);
                       setShowRecoveryPrompt(false);
                       setRecoveryMode('none');
@@ -628,6 +664,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     type="button"
                     onClick={() => {
                       setSelectedPortal('owner');
+                      setShowLoginPassword(false);
                       setFailedAttempts(0);
                       setShowRecoveryPrompt(false);
                       setRecoveryMode('none');
@@ -708,7 +745,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                       </div>
                       <div>
                         <label className="text-[11px] font-bold uppercase tracking-wider text-stone-300 block mb-1">
-                          New Unique Password (6+ chars)
+                          New Unique Password (8+ chars, letters, numbers &amp; symbols)
                         </label>
                         <input
                           type="password"
@@ -717,7 +754,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                           placeholder="Choose a unique password"
                           className="neon-input text-xs"
                           required
-                          minLength={6}
+                          minLength={8}
                         />
                       </div>
                     </>
@@ -780,6 +817,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     type="button"
                     onClick={() => {
                       setSelectedPortal(null);
+                      setShowLoginPassword(false);
                       setFailedAttempts(0);
                       setShowRecoveryPrompt(false);
                       setError(null);
@@ -819,15 +857,25 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     <label className="text-[11px] font-bold uppercase tracking-wider text-stone-300 block mb-1">
                       Password (Exact Case &amp; Punctuation)
                     </label>
-                    <input
-                      type="password"
-                      value={loginPassword}
-                      onChange={e => setLoginPassword(e.target.value)}
-                      placeholder="••••••••"
-                      className="neon-input"
-                      autoComplete="current-password"
-                      required
-                    />
+                    <div className="relative">
+                      <input
+                        type={showLoginPassword ? 'text' : 'password'}
+                        value={loginPassword}
+                        onChange={e => setLoginPassword(e.target.value)}
+                        placeholder="••••••••"
+                        className="neon-input pr-10"
+                        autoComplete="current-password"
+                        required
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowLoginPassword(prev => !prev)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-200 cursor-pointer"
+                        aria-label={showLoginPassword ? 'Hide password' : 'Show password'}
+                      >
+                        {showLoginPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
                   </div>
 
                   {error && (
@@ -1020,7 +1068,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
               <div>
                 <label className="text-[11px] font-bold uppercase tracking-wider text-stone-300 block mb-0.5">
-                  Password (Unique · 6+ chars)
+                  Password (Unique · 8+ chars, letters, numbers &amp; symbols)
                 </label>
                 <div className="relative">
                   <input
@@ -1030,6 +1078,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     placeholder="••••••••"
                     className="neon-input text-xs pr-10"
                     autoComplete="new-password"
+                    minLength={8}
                     required
                   />
                   <button
@@ -1119,6 +1168,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   type="button"
                   onClick={() => {
                     setError(null);
+                    if (!adminPortalMode && selectedPortal !== null) {
+                      setSelectedPortal(registerPortal);
+                    }
                     setIsSignUp(false);
                   }}
                   className="text-[#22d3ee] font-bold hover:underline cursor-pointer"

@@ -656,4 +656,74 @@ describe('AirBus Platform End-to-End Integrity Suite', () => {
     assert.equal(healthAfter.status, 200);
     assert.equal(healthAfter.data.dbOk, true);
   });
+
+  it('13. Enforces 8-char mixed password policy & guarantees Sign Up -> Login credential match for Guest and Host', async () => {
+    const uniq = Date.now().toString(36).toUpperCase();
+    const weakPasswords = ['Ab1!xyz', 'OnlyLetters!', '12345678!', 'Letters1234'];
+    for (const badPw of weakPasswords) {
+      const badReg = await apiJson('/api/auth/register', {
+        method: 'POST',
+        body: { portal: 'guest', username: `WeakGuest_${uniq}`, password: badPw },
+      });
+      assert.equal(badReg.status, 400, `Weak password "${badPw}" must be rejected`);
+    }
+
+    const guestUsername = `GuestUser_${uniq}`;
+    const guestPassword = `Gst@${uniq}9!`;
+    const guestReg = await apiJson<{ user: any; token: string }>('/api/auth/register', {
+      method: 'POST',
+      body: { portal: 'guest', username: `  ${guestUsername}  `, password: guestPassword },
+    });
+    assert.equal(guestReg.status, 201);
+    assert.equal(guestReg.data.user.role, 'guest');
+    assert.equal(guestReg.data.user.username, guestUsername);
+
+    const guestLoginExact = await apiJson<{ user: any; token: string }>('/api/auth/login', {
+      method: 'POST',
+      body: { portal: 'guest', username: guestUsername, password: guestPassword },
+    });
+    assert.equal(guestLoginExact.status, 200);
+    assert.equal(guestLoginExact.data.user.id, guestReg.data.user.id);
+    assert.ok(guestLoginExact.data.token);
+
+    // Trailing/leading whitespace on username during login still matches cleanly
+    const guestLoginTrimmed = await apiJson<{ user: any; token: string }>('/api/auth/login', {
+      method: 'POST',
+      body: { portal: 'guest', username: ` ${guestUsername} `, password: guestPassword },
+    });
+    assert.equal(guestLoginTrimmed.status, 200);
+    assert.equal(guestLoginTrimmed.data.user.id, guestReg.data.user.id);
+
+    const hostUsername = `HostUser_${uniq}`;
+    const hostPassword = `Hst#${uniq}7$`;
+    const hostReg = await apiJson<{ user: any; token: string }>('/api/auth/register', {
+      method: 'POST',
+      body: { portal: 'owner', username: hostUsername, password: hostPassword },
+    });
+    assert.equal(hostReg.status, 201);
+    assert.equal(hostReg.data.user.role, 'owner');
+
+    const hostLoginExact = await apiJson<{ user: any; token: string }>('/api/auth/login', {
+      method: 'POST',
+      body: { portal: 'owner', username: hostUsername, password: hostPassword },
+    });
+    assert.equal(hostLoginExact.status, 200);
+    assert.equal(hostLoginExact.data.user.id, hostReg.data.user.id);
+    assert.ok(hostLoginExact.data.token);
+
+    // Wrong portal yields a clear portal-switch message
+    const wrongPortal = await apiJson<{ error: string }>('/api/auth/login', {
+      method: 'POST',
+      body: { portal: 'guest', username: hostUsername, password: hostPassword },
+    });
+    assert.equal(wrongPortal.status, 401);
+    assert.match(wrongPortal.data.error, /Login to Host/i);
+
+    // Wrong password still rejects with 401
+    const wrongPass = await apiJson('/api/auth/login', {
+      method: 'POST',
+      body: { portal: 'owner', username: hostUsername, password: `${hostPassword}_wrong` },
+    });
+    assert.equal(wrongPass.status, 401);
+  });
 });

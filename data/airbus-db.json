@@ -7974,6 +7974,30 @@
       "lastActiveAt": 1795156658999,
       "idleTimeoutMs": 1200000,
       "expiresAt": 1797748658964
+    },
+    "sess_owner_d6a7c6c9-ba27-496b-a6cc-138313b685ad": {
+      "token": "sess_owner_d6a7c6c9-ba27-496b-a6cc-138313b685ad",
+      "userId": "u_owner",
+      "userEmail": "owner@airbus.ke",
+      "username": "DavidMutua",
+      "portal": "owner",
+      "role": "owner",
+      "createdAt": 1795165461238,
+      "lastActiveAt": 1795165461238,
+      "idleTimeoutMs": 1200000,
+      "expiresAt": 1797757461238
+    },
+    "sess_guest_76f20294-b635-4ac8-b070-3652a08585e1": {
+      "token": "sess_guest_76f20294-b635-4ac8-b070-3652a08585e1",
+      "userId": "u_guest",
+      "userEmail": "guest@airbus.ke",
+      "username": "SarahWanjiku",
+      "portal": "guest",
+      "role": "guest",
+      "createdAt": 1795165473590,
+      "lastActiveAt": 1795165473590,
+      "idleTimeoutMs": 1200000,
+      "expiresAt": 1797757473590
     }
   },
   "failedLoginAttempts": {
@@ -8024,6 +8048,10 @@
     "guest:hostalphaf2c5ae": {
       "count": 1,
       "updatedAt": 1794732513552
+    },
+    "guest:davidmutua": {
+      "count": 1,
+      "updatedAt": 1795165461248
     }
   },
   "appliedMigrations": [

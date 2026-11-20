@@ -120,6 +120,19 @@ export function hashPassword(password: string): string {
   return crypto.createHash('sha256').update(password + 'airbus_salt_2026').digest('hex');
 }
 
+export function validatePasswordStrength(password: string): string | null {
+  const raw = String(password || '');
+  if (
+    raw.length < 8 ||
+    !/[a-zA-Z]/.test(raw) ||
+    !/[0-9]/.test(raw) ||
+    !/[^a-zA-Z0-9\s]/.test(raw)
+  ) {
+    return 'Password must be at least 8 characters and include a mix of letters, numbers, and other characters (e.g. !@#$%).';
+  }
+  return null;
+}
+
 export function normalizeUsername(username: string): string {
   return String(username || '')
     .trim()
@@ -3165,8 +3178,9 @@ class DatabaseStore {
 
   public assertPasswordUnique(password: string, excludeUserId?: string) {
     const raw = String(password || '');
-    if (raw.length < 6) {
-      throw new Error('Password must be at least 6 characters.');
+    const strengthErr = validatePasswordStrength(raw);
+    if (strengthErr) {
+      throw new Error(strengthErr);
     }
     const candidateFp = buildPasswordFingerprint(raw);
 
@@ -3356,26 +3370,85 @@ class DatabaseStore {
     password: string;
   }): { user: User; token: string } {
     const portal: AuthPortal = opts.portal === 'owner' ? 'owner' : 'guest';
-    const rawUsername = String(opts.username || '');
+    const expectedRole = portal === 'owner' ? 'owner' : 'guest';
+    const cleanUsername = String(opts.username || '').trim();
     const rawPassword = String(opts.password || '');
 
     if (!this.data.failedLoginAttempts) this.data.failedLoginAttempts = {};
-    const attemptKey = `${portal}:${normalizeUsername(rawUsername) || '_blank'}`;
+    const attemptKey = `${portal}:${normalizeUsername(cleanUsername) || '_blank'}`;
 
     const store =
       portal === 'owner' ? this.data.hostCredentials || [] : this.data.guestCredentials || [];
     const passHash = hashPassword(rawPassword);
 
-    // Strictly exact (case-sensitive & punctuation-sensitive) match ONLY in the chosen portal store
-    const matchedCred = store.find(
-      c => c.username === rawUsername && c.passwordHash === passHash
+    // Strictly exact case- and punctuation-sensitive match in the chosen portal store (ignoring accidental outer whitespace on username)
+    let matchedCred = store.find(
+      c => c.username.trim() === cleanUsername && c.passwordHash === passHash
     );
 
+    // Fallback: check canonical users list for matching role + exact username + exact password hash and sync credential store
+    if (!matchedCred && cleanUsername && rawPassword) {
+      const directUser = this.data.users.find(
+        u =>
+          u.role === expectedRole &&
+          ((u.username || '').trim() === cleanUsername || (u.name || '').trim() === cleanUsername) &&
+          u.passwordHash === passHash
+      );
+      if (directUser) {
+        const syncedCred: CredentialRecord = {
+          id: `cred_${portal}_${directUser.id}`,
+          portal,
+          username: (directUser.username || directUser.name).trim(),
+          normalizedUsername: normalizeUsername(directUser.username || directUser.name),
+          userEmail: directUser.email.toLowerCase(),
+          userId: directUser.id,
+          passwordHash: passHash,
+          passwordFingerprint: buildPasswordFingerprint(rawPassword),
+          createdAt: directUser.createdAt || Date.now(),
+          updatedAt: Date.now(),
+        };
+        if (portal === 'owner') {
+          if (!this.data.hostCredentials) this.data.hostCredentials = [];
+          this.data.hostCredentials.push(syncedCred);
+        } else {
+          if (!this.data.guestCredentials) this.data.guestCredentials = [];
+          this.data.guestCredentials.push(syncedCred);
+        }
+        matchedCred = syncedCred;
+        this.save();
+      }
+    }
+
     if (!matchedCred) {
+      // Check opposite portal so a Host accidentally logging in on Guest Entrance (or vice versa) gets a clear message
+      const otherPortal: AuthPortal = portal === 'owner' ? 'guest' : 'owner';
+      const otherRole = otherPortal === 'owner' ? 'owner' : 'guest';
+      const otherStore =
+        otherPortal === 'owner' ? this.data.hostCredentials || [] : this.data.guestCredentials || [];
+      const matchedOtherCred =
+        otherStore.find(c => c.username.trim() === cleanUsername && c.passwordHash === passHash) ||
+        this.data.users.find(
+          u =>
+            u.role === otherRole &&
+            ((u.username || '').trim() === cleanUsername || (u.name || '').trim() === cleanUsername) &&
+            u.passwordHash === passHash
+        );
+
       const prev = this.data.failedLoginAttempts[attemptKey]?.count || 0;
       const next = prev + 1;
       this.data.failedLoginAttempts[attemptKey] = { count: next, updatedAt: Date.now() };
       this.save();
+
+      if (matchedOtherCred) {
+        const rightLabel = otherPortal === 'owner' ? 'Login to Host' : 'Login to Guest';
+        const err: any = new Error(
+          `This account is registered under ${otherPortal === 'owner' ? 'Host' : 'Guest'}. Please click "Switch Entrance" and choose ${rightLabel}.`
+        );
+        err.failedAttempts = next;
+        err.showRecovery = false;
+        throw err;
+      }
+
       const err: any = new Error(
         next >= 3
           ? `Invalid ${portal === 'owner' ? 'Host' : 'Guest'} username or password (Attempt ${next}). Please use Forgot Password / Forgot Username below.`
@@ -3386,8 +3459,9 @@ class DatabaseStore {
       throw err;
     }
 
-    const user = this.findUserByEmail(matchedCred.userEmail);
-    const expectedRole = portal === 'owner' ? 'owner' : 'guest';
+    const user =
+      this.findUserByEmail(matchedCred.userEmail) ||
+      this.data.users.find(u => u.id === matchedCred!.userId);
     if (!user || user.role !== expectedRole) {
       const prev = this.data.failedLoginAttempts[attemptKey]?.count || 0;
       const next = prev + 1;
@@ -3417,9 +3491,9 @@ class DatabaseStore {
       portal === 'owner' ? this.data.hostCredentials || [] : this.data.guestCredentials || [];
 
     if (opts.mode === 'password') {
-      const exactUser = String(opts.currentUsername || '');
+      const exactUser = String(opts.currentUsername || '').trim();
       const nextPass = String(opts.newPassword || '');
-      const cred = store.find(c => c.username === exactUser);
+      const cred = store.find(c => c.username.trim() === exactUser);
       if (!cred) {
         throw new Error(
           `No ${portal === 'owner' ? 'Host' : 'Guest'} account matched that exact username (case-sensitive). Try "Forgot Username" instead.`

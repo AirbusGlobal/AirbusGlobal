@@ -315,8 +315,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
 
     if (newPassword) {
-      if (newPassword.length < 6) {
-        setSecurityError('New password must be at least 6 characters long.');
+      if (
+        newPassword.length < 8 ||
+        !/[a-zA-Z]/.test(newPassword) ||
+        !/[0-9]/.test(newPassword) ||
+        !/[^a-zA-Z0-9\s]/.test(newPassword)
+      ) {
+        setSecurityError('Password must be at least 8 characters and include a mix of letters, numbers, and other characters (e.g. !@#$%).');
         return;
       }
       if (newPassword !== confirmPassword) {

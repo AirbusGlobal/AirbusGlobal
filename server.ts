@@ -5,7 +5,7 @@ import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { GoogleGenAI } from '@google/genai';
-import { db, hashPassword, PLANS, SESSION_IDLE_TIMEOUT_MS } from './src/server/db';
+import { db, hashPassword, PLANS, SESSION_IDLE_TIMEOUT_MS, validatePasswordStrength } from './src/server/db';
 import { User, Stay, StayCategory, Booking, ChatThread, ChatMessage, PaymentRecordType, PaymentRecordMethod, ShortIntentType } from './src/types';
 import { audioLibraryService } from './src/server/services/audioLibraryService';
 import { mediaProcessingService } from './src/server/services/mediaProcessingService';
@@ -319,8 +319,9 @@ app.post('/api/admin-portal/setup', (req, res) => {
       return res.status(401).json({ error: 'Invalid admin setup key.' });
     }
 
-    if (String(password).length < 6) {
-      return res.status(400).json({ error: 'Password must be at least 6 characters.' });
+    const pwErr = validatePasswordStrength(String(password));
+    if (pwErr) {
+      return res.status(400).json({ error: pwErr });
     }
 
     const newAdmin = db.registerSingleAdmin({
@@ -356,8 +357,11 @@ app.post('/api/admin/change-credentials', (req, res) => {
       return res.status(400).json({ error: 'Current password is required to update credentials.' });
     }
 
-    if (newPassword && String(newPassword).length < 6) {
-      return res.status(400).json({ error: 'New password must be at least 6 characters long.' });
+    if (newPassword) {
+      const pwErr = validatePasswordStrength(String(newPassword));
+      if (pwErr) {
+        return res.status(400).json({ error: pwErr });
+      }
     }
 
     const updated = db.updateAdminCredentials(
@@ -403,8 +407,9 @@ app.post('/api/admin-portal/reset-password', (req, res) => {
       return res.status(401).json({ error: 'Invalid admin setup key.' });
     }
 
-    if (String(newPassword).length < 6) {
-      return res.status(400).json({ error: 'New password must be at least 6 characters long.' });
+    const resetPwErr = validatePasswordStrength(String(newPassword));
+    if (resetPwErr) {
+      return res.status(400).json({ error: resetPwErr });
     }
 
     const cleanEmail = String(email).trim().toLowerCase();
@@ -439,8 +444,9 @@ app.post('/api/auth/register', (req, res) => {
     if (!rawUsername.trim() || !rawPassword) {
       return res.status(400).json({ error: 'Username and password are required.' });
     }
-    if (rawPassword.length < 6) {
-      return res.status(400).json({ error: 'Password must be at least 6 characters.' });
+    const regPwErr = validatePasswordStrength(rawPassword);
+    if (regPwErr) {
+      return res.status(400).json({ error: regPwErr });
     }
 
     const { user, token } = db.registerPortalUser({
@@ -480,7 +486,7 @@ app.post('/api/auth/login', (req, res) => {
       if (portal !== 'guest' && portal !== 'owner') {
         return res.status(400).json({ error: 'Please choose Login to Guest or Login to Host first.' });
       }
-      if (!username || !password) {
+      if (!String(username || '').trim() || !password) {
         return res.status(400).json({ error: 'Username and password are required.' });
       }
 
@@ -538,8 +544,14 @@ app.post('/api/auth/recovery', (req, res) => {
     if (mode !== 'password' && mode !== 'username') {
       return res.status(400).json({ error: 'Recovery mode must be password or username.' });
     }
-    if (mode === 'password' && (!currentUsername || !newPassword || String(newPassword).length < 6)) {
-      return res.status(400).json({ error: 'Exact current username and a new password (6+ characters) are required.' });
+    if (mode === 'password') {
+      if (!currentUsername || !newPassword) {
+        return res.status(400).json({ error: 'Exact current username and a new password are required.' });
+      }
+      const recPwErr = validatePasswordStrength(String(newPassword));
+      if (recPwErr) {
+        return res.status(400).json({ error: recPwErr });
+      }
     }
     if (mode === 'username' && (!currentPassword || !newUsername || !String(newUsername).trim())) {
       return res.status(400).json({ error: 'Current password and a new username are required.' });
@@ -648,8 +660,9 @@ app.post('/api/auth/change-password', (req, res) => {
   if (user.passwordHash && user.passwordHash !== hashPassword(currentPassword)) {
     return res.status(400).json({ error: 'Incorrect current password.' });
   }
-  if (newPassword.length < 6) {
-    return res.status(400).json({ error: 'New password must be at least 6 characters long.' });
+  const changePwErr = validatePasswordStrength(String(newPassword));
+  if (changePwErr) {
+    return res.status(400).json({ error: changePwErr });
   }
   if (currentPassword === newPassword) {
     return res.status(400).json({ error: 'New password must be different from current password.' });

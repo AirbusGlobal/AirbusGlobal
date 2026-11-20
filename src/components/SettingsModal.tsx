@@ -452,8 +452,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setPwError(null);
     setPwSuccess(null);
 
-    if (newPassword.length < 6) {
-      setPwError('New password must be at least 6 characters long.');
+    if (
+      newPassword.length < 8 ||
+      !/[a-zA-Z]/.test(newPassword) ||
+      !/[0-9]/.test(newPassword) ||
+      !/[^a-zA-Z0-9\s]/.test(newPassword)
+    ) {
+      setPwError('Password must be at least 8 characters and include a mix of letters, numbers, and other characters (e.g. !@#$%).');
       return;
     }
     if (newPassword !== confirmPassword) {
@@ -860,7 +865,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <Lock className="w-3.5 h-3.5" /> Unique User Password Protection
               </span>
               <p className="text-[11px] text-amber-800 dark:text-amber-300 leading-relaxed">
-                Each AirBus account has its own unique password. You can change your password anytime here. Passwords must be at least 6 characters long.
+                Each AirBus account has its own unique password. You can change your password anytime here. Passwords must be at least 8 characters with letters, numbers, and other characters.
               </p>
             </div>
 
@@ -880,7 +885,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
             <div>
               <label className="text-xs font-bold text-stone-700 dark:text-stone-300 block mb-1">
-                New Password (minimum 6 characters) *
+                New Password (8+ chars, letters, numbers &amp; symbols) *
               </label>
               <input
                 type="password"
@@ -888,6 +893,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 onChange={e => setNewPassword(e.target.value)}
                 placeholder="Enter new strong password"
                 className="w-full px-3 py-2 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-xs outline-none focus:border-stone-500"
+                minLength={8}
                 required
               />
             </div>
