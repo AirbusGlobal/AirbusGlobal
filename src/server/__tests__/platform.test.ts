@@ -373,14 +373,34 @@ describe('AirBus Platform End-to-End Integrity Suite', () => {
     const idx1 = mySubs.data.stays.findIndex(s => s.id === stay1.id);
     assert.ok(idx2 !== -1 && idx1 !== -1 && idx2 < idx1, 'My Submissions must be newest first');
 
-    // Admin Review Queue must list oldest pending first
-    const queue = await apiJson<{ listings: any[]; tripDating: any[] }>('/api/admin/review-queue', {
+    // Admin Review Queue must list oldest pending first and include stays + counts for AdminDashboard
+    const queue = await apiJson<{
+      stays: any[];
+      listings: any[];
+      tripDating: any[];
+      counts: { stays: number; tripDating: number; total: number };
+    }>('/api/admin/review-queue', {
       token: adminToken,
     });
     assert.equal(queue.status, 200);
+    assert.ok(Array.isArray(queue.data.stays), 'Admin Review Queue must include stays array');
+    assert.ok(queue.data.counts && typeof queue.data.counts.total === 'number', 'Admin Review Queue must include counts object');
+    assert.equal(queue.data.counts.total, queue.data.counts.stays + queue.data.counts.tripDating);
     const qIdx1 = queue.data.listings.findIndex(s => s.id === stay1.id);
     const qIdx2 = queue.data.listings.findIndex(s => s.id === stay2.id);
     assert.ok(qIdx1 !== -1 && qIdx2 !== -1 && qIdx1 < qIdx2, 'Admin Review Queue must return oldest pending first');
+
+    const overview = await apiJson<{
+      metrics: any;
+      stays: any[];
+      users: any[];
+      payments: any[];
+      auditLogs: any[];
+    }>('/api/admin/overview', { token: adminToken });
+    assert.equal(overview.status, 200);
+    assert.ok(overview.data.metrics && typeof overview.data.metrics.totalStays === 'number');
+    assert.ok(Array.isArray(overview.data.stays) && overview.data.stays.some(s => s.id === stay1.id), 'Admin overview must include all stays');
+    assert.ok(Array.isArray(overview.data.users) && Array.isArray(overview.data.payments) && Array.isArray(overview.data.auditLogs));
 
     // Declining without admin_feedback must fail with 400
     const badDecline = await apiJson(`/api/admin/review-queue/stays/${stay1.id}`, {

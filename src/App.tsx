@@ -48,6 +48,52 @@ import {
 const DEFAULT_IDLE_TIMEOUT_MS = 20 * 60 * 1000;
 const IDLE_WARNING_BEFORE_MS = 60 * 1000;
 
+class AdminErrorBoundary extends React.Component<
+  { children: React.ReactNode; onBack?: () => void },
+  { error: Error | null }
+> {
+  constructor(props: { children: React.ReactNode; onBack?: () => void }) {
+    super(props);
+    this.state = { error: null };
+  }
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="min-h-screen bg-[#0d0f14] text-white flex items-center justify-center p-6">
+          <div className="max-w-md w-full bg-[#161822] border border-red-800/60 rounded-3xl p-6 space-y-4 text-center shadow-2xl">
+            <h2 className="text-lg font-extrabold text-red-400">Admin Console Recovery</h2>
+            <p className="text-xs text-stone-300">
+              {this.state.error.message || 'An unexpected error occurred while rendering the Admin Console.'}
+            </p>
+            <div className="flex items-center justify-center gap-3">
+              <button
+                type="button"
+                onClick={() => this.setState({ error: null })}
+                className="px-4 py-2 rounded-full bg-amber-500 text-stone-950 text-xs font-extrabold cursor-pointer"
+              >
+                Retry Render
+              </button>
+              {this.props.onBack && (
+                <button
+                  type="button"
+                  onClick={this.props.onBack}
+                  className="px-4 py-2 rounded-full border border-stone-700 text-stone-200 text-xs font-bold cursor-pointer"
+                >
+                  Back to Feed
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export default function App() {
   // Navigation & View
   const [currentTab, setCurrentTab] = useState<string>('home');
@@ -173,13 +219,25 @@ export default function App() {
 
       // Admin metrics
       if (currentUser.role === 'admin') {
-        const [pRes, aRes] = await Promise.all([
+        const [pResSettled, aResSettled] = await Promise.allSettled([
           api.getHostPlan(),
           api.getAdminOverview(),
         ]);
-        if (pRes?.plan) setHostPlan(pRes.plan);
-        if (pRes?.wallet !== undefined) setWalletBalance(pRes.wallet);
-        setAdminOverview(aRes);
+        if (pResSettled.status === 'fulfilled' && pResSettled.value) {
+          if (pResSettled.value.plan) setHostPlan(pResSettled.value.plan);
+          if (pResSettled.value.wallet !== undefined) setWalletBalance(pResSettled.value.wallet);
+        }
+        if (aResSettled.status === 'fulfilled' && aResSettled.value) {
+          setAdminOverview((prev: any) => ({
+            ...prev,
+            ...aResSettled.value,
+            metrics: { ...prev.metrics, ...(aResSettled.value.metrics || {}) },
+            stays: Array.isArray(aResSettled.value.stays) ? aResSettled.value.stays : prev.stays,
+            users: Array.isArray(aResSettled.value.users) ? aResSettled.value.users : prev.users,
+            payments: Array.isArray(aResSettled.value.payments) ? aResSettled.value.payments : prev.payments,
+            auditLogs: Array.isArray(aResSettled.value.auditLogs) ? aResSettled.value.auditLogs : prev.auditLogs,
+          }));
+        }
       }
     } catch (err) {
       console.warn('Error loading user-specific data:', err);
@@ -1058,6 +1116,14 @@ export default function App() {
           </div>
         )}
 
+        <AdminErrorBoundary
+          onBack={() => {
+            const basePrefix = window.location.pathname.startsWith('/AirbusGlobal') ? '/AirbusGlobal/' : '/';
+            window.history.pushState({}, '', basePrefix);
+            setIsOnAdminRoute(false);
+            setCurrentTab('home');
+          }}
+        >
         <React.Suspense
           fallback={
             <div className="min-h-screen w-full bg-[#0d0f14] flex flex-col items-center justify-center text-white">
@@ -1070,12 +1136,20 @@ export default function App() {
         >
           <AdminDashboard
             adminUser={user}
-            metrics={adminOverview.metrics}
-            stays={stays}
-            users={adminOverview.users}
-            payments={adminOverview.payments}
+            metrics={adminOverview?.metrics || {
+              totalStays: stays.length,
+              liveStays: stays.filter(s => s.status === 'live').length,
+              pendingReviews: 0,
+              totalUsers: 0,
+              pendingPayments: 0,
+              totalBookings: 0,
+              volumeKes: 0,
+            }}
+            stays={Array.isArray(adminOverview?.stays) && adminOverview.stays.length > 0 ? adminOverview.stays : stays}
+            users={Array.isArray(adminOverview?.users) ? adminOverview.users : []}
+            payments={Array.isArray(adminOverview?.payments) ? adminOverview.payments : []}
             threads={threads}
-            auditLogs={adminOverview.auditLogs}
+            auditLogs={Array.isArray(adminOverview?.auditLogs) ? adminOverview.auditLogs : []}
             onApprovePayment={async id => {
               await api.approvePayment(id);
               const updated = await api.getAdminOverview();
@@ -1120,6 +1194,7 @@ export default function App() {
             onUpdateAdminUser={updated => setUser(updated)}
           />
         </React.Suspense>
+        </AdminErrorBoundary>
         {renderIdleWarningModal()}
       </div>
     );

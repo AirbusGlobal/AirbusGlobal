@@ -8180,7 +8180,12 @@ class DatabaseStore {
     return profile;
   }
 
-  public getAdminReviewQueue(): { listings: Stay[]; tripDating: TripDatingProfile[] } {
+  public getAdminReviewQueue(): {
+    stays: Stay[];
+    listings: Stay[];
+    tripDating: TripDatingProfile[];
+    counts: { stays: number; tripDating: number; total: number };
+  } {
     const listings = (this.data.stays || [])
       .filter(s => s.moderationState === 'PENDING' || (!s.moderationState && (s.status === 'review' || s.moderationStatus === 'pending')))
       .map(s => this.hydrateStayAudio({ ...s, isVerified: s.isVerified !== false }))
@@ -8196,7 +8201,16 @@ class DatabaseStore {
         return diff !== 0 ? diff : a.id.localeCompare(b.id);
       });
 
-    return { listings, tripDating };
+    return {
+      stays: listings,
+      listings,
+      tripDating,
+      counts: {
+        stays: listings.length,
+        tripDating: tripDating.length,
+        total: listings.length + tripDating.length,
+      },
+    };
   }
 
   public reportTripDatingProfile(data: {

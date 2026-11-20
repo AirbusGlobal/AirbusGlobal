@@ -100,12 +100,20 @@ interface AdminDashboardProps {
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   adminUser,
-  metrics,
-  stays,
-  users,
-  payments,
-  threads,
-  auditLogs,
+  metrics = {
+    totalStays: 0,
+    liveStays: 0,
+    pendingReviews: 0,
+    totalUsers: 0,
+    pendingPayments: 0,
+    totalBookings: 0,
+    volumeKes: 0,
+  },
+  stays = [],
+  users = [],
+  payments = [],
+  threads = [],
+  auditLogs = [],
   onApprovePayment,
   onRejectPayment,
   onVerifyUser,
@@ -345,19 +353,39 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
   };
 
+  const normalizeReviewQueue = (res: any) => {
+    const qStays: Stay[] = Array.isArray(res?.stays)
+      ? res.stays
+      : Array.isArray(res?.listings)
+      ? res.listings
+      : [];
+    const qTripDating: TripDatingProfile[] = Array.isArray(res?.tripDating) ? res.tripDating : [];
+    return {
+      stays: qStays,
+      tripDating: qTripDating,
+      counts: {
+        stays: typeof res?.counts?.stays === 'number' ? res.counts.stays : qStays.length,
+        tripDating: typeof res?.counts?.tripDating === 'number' ? res.counts.tripDating : qTripDating.length,
+        total: typeof res?.counts?.total === 'number' ? res.counts.total : qStays.length + qTripDating.length,
+      },
+    };
+  };
+
   const loadAdminData = () => {
     api.getPaymentRecords().then(res => {
-      if (res && res.payments) setAllPayments(res.payments);
+      if (Array.isArray(res?.payments)) setAllPayments(res.payments);
     }).catch(() => {});
-    api.getPosts().then(res => setPosts(res.posts)).catch(() => {});
-    api.getAds().then(res => setAds(res.ads)).catch(() => {});
-    api.getOwnerPromotions().then(res => setPromotions(res.promotions || [])).catch(() => {});
-    api.getAdminWithdrawals().then(res => setWithdrawals(res.withdrawals)).catch(() => {});
-    api.getSettings().then(res => setSettings(res.settings)).catch(() => {});
-    api.getDormantOwners().then(res => setDormantOwners(res.dormantOwners || [])).catch(() => {});
+    api.getPosts().then(res => setPosts(Array.isArray(res?.posts) ? res.posts : [])).catch(() => {});
+    api.getAds().then(res => setAds(Array.isArray(res?.ads) ? res.ads : [])).catch(() => {});
+    api.getOwnerPromotions().then(res => setPromotions(Array.isArray(res?.promotions) ? res.promotions : [])).catch(() => {});
+    api.getAdminWithdrawals().then(res => setWithdrawals(Array.isArray(res?.withdrawals) ? res.withdrawals : [])).catch(() => {});
+    api.getSettings().then(res => {
+      if (res?.settings) setSettings(res.settings);
+    }).catch(() => {});
+    api.getDormantOwners().then(res => setDormantOwners(Array.isArray(res?.dormantOwners) ? res.dormantOwners : [])).catch(() => {});
     api.getWallet().then(res => {
-      setTreasuryWallet(res.wallet);
-      setTreasuryLedger(res.ledger);
+      if (res?.wallet) setTreasuryWallet(res.wallet);
+      setTreasuryLedger(Array.isArray(res?.ledger) ? res.ledger : []);
     }).catch(() => {});
     api.getWalletReconciliation().then(res => {
       if (res) setReconciliation(res);
@@ -365,37 +393,44 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     api.getAdminIncomeReport().then(res => {
       if (res) setIncomeReport(res);
     }).catch(() => {});
-    api.getAdminTripDatingRequests().then(res => setDatingRequests(res.requests || [])).catch(() => {});
+    api.getAdminTripDatingRequests().then(res => setDatingRequests(Array.isArray(res?.requests) ? res.requests : [])).catch(() => {});
     api.getAdminTripDatingStats().then(res => {
-      setDatingStats(res.stats);
-      setDatingProfiles(res.profiles || []);
+      if (res?.stats) setDatingStats(res.stats);
+      setDatingProfiles(Array.isArray(res?.profiles) ? res.profiles : []);
     }).catch(() => {});
     api.getAdminListingMedia({ type: mediaTypeFilter, flaggedOnly: mediaFlaggedOnly, search: mediaSearch }).then(res => {
-      if (res && res.media) setListingMediaList(res.media);
+      if (Array.isArray(res?.media)) setListingMediaList(res.media);
     }).catch(() => {});
     api.getAdminSubscriptions().then(res => {
-      if (res && res.subscriptions) setAdminSubscriptions(res.subscriptions);
+      if (Array.isArray(res?.subscriptions)) setAdminSubscriptions(res.subscriptions);
     }).catch(() => {});
     api.getAdminReports().then(res => {
-      if (res && res.reports) setAdminReports(res.reports);
+      if (Array.isArray(res?.reports)) setAdminReports(res.reports);
     }).catch(() => {});
     api.getAdminReviews().then(res => {
-      if (res && res.reviews) setAdminReviews(res.reviews);
+      if (Array.isArray(res?.reviews)) setAdminReviews(res.reviews);
     }).catch(() => {});
     api.getLiveUpdates().then(res => {
-      if (res && res.counts) setLiveCounts(res.counts);
+      if (res?.counts) setLiveCounts(res.counts);
     }).catch(() => {});
     api.getAdminWallets().then(res => {
-      if (res) setAdminWalletsData(res);
+      if (res) {
+        setAdminWalletsData({
+          guestWallets: Array.isArray(res.guestWallets) ? res.guestWallets : [],
+          hostWallets: Array.isArray(res.hostWallets) ? res.hostWallets : [],
+          guestDeposits: Array.isArray(res.guestDeposits) ? res.guestDeposits : [],
+          hostDeposits: Array.isArray(res.hostDeposits) ? res.hostDeposits : [],
+        });
+      }
     }).catch(() => {});
     api.getPlusServiceRequests().then(res => {
-      if (res?.requests) setPlusRequests(res.requests);
+      if (Array.isArray(res?.requests)) setPlusRequests(res.requests);
     }).catch(() => {});
     api.getAdminLocalProviders().then(res => {
-      if (res?.providers) setLocalProvidersAdmin(res.providers);
+      if (Array.isArray(res?.providers)) setLocalProvidersAdmin(res.providers);
     }).catch(() => {});
     api.getAdminReviewQueue().then(res => {
-      if (res) setReviewQueue(res);
+      if (res) setReviewQueue(normalizeReviewQueue(res));
     }).catch(() => {});
   };
 
@@ -432,10 +467,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     loadAdminData();
     const interval = setInterval(() => {
       api.getLiveUpdates().then(res => {
-        if (res && res.counts) setLiveCounts(res.counts);
+        if (res?.counts) setLiveCounts(res.counts);
       }).catch(() => {});
       api.getAdminReviewQueue().then(res => {
-        if (res) setReviewQueue(res);
+        if (res) setReviewQueue(normalizeReviewQueue(res));
       }).catch(() => {});
     }, 8000);
     return () => clearInterval(interval);
@@ -481,7 +516,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <span className="bg-amber-500 text-stone-950 text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full tracking-wider flex items-center gap-1">
                 <ShieldCheck className="w-3.5 h-3.5" /> Platform Admin Console
               </span>
-              <span className="text-xs text-amber-300 font-mono">Logged as: {adminUser.email}</span>
+              <span className="text-xs text-amber-300 font-mono">Logged as: {adminUser?.email}</span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-extrabold font-heading tracking-tight">
               AirBus Central Administration
@@ -494,23 +529,23 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           {/* Core Metrics */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 w-full md:w-auto">
             <div className="bg-white/10 backdrop-blur-md p-3 rounded-2xl border border-white/10 text-center">
-              <div className="text-lg font-black text-amber-400">{metrics.pendingPayments}</div>
+              <div className="text-lg font-black text-amber-400">{metrics?.pendingPayments ?? 0}</div>
               <div className="text-[10px] text-stone-300 uppercase font-semibold">Pending M-Pesa</div>
             </div>
 
             <div className="bg-white/10 backdrop-blur-md p-3 rounded-2xl border border-white/10 text-center">
-              <div className="text-lg font-black text-emerald-400">{metrics.liveStays}</div>
+              <div className="text-lg font-black text-emerald-400">{metrics?.liveStays ?? 0}</div>
               <div className="text-[10px] text-stone-300 uppercase font-semibold">Live Stays</div>
             </div>
 
             <div className="bg-white/10 backdrop-blur-md p-3 rounded-2xl border border-white/10 text-center">
-              <div className="text-lg font-black text-white">{metrics.totalUsers}</div>
+              <div className="text-lg font-black text-white">{metrics?.totalUsers ?? 0}</div>
               <div className="text-[10px] text-stone-300 uppercase font-semibold">Accounts</div>
             </div>
 
             <div className="bg-white/10 backdrop-blur-md p-3 rounded-2xl border border-white/10 text-center">
               <div className="text-lg font-black text-[#ff2e93]">
-                KES {Math.round(metrics.volumeKes / 1000)}k
+                KES {Math.round((metrics?.volumeKes || 0) / 1000)}k
               </div>
               <div className="text-[10px] text-stone-300 uppercase font-semibold">Volume</div>
             </div>
@@ -1265,7 +1300,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   const isApproved = p.status === 'approved';
                   const isRejected = p.status === 'rejected';
                   const isRefunded = p.status === 'refunded';
-                  const amountDisplay = p.amountSc || p.amount;
+                  const amountDisplay = Number(p.amountSc ?? p.amountKes ?? p.amount ?? 0);
 
                   return (
                     <div
@@ -1558,13 +1593,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         </td>
                         <td className="py-2.5 px-3 font-mono text-stone-600 dark:text-stone-300">{w.username}</td>
                         <td className="py-2.5 px-3 font-mono font-bold text-emerald-600 dark:text-emerald-400">
-                          KES {w.balance.toLocaleString()}
+                          KES {Number(w.balance ?? 0).toLocaleString()}
                         </td>
-                        <td className="py-2.5 px-3 font-mono text-amber-600">KES {w.holdBalance.toLocaleString()}</td>
+                        <td className="py-2.5 px-3 font-mono text-amber-600">KES {Number(w.holdBalance ?? 0).toLocaleString()}</td>
                         <td className="py-2.5 px-3 font-mono font-bold text-stone-900 dark:text-white">
-                          KES {w.available.toLocaleString()}
+                          KES {Number(w.available ?? 0).toLocaleString()}
                         </td>
-                        <td className="py-2.5 px-3 font-mono text-stone-500">KES {w.lifetimeSpent.toLocaleString()}</td>
+                        <td className="py-2.5 px-3 font-mono text-stone-500">KES {Number(w.lifetimeSpent ?? 0).toLocaleString()}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -1684,13 +1719,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         </td>
                         <td className="py-2.5 px-3 font-mono text-stone-600 dark:text-stone-300">{w.username}</td>
                         <td className="py-2.5 px-3 font-mono font-bold text-purple-600 dark:text-purple-400">
-                          KES {w.balance.toLocaleString()}
+                          KES {Number(w.balance ?? 0).toLocaleString()}
                         </td>
-                        <td className="py-2.5 px-3 font-mono text-amber-600">KES {w.holdBalance.toLocaleString()}</td>
+                        <td className="py-2.5 px-3 font-mono text-amber-600">KES {Number(w.holdBalance ?? 0).toLocaleString()}</td>
                         <td className="py-2.5 px-3 font-mono font-bold text-stone-900 dark:text-white">
-                          KES {w.available.toLocaleString()}
+                          KES {Number(w.available ?? 0).toLocaleString()}
                         </td>
-                        <td className="py-2.5 px-3 font-mono text-stone-500">KES {w.lifetimeEarnings.toLocaleString()}</td>
+                        <td className="py-2.5 px-3 font-mono text-stone-500">KES {Number(w.lifetimeEarnings ?? 0).toLocaleString()}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -2451,8 +2486,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <label className="text-[10px] text-stone-400 uppercase font-semibold">Silver Plan</label>
                   <input
                     type="number"
-                    value={settings.planPrices.Silver}
-                    onChange={e => setSettings({ ...settings, planPrices: { ...settings.planPrices, Silver: Number(e.target.value) } })}
+                    value={settings.planPrices?.Silver ?? 1000}
+                    onChange={e =>
+                      setSettings({
+                        ...settings,
+                        planPrices: {
+                          ...(settings.planPrices || { Silver: 1000, Diamond: 2500, Gold: 5000 }),
+                          Silver: Number(e.target.value),
+                        },
+                      })
+                    }
                     className="w-full mt-1 px-3 py-2 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-xl font-bold text-xs"
                   />
                 </div>
@@ -2460,8 +2503,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <label className="text-[10px] text-stone-400 uppercase font-semibold">Diamond Plan</label>
                   <input
                     type="number"
-                    value={settings.planPrices.Diamond}
-                    onChange={e => setSettings({ ...settings, planPrices: { ...settings.planPrices, Diamond: Number(e.target.value) } })}
+                    value={settings.planPrices?.Diamond ?? 2500}
+                    onChange={e =>
+                      setSettings({
+                        ...settings,
+                        planPrices: {
+                          ...(settings.planPrices || { Silver: 1000, Diamond: 2500, Gold: 5000 }),
+                          Diamond: Number(e.target.value),
+                        },
+                      })
+                    }
                     className="w-full mt-1 px-3 py-2 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-xl font-bold text-xs"
                   />
                 </div>
@@ -2469,8 +2520,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <label className="text-[10px] text-stone-400 uppercase font-semibold">Gold Plan</label>
                   <input
                     type="number"
-                    value={settings.planPrices.Gold}
-                    onChange={e => setSettings({ ...settings, planPrices: { ...settings.planPrices, Gold: Number(e.target.value) } })}
+                    value={settings.planPrices?.Gold ?? 5000}
+                    onChange={e =>
+                      setSettings({
+                        ...settings,
+                        planPrices: {
+                          ...(settings.planPrices || { Silver: 1000, Diamond: 2500, Gold: 5000 }),
+                          Gold: Number(e.target.value),
+                        },
+                      })
+                    }
                     className="w-full mt-1 px-3 py-2 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-xl font-bold text-xs"
                   />
                 </div>
@@ -2719,7 +2778,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
                   <h4 className="text-sm font-bold text-stone-900 dark:text-white">{s.title}</h4>
                   <div className="text-xs text-stone-500">
-                    {s.location} · KES {s.price.toLocaleString()}/night · {s.guests} guests · Rating: {s.rating} ★ ({s.reviewsCount})
+                    {s.location} · KES {Number(s.price ?? 0).toLocaleString()}/night · {s.guests ?? 0} guests · Rating: {s.rating ?? 0} ★ ({s.reviewsCount ?? 0})
                   </div>
                   <div className="text-[11px] text-stone-400 flex items-center gap-3 pt-0.5 flex-wrap">
                     <span>📞 Phone/WhatsApp: <strong className="text-stone-600 dark:text-stone-300">{ownerPhone}</strong></span>
@@ -4758,7 +4817,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             <div className="p-3 bg-stone-50 dark:bg-stone-900 rounded-2xl text-xs space-y-1 text-stone-600 dark:text-stone-300">
               <div>User: <strong className="text-stone-900 dark:text-white">{rejectModalPayment.userName || rejectModalPayment.userId || rejectModalPayment.hostEmail}</strong></div>
               <div>Method: <strong className="uppercase">{rejectModalPayment.method || 'M-Pesa'}</strong></div>
-              <div>Amount: <strong className="font-mono text-rose-600">KES {(rejectModalPayment.claimedAmount || rejectModalPayment.amountSc || rejectModalPayment.amount).toLocaleString()}</strong></div>
+              <div>Amount: <strong className="font-mono text-rose-600">KES {Number(rejectModalPayment.claimedAmount ?? rejectModalPayment.amountKes ?? rejectModalPayment.amountSc ?? rejectModalPayment.amount ?? 0).toLocaleString()}</strong></div>
             </div>
 
             {rejectModalPayment.method === 'wallet' && (

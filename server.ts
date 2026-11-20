@@ -2301,6 +2301,7 @@ app.get('/api/admin/overview', (req, res) => {
       totalBookings: bookings.length,
       volumeKes: bookings.filter(b => b.status === 'confirmed').reduce((acc, b) => acc + b.total, 0),
     },
+    stays,
     users,
     payments,
     reports,
