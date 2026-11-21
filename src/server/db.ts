@@ -5227,6 +5227,15 @@ class DatabaseStore {
       durationDays: input.durationDays,
       duration_days: input.durationDays,
       period: input.period,
+      claimedAmount: input.claimedAmount,
+      phoneNumber: input.phoneNumber,
+      proofUrl: input.proofUrl,
+      reference: input.reference,
+      walletPurpose:
+        typeof input.walletPurpose === 'string' &&
+        ['SUBSCRIPTION', 'ADVERTISING', 'TRIP_DATING', 'AIRBUS_PLUS', 'OTHER'].includes(input.walletPurpose.toUpperCase())
+          ? (input.walletPurpose.toUpperCase() as AdminWalletPurpose)
+          : undefined,
       createdAt: input.createdAt || Date.now(),
       created_at: input.createdAt || Date.now(),
       updatedAt: input.updatedAt || Date.now(),

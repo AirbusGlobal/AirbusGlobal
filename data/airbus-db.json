@@ -333,7 +333,16 @@
       "moderationState": "PENDING",
       "admin_feedback": null,
       "reviewed_at": null,
-      "reviewed_by": null
+      "reviewed_by": null,
+      "publishState": "PENDING_REVIEW",
+      "published_at": null,
+      "collections": [],
+      "blackFridayOptIn": false,
+      "isAirbusWork": false,
+      "isLocalGuideExperience": false,
+      "isWorldWide": false,
+      "isEscapeOffer": false,
+      "isPlusVVVIP": false
     },
     {
       "id": "s1",
@@ -399,7 +408,8 @@
           "url": "https://assets.mixkit.co/videos/preview/mixkit-modern-apartment-with-living-room-and-terrace-43405-large.mp4",
           "thumbnail": "https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?auto=format&fit=crop&w=800&q=80",
           "duration": 60,
-          "size": 15000000
+          "size": 15000000,
+          "mediaId": "ma_s1_5e090a"
         },
         "photos": [
           {
@@ -428,7 +438,19 @@
       "isApprovedByAdmin": true,
       "admin_feedback": null,
       "reviewed_at": null,
-      "reviewed_by": null
+      "reviewed_by": null,
+      "publishState": "PUBLISHED",
+      "published_at": 1789638650938,
+      "approved_by": "admin@airbus.ke",
+      "videoMediaId": "ma_s1_5e090a",
+      "collections": [
+        "black-friday",
+        "work"
+      ],
+      "isLocalGuideExperience": false,
+      "isWorldWide": false,
+      "isEscapeOffer": false,
+      "isPlusVVVIP": false
     },
     {
       "id": "s2",
@@ -488,7 +510,8 @@
           "url": "https://assets.mixkit.co/videos/preview/mixkit-luxurious-living-room-with-a-modern-interior-design-43409-large.mp4",
           "thumbnail": "https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?auto=format&fit=crop&w=800&q=80",
           "duration": 60,
-          "size": 15000000
+          "size": 15000000,
+          "mediaId": "ma_s2_bf6076"
         },
         "photos": [
           {
@@ -522,7 +545,19 @@
       "isApprovedByAdmin": true,
       "admin_feedback": null,
       "reviewed_at": null,
-      "reviewed_by": null
+      "reviewed_by": null,
+      "publishState": "PUBLISHED",
+      "published_at": 1790070650938,
+      "approved_by": "admin@airbus.ke",
+      "videoMediaId": "ma_s2_bf6076",
+      "collections": [
+        "work",
+        "escapes"
+      ],
+      "blackFridayOptIn": false,
+      "isLocalGuideExperience": false,
+      "isWorldWide": false,
+      "isPlusVVVIP": false
     },
     {
       "id": "s3",
@@ -586,7 +621,8 @@
           "url": "https://assets.mixkit.co/videos/preview/mixkit-wooden-house-in-the-middle-of-a-forest-43410-large.mp4",
           "thumbnail": "https://images.unsplash.com/photo-1580587771525-78b9dba3b914?auto=format&fit=crop&w=800&q=80",
           "duration": 60,
-          "size": 15000000
+          "size": 15000000,
+          "mediaId": "ma_s3_35b41d"
         },
         "photos": [
           {
@@ -608,7 +644,18 @@
       "isApprovedByAdmin": true,
       "admin_feedback": null,
       "reviewed_at": null,
-      "reviewed_by": null
+      "reviewed_by": null,
+      "publishState": "PUBLISHED",
+      "published_at": 1788774650938,
+      "approved_by": "admin@airbus.ke",
+      "videoMediaId": "ma_s3_35b41d",
+      "collections": [],
+      "blackFridayOptIn": false,
+      "isAirbusWork": false,
+      "isLocalGuideExperience": false,
+      "isWorldWide": false,
+      "isEscapeOffer": false,
+      "isPlusVVVIP": false
     },
     {
       "id": "s4",
@@ -672,7 +719,8 @@
           "url": "https://assets.mixkit.co/videos/preview/mixkit-villa-with-pool-and-terrace-in-front-of-the-sea-43406-large.mp4",
           "thumbnail": "https://images.unsplash.com/photo-1512917774080-9991f1c4c750?auto=format&fit=crop&w=800&q=80",
           "duration": 60,
-          "size": 15000000
+          "size": 15000000,
+          "mediaId": "ma_s4_9c6bbe"
         },
         "photos": [
           {
@@ -694,7 +742,18 @@
       "isApprovedByAdmin": true,
       "admin_feedback": null,
       "reviewed_at": null,
-      "reviewed_by": null
+      "reviewed_by": null,
+      "publishState": "PUBLISHED",
+      "published_at": 1787478650938,
+      "approved_by": "admin@airbus.ke",
+      "videoMediaId": "ma_s4_9c6bbe",
+      "collections": [],
+      "blackFridayOptIn": false,
+      "isAirbusWork": false,
+      "isLocalGuideExperience": false,
+      "isWorldWide": false,
+      "isEscapeOffer": false,
+      "isPlusVVVIP": false
     },
     {
       "id": "s5",
@@ -753,7 +812,8 @@
           "url": "https://assets.mixkit.co/videos/preview/mixkit-swimming-pool-surrounded-by-palm-trees-at-sunset-42028-large.mp4",
           "thumbnail": "https://images.unsplash.com/photo-1499793983690-e29da59ef1c2?auto=format&fit=crop&w=800&q=80",
           "duration": 60,
-          "size": 15000000
+          "size": 15000000,
+          "mediaId": "ma_s5_b56965"
         },
         "photos": [
           {
@@ -784,7 +844,19 @@
       "isApprovedByAdmin": true,
       "admin_feedback": null,
       "reviewed_at": null,
-      "reviewed_by": null
+      "reviewed_by": null,
+      "publishState": "PUBLISHED",
+      "published_at": 1790502650938,
+      "approved_by": "admin@airbus.ke",
+      "videoMediaId": "ma_s5_b56965",
+      "collections": [
+        "black-friday",
+        "escapes"
+      ],
+      "isAirbusWork": false,
+      "isLocalGuideExperience": false,
+      "isWorldWide": false,
+      "isPlusVVVIP": false
     },
     {
       "id": "s6",
@@ -843,7 +915,8 @@
           "url": "https://assets.mixkit.co/videos/preview/mixkit-cozy-living-room-in-a-cabin-43407-large.mp4",
           "thumbnail": "https://images.unsplash.com/photo-1518780664697-55e3ad937233?auto=format&fit=crop&w=800&q=80",
           "duration": 60,
-          "size": 15000000
+          "size": 15000000,
+          "mediaId": "ma_s6_aa8098"
         },
         "photos": [
           {
@@ -865,7 +938,18 @@
       "isApprovedByAdmin": true,
       "admin_feedback": null,
       "reviewed_at": null,
-      "reviewed_by": null
+      "reviewed_by": null,
+      "publishState": "PUBLISHED",
+      "published_at": 1790934650938,
+      "approved_by": "admin@airbus.ke",
+      "videoMediaId": "ma_s6_aa8098",
+      "collections": [],
+      "blackFridayOptIn": false,
+      "isAirbusWork": false,
+      "isLocalGuideExperience": false,
+      "isWorldWide": false,
+      "isEscapeOffer": false,
+      "isPlusVVVIP": false
     },
     {
       "id": "s7",
@@ -925,7 +1009,8 @@
           "url": "https://assets.mixkit.co/videos/preview/mixkit-large-house-with-modern-interior-and-floor-to-ceiling-windows-43411-large.mp4",
           "thumbnail": "https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?auto=format&fit=crop&w=800&q=80",
           "duration": 60,
-          "size": 15000000
+          "size": 15000000,
+          "mediaId": "ma_s7_66f15e"
         },
         "photos": [
           {
@@ -947,7 +1032,18 @@
       "isApprovedByAdmin": true,
       "admin_feedback": null,
       "reviewed_at": null,
-      "reviewed_by": null
+      "reviewed_by": null,
+      "publishState": "PUBLISHED",
+      "published_at": 1791798650938,
+      "approved_by": "admin@airbus.ke",
+      "videoMediaId": "ma_s7_66f15e",
+      "collections": [],
+      "blackFridayOptIn": false,
+      "isAirbusWork": false,
+      "isLocalGuideExperience": false,
+      "isWorldWide": false,
+      "isEscapeOffer": false,
+      "isPlusVVVIP": false
     },
     {
       "id": "s8",
@@ -1007,7 +1103,8 @@
           "url": "https://assets.mixkit.co/videos/preview/mixkit-kitchen-island-in-a-luxurious-modern-house-43412-large.mp4",
           "thumbnail": "https://images.unsplash.com/photo-1542314831-068cd1dbfeeb?auto=format&fit=crop&w=800&q=80",
           "duration": 60,
-          "size": 15000000
+          "size": 15000000,
+          "mediaId": "ma_s8_c20280"
         },
         "photos": [
           {
@@ -1036,7 +1133,19 @@
       "isApprovedByAdmin": true,
       "admin_feedback": null,
       "reviewed_at": null,
-      "reviewed_by": null
+      "reviewed_by": null,
+      "publishState": "PUBLISHED",
+      "published_at": 1787046650938,
+      "approved_by": "admin@airbus.ke",
+      "videoMediaId": "ma_s8_c20280",
+      "collections": [
+        "escapes"
+      ],
+      "blackFridayOptIn": false,
+      "isAirbusWork": false,
+      "isLocalGuideExperience": false,
+      "isWorldWide": false,
+      "isPlusVVVIP": false
     },
     {
       "id": "s_plus_1",
@@ -1110,7 +1219,8 @@
           "url": "https://assets.mixkit.co/videos/preview/mixkit-villa-with-pool-and-terrace-in-front-of-the-sea-43406-large.mp4",
           "thumbnail": "https://images.unsplash.com/photo-1613490493576-7fde63acd811?auto=format&fit=crop&w=800&q=80",
           "duration": 60,
-          "size": 15000000
+          "size": 15000000,
+          "mediaId": "ma_s4_9c6bbe"
         },
         "photos": [
           {
@@ -1130,7 +1240,19 @@
       "reviewed_by": null,
       "images": [
         "https://images.unsplash.com/photo-1613490493576-7fde63acd811?auto=format&fit=crop&w=800&q=80"
-      ]
+      ],
+      "publishState": "PUBLISHED",
+      "published_at": 1793906999981,
+      "approved_by": "admin@airbus.ke",
+      "videoMediaId": "ma_s4_9c6bbe",
+      "collections": [
+        "plus"
+      ],
+      "blackFridayOptIn": false,
+      "isAirbusWork": false,
+      "isLocalGuideExperience": false,
+      "isWorldWide": false,
+      "isEscapeOffer": false
     },
     {
       "id": "s_plus_2",
@@ -1203,7 +1325,8 @@
           "url": "https://assets.mixkit.co/videos/preview/mixkit-luxury-home-with-pool-and-sea-view-43410-large.mp4",
           "thumbnail": "https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?auto=format&fit=crop&w=800&q=80",
           "duration": 60,
-          "size": 15000000
+          "size": 15000000,
+          "mediaId": "ma_s_plus_2_9dfcc8"
         },
         "photos": [
           {
@@ -1223,7 +1346,19 @@
       "reviewed_by": null,
       "images": [
         "https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?auto=format&fit=crop&w=800&q=80"
-      ]
+      ],
+      "publishState": "PUBLISHED",
+      "published_at": 1794166199981,
+      "approved_by": "admin@airbus.ke",
+      "videoMediaId": "ma_s_plus_2_9dfcc8",
+      "collections": [
+        "plus"
+      ],
+      "blackFridayOptIn": false,
+      "isAirbusWork": false,
+      "isLocalGuideExperience": false,
+      "isWorldWide": false,
+      "isEscapeOffer": false
     },
     {
       "id": "s_local_1",
@@ -1287,7 +1422,8 @@
           "url": "https://assets.mixkit.co/videos/preview/mixkit-modern-apartment-with-living-room-and-terrace-43405-large.mp4",
           "thumbnail": "https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?auto=format&fit=crop&w=800&q=80",
           "duration": 60,
-          "size": 15000000
+          "size": 15000000,
+          "mediaId": "ma_s1_5e090a"
         },
         "photos": [
           {
@@ -1307,7 +1443,19 @@
       "reviewed_by": null,
       "images": [
         "https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?auto=format&fit=crop&w=800&q=80"
-      ]
+      ],
+      "publishState": "PUBLISHED",
+      "published_at": 1793561399981,
+      "approved_by": "admin@airbus.ke",
+      "videoMediaId": "ma_s1_5e090a",
+      "collections": [
+        "local"
+      ],
+      "blackFridayOptIn": false,
+      "isAirbusWork": false,
+      "isWorldWide": false,
+      "isEscapeOffer": false,
+      "isPlusVVVIP": false
     },
     {
       "id": "s_local_2",
@@ -1371,7 +1519,8 @@
           "url": "https://assets.mixkit.co/videos/preview/mixkit-swimming-pool-surrounded-by-palm-trees-at-sunset-42028-large.mp4",
           "thumbnail": "https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?auto=format&fit=crop&w=800&q=80",
           "duration": 60,
-          "size": 15000000
+          "size": 15000000,
+          "mediaId": "ma_s5_b56965"
         },
         "photos": [
           {
@@ -1391,7 +1540,19 @@
       "reviewed_by": null,
       "images": [
         "https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?auto=format&fit=crop&w=800&q=80"
-      ]
+      ],
+      "publishState": "PUBLISHED",
+      "published_at": 1793388599981,
+      "approved_by": "admin@airbus.ke",
+      "videoMediaId": "ma_s5_b56965",
+      "collections": [
+        "local"
+      ],
+      "blackFridayOptIn": false,
+      "isAirbusWork": false,
+      "isWorldWide": false,
+      "isEscapeOffer": false,
+      "isPlusVVVIP": false
     },
     {
       "id": "s_ww_1",
@@ -1465,7 +1626,8 @@
           "url": "https://assets.mixkit.co/videos/preview/mixkit-villa-with-pool-and-terrace-in-front-of-the-sea-43406-large.mp4",
           "thumbnail": "https://images.unsplash.com/photo-1512917774080-9991f1c4c750?auto=format&fit=crop&w=800&q=80",
           "duration": 60,
-          "size": 15000000
+          "size": 15000000,
+          "mediaId": "ma_s4_9c6bbe"
         },
         "photos": [
           {
@@ -1485,7 +1647,19 @@
       "reviewed_by": null,
       "images": [
         "https://images.unsplash.com/photo-1512917774080-9991f1c4c750?auto=format&fit=crop&w=800&q=80"
-      ]
+      ],
+      "publishState": "PUBLISHED",
+      "published_at": 1793820599981,
+      "approved_by": "admin@airbus.ke",
+      "videoMediaId": "ma_s4_9c6bbe",
+      "collections": [
+        "work",
+        "worldwide"
+      ],
+      "blackFridayOptIn": false,
+      "isLocalGuideExperience": false,
+      "isEscapeOffer": false,
+      "isPlusVVVIP": false
     },
     {
       "id": "s_ww_2",
@@ -1555,7 +1729,8 @@
           "url": "https://assets.mixkit.co/videos/preview/mixkit-swimming-pool-surrounded-by-palm-trees-at-sunset-42028-large.mp4",
           "thumbnail": "https://images.unsplash.com/photo-1540541338287-41700207dee6?auto=format&fit=crop&w=800&q=80",
           "duration": 60,
-          "size": 15000000
+          "size": 15000000,
+          "mediaId": "ma_s5_b56965"
         },
         "photos": [
           {
@@ -1575,7 +1750,19 @@
       "reviewed_by": null,
       "images": [
         "https://images.unsplash.com/photo-1540541338287-41700207dee6?auto=format&fit=crop&w=800&q=80"
-      ]
+      ],
+      "publishState": "PUBLISHED",
+      "published_at": 1794079799981,
+      "approved_by": "admin@airbus.ke",
+      "videoMediaId": "ma_s5_b56965",
+      "collections": [
+        "black-friday",
+        "worldwide"
+      ],
+      "isAirbusWork": false,
+      "isLocalGuideExperience": false,
+      "isEscapeOffer": false,
+      "isPlusVVVIP": false
     },
     {
       "id": "s_ww_3",
@@ -1650,7 +1837,8 @@
           "url": "https://assets.mixkit.co/videos/preview/mixkit-modern-apartment-with-living-room-and-terrace-43405-large.mp4",
           "thumbnail": "https://images.unsplash.com/photo-1512453979798-5ea266f8880c?auto=format&fit=crop&w=800&q=80",
           "duration": 60,
-          "size": 15000000
+          "size": 15000000,
+          "mediaId": "ma_s1_5e090a"
         },
         "photos": [
           {
@@ -1670,7 +1858,19 @@
       "reviewed_by": null,
       "images": [
         "https://images.unsplash.com/photo-1512453979798-5ea266f8880c?auto=format&fit=crop&w=800&q=80"
-      ]
+      ],
+      "publishState": "PUBLISHED",
+      "published_at": 1794252599981,
+      "approved_by": "admin@airbus.ke",
+      "videoMediaId": "ma_s1_5e090a",
+      "collections": [
+        "work",
+        "worldwide"
+      ],
+      "blackFridayOptIn": false,
+      "isLocalGuideExperience": false,
+      "isEscapeOffer": false,
+      "isPlusVVVIP": false
     },
     {
       "id": "s_ww_4",
@@ -1745,7 +1945,8 @@
           "url": "https://assets.mixkit.co/videos/preview/mixkit-wooden-house-in-the-middle-of-a-forest-43410-large.mp4",
           "thumbnail": "https://images.unsplash.com/photo-1537996194471-e657df975ab4?auto=format&fit=crop&w=800&q=80",
           "duration": 60,
-          "size": 15000000
+          "size": 15000000,
+          "mediaId": "ma_s3_35b41d"
         },
         "photos": [
           {
@@ -1765,7 +1966,19 @@
       "reviewed_by": null,
       "images": [
         "https://images.unsplash.com/photo-1537996194471-e657df975ab4?auto=format&fit=crop&w=800&q=80"
-      ]
+      ],
+      "publishState": "PUBLISHED",
+      "published_at": 1794338999982,
+      "approved_by": "admin@airbus.ke",
+      "videoMediaId": "ma_s3_35b41d",
+      "collections": [
+        "worldwide",
+        "escapes"
+      ],
+      "blackFridayOptIn": false,
+      "isAirbusWork": false,
+      "isLocalGuideExperience": false,
+      "isPlusVVVIP": false
     }
   ],
   "bookings": [
@@ -3760,7 +3973,7 @@
       "updatedAt": 1794600565833,
       "host_id": "owner@airbus.ke",
       "plays": 1,
-      "replays": 1,
+      "replays": 9,
       "actionClicks": 1
     },
     {
@@ -7028,7 +7241,7 @@
       "ownerEmail": "owner@airbus.ke",
       "views": 0,
       "plays": 1,
-      "replays": 1,
+      "replays": 9,
       "clicks": {
         "availability": 0,
         "book": 0,
@@ -7036,7 +7249,7 @@
         "negotiate": 0,
         "whatsapp": 1
       },
-      "updatedAt": 1794630123798
+      "updatedAt": 1795271846992
     }
   },
   "guestCredentials": [
@@ -8287,6 +8500,88 @@
         ],
         "prevMediaAssetIds": []
       }
+    },
+    {
+      "id": "v3_airbus_listings_collections_and_admin_wallet",
+      "appliedAt": 1795271574358,
+      "snapshot": {
+        "staysV3Snapshot": [
+          {
+            "id": "s_1794732514224",
+            "status": "review"
+          },
+          {
+            "id": "s1",
+            "status": "live"
+          },
+          {
+            "id": "s2",
+            "status": "live"
+          },
+          {
+            "id": "s3",
+            "status": "live"
+          },
+          {
+            "id": "s4",
+            "status": "live"
+          },
+          {
+            "id": "s5",
+            "status": "live"
+          },
+          {
+            "id": "s6",
+            "status": "live"
+          },
+          {
+            "id": "s7",
+            "status": "live"
+          },
+          {
+            "id": "s8",
+            "status": "live"
+          },
+          {
+            "id": "s_plus_1",
+            "status": "live"
+          },
+          {
+            "id": "s_plus_2",
+            "status": "live"
+          },
+          {
+            "id": "s_local_1",
+            "status": "live"
+          },
+          {
+            "id": "s_local_2",
+            "status": "live"
+          },
+          {
+            "id": "s_ww_1",
+            "status": "live"
+          },
+          {
+            "id": "s_ww_2",
+            "status": "live"
+          },
+          {
+            "id": "s_ww_3",
+            "status": "live"
+          },
+          {
+            "id": "s_ww_4",
+            "status": "live"
+          }
+        ],
+        "prevJoinIds": [],
+        "prevAdminEntryIds": [],
+        "prevMediaAssetIdsV3": [
+          "ma_tdp_mw9chz1o_v3yd_0_eb805d",
+          "ma_tdp_mw9c3qg4_m1vu_0_7bc0ef"
+        ]
+      }
     }
   ],
   "plusServiceRequests": [],
@@ -8317,6 +8612,547 @@
       "status": "READY",
       "poster_url": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=800&q=80",
       "created_at": 1794233170084
+    },
+    {
+      "id": "ma_s1_5e090a",
+      "owner_id": "owner@airbus.ke",
+      "type": "VIDEO",
+      "storage_key": "https://assets.mixkit.co/videos/preview/mixkit-modern-apartment-with-living-room-and-terrace-43405-large.mp4",
+      "url": "https://assets.mixkit.co/videos/preview/mixkit-modern-apartment-with-living-room-and-terrace-43405-large.mp4",
+      "mime": "video/mp4",
+      "size_bytes": 15000000,
+      "duration": 60,
+      "status": "READY",
+      "poster_url": "https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?auto=format&fit=crop&w=800&q=80",
+      "created_at": 1789638650938
+    },
+    {
+      "id": "ma_s2_bf6076",
+      "owner_id": "owner@airbus.ke",
+      "type": "VIDEO",
+      "storage_key": "https://assets.mixkit.co/videos/preview/mixkit-luxurious-living-room-with-a-modern-interior-design-43409-large.mp4",
+      "url": "https://assets.mixkit.co/videos/preview/mixkit-luxurious-living-room-with-a-modern-interior-design-43409-large.mp4",
+      "mime": "video/mp4",
+      "size_bytes": 15000000,
+      "duration": 60,
+      "status": "READY",
+      "poster_url": "https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?auto=format&fit=crop&w=800&q=80",
+      "created_at": 1790070650938
+    },
+    {
+      "id": "ma_s3_35b41d",
+      "owner_id": "owner@airbus.ke",
+      "type": "VIDEO",
+      "storage_key": "https://assets.mixkit.co/videos/preview/mixkit-wooden-house-in-the-middle-of-a-forest-43410-large.mp4",
+      "url": "https://assets.mixkit.co/videos/preview/mixkit-wooden-house-in-the-middle-of-a-forest-43410-large.mp4",
+      "mime": "video/mp4",
+      "size_bytes": 15000000,
+      "duration": 60,
+      "status": "READY",
+      "poster_url": "https://images.unsplash.com/photo-1580587771525-78b9dba3b914?auto=format&fit=crop&w=800&q=80",
+      "created_at": 1788774650938
+    },
+    {
+      "id": "ma_s4_9c6bbe",
+      "owner_id": "owner@airbus.ke",
+      "type": "VIDEO",
+      "storage_key": "https://assets.mixkit.co/videos/preview/mixkit-villa-with-pool-and-terrace-in-front-of-the-sea-43406-large.mp4",
+      "url": "https://assets.mixkit.co/videos/preview/mixkit-villa-with-pool-and-terrace-in-front-of-the-sea-43406-large.mp4",
+      "mime": "video/mp4",
+      "size_bytes": 15000000,
+      "duration": 60,
+      "status": "READY",
+      "poster_url": "https://images.unsplash.com/photo-1512917774080-9991f1c4c750?auto=format&fit=crop&w=800&q=80",
+      "created_at": 1787478650938
+    },
+    {
+      "id": "ma_s5_b56965",
+      "owner_id": "owner@airbus.ke",
+      "type": "VIDEO",
+      "storage_key": "https://assets.mixkit.co/videos/preview/mixkit-swimming-pool-surrounded-by-palm-trees-at-sunset-42028-large.mp4",
+      "url": "https://assets.mixkit.co/videos/preview/mixkit-swimming-pool-surrounded-by-palm-trees-at-sunset-42028-large.mp4",
+      "mime": "video/mp4",
+      "size_bytes": 15000000,
+      "duration": 60,
+      "status": "READY",
+      "poster_url": "https://images.unsplash.com/photo-1499793983690-e29da59ef1c2?auto=format&fit=crop&w=800&q=80",
+      "created_at": 1790502650938
+    },
+    {
+      "id": "ma_s6_aa8098",
+      "owner_id": "owner@airbus.ke",
+      "type": "VIDEO",
+      "storage_key": "https://assets.mixkit.co/videos/preview/mixkit-cozy-living-room-in-a-cabin-43407-large.mp4",
+      "url": "https://assets.mixkit.co/videos/preview/mixkit-cozy-living-room-in-a-cabin-43407-large.mp4",
+      "mime": "video/mp4",
+      "size_bytes": 15000000,
+      "duration": 60,
+      "status": "READY",
+      "poster_url": "https://images.unsplash.com/photo-1518780664697-55e3ad937233?auto=format&fit=crop&w=800&q=80",
+      "created_at": 1790934650938
+    },
+    {
+      "id": "ma_s7_66f15e",
+      "owner_id": "owner@airbus.ke",
+      "type": "VIDEO",
+      "storage_key": "https://assets.mixkit.co/videos/preview/mixkit-large-house-with-modern-interior-and-floor-to-ceiling-windows-43411-large.mp4",
+      "url": "https://assets.mixkit.co/videos/preview/mixkit-large-house-with-modern-interior-and-floor-to-ceiling-windows-43411-large.mp4",
+      "mime": "video/mp4",
+      "size_bytes": 15000000,
+      "duration": 60,
+      "status": "READY",
+      "poster_url": "https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?auto=format&fit=crop&w=800&q=80",
+      "created_at": 1791798650938
+    },
+    {
+      "id": "ma_s8_c20280",
+      "owner_id": "owner@airbus.ke",
+      "type": "VIDEO",
+      "storage_key": "https://assets.mixkit.co/videos/preview/mixkit-kitchen-island-in-a-luxurious-modern-house-43412-large.mp4",
+      "url": "https://assets.mixkit.co/videos/preview/mixkit-kitchen-island-in-a-luxurious-modern-house-43412-large.mp4",
+      "mime": "video/mp4",
+      "size_bytes": 15000000,
+      "duration": 60,
+      "status": "READY",
+      "poster_url": "https://images.unsplash.com/photo-1542314831-068cd1dbfeeb?auto=format&fit=crop&w=800&q=80",
+      "created_at": 1787046650938
+    },
+    {
+      "id": "ma_s_plus_2_9dfcc8",
+      "owner_id": "owner@airbus.ke",
+      "type": "VIDEO",
+      "storage_key": "https://assets.mixkit.co/videos/preview/mixkit-luxury-home-with-pool-and-sea-view-43410-large.mp4",
+      "url": "https://assets.mixkit.co/videos/preview/mixkit-luxury-home-with-pool-and-sea-view-43410-large.mp4",
+      "mime": "video/mp4",
+      "size_bytes": 15000000,
+      "duration": 60,
+      "status": "READY",
+      "poster_url": "https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?auto=format&fit=crop&w=800&q=80",
+      "created_at": 1794166199981
     }
-  ]
+  ],
+  "listing_collections": [
+    {
+      "listing_id": "s1",
+      "collection_id": "black-friday",
+      "created_at": 1795271574333
+    },
+    {
+      "listing_id": "s1",
+      "collection_id": "work",
+      "created_at": 1795271574333
+    },
+    {
+      "listing_id": "s2",
+      "collection_id": "work",
+      "created_at": 1795271574334
+    },
+    {
+      "listing_id": "s2",
+      "collection_id": "escapes",
+      "created_at": 1795271574334
+    },
+    {
+      "listing_id": "s5",
+      "collection_id": "black-friday",
+      "created_at": 1795271574334
+    },
+    {
+      "listing_id": "s5",
+      "collection_id": "escapes",
+      "created_at": 1795271574334
+    },
+    {
+      "listing_id": "s8",
+      "collection_id": "escapes",
+      "created_at": 1795271574334
+    },
+    {
+      "listing_id": "s_plus_1",
+      "collection_id": "plus",
+      "created_at": 1795271574334
+    },
+    {
+      "listing_id": "s_plus_2",
+      "collection_id": "plus",
+      "created_at": 1795271574334
+    },
+    {
+      "listing_id": "s_local_1",
+      "collection_id": "local",
+      "created_at": 1795271574334
+    },
+    {
+      "listing_id": "s_local_2",
+      "collection_id": "local",
+      "created_at": 1795271574334
+    },
+    {
+      "listing_id": "s_ww_1",
+      "collection_id": "work",
+      "created_at": 1795271574334
+    },
+    {
+      "listing_id": "s_ww_1",
+      "collection_id": "worldwide",
+      "created_at": 1795271574334
+    },
+    {
+      "listing_id": "s_ww_2",
+      "collection_id": "black-friday",
+      "created_at": 1795271574334
+    },
+    {
+      "listing_id": "s_ww_2",
+      "collection_id": "worldwide",
+      "created_at": 1795271574334
+    },
+    {
+      "listing_id": "s_ww_3",
+      "collection_id": "work",
+      "created_at": 1795271574334
+    },
+    {
+      "listing_id": "s_ww_3",
+      "collection_id": "worldwide",
+      "created_at": 1795271574334
+    },
+    {
+      "listing_id": "s_ww_4",
+      "collection_id": "worldwide",
+      "created_at": 1795271574334
+    },
+    {
+      "listing_id": "s_ww_4",
+      "collection_id": "escapes",
+      "created_at": 1795271574334
+    }
+  ],
+  "transactional_outbox": [],
+  "admin_wallet_entries": [
+    {
+      "id": "awe_dep_pay_1794732514157_2f85",
+      "sourceKind": "APPROVED_DEPOSIT",
+      "depositorName": "HostAlphaF2C5AE",
+      "depositorId": "u_1794732513528_0jr",
+      "depositorRole": "owner",
+      "timestampUtc": 1794732514179,
+      "fiscalYear": 2026,
+      "paymentCode": "PF2C5AEKLM",
+      "amount": 1000,
+      "purpose": "SUBSCRIPTION",
+      "subPurpose": "subscription",
+      "approvingAdmin": "kamalahari93@gmail.com",
+      "description": "Approved M-Pesa Deposit (PF2C5AEKLM) from HostAlphaF2C5AE",
+      "relatedPaymentId": "pay_1794732514157_2f85"
+    },
+    {
+      "id": "awe_dep_pay_dep_1794732513786",
+      "sourceKind": "APPROVED_DEPOSIT",
+      "depositorName": "HostAlphaF2C5AE",
+      "depositorId": "u_1794732513528_0jr",
+      "depositorRole": "owner",
+      "timestampUtc": 1794732514140,
+      "fiscalYear": 2026,
+      "paymentCode": "HF2C5AEFGH",
+      "amount": 2500,
+      "purpose": "OTHER",
+      "subPurpose": "deposit",
+      "approvingAdmin": "kamalahari93@gmail.com",
+      "description": "Approved M-Pesa Deposit (HF2C5AEFGH) from HostAlphaF2C5AE",
+      "relatedPaymentId": "pay_dep_1794732513786"
+    },
+    {
+      "id": "awe_dep_pay_dep_1794732513773",
+      "sourceKind": "APPROVED_DEPOSIT",
+      "depositorName": "JohnRecovF2C5AE",
+      "depositorId": "u_1794732513485_avs",
+      "depositorRole": "guest",
+      "timestampUtc": 1794732513800,
+      "fiscalYear": 2026,
+      "paymentCode": "GF2C5AEABC",
+      "amount": 500,
+      "purpose": "OTHER",
+      "subPurpose": "deposit",
+      "approvingAdmin": "kamalahari93@gmail.com",
+      "description": "Approved M-Pesa Deposit (GF2C5AEABC) from JohnRecovF2C5AE",
+      "relatedPaymentId": "pay_dep_1794732513773"
+    },
+    {
+      "id": "awe_dep_pay_1794732481074_usq5",
+      "sourceKind": "APPROVED_DEPOSIT",
+      "depositorName": "HostAlpha80230",
+      "depositorId": "u_1794732480424_rt0",
+      "depositorRole": "owner",
+      "timestampUtc": 1794732481088,
+      "fiscalYear": 2026,
+      "paymentCode": "P80230KLMN",
+      "amount": 1000,
+      "purpose": "SUBSCRIPTION",
+      "subPurpose": "subscription",
+      "approvingAdmin": "kamalahari93@gmail.com",
+      "description": "Approved M-Pesa Deposit (P80230KLMN) from HostAlpha80230",
+      "relatedPaymentId": "pay_1794732481074_usq5"
+    },
+    {
+      "id": "awe_dep_pay_dep_1794732480709",
+      "sourceKind": "APPROVED_DEPOSIT",
+      "depositorName": "HostAlpha80230",
+      "depositorId": "u_1794732480424_rt0",
+      "depositorRole": "owner",
+      "timestampUtc": 1794732481057,
+      "fiscalYear": 2026,
+      "paymentCode": "H80230FGHI",
+      "amount": 2500,
+      "purpose": "OTHER",
+      "subPurpose": "deposit",
+      "approvingAdmin": "kamalahari93@gmail.com",
+      "description": "Approved M-Pesa Deposit (H80230FGHI) from HostAlpha80230",
+      "relatedPaymentId": "pay_dep_1794732480709"
+    },
+    {
+      "id": "awe_dep_pay_dep_1794732480698",
+      "sourceKind": "APPROVED_DEPOSIT",
+      "depositorName": "JohnRecov80230",
+      "depositorId": "u_1794732480360_aw1",
+      "depositorRole": "guest",
+      "timestampUtc": 1794732480721,
+      "fiscalYear": 2026,
+      "paymentCode": "G80230ABCD",
+      "amount": 500,
+      "purpose": "OTHER",
+      "subPurpose": "deposit",
+      "approvingAdmin": "kamalahari93@gmail.com",
+      "description": "Approved M-Pesa Deposit (G80230ABCD) from JohnRecov80230",
+      "relatedPaymentId": "pay_dep_1794732480698"
+    },
+    {
+      "id": "awe_dep_pay_1794732453149_iq9y",
+      "sourceKind": "APPROVED_DEPOSIT",
+      "depositorName": "HostAlpha52291",
+      "depositorId": "u_1794732452479_cuj",
+      "depositorRole": "owner",
+      "timestampUtc": 1794732453164,
+      "fiscalYear": 2026,
+      "paymentCode": "P52291KLMN",
+      "amount": 1000,
+      "purpose": "SUBSCRIPTION",
+      "subPurpose": "subscription",
+      "approvingAdmin": "kamalahari93@gmail.com",
+      "description": "Approved M-Pesa Deposit (P52291KLMN) from HostAlpha52291",
+      "relatedPaymentId": "pay_1794732453149_iq9y"
+    },
+    {
+      "id": "awe_dep_pay_dep_1794732452755",
+      "sourceKind": "APPROVED_DEPOSIT",
+      "depositorName": "HostAlpha52291",
+      "depositorId": "u_1794732452479_cuj",
+      "depositorRole": "owner",
+      "timestampUtc": 1794732453133,
+      "fiscalYear": 2026,
+      "paymentCode": "H52291FGHI",
+      "amount": 2500,
+      "purpose": "OTHER",
+      "subPurpose": "deposit",
+      "approvingAdmin": "kamalahari93@gmail.com",
+      "description": "Approved M-Pesa Deposit (H52291FGHI) from HostAlpha52291",
+      "relatedPaymentId": "pay_dep_1794732452755"
+    },
+    {
+      "id": "awe_dep_pay_dep_1794732452742",
+      "sourceKind": "APPROVED_DEPOSIT",
+      "depositorName": "JohnRecov52291",
+      "depositorId": "u_1794732452431_a0i",
+      "depositorRole": "guest",
+      "timestampUtc": 1794732452783,
+      "fiscalYear": 2026,
+      "paymentCode": "G52291ABCD",
+      "amount": 500,
+      "purpose": "OTHER",
+      "subPurpose": "deposit",
+      "approvingAdmin": "kamalahari93@gmail.com",
+      "description": "Approved M-Pesa Deposit (G52291ABCD) from JohnRecov52291",
+      "relatedPaymentId": "pay_dep_1794732452742"
+    },
+    {
+      "id": "awe_dep_pay_dep_1794732432317",
+      "sourceKind": "APPROVED_DEPOSIT",
+      "depositorName": "HostAlpha31896",
+      "depositorId": "u_1794732432066_k8m",
+      "depositorRole": "owner",
+      "timestampUtc": 1794732432666,
+      "fiscalYear": 2026,
+      "paymentCode": "H31896FGHI",
+      "amount": 2500,
+      "purpose": "OTHER",
+      "subPurpose": "deposit",
+      "approvingAdmin": "kamalahari93@gmail.com",
+      "description": "Approved M-Pesa Deposit (H31896FGHI) from HostAlpha31896",
+      "relatedPaymentId": "pay_dep_1794732432317"
+    },
+    {
+      "id": "awe_dep_pay_dep_1794732432307",
+      "sourceKind": "APPROVED_DEPOSIT",
+      "depositorName": "JohnRecov31896",
+      "depositorId": "u_1794732432027_r8t",
+      "depositorRole": "guest",
+      "timestampUtc": 1794732432330,
+      "fiscalYear": 2026,
+      "paymentCode": "G31896ABCD",
+      "amount": 500,
+      "purpose": "OTHER",
+      "subPurpose": "deposit",
+      "approvingAdmin": "kamalahari93@gmail.com",
+      "description": "Approved M-Pesa Deposit (G31896ABCD) from JohnRecov31896",
+      "relatedPaymentId": "pay_dep_1794732432307"
+    },
+    {
+      "id": "awe_dep_pay_dep_1794732418385",
+      "sourceKind": "APPROVED_DEPOSIT",
+      "depositorName": "JohnRecov17962",
+      "depositorId": "u_1794732418094_xn2",
+      "depositorRole": "guest",
+      "timestampUtc": 1794732418407,
+      "fiscalYear": 2026,
+      "paymentCode": "G17962ABCD",
+      "amount": 500,
+      "purpose": "OTHER",
+      "subPurpose": "deposit",
+      "approvingAdmin": "kamalahari93@gmail.com",
+      "description": "Approved M-Pesa Deposit (G17962ABCD) from JohnRecov17962",
+      "relatedPaymentId": "pay_dep_1794732418385"
+    },
+    {
+      "id": "awe_dep_pay_1794405064134_sb0e",
+      "sourceKind": "APPROVED_DEPOSIT",
+      "depositorName": "SarahWanjiku",
+      "depositorId": "u_guest",
+      "depositorRole": "guest",
+      "timestampUtc": 1794405064147,
+      "fiscalYear": 2026,
+      "paymentCode": "QGH7X2K999",
+      "amount": 1000,
+      "purpose": "OTHER",
+      "subPurpose": "wallet",
+      "approvingAdmin": "kamalahari93@gmail.com",
+      "description": "Approved M-Pesa Deposit (QGH7X2K999) from SarahWanjiku",
+      "relatedPaymentId": "pay_1794405064134_sb0e"
+    },
+    {
+      "id": "awe_dep_pay_1794405001169_9jmz",
+      "sourceKind": "APPROVED_DEPOSIT",
+      "depositorName": "SarahWanjiku",
+      "depositorId": "u_guest",
+      "depositorRole": "guest",
+      "timestampUtc": 1794405001182,
+      "fiscalYear": 2026,
+      "paymentCode": "QGH7X2K9ZZ",
+      "amount": 1000,
+      "purpose": "SUBSCRIPTION",
+      "subPurpose": "subscription",
+      "approvingAdmin": "kamalahari93@gmail.com",
+      "description": "Approved M-Pesa Deposit (QGH7X2K9ZZ) from SarahWanjiku",
+      "relatedPaymentId": "pay_1794405001169_9jmz"
+    },
+    {
+      "id": "awe_dep_pay_1794404936877_rc6r",
+      "sourceKind": "APPROVED_DEPOSIT",
+      "depositorName": "SarahWanjiku",
+      "depositorId": "u_guest",
+      "depositorRole": "guest",
+      "timestampUtc": 1794404936887,
+      "fiscalYear": 2026,
+      "paymentCode": "ABC7X2K9LM",
+      "amount": 1000,
+      "purpose": "SUBSCRIPTION",
+      "subPurpose": "subscription",
+      "approvingAdmin": "kamalahari93@gmail.com",
+      "description": "Approved M-Pesa Deposit (ABC7X2K9LM) from SarahWanjiku",
+      "relatedPaymentId": "pay_1794404936877_rc6r"
+    },
+    {
+      "id": "awe_dep_pay_dep_1794162824455",
+      "sourceKind": "APPROVED_DEPOSIT",
+      "depositorName": "SarahWanjiku",
+      "depositorId": "u_guest",
+      "depositorRole": "guest",
+      "timestampUtc": 1794162828354,
+      "fiscalYear": 2026,
+      "paymentCode": "QA12BC34DE",
+      "amount": 500,
+      "purpose": "OTHER",
+      "subPurpose": "deposit",
+      "approvingAdmin": "kamalahari93@gmail.com",
+      "description": "Approved M-Pesa Deposit (QA12BC34DE) from SarahWanjiku",
+      "relatedPaymentId": "pay_dep_1794162824455"
+    }
+  ],
+  "admin_wallet_rollups": {
+    "hour": {
+      "2026-11-15 11:00": {
+        "key": "2026-11-15 11:00",
+        "inflow": 15500,
+        "refunds": 0,
+        "net": 15500,
+        "count": 12
+      },
+      "2026-11-11 16:00": {
+        "key": "2026-11-11 16:00",
+        "inflow": 3000,
+        "refunds": 0,
+        "net": 3000,
+        "count": 3
+      },
+      "2026-11-08 21:00": {
+        "key": "2026-11-08 21:00",
+        "inflow": 500,
+        "refunds": 0,
+        "net": 500,
+        "count": 1
+      }
+    },
+    "day": {
+      "2026-11-15": {
+        "key": "2026-11-15",
+        "inflow": 15500,
+        "refunds": 0,
+        "net": 15500,
+        "count": 12
+      },
+      "2026-11-11": {
+        "key": "2026-11-11",
+        "inflow": 3000,
+        "refunds": 0,
+        "net": 3000,
+        "count": 3
+      },
+      "2026-11-08": {
+        "key": "2026-11-08",
+        "inflow": 500,
+        "refunds": 0,
+        "net": 500,
+        "count": 1
+      }
+    },
+    "month": {
+      "2026-11": {
+        "key": "2026-11",
+        "inflow": 19000,
+        "refunds": 0,
+        "net": 19000,
+        "count": 16
+      }
+    },
+    "year": {
+      "2026": {
+        "key": "2026",
+        "inflow": 19000,
+        "refunds": 0,
+        "net": 19000,
+        "count": 16
+      }
+    }
+  },
+  "wallet_year_archives": [],
+  "last_archived_fiscal_year": 2026
 }

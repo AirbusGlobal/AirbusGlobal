@@ -939,4 +939,358 @@ describe('AirBus Platform End-to-End Integrity Suite', () => {
     db.runStartupMigrations();
     db.runStartupMigrations();
   });
+
+  it('15. Prompt 2: Approved AirBus listings appear topmost on feed, check-live endpoint works, multi-collection join syncs & paginates without duplicates, and videoMediaId persists', async () => {
+    const tinyPngDataUrl =
+      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+    const up = await apiJson<{ url: string }>('/api/uploads/media', {
+      method: 'POST',
+      token: hostToken,
+      body: { dataUrl: tinyPngDataUrl, filename: 'p2_stay.png', kind: 'photo' },
+    });
+    assert.equal(up.status, 201);
+    createdUploadFiles.push(up.data.url);
+
+    // Upload real MP4 so videoMediaId & poster_url link end-to-end
+    const tmpMp4 = path.join('/tmp', `airbus_p2_${Date.now()}.mp4`);
+    execFileSync(
+      'ffmpeg',
+      ['-y', '-f', 'lavfi', '-i', 'color=c=teal:s=320x240:d=1', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', tmpMp4],
+      { stdio: 'ignore' }
+    );
+    const mp4Buf = fs.readFileSync(tmpMp4);
+    try { fs.unlinkSync(tmpMp4); } catch {}
+    const initVid = await apiJson<{ uploadId: string }>('/api/uploads/media/init', {
+      method: 'POST',
+      token: hostToken,
+      body: {
+        filename: 'villa-tour.mp4',
+        mime: 'video/mp4',
+        totalBytes: mp4Buf.length,
+        totalChunks: 1,
+        kind: 'video',
+      },
+    });
+    assert.equal(initVid.status, 201);
+    const putChunk = await fetch(`${baseUrl}/api/uploads/media/chunk/${initVid.data.uploadId}?index=0`, {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${hostToken}`,
+        'Content-Type': 'application/octet-stream',
+        'x-chunk-index': '0',
+      },
+      body: new Uint8Array(mp4Buf),
+    });
+    assert.equal(putChunk.status, 200);
+    const vidDone = await apiJson<{ url: string; posterUrl?: string; mediaAsset?: any }>(
+      `/api/uploads/media/complete/${initVid.data.uploadId}`,
+      { method: 'POST', token: hostToken }
+    );
+    assert.equal(vidDone.status, 201);
+    createdUploadFiles.push(vidDone.data.url);
+    if (vidDone.data.posterUrl) createdUploadFiles.push(vidDone.data.posterUrl);
+
+    // Create two listings: stayA (no collections) and stayB (multiple collections + videoMediaId)
+    const createA = await apiJson<{ stay: any }>('/api/stays', {
+      method: 'POST',
+      token: hostToken,
+      body: {
+        title: 'Standard Feed Stay Alpha',
+        location: 'Kilimani, Nairobi',
+        lat: -1.2921,
+        lng: 36.783,
+        price: 9000,
+        images: [up.data.url],
+        thumbnailUrl: up.data.url,
+        collections: [],
+      },
+    });
+    assert.equal(createA.status, 201);
+    const stayA = createA.data.stay;
+
+    const createB = await apiJson<{ stay: any }>('/api/stays', {
+      method: 'POST',
+      token: hostToken,
+      body: {
+        title: 'Multi-Collection Video Villa Beta',
+        location: 'Nyali, Mombasa',
+        lat: -4.0435,
+        lng: 39.713,
+        price: 18500,
+        images: [up.data.url],
+        thumbnailUrl: up.data.url,
+        videoUrl: vidDone.data.url,
+        videoMediaId: vidDone.data.mediaAsset.id,
+        collections: ['work', 'escapes', 'local'],
+        blackFridayOptIn: false,
+      },
+    });
+    assert.equal(createB.status, 201);
+    const stayB = createB.data.stay;
+    assert.equal(stayB.videoMediaId, vidDone.data.mediaAsset.id);
+
+    // Before approval: check-live returns inPublicFeed = false
+    const checkPending = await apiJson<{ exists: boolean; inPublicFeed: boolean }>(
+      `/api/stays/check-live/${stayA.id}`
+    );
+    assert.equal(checkPending.status, 200);
+    assert.equal(checkPending.data.exists, true);
+    assert.equal(checkPending.data.inPublicFeed, false);
+
+    // Approve stayA first, then wait 5ms and approve stayB so stayB must rank #1 topmost
+    const appA = await apiJson<{ stay: any }>(`/api/admin/review-queue/stays/${stayA.id}`, {
+      method: 'POST',
+      token: adminToken,
+      body: { action: 'approve' },
+    });
+    assert.equal(appA.status, 200);
+    assert.equal(appA.data.stay.status, 'live');
+    assert.equal(appA.data.stay.publishState, 'PUBLISHED');
+    assert.ok(appA.data.stay.published_at);
+    assert.ok(appA.data.stay.approved_by);
+
+    await new Promise(r => setTimeout(r, 10));
+
+    const appB = await apiJson<{ stay: any }>(`/api/admin/review-queue/stays/${stayB.id}`, {
+      method: 'POST',
+      token: adminToken,
+      body: { action: 'approve' },
+    });
+    assert.equal(appB.status, 200);
+    assert.equal(appB.data.stay.status, 'live');
+    assert.equal(appB.data.stay.publishState, 'PUBLISHED');
+    assert.ok(appB.data.stay.published_at > appA.data.stay.published_at);
+
+    // Public feed orders newest approved (stayB) #1 topmost ahead of stayA
+    const publicFeed = await apiJson<{ stays: any[] }>('/api/stays?limit=20');
+    assert.equal(publicFeed.status, 200);
+    const idxB = publicFeed.data.stays.findIndex(s => s.id === stayB.id);
+    const idxA = publicFeed.data.stays.findIndex(s => s.id === stayA.id);
+    assert.equal(idxB, 0, 'Most recently approved listing must appear #1 topmost on public feed');
+    assert.ok(idxA > idxB, 'Earlier approved stay must appear after newer approved stay');
+
+    // /api/stays/check-live/:id confirms feedRank 1 for stayB
+    const checkLiveB = await apiJson<{ inPublicFeed: boolean; feedRank: number; publishState: string }>(
+      `/api/stays/check-live/${stayB.id}`
+    );
+    assert.equal(checkLiveB.status, 200);
+    assert.equal(checkLiveB.data.inPublicFeed, true);
+    assert.equal(checkLiveB.data.feedRank, 1);
+    assert.equal(checkLiveB.data.publishState, 'PUBLISHED');
+
+    // Multi-collection joins appear in each selected row deduplicated & absent from unselected rows
+    for (const colSlug of ['work', 'escapes', 'local']) {
+      const colRes = await apiJson<{ stays: any[]; collection: string }>(
+        `/api/airbus/collections/${colSlug}/listings?limit=20`
+      );
+      assert.equal(colRes.status, 200);
+      const matches = colRes.data.stays.filter(s => s.id === stayB.id);
+      assert.equal(matches.length, 1, `stayB must appear exactly once in collection ${colSlug}`);
+      assert.equal(
+        colRes.data.stays.some(s => s.id === stayA.id),
+        false,
+        `stayA (no collections) must not appear in ${colSlug}`
+      );
+    }
+
+    // Unlink 'local' from stayB via PATCH -> removed from 'local' row immediately
+    const patchUnlink = await apiJson<{ stay: any }>(`/api/stays/${stayB.id}`, {
+      method: 'PATCH',
+      token: hostToken,
+      body: { collections: ['work', 'escapes'] },
+    });
+    assert.equal(patchUnlink.status, 200);
+    const localAfter = await apiJson<{ stays: any[] }>('/api/airbus/collections/local/listings?limit=20');
+    assert.equal(localAfter.data.stays.some(s => s.id === stayB.id), false, 'Unlinked collection must no longer include stayB');
+  });
+
+  it('16. Prompt 2: Bookings enforce zero host booking fee (serviceFee === 0) & no escrow deduction', async () => {
+    const publicFeed = await apiJson<{ stays: any[] }>('/api/stays?limit=5');
+    const liveStay = publicFeed.data.stays[0];
+    assert.ok(liveStay, 'Need at least one live stay for booking check');
+
+    const checkInDate = new Date(Date.now() + 20 * 86400_000).toISOString().slice(0, 10);
+    const checkOutDate = new Date(Date.now() + 22 * 86400_000).toISOString().slice(0, 10);
+
+    const bookRes = await apiJson<{ booking: any }>('/api/bookings', {
+      method: 'POST',
+      token: guestToken,
+      body: {
+        stayId: liveStay.id,
+        checkIn: checkInDate,
+        checkOut: checkOutDate,
+        guests: 2,
+        paymentType: 'full',
+      },
+    });
+    assert.equal(bookRes.status, 201);
+    assert.equal(bookRes.data.booking.serviceFee, 0, 'Host booking fee / escrow serviceFee must be strictly 0');
+    assert.equal(
+      bookRes.data.booking.total,
+      bookRes.data.booking.subtotal + bookRes.data.booking.cleaningFee,
+      'Total must equal subtotal + cleaningFee with 0 serviceFee'
+    );
+  });
+
+  it('17. Prompt 2: Admin Wallet ledger audit, EAT hourly/daily/monthly/yearly rollups, CSV export, Year-End archive & gated Special Refund', async () => {
+    // Unauthorized access blocked
+    const unauthSummary = await apiJson('/api/admin/wallet/summary', { token: guestToken });
+    assert.equal(unauthSummary.status, 403);
+
+    // 1. Submit & approve a deposit with unique M-Pesa code -> recorded in admin_wallet_entries
+    const uniqCode = `MP${Date.now().toString(36).toUpperCase().slice(-8)}`;
+    const depRes = await apiJson<{ payment: any }>('/api/wallet/deposit', {
+      method: 'POST',
+      token: guestToken,
+      body: { amount: 2500, mpesaCode: uniqCode, purpose: 'TRIP_DATING' },
+    });
+    assert.equal(depRes.status, 201);
+
+    // Duplicate M-Pesa code rejected
+    const dupDep = await apiJson('/api/wallet/deposit', {
+      method: 'POST',
+      token: guestToken,
+      body: { amount: 2500, mpesaCode: uniqCode },
+    });
+    assert.equal(dupDep.status, 400);
+
+    const appDep = await apiJson<{ payment: any }>(`/api/admin/payments/${depRes.data.payment.id}/approve`, {
+      method: 'POST',
+      token: adminToken,
+      body: { confirmedAmount: 2500 },
+    });
+    assert.equal(appDep.status, 200);
+
+    // 2. Verify Admin Wallet summary, EAT rollups, purpose breakdown, ledger search & CSV export
+    const summaryBefore = await apiJson<any>('/api/admin/wallet/summary', { token: adminToken });
+    assert.equal(summaryBefore.status, 200);
+    assert.equal(Number.isInteger(summaryBefore.data.adminWalletBalance), true);
+    const baselineMismatches = summaryBefore.data.reconciliation.mismatches;
+    const adminRecBefore = db.getWalletReconciliation().wallets.find(w => w.email === 'admin@airbus.ke');
+    assert.equal(adminRecBefore?.difference, 0, 'admin@airbus.ke stored vs ledger balance must match with 0 difference');
+
+    const ledgerSearch = await apiJson<{ entries: any[]; total: number }>(
+      `/api/admin/wallet/ledger?q=${encodeURIComponent(uniqCode)}`,
+      { token: adminToken }
+    );
+    assert.equal(ledgerSearch.status, 200);
+    assert.equal(ledgerSearch.data.entries.length, 1);
+    const entry = ledgerSearch.data.entries[0];
+    assert.equal(entry.paymentCode, uniqCode);
+    assert.equal(entry.amount, 2500);
+    assert.equal(entry.purpose, 'TRIP_DATING');
+    assert.equal(entry.depositorRole, 'guest');
+    assert.ok(entry.depositorName);
+    assert.ok(entry.depositorId);
+    assert.equal(entry.approvingAdmin, 'kamalahari93@gmail.com');
+
+    for (const gran of ['hour', 'day', 'month', 'year']) {
+      const totRes = await apiJson<{ granularity: string; timezone: string; periods: any[] }>(
+        `/api/admin/wallet/totals?granularity=${gran}`,
+        { token: adminToken }
+      );
+      assert.equal(totRes.status, 200);
+      assert.equal(totRes.data.timezone, 'Africa/Nairobi');
+      assert.ok(totRes.data.periods.length >= 1, `Expected EAT periods for ${gran}`);
+    }
+
+    const breakdownRes = await apiJson<{ timezone: string; breakdown: Record<string, any>; grandTotal: number }>(
+      '/api/admin/wallet/breakdown',
+      { token: adminToken }
+    );
+    assert.equal(breakdownRes.status, 200);
+    assert.equal(breakdownRes.data.timezone, 'Africa/Nairobi');
+    assert.ok(breakdownRes.data.grandTotal >= 2500);
+
+    const csvFetch = await fetch(`${baseUrl}/api/admin/wallet/export?q=${encodeURIComponent(uniqCode)}`, {
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
+    assert.equal(csvFetch.status, 200);
+    const csvText = await csvFetch.text();
+    assert.ok(csvText.includes('Timestamp (EAT)'));
+    assert.ok(csvText.includes(uniqCode));
+
+    // 3. Year-End EAT Fiscal Archive idempotency & checksum
+    const priorYear = new Date().getUTCFullYear() - 1;
+    const archRun1 = await apiJson<{ archive: any }>('/api/admin/wallet/archives/run', {
+      method: 'POST',
+      token: adminToken,
+      body: { fiscalYear: priorYear },
+    });
+    assert.equal(archRun1.status, 200);
+    assert.equal(archRun1.data.archive.fiscalYear, priorYear);
+    assert.ok(archRun1.data.archive.checksum);
+
+    const archRun2 = await apiJson<{ archive: any }>('/api/admin/wallet/archives/run', {
+      method: 'POST',
+      token: adminToken,
+      body: { fiscalYear: priorYear },
+    });
+    assert.equal(archRun2.status, 200);
+    assert.equal(archRun2.data.archive.id, archRun1.data.archive.id, 'Archive run must be idempotent per fiscal year');
+
+    const archDetail = await apiJson<{ archive: any }>(`/api/admin/wallet/archives/${priorYear}`, {
+      token: adminToken,
+    });
+    assert.equal(archDetail.status, 200);
+    assert.equal(archDetail.data.archive.checksum, archRun1.data.archive.checksum);
+
+    // 4. Special Refund validation & atomic execution (only <= excess, requires password & reason)
+    const badPwRefund = await apiJson('/api/admin/wallet/special-refund', {
+      method: 'POST',
+      token: adminToken,
+      body: {
+        adminPassword: 'wrong_password',
+        reason: 'Overpayment reversal requested',
+        caseReference: 'CASE-001',
+        originalPaymentCode: uniqCode,
+        amount: 500,
+      },
+    });
+    assert.equal(badPwRefund.status, 400);
+
+    const excessFailRefund = await apiJson('/api/admin/wallet/special-refund', {
+      method: 'POST',
+      token: adminToken,
+      body: {
+        adminPassword: '2019xyz//',
+        reason: 'Overpayment exceeding deposit amount',
+        caseReference: 'CASE-002',
+        originalPaymentCode: uniqCode,
+        amount: 3000,
+      },
+    });
+    assert.equal(excessFailRefund.status, 400);
+
+    const validRefund = await apiJson<{ entry: any; adminBalance: number }>(
+      '/api/admin/wallet/special-refund',
+      {
+        method: 'POST',
+        token: adminToken,
+        body: {
+          adminPassword: '2019xyz//',
+          reason: 'Guest sent KES 500 excess above intended deposit',
+          caseReference: 'MPESA-254711000111',
+          originalPaymentCode: uniqCode,
+          amount: 500,
+        },
+      }
+    );
+    assert.equal(validRefund.status, 200);
+    assert.equal(validRefund.data.entry.sourceKind, 'SPECIAL_REFUND');
+    assert.equal(validRefund.data.entry.amount, -500);
+
+    const summaryAfter = await apiJson<any>('/api/admin/wallet/summary', { token: adminToken });
+    assert.equal(summaryAfter.data.adminWalletBalance, summaryBefore.data.adminWalletBalance - 500);
+    assert.equal(summaryAfter.data.reconciliation.mismatches, baselineMismatches, 'Special Refund must introduce 0 reconciliation drift');
+    const adminRecAfter = db.getWalletReconciliation().wallets.find(w => w.email === 'admin@airbus.ke');
+    assert.equal(adminRecAfter?.difference, 0, 'admin@airbus.ke stored vs ledger balance must remain exactly 0 difference after Special Refund');
+
+    // 5. v3 migration rollback + idempotent re-run
+    const v3RolledBack = db.rollbackMigration('v3_airbus_listings_collections_and_admin_wallet');
+    assert.equal(typeof v3RolledBack, 'boolean');
+    db.runStartupMigrations();
+    db.runStartupMigrations();
+  });
 });
+

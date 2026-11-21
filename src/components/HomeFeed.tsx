@@ -109,7 +109,7 @@ export const HomeFeed: React.FC<HomeFeedProps> = ({
           } catch {
             return {
               id: meta.id,
-              res: { stays: [], nextCursor: null, hasMore: false, totalCount: 0, locked: false },
+              res: { stays: [], nextCursor: null, hasMore: false, totalCount: 0, locked: false, message: undefined as string | undefined },
             };
           }
         })

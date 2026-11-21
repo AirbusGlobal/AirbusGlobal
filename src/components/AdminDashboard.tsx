@@ -22,6 +22,10 @@ import {
   PlusServiceRequest,
   LocalServiceProvider,
   TripDatingAdminCounts,
+  AdminWalletEntry,
+  WalletYearArchive,
+  AdminWalletRollupBucket,
+  AdminWalletPurpose,
 } from '../types';
 import {
   ShieldCheck,
@@ -66,6 +70,9 @@ import {
   Filter,
   Crown,
   MapPin,
+  Download,
+  BarChart3,
+  Archive,
 } from 'lucide-react';
 import { api } from '../api';
 import { ListingMediaViewer } from './ListingMediaViewer';
@@ -99,6 +106,7 @@ interface AdminDashboardProps {
   showToast?: (msg: string) => void;
   onLogout?: () => void;
   onUpdateAdminUser?: (updated: User) => void;
+  initialTab?: string;
 }
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
@@ -128,10 +136,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   showToast,
   onLogout,
   onUpdateAdminUser,
+  initialTab,
 }) => {
   const [tab, setTab] = useState<
     'queue' | 'review-queue' | 'wallets' | 'ads' | 'plans' | 'listings' | 'media' | 'users' | 'reports' | 'reviews' | 'audit' | 'posts' | 'withdrawals' | 'settings' | 'treasury' | 'dormant' | 'negotiations' | 'trip-dating' | 'plus-local'
-  >('queue');
+  >(initialTab === 'treasury' ? 'treasury' : initialTab === 'review-queue' ? 'review-queue' : 'queue');
+
+  useEffect(() => {
+    if (initialTab === 'treasury') setTab('treasury');
+    else if (initialTab === 'review-queue') setTab('review-queue');
+  }, [initialTab]);
 
   // Plan adjustment form state
   const [targetHost, setTargetHost] = useState(users.find(u => u.role === 'owner')?.email || 'owner@airbus.ke');
@@ -264,6 +278,42 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [paymentModalError, setPaymentModalError] = useState<string | null>(null);
   const [reconciliation, setReconciliation] = useState<any>(null);
   const [incomeReport, setIncomeReport] = useState<any>(null);
+
+  // Admin Wallet (Grand Wallet) EAT Analytics, Ledger, Archives & Special Refund State
+  const [awSummary, setAwSummary] = useState<Awaited<ReturnType<typeof api.getAdminWalletSummary>> | null>(null);
+  const [awTotals, setAwTotals] = useState<AdminWalletRollupBucket[]>([]);
+  const [awBreakdown, setAwBreakdown] = useState<{
+    grandTotal: number;
+    breakdown: Record<AdminWalletPurpose, { amount: number; count: number }>;
+  } | null>(null);
+  const [awLedger, setAwLedger] = useState<{
+    entries: AdminWalletEntry[];
+    total: number;
+    page: number;
+    totalPages: number;
+  }>({ entries: [], total: 0, page: 1, totalPages: 1 });
+  const [awArchives, setAwArchives] = useState<WalletYearArchive[]>([]);
+  const [awGranularity, setAwGranularity] = useState<'hour' | 'day' | 'month' | 'year'>('day');
+  const [awFiscalYear, setAwFiscalYear] = useState<number | ''>('');
+  const [awFrom, setAwFrom] = useState<string>('');
+  const [awTo, setAwTo] = useState<string>('');
+  const [awPurpose, setAwPurpose] = useState<string>('ALL');
+  const [awRole, setAwRole] = useState<string>('ALL');
+  const [awKind, setAwKind] = useState<string>('ALL');
+  const [awSearch, setAwSearch] = useState<string>('');
+  const [awPage, setAwPage] = useState<number>(1);
+  const [awLoading, setAwLoading] = useState<boolean>(false);
+  const [awArchiveRunning, setAwArchiveRunning] = useState<boolean>(false);
+  const [specialRefundOpen, setSpecialRefundOpen] = useState<boolean>(false);
+  const [specialRefundForm, setSpecialRefundForm] = useState({
+    reason: '',
+    caseReference: '',
+    originalPaymentCode: '',
+    amount: '',
+    adminPassword: '',
+  });
+  const [specialRefundBusy, setSpecialRefundBusy] = useState<boolean>(false);
+  const [specialRefundError, setSpecialRefundError] = useState<string | null>(null);
   const [adminWalletsData, setAdminWalletsData] = useState<{
     guestWallets: Array<{
       email: string;
@@ -412,6 +462,63 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       .finally(() => setTdLoading(false));
   };
 
+  const loadAdminWalletAnalytics = async () => {
+    setAwLoading(true);
+    try {
+      const fyNum = awFiscalYear ? Number(awFiscalYear) : undefined;
+      const [sumRes, totRes, brkRes, ledRes, archRes] = await Promise.all([
+        api.getAdminWalletSummary(fyNum),
+        api.getAdminWalletTotals({
+          granularity: awGranularity,
+          from: awFrom || undefined,
+          to: awTo || undefined,
+          fiscalYear: fyNum,
+        }),
+        api.getAdminWalletBreakdown({
+          from: awFrom || undefined,
+          to: awTo || undefined,
+          fiscalYear: fyNum,
+        }),
+        api.getAdminWalletLedger({
+          q: awSearch || undefined,
+          purpose: awPurpose,
+          role: awRole,
+          sourceKind: awKind,
+          fiscalYear: fyNum,
+          from: awFrom || undefined,
+          to: awTo || undefined,
+          page: awPage,
+          limit: 15,
+        }),
+        api.getAdminWalletArchives(),
+      ]);
+      setAwSummary(sumRes);
+      setAwTotals(Array.isArray(totRes?.periods) ? totRes.periods : []);
+      if (brkRes) {
+        setAwBreakdown({ grandTotal: brkRes.grandTotal || 0, breakdown: brkRes.breakdown });
+      }
+      if (ledRes) {
+        setAwLedger({
+          entries: ledRes.entries || [],
+          total: ledRes.total || 0,
+          page: ledRes.page || 1,
+          totalPages: ledRes.totalPages || 1,
+        });
+      }
+      setAwArchives(Array.isArray(archRes?.archives) ? archRes.archives : []);
+    } catch {
+      // keep prior state on transient error
+    } finally {
+      setAwLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (tab === 'treasury') {
+      loadAdminWalletAnalytics();
+    }
+  }, [tab, awGranularity, awFiscalYear, awFrom, awTo, awPurpose, awRole, awKind, awSearch, awPage]);
+
   const loadAdminData = () => {
     api.getPaymentRecords().then(res => {
       if (Array.isArray(res?.payments)) setAllPayments(res.payments);
@@ -434,6 +541,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     api.getAdminIncomeReport().then(res => {
       if (res) setIncomeReport(res);
     }).catch(() => {});
+    loadAdminWalletAnalytics();
     api.getAdminTripDatingRequests().then(res => setDatingRequests(Array.isArray(res?.requests) ? res.requests : [])).catch(() => {});
     api.getAdminTripDatingStats().then(res => {
       if (res?.stats) setDatingStats(res.stats);
@@ -557,21 +665,39 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <span>Go Back to Stays Feed</span>
         </button>
 
-        {onLogout && (
+        <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => {
-              if (window.confirm('Are you sure you want to log out of the AirBus Admin Console?')) {
-                onLogout();
-              }
-            }}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-red-500/10 hover:bg-red-500/20 text-red-600 dark:text-red-400 border border-red-500/30 text-xs font-bold transition-all shadow-sm cursor-pointer"
-            title="Log out from Administrative Session"
+            onClick={() => setTab('treasury')}
+            className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-extrabold transition-all shadow-sm cursor-pointer border ${
+              tab === 'treasury'
+                ? 'bg-amber-500 text-stone-950 border-amber-400'
+                : 'bg-amber-500/15 hover:bg-amber-500/25 text-amber-700 dark:text-amber-300 border-amber-500/30'
+            }`}
           >
-            <LogOut className="w-3.5 h-3.5" />
-            <span>Log Out</span>
+            <Wallet className="w-3.5 h-3.5" />
+            <span>My Admin Wallet</span>
+            <span className="font-mono">
+              (KES {(awSummary?.adminWalletBalance ?? reconciliation?.adminBalance ?? treasuryWallet?.balance ?? 0).toLocaleString()})
+            </span>
           </button>
-        )}
+
+          {onLogout && (
+            <button
+              type="button"
+              onClick={() => {
+                if (window.confirm('Are you sure you want to log out of the AirBus Admin Console?')) {
+                  onLogout();
+                }
+              }}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-red-500/10 hover:bg-red-500/20 text-red-600 dark:text-red-400 border border-red-500/30 text-xs font-bold transition-all shadow-sm cursor-pointer"
+              title="Log out from Administrative Session"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span>Log Out</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Admin Header */}
@@ -860,8 +986,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               : 'text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800'
           }`}
         >
-          <TrendingUp className="w-4 h-4 text-emerald-400" />
-          <span>Treasury</span>
+          <Wallet className="w-4 h-4 text-emerald-500" />
+          <span>Admin Wallet</span>
         </button>
 
         <button
@@ -967,13 +1093,38 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     >
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div>
-                          <div className="flex items-center gap-2 mb-1">
+                          <div className="flex flex-wrap items-center gap-1.5 mb-1">
                             <span className="px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 text-[10px] font-bold">
                               Queue #{idx + 1} · Submitted {new Date(stay.createdAt).toLocaleString()}
                             </span>
                             {stay.isPlusVVVIP && (
                               <span className="px-2 py-0.5 rounded-full bg-purple-600 text-white text-[10px] font-bold">
                                 AirBus Plus VVVIP
+                              </span>
+                            )}
+                            {stay.blackFridayOptIn && (
+                              <span className="px-2 py-0.5 rounded-full bg-rose-600 text-white text-[10px] font-bold">
+                                Black Friday
+                              </span>
+                            )}
+                            {stay.isAirbusWork && (
+                              <span className="px-2 py-0.5 rounded-full bg-blue-600 text-white text-[10px] font-bold">
+                                AirBus Work
+                              </span>
+                            )}
+                            {stay.isLocalGuideExperience && (
+                              <span className="px-2 py-0.5 rounded-full bg-emerald-600 text-white text-[10px] font-bold">
+                                AirBus Local
+                              </span>
+                            )}
+                            {stay.isWorldWide && (
+                              <span className="px-2 py-0.5 rounded-full bg-cyan-600 text-white text-[10px] font-bold">
+                                World Wide {stay.country ? `(${stay.country})` : ''}
+                              </span>
+                            )}
+                            {stay.isEscapeOffer && (
+                              <span className="px-2 py-0.5 rounded-full bg-orange-600 text-white text-[10px] font-bold">
+                                AirBus Escapes
                               </span>
                             )}
                           </div>
@@ -991,7 +1142,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                               setReviewActionBusy(true);
                               try {
                                 await api.moderateReviewQueueStay(stay.id, 'approve');
-                                showToast?.(`Approved listing "${stay.title}". It is now live!`);
+                                showToast?.(`Approved listing "${stay.title}". It is now live at the top of the feed!`);
                                 loadAdminData();
                               } catch (err: any) {
                                 showToast?.(err.message || 'Approval failed');
@@ -1026,24 +1177,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       </p>
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {/* Playable Video Player */}
+                        {/* Live Guest Preview (Video Tour + Photo Switcher) */}
                         <div className="space-y-1.5">
-                          <div className="text-[11px] font-bold text-stone-500 uppercase">Video Tour</div>
-                          {stay.videoUrl ? (
-                            <SharedVideoPlayer
-                              src={stay.videoUrl}
-                              poster={stay.thumbnailUrl || stay.media?.video?.thumbnail}
-                              controls
-                              playsInline
-                              preload="metadata"
-                              className="w-full h-64 rounded-2xl border border-stone-200 dark:border-stone-800"
-                              videoClassName="w-full h-full object-contain"
-                            />
-                          ) : (
-                            <div className="h-36 rounded-2xl border border-dashed border-stone-300 dark:border-stone-700 flex items-center justify-center text-xs text-stone-400">
-                              No video uploaded
-                            </div>
-                          )}
+                          <div className="text-[11px] font-bold text-stone-500 uppercase">
+                            Live Guest Preview (Video Tour &amp; Gallery)
+                          </div>
+                          <ListingMediaViewer
+                            media={stay.media}
+                            videoUrl={stay.videoUrl || stay.youtubeUrl}
+                            thumbnailUrl={stay.thumbnailUrl}
+                            images={stayPhotos}
+                            title={stay.title}
+                            aspectRatio="video"
+                          />
                         </div>
 
                         {/* Full-Resolution Photo Thumbnails */}
@@ -1066,7 +1212,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                   }
                                   className="aspect-[4/3] rounded-xl overflow-hidden border border-stone-200 dark:border-stone-700 hover:ring-2 hover:ring-amber-500 cursor-pointer"
                                 >
-                                  <img src={pUrl} alt="" className="w-full h-full object-cover" />
+                                  <img src={pUrl} alt="" loading="lazy" className="w-full h-full object-cover" />
                                 </button>
                               ))}
                             </div>
@@ -2619,190 +2765,582 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     </div>
   )}
 
-      {/* TAB: TREASURY & LEDGER STREAM */}
+      {/* TAB: ADMIN WALLET (GRAND WALLET · EAT Africa/Nairobi Reporting) */}
       {tab === 'treasury' && (
-        <div className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="space-y-5">
+          {/* Header Banner & Action Bar (NO default withdraw or refund buttons — only gated Special Refund) */}
+          <div className="p-5 rounded-3xl bg-gradient-to-r from-stone-950 via-stone-900 to-emerald-950/70 text-white border border-emerald-500/30 shadow-lg flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-[10px] font-black uppercase tracking-wider">
+                  Grand Wallet · Africa/Nairobi (EAT)
+                </span>
+                <span className="text-[11px] text-stone-400 font-mono">
+                  Account: admin@airbus.ke
+                </span>
+              </div>
+              <h3 className="text-xl font-extrabold font-heading">Admin Wallet &amp; Fiscal Ledger</h3>
+              <p className="text-xs text-stone-300 mt-0.5">
+                Single atomic source of truth for all approved deposits, subscriptions, adverts, AirBus Plus, and Trip Dating unlocks.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    const csv = await api.exportAdminWalletCsv({
+                      q: awSearch || undefined,
+                      purpose: awPurpose,
+                      role: awRole,
+                      sourceKind: awKind,
+                      fiscalYear: awFiscalYear ? Number(awFiscalYear) : undefined,
+                      from: awFrom || undefined,
+                      to: awTo || undefined,
+                    });
+                    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `airbus-admin-wallet-${awFiscalYear || 'all'}.csv`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                    showToast?.('Admin Wallet CSV exported.');
+                  } catch (err: any) {
+                    showToast?.(err.message || 'Export failed');
+                  }
+                }}
+                className="px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 border border-white/20 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Download CSV</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setSpecialRefundError(null);
+                  setSpecialRefundOpen(true);
+                }}
+                className="px-3.5 py-2 rounded-xl bg-rose-600/90 hover:bg-rose-500 border border-rose-400/40 text-white text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
+              >
+                <Lock className="w-3.5 h-3.5" />
+                <span>Special Refund (Gated)</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Core Summary KPIs */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
             <div className="p-4 rounded-3xl bg-white dark:bg-[#15171e] border border-stone-200 dark:border-stone-800 shadow-sm">
-              <span className="text-[10px] font-bold text-stone-400 uppercase">Treasury Wallet Balance</span>
+              <span className="text-[10px] font-bold text-stone-400 uppercase">Admin Wallet Cash Balance</span>
               <div className="text-2xl font-black text-stone-900 dark:text-white mt-1">
-                KES {(reconciliation ? reconciliation.adminBalance : (treasuryWallet?.balance || 0)).toLocaleString()}
+                KES {(awSummary?.adminWalletBalance ?? reconciliation?.adminBalance ?? treasuryWallet?.balance ?? 0).toLocaleString()}
               </div>
               <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold mt-1 block">
-                Derived directly from append-only ledger
+                {awSummary?.reconciliation?.mismatches === 0 || (reconciliation?.mismatches ?? 0) === 0
+                  ? '0 reconciliation drift'
+                  : `${awSummary?.reconciliation?.mismatches ?? reconciliation?.mismatches} drift warning`}
               </span>
             </div>
 
             <div className="p-4 rounded-3xl bg-white dark:bg-[#15171e] border border-stone-200 dark:border-stone-800 shadow-sm">
-              <span className="text-[10px] font-bold text-stone-400 uppercase">Total Net Platform Income</span>
+              <span className="text-[10px] font-bold text-stone-400 uppercase">
+                YTD Approved Deposits ({awSummary?.selectedFiscalYear ?? new Date().getUTCFullYear()} EAT)
+              </span>
+              <div className="text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-1">
+                KES {(awSummary?.yearToDate?.approvedDeposits ?? 0).toLocaleString()}
+              </div>
+              <span className="text-[10px] text-stone-400 mt-1 block">
+                Approved user wallet top-ups
+              </span>
+            </div>
+
+            <div className="p-4 rounded-3xl bg-white dark:bg-[#15171e] border border-stone-200 dark:border-stone-800 shadow-sm">
+              <span className="text-[10px] font-bold text-stone-400 uppercase">
+                YTD Service Revenue (EAT)
+              </span>
               <div className="text-2xl font-black text-purple-600 dark:text-purple-400 mt-1">
-                KES {(incomeReport?.totalRevenue ?? treasuryWallet?.lifetimeEarnings ?? 0).toLocaleString()}
+                KES {(awSummary?.yearToDate?.serviceRevenue ?? incomeReport?.totalRevenue ?? 0).toLocaleString()}
               </div>
               <span className="text-[10px] text-stone-400 mt-1 block">
-                From Adverts (30%), Dating &amp; Subscriptions
+                Subs, Ads, Plus &amp; Dating Unlocks
               </span>
             </div>
 
             <div className="p-4 rounded-3xl bg-white dark:bg-[#15171e] border border-stone-200 dark:border-stone-800 shadow-sm">
-              <span className="text-[10px] font-bold text-stone-400 uppercase">Ledger Invariant Check</span>
-              <div className="text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-1 flex items-center gap-1.5">
-                <CheckCircle2 className="w-6 h-6 text-emerald-500" />
-                <span>100% Balanced</span>
+              <span className="text-[10px] font-bold text-stone-400 uppercase">Carry-Forward Opening</span>
+              <div className="text-2xl font-black text-amber-600 dark:text-amber-400 mt-1">
+                KES {(awSummary?.carryForwardBalance ?? 0).toLocaleString()}
               </div>
               <span className="text-[10px] text-stone-400 mt-1 block">
-                Zero Ledger Discrepancy
+                From prior closed EAT fiscal year
+              </span>
+            </div>
+
+            <div className="p-4 rounded-3xl bg-white dark:bg-[#15171e] border border-stone-200 dark:border-stone-800 shadow-sm">
+              <span className="text-[10px] font-bold text-stone-400 uppercase">Special Refunds (YTD)</span>
+              <div className="text-2xl font-black text-rose-600 dark:text-rose-400 mt-1">
+                KES {(awSummary?.yearToDate?.specialRefunds ?? 0).toLocaleString()}
+              </div>
+              <span className="text-[10px] text-stone-400 mt-1 block">
+                Excess-only gated refunds
               </span>
             </div>
           </div>
 
-          {/* Wallet Reconciliation Card */}
-          <div className="p-5 bg-white dark:bg-[#15171e] rounded-3xl border border-stone-200 dark:border-stone-800 shadow-sm space-y-3">
-            <div className="flex items-center justify-between">
+          {/* EAT Granularity Controls & Date Range Filter */}
+          <div className="p-5 bg-white dark:bg-[#15171e] rounded-3xl border border-stone-200 dark:border-stone-800 shadow-sm space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 flex items-center justify-center">
-                  <ShieldCheck className="w-4 h-4" />
-                </div>
-                <div>
-                  <h4 className="text-sm font-extrabold text-stone-900 dark:text-white">
-                    Platform Wallet Reconciliation Check
-                  </h4>
-                  <p className="text-xs text-stone-500">
-                    Continuously validates stored wallet balances against the immutable append-only ledger
-                  </p>
-                </div>
+                <BarChart3 className="w-4 h-4 text-emerald-500" />
+                <h4 className="text-sm font-extrabold text-stone-900 dark:text-white">
+                  Totals Over Time (Africa/Nairobi EAT)
+                </h4>
               </div>
-              <span className="px-3 py-1 rounded-full text-xs font-black bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 flex items-center gap-1">
-                <CheckCircle2 className="w-3.5 h-3.5" />
-                <span>All Balances 100% Reconciled</span>
-              </span>
+
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <div className="flex items-center bg-stone-100 dark:bg-stone-900 p-1 rounded-xl border border-stone-200 dark:border-stone-800">
+                  {(['hour', 'day', 'month', 'year'] as const).map(gran => (
+                    <button
+                      key={gran}
+                      type="button"
+                      onClick={() => setAwGranularity(gran)}
+                      className={`px-3 py-1 rounded-lg font-bold capitalize transition cursor-pointer ${
+                        awGranularity === gran
+                          ? 'bg-stone-900 dark:bg-amber-500 text-white dark:text-stone-950 shadow-xs'
+                          : 'text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-white'
+                      }`}
+                    >
+                      {gran}
+                    </button>
+                  ))}
+                </div>
+
+                <select
+                  value={awFiscalYear}
+                  onChange={e => {
+                    setAwFiscalYear(e.target.value ? Number(e.target.value) : '');
+                    setAwPage(1);
+                  }}
+                  aria-label="Filter by Fiscal Year"
+                  className="px-2.5 py-1.5 rounded-xl bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 font-semibold"
+                >
+                  <option value="">All EAT Years</option>
+                  {Array.from(
+                    new Set([
+                      awSummary?.currentEatYear || new Date().getUTCFullYear(),
+                      ...awArchives.map(a => a.fiscalYear),
+                    ])
+                  )
+                    .sort((a, b) => b - a)
+                    .map(y => (
+                      <option key={y} value={y}>
+                        FY {y} (EAT)
+                      </option>
+                    ))}
+                </select>
+
+                <input
+                  type="date"
+                  value={awFrom}
+                  onChange={e => {
+                    setAwFrom(e.target.value);
+                    setAwPage(1);
+                  }}
+                  aria-label="From date (EAT)"
+                  className="px-2.5 py-1.5 rounded-xl bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700"
+                />
+                <span className="text-stone-400">to</span>
+                <input
+                  type="date"
+                  value={awTo}
+                  onChange={e => {
+                    setAwTo(e.target.value);
+                    setAwPage(1);
+                  }}
+                  aria-label="To date (EAT)"
+                  className="px-2.5 py-1.5 rounded-xl bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700"
+                />
+                {(awFrom || awTo || awFiscalYear) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAwFrom('');
+                      setAwTo('');
+                      setAwFiscalYear('');
+                      setAwPage(1);
+                    }}
+                    className="px-2.5 py-1.5 rounded-xl text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 font-bold cursor-pointer"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
             </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-xs">
-              <div className="p-3 bg-stone-50 dark:bg-stone-900/60 rounded-2xl border border-stone-100 dark:border-stone-800">
-                <span className="text-stone-400 text-[10px] uppercase font-bold block">Total Wallets</span>
-                <span className="text-base font-extrabold text-stone-900 dark:text-white mt-0.5 block">
-                  {reconciliation?.totalWallets ?? 3}
-                </span>
+            {/* Visual Bar Chart + Table */}
+            {awTotals.length === 0 ? (
+              <div className="p-6 text-center text-xs text-stone-400 bg-stone-50 dark:bg-stone-900/50 rounded-2xl">
+                No EAT wallet rollup entries match this period yet.
               </div>
-              <div className="p-3 bg-stone-50 dark:bg-stone-900/60 rounded-2xl border border-stone-100 dark:border-stone-800">
-                <span className="text-stone-400 text-[10px] uppercase font-bold block">Mismatches</span>
-                <span className="text-base font-extrabold text-emerald-600 dark:text-emerald-400 mt-0.5 block">
-                  {reconciliation?.mismatches ?? 0} (0 errors)
-                </span>
+            ) : (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+                <div className="p-4 rounded-2xl bg-stone-50 dark:bg-stone-900/60 border border-stone-200 dark:border-stone-800 space-y-2.5">
+                  <div className="text-[11px] font-bold text-stone-500 uppercase">
+                    Recent {awGranularity} Net Totals (EAT)
+                  </div>
+                  {(() => {
+                    const topBuckets = awTotals.slice(0, 10);
+                    const maxVal = Math.max(1, ...topBuckets.map(b => Math.max(b.inflow, Math.abs(b.net))));
+                    return topBuckets.map(bucket => {
+                      const pct = Math.max(4, Math.round((Math.max(0, bucket.net) / maxVal) * 100));
+                      return (
+                        <div key={bucket.key} className="space-y-1 text-[11px]">
+                          <div className="flex justify-between font-semibold text-stone-700 dark:text-stone-300">
+                            <span className="font-mono">{bucket.key}</span>
+                            <span>
+                              KES {bucket.net.toLocaleString()} ({bucket.count} tx)
+                            </span>
+                          </div>
+                          <div className="w-full h-2 bg-stone-200 dark:bg-stone-800 rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 rounded-full transition-all"
+                              style={{ width: `${pct}%` }}
+                            />
+                          </div>
+                        </div>
+                      );
+                    });
+                  })()}
+                </div>
+
+                <div className="overflow-x-auto rounded-2xl border border-stone-200 dark:border-stone-800">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-stone-50 dark:bg-stone-900 text-stone-500 uppercase text-[10px]">
+                      <tr>
+                        <th className="px-3 py-2">Period (EAT)</th>
+                        <th className="px-3 py-2">Credits</th>
+                        <th className="px-3 py-2">Refunds</th>
+                        <th className="px-3 py-2">Net</th>
+                        <th className="px-3 py-2">Count</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-stone-100 dark:divide-stone-800">
+                      {awTotals.slice(0, 12).map(b => (
+                        <tr key={b.key}>
+                          <td className="px-3 py-2 font-mono font-semibold text-stone-800 dark:text-stone-200">{b.key}</td>
+                          <td className="px-3 py-2 text-emerald-600 dark:text-emerald-400 font-bold">
+                            +{b.inflow.toLocaleString()}
+                          </td>
+                          <td className="px-3 py-2 text-rose-600 dark:text-rose-400">
+                            {b.refunds > 0 ? `-${b.refunds.toLocaleString()}` : '0'}
+                          </td>
+                          <td className="px-3 py-2 font-black text-stone-900 dark:text-white">
+                            KES {b.net.toLocaleString()}
+                          </td>
+                          <td className="px-3 py-2 text-stone-500">{b.count}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-              <div className="p-3 bg-stone-50 dark:bg-stone-900/60 rounded-2xl border border-stone-100 dark:border-stone-800">
-                <span className="text-stone-400 text-[10px] uppercase font-bold block">User Wallets Sum</span>
-                <span className="text-base font-extrabold text-stone-900 dark:text-white mt-0.5 block">
-                  KES {(reconciliation?.userWalletsSum ?? 0).toLocaleString()}
-                </span>
-              </div>
-              <div className="p-3 bg-stone-50 dark:bg-stone-900/60 rounded-2xl border border-stone-100 dark:border-stone-800">
-                <span className="text-stone-400 text-[10px] uppercase font-bold block">Admin Wallet Sum</span>
-                <span className="text-base font-extrabold text-stone-900 dark:text-white mt-0.5 block">
-                  KES {(reconciliation?.adminBalance ?? treasuryWallet?.balance ?? 0).toLocaleString()}
-                </span>
-              </div>
-            </div>
+            )}
           </div>
 
-          {/* Platform Income Report Card */}
+          {/* Breakdown by Purpose */}
           <div className="p-5 bg-white dark:bg-[#15171e] rounded-3xl border border-stone-200 dark:border-stone-800 shadow-sm space-y-3">
             <h4 className="text-sm font-extrabold text-stone-900 dark:text-white uppercase tracking-wider flex items-center justify-between">
-              <span>Platform Income Breakdown (Audited &amp; Partitioned)</span>
+              <span>Period Breakdown by Purpose (EAT)</span>
               <span className="text-xs font-mono font-bold text-purple-600 dark:text-purple-400">
-                Total: KES {(incomeReport?.totalRevenue ?? 0).toLocaleString()}
+                Period Total: KES {(awBreakdown?.grandTotal ?? 0).toLocaleString()}
               </span>
             </h4>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 pt-1 text-xs">
-              <div className="p-3.5 rounded-2xl bg-gradient-to-tr from-amber-500/10 to-orange-500/10 border border-amber-500/20 space-y-1">
-                <div className="flex items-center justify-between font-bold text-stone-800 dark:text-stone-200">
-                  <span>Host Subscriptions</span>
-                </div>
-                <div className="text-xl font-black text-amber-600 dark:text-amber-400">
-                  KES {(incomeReport?.subscriptions ?? 0).toLocaleString()}
-                </div>
-                <p className="text-[10px] text-stone-500 dark:text-stone-400">
-                  Paid from Host wallets.
-                </p>
-              </div>
-
-              <div className="p-3.5 rounded-2xl bg-gradient-to-tr from-purple-500/10 to-indigo-500/10 border border-purple-500/20 space-y-1">
-                <div className="flex items-center justify-between font-bold text-stone-800 dark:text-stone-200">
-                  <span>Adverts</span>
-                </div>
-                <div className="text-xl font-black text-purple-600 dark:text-purple-400">
-                  KES {(incomeReport?.advertsRetained ?? 0).toLocaleString()}
-                </div>
-                <p className="text-[10px] text-stone-500 dark:text-stone-400">
-                  Host &amp; Guest wallet adverts.
-                </p>
-              </div>
-
-              <div className="p-3.5 rounded-2xl bg-gradient-to-tr from-rose-500/10 to-amber-500/10 border border-rose-500/20 space-y-1">
-                <div className="flex items-center justify-between font-bold text-stone-800 dark:text-stone-200">
-                  <span>Promotions</span>
-                </div>
-                <div className="text-xl font-black text-rose-600 dark:text-rose-400">
-                  KES {(incomeReport?.promotions ?? 0).toLocaleString()}
-                </div>
-                <p className="text-[10px] text-stone-500 dark:text-stone-400">
-                  Listing boosts from Host wallets.
-                </p>
-              </div>
-
-              <div className="p-3.5 rounded-2xl bg-gradient-to-tr from-yellow-500/10 to-amber-500/10 border border-yellow-500/20 space-y-1">
-                <div className="flex items-center justify-between font-bold text-stone-800 dark:text-stone-200">
-                  <span>AirBus Plus</span>
-                </div>
-                <div className="text-xl font-black text-yellow-600 dark:text-yellow-400">
-                  KES {(incomeReport?.airbusPlus ?? 0).toLocaleString()}
-                </div>
-                <p className="text-[10px] text-stone-500 dark:text-stone-400">
-                  Ksh 3,500 Guest wallet memberships.
-                </p>
-              </div>
-
-              <div className="p-3.5 rounded-2xl bg-gradient-to-tr from-pink-500/10 to-rose-500/10 border border-pink-500/20 space-y-1">
-                <div className="flex items-center justify-between font-bold text-stone-800 dark:text-stone-200">
-                  <span>Trip Dating Unlocks</span>
-                </div>
-                <div className="text-xl font-black text-[#ff2e93]">
-                  KES {(incomeReport?.tripDating ?? 0).toLocaleString()}
-                </div>
-                <p className="text-[10px] text-stone-500 dark:text-stone-400">
-                  KES 50 contact unlocks.
-                </p>
-              </div>
+              {(
+                [
+                  { key: 'SUBSCRIPTION', label: 'Host Subscriptions', color: 'text-amber-600 dark:text-amber-400' },
+                  { key: 'ADVERTISING', label: 'Advertising & Boosts', color: 'text-purple-600 dark:text-purple-400' },
+                  { key: 'TRIP_DATING', label: 'Trip Dating Unlocks', color: 'text-[#ff2e93]' },
+                  { key: 'AIRBUS_PLUS', label: 'AirBus Plus VVVIP', color: 'text-yellow-600 dark:text-yellow-400' },
+                  { key: 'OTHER', label: 'Wallet Top-Ups & Other', color: 'text-emerald-600 dark:text-emerald-400' },
+                ] as const
+              ).map(p => {
+                const stat = awBreakdown?.breakdown?.[p.key] || { amount: 0, count: 0 };
+                return (
+                  <div
+                    key={p.key}
+                    className="p-3.5 rounded-2xl bg-stone-50 dark:bg-stone-900/60 border border-stone-200 dark:border-stone-800 space-y-1"
+                  >
+                    <div className="font-bold text-stone-800 dark:text-stone-200">{p.label}</div>
+                    <div className={`text-xl font-black ${p.color}`}>
+                      KES {stat.amount.toLocaleString()}
+                    </div>
+                    <p className="text-[10px] text-stone-500">{stat.count} ledger entries</p>
+                  </div>
+                );
+              })}
             </div>
           </div>
 
-          <div className="p-5 sm:p-6 bg-white dark:bg-[#15171e] rounded-3xl border border-stone-200 dark:border-stone-800 shadow-sm space-y-3">
-            <h4 className="text-sm font-extrabold text-stone-900 dark:text-white uppercase tracking-wider">
-              Append-Only Ledger Stream (Invariants: debits == credits)
-            </h4>
+          {/* Searchable, Filterable & Paginated Admin Wallet Ledger */}
+          <div className="p-5 sm:p-6 bg-white dark:bg-[#15171e] rounded-3xl border border-stone-200 dark:border-stone-800 shadow-sm space-y-4">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+              <div>
+                <h4 className="text-sm font-extrabold text-stone-900 dark:text-white uppercase tracking-wider">
+                  Admin Wallet Audit Ledger ({awLedger.total} entries)
+                </h4>
+                <p className="text-[11px] text-stone-500">
+                  Records depositor name/ID/role, UTC &amp; EAT timestamps, unique payment code, integer KES, purpose, and approving admin.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={loadAdminWalletAnalytics}
+                className="self-start px-3 py-1.5 rounded-xl border border-stone-200 dark:border-stone-700 text-xs font-bold flex items-center gap-1.5 hover:bg-stone-100 dark:hover:bg-stone-800 cursor-pointer"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${awLoading ? 'animate-spin' : ''}`} />
+                <span>Refresh</span>
+              </button>
+            </div>
 
-            <div className="divide-y divide-stone-100 dark:divide-stone-800 text-xs">
-              {treasuryLedger.map(entry => (
-                <div key={entry.id} className="py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono text-[11px] text-stone-400">{entry.id}</span>
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300">
-                        {entry.type.toUpperCase()}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 text-xs">
+              <div className="relative">
+                <Search className="w-3.5 h-3.5 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={awSearch}
+                  onChange={e => {
+                    setAwSearch(e.target.value);
+                    setAwPage(1);
+                  }}
+                  placeholder="Search code, depositor, admin..."
+                  className="w-full pl-8 pr-3 py-2 rounded-xl bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 outline-none focus:border-amber-500"
+                />
+              </div>
+
+              <select
+                value={awPurpose}
+                onChange={e => {
+                  setAwPurpose(e.target.value);
+                  setAwPage(1);
+                }}
+                className="px-3 py-2 rounded-xl bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 font-semibold"
+              >
+                <option value="ALL">All Purposes</option>
+                <option value="SUBSCRIPTION">SUBSCRIPTION</option>
+                <option value="ADVERTISING">ADVERTISING</option>
+                <option value="TRIP_DATING">TRIP_DATING</option>
+                <option value="AIRBUS_PLUS">AIRBUS_PLUS</option>
+                <option value="OTHER">OTHER</option>
+              </select>
+
+              <select
+                value={awRole}
+                onChange={e => {
+                  setAwRole(e.target.value);
+                  setAwPage(1);
+                }}
+                className="px-3 py-2 rounded-xl bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 font-semibold"
+              >
+                <option value="ALL">All Depositor Roles</option>
+                <option value="owner">Host (owner)</option>
+                <option value="guest">Guest</option>
+                <option value="admin">Admin</option>
+              </select>
+
+              <select
+                value={awKind}
+                onChange={e => {
+                  setAwKind(e.target.value);
+                  setAwPage(1);
+                }}
+                className="px-3 py-2 rounded-xl bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 font-semibold"
+              >
+                <option value="ALL">All Entry Types</option>
+                <option value="APPROVED_DEPOSIT">Approved Deposits</option>
+                <option value="SERVICE_PAYMENT">Service Payments</option>
+                <option value="SPECIAL_REFUND">Special Refunds</option>
+              </select>
+            </div>
+
+            <div className="overflow-x-auto rounded-2xl border border-stone-200 dark:border-stone-800">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-stone-50 dark:bg-stone-900 text-stone-500 uppercase text-[10px]">
+                  <tr>
+                    <th className="px-3 py-2.5">Timestamp (EAT / UTC)</th>
+                    <th className="px-3 py-2.5">Depositor</th>
+                    <th className="px-3 py-2.5">Payment Code</th>
+                    <th className="px-3 py-2.5">Purpose</th>
+                    <th className="px-3 py-2.5">Approving Admin</th>
+                    <th className="px-3 py-2.5 text-right">Amount (KES)</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-stone-100 dark:divide-stone-800">
+                  {awLedger.entries.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="px-3 py-8 text-center text-stone-400">
+                        No Admin Wallet ledger entries found for these filters.
+                      </td>
+                    </tr>
+                  ) : (
+                    awLedger.entries.map(entry => (
+                      <tr key={entry.id} className="hover:bg-stone-50/70 dark:hover:bg-stone-900/40">
+                        <td className="px-3 py-2.5 whitespace-nowrap">
+                          <div className="font-semibold text-stone-800 dark:text-stone-200">
+                            {formatEATDateTime(entry.timestampUtc)} EAT
+                          </div>
+                          <div className="text-[10px] font-mono text-stone-400">
+                            {new Date(entry.timestampUtc).toISOString()}
+                          </div>
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <div className="font-bold text-stone-900 dark:text-white">{entry.depositorName}</div>
+                          <div className="text-[10px] text-stone-500 font-mono">
+                            {entry.depositorId} · {entry.depositorRole}
+                          </div>
+                        </td>
+                        <td className="px-3 py-2.5 font-mono font-bold text-stone-800 dark:text-stone-200">
+                          {entry.paymentCode}
+                          {entry.originalPaymentCode && (
+                            <div className="text-[10px] text-rose-500">Orig: {entry.originalPaymentCode}</div>
+                          )}
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300">
+                            {entry.purpose}
+                          </span>
+                          <div className="text-[10px] text-stone-500 mt-0.5 max-w-xs truncate">
+                            {entry.description}
+                          </div>
+                        </td>
+                        <td className="px-3 py-2.5 font-mono text-[11px] text-stone-600 dark:text-stone-300">
+                          {entry.approvingAdmin}
+                        </td>
+                        <td
+                          className={`px-3 py-2.5 text-right font-black whitespace-nowrap ${
+                            entry.amount < 0
+                              ? 'text-rose-600 dark:text-rose-400'
+                              : 'text-emerald-600 dark:text-emerald-400'
+                          }`}
+                        >
+                          {entry.amount < 0 ? '-' : '+'}KES {Math.abs(entry.amount).toLocaleString()}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Pagination */}
+            {awLedger.totalPages > 1 && (
+              <div className="flex items-center justify-between pt-2 text-xs">
+                <span className="text-stone-500">
+                  Page {awLedger.page} of {awLedger.totalPages}
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={awLedger.page <= 1}
+                    onClick={() => setAwPage(p => Math.max(1, p - 1))}
+                    className="px-3 py-1 rounded-lg border border-stone-200 dark:border-stone-700 font-bold disabled:opacity-40 cursor-pointer"
+                  >
+                    Prev
+                  </button>
+                  <button
+                    type="button"
+                    disabled={awLedger.page >= awLedger.totalPages}
+                    onClick={() => setAwPage(p => p + 1)}
+                    className="px-3 py-1 rounded-lg border border-stone-200 dark:border-stone-700 font-bold disabled:opacity-40 cursor-pointer"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Year-End Fiscal Archives (Jan 1 00:00 EAT) */}
+          <div className="p-5 bg-white dark:bg-[#15171e] rounded-3xl border border-stone-200 dark:border-stone-800 shadow-sm space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h4 className="text-sm font-extrabold text-stone-900 dark:text-white flex items-center gap-2">
+                  <Archive className="w-4 h-4 text-amber-500" />
+                  <span>Year-End Fiscal Archives (Africa/Nairobi EAT · Jan 1 00:00)</span>
+                </h4>
+                <p className="text-[11px] text-stone-500">
+                  Annual statements preserve monthly &amp; purpose totals, transaction counts, carry-forward opening balances, and SHA-256 checksums.
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={awArchiveRunning}
+                onClick={async () => {
+                  setAwArchiveRunning(true);
+                  try {
+                    const prevYear = (awSummary?.currentEatYear || new Date().getUTCFullYear()) - 1;
+                    const res = await api.runAdminWalletArchive(prevYear);
+                    showToast?.(`Fiscal year ${res.archive.fiscalYear} EAT archive verified (Checksum ${res.archive.checksum}).`);
+                    loadAdminWalletAnalytics();
+                  } catch (err: any) {
+                    showToast?.(err.message || 'Archive check failed.');
+                  } finally {
+                    setAwArchiveRunning(false);
+                  }
+                }}
+                className="px-3.5 py-2 rounded-xl bg-stone-900 dark:bg-stone-800 text-white text-xs font-bold hover:opacity-90 cursor-pointer disabled:opacity-50"
+              >
+                {awArchiveRunning ? 'Running Archive...' : 'Verify / Run Prior-Year Archive'}
+              </button>
+            </div>
+
+            {awArchives.length === 0 ? (
+              <div className="p-4 rounded-2xl bg-stone-50 dark:bg-stone-900/50 text-xs text-stone-500">
+                No prior fiscal years have closed yet. Prior-year records automatically archive on Jan 1 00:00 EAT with balance carry-forward.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {awArchives.map(arch => (
+                  <div
+                    key={arch.id}
+                    className="p-4 rounded-2xl bg-stone-50 dark:bg-stone-900/60 border border-stone-200 dark:border-stone-800 space-y-2 text-xs"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-extrabold text-stone-900 dark:text-white text-sm">
+                        Fiscal Year {arch.fiscalYear} (EAT)
+                      </span>
+                      <span className="font-mono text-[10px] px-2 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300">
+                        SHA256: {arch.checksum}
                       </span>
                     </div>
-                    <p className="text-stone-800 dark:text-stone-200 font-semibold mt-0.5">{entry.description}</p>
-                    <span className="text-[10px] text-stone-400">
-                      From: <code className="font-mono">{entry.fromWallet}</code> ➔ To: <code className="font-mono">{entry.toWallet}</code> · {new Date(entry.createdAt).toLocaleString()}
-                    </span>
+                    <div className="grid grid-cols-2 gap-2 text-[11px]">
+                      <div>
+                        <span className="text-stone-400 block">Opening Carry-Forward</span>
+                        <span className="font-bold">KES {arch.openingCarryForward.toLocaleString()}</span>
+                      </div>
+                      <div>
+                        <span className="text-stone-400 block">Closing Carry-Forward</span>
+                        <span className="font-black text-emerald-600 dark:text-emerald-400">
+                          KES {arch.closingBalance.toLocaleString()}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-stone-400 block">Net Period Flow</span>
+                        <span className="font-bold">KES {arch.netTotal.toLocaleString()}</span>
+                      </div>
+                      <div>
+                        <span className="text-stone-400 block">Transactions</span>
+                        <span className="font-bold">{arch.transactionCount}</span>
+                      </div>
+                    </div>
                   </div>
-                  <span className="font-black text-stone-900 dark:text-white text-sm shrink-0">
-                    KES {entry.amount.toLocaleString()}
-                  </span>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -5490,6 +6028,148 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 Confirm
               </button>
             </div>
+          </div>
+        </div>
+      )}
+      {/* GATED SPECIAL REFUND MODAL (Requires reason, case reference, original payment code, <= excess, and admin password) */}
+      {specialRefundOpen && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-[#15171e] text-stone-900 dark:text-stone-100 rounded-3xl p-6 max-w-md w-full shadow-2xl border border-rose-500/30 space-y-4">
+            <div className="flex items-center justify-between">
+              <h4 className="text-base font-extrabold flex items-center gap-2 text-rose-600 dark:text-rose-400">
+                <Lock className="w-4 h-4" />
+                <span>Admin Wallet · Special Refund</span>
+              </h4>
+              <button
+                type="button"
+                onClick={() => setSpecialRefundOpen(false)}
+                className="p-1.5 rounded-full hover:bg-stone-100 dark:hover:bg-stone-800 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <p className="text-xs text-stone-500">
+              Only for returning verified overpayments/excess against an existing payment code. Requires written justification and admin password confirmation.
+            </p>
+
+            {specialRefundError && (
+              <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 text-xs text-rose-600 dark:text-rose-300 font-semibold">
+                {specialRefundError}
+              </div>
+            )}
+
+            <form
+              className="space-y-3 text-xs"
+              onSubmit={async e => {
+                e.preventDefault();
+                setSpecialRefundError(null);
+                setSpecialRefundBusy(true);
+                try {
+                  const res = await api.executeAdminWalletSpecialRefund({
+                    reason: specialRefundForm.reason,
+                    caseReference: specialRefundForm.caseReference,
+                    originalPaymentCode: specialRefundForm.originalPaymentCode,
+                    amount: Number(specialRefundForm.amount),
+                    adminPassword: specialRefundForm.adminPassword,
+                  });
+                  showToast?.(`Special Refund logged (${res.entry.paymentCode}). Reconciled balance: KES ${res.adminBalance.toLocaleString()}`);
+                  setSpecialRefundOpen(false);
+                  setSpecialRefundForm({
+                    reason: '',
+                    caseReference: '',
+                    originalPaymentCode: '',
+                    amount: '',
+                    adminPassword: '',
+                  });
+                  loadAdminData();
+                } catch (err: any) {
+                  setSpecialRefundError(err.message || 'Special Refund rejected.');
+                } finally {
+                  setSpecialRefundBusy(false);
+                }
+              }}
+            >
+              <div>
+                <label className="font-bold block mb-1">Original Payment / M-Pesa Code *</label>
+                <input
+                  type="text"
+                  required
+                  value={specialRefundForm.originalPaymentCode}
+                  onChange={e => setSpecialRefundForm(f => ({ ...f, originalPaymentCode: e.target.value.toUpperCase() }))}
+                  placeholder="e.g. QWE123RTY4"
+                  className="w-full px-3 py-2 rounded-xl bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 font-mono uppercase outline-none focus:border-rose-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="font-bold block mb-1">Excess Refund (KES) *</label>
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    required
+                    value={specialRefundForm.amount}
+                    onChange={e => setSpecialRefundForm(f => ({ ...f, amount: e.target.value }))}
+                    placeholder="Integer KES"
+                    className="w-full px-3 py-2 rounded-xl bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 outline-none focus:border-rose-500"
+                  />
+                </div>
+                <div>
+                  <label className="font-bold block mb-1">Case / User / Phone Ref *</label>
+                  <input
+                    type="text"
+                    required
+                    value={specialRefundForm.caseReference}
+                    onChange={e => setSpecialRefundForm(f => ({ ...f, caseReference: e.target.value }))}
+                    placeholder="+2547... or Case #"
+                    className="w-full px-3 py-2 rounded-xl bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 outline-none focus:border-rose-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="font-bold block mb-1">Written Reason *</label>
+                <textarea
+                  rows={2}
+                  required
+                  minLength={5}
+                  value={specialRefundForm.reason}
+                  onChange={e => setSpecialRefundForm(f => ({ ...f, reason: e.target.value }))}
+                  placeholder="Explain the verified overpayment / excess..."
+                  className="w-full px-3 py-2 rounded-xl bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 outline-none focus:border-rose-500"
+                />
+              </div>
+
+              <div>
+                <label className="font-bold block mb-1">Admin Password Confirmation *</label>
+                <input
+                  type="password"
+                  required
+                  value={specialRefundForm.adminPassword}
+                  onChange={e => setSpecialRefundForm(f => ({ ...f, adminPassword: e.target.value }))}
+                  placeholder="Re-enter your admin password"
+                  className="w-full px-3 py-2 rounded-xl bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 outline-none focus:border-rose-500"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setSpecialRefundOpen(false)}
+                  className="px-4 py-2 rounded-full border border-stone-200 dark:border-stone-700 font-bold cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={specialRefundBusy}
+                  className="px-5 py-2 rounded-full bg-rose-600 hover:bg-rose-500 text-white font-extrabold cursor-pointer disabled:opacity-50"
+                >
+                  {specialRefundBusy ? 'Processing...' : 'Authorize Special Refund'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

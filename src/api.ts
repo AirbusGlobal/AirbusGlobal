@@ -1344,7 +1344,7 @@ export const api = {
     if (params?.from) sp.set('from', params.from);
     if (params?.to) sp.set('to', params.to);
     const qs = sp.toString() ? `?${sp.toString()}` : '';
-    const token = getAuthToken();
+    const token = this.getToken('admin', '/api/admin/wallet/export');
     const res = await fetch(`${API_BASE_URL || ''}/api/admin/wallet/export${qs}`, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
