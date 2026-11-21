@@ -106,6 +106,7 @@ interface AdminDashboardProps {
   showToast?: (msg: string) => void;
   onLogout?: () => void;
   onUpdateAdminUser?: (updated: User) => void;
+  onPaymentModerated?: () => Promise<void> | void;
   initialTab?: string;
 }
 
@@ -136,6 +137,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   showToast,
   onLogout,
   onUpdateAdminUser,
+  onPaymentModerated,
   initialTab,
 }) => {
   const [tab, setTab] = useState<
@@ -275,7 +277,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [rejectReason, setRejectReason] = useState('Invalid or unverified receipt code.');
   const [approveModalPayment, setApproveModalPayment] = useState<PaymentRecord | null>(null);
   const [processingPayment, setProcessingPayment] = useState(false);
+  const [approvingPaymentId, setApprovingPaymentId] = useState<string | null>(null);
   const [paymentModalError, setPaymentModalError] = useState<string | null>(null);
+  const [lastApprovedBanner, setLastApprovedBanner] = useState<{
+    id: string;
+    userName: string;
+    email: string;
+    amount: number;
+    mpesaCode: string;
+    adminWalletBalance?: number;
+    userWalletBalance?: number;
+    timestamp: number;
+  } | null>(null);
   const [reconciliation, setReconciliation] = useState<any>(null);
   const [incomeReport, setIncomeReport] = useState<any>(null);
 
@@ -524,18 +537,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   const loadAdminData = () => {
     if (!adminUser || adminUser.role !== 'admin' || !api.getToken('admin')) return;
-    api.getPaymentRecords().then(res => {
+    api.getPaymentRecords(undefined, 'admin').then(res => {
       if (Array.isArray(res?.payments)) setAllPayments(res.payments);
     }).catch(() => {});
-    api.getPosts().then(res => setPosts(Array.isArray(res?.posts) ? res.posts : [])).catch(() => {});
-    api.getAds().then(res => setAds(Array.isArray(res?.ads) ? res.ads : [])).catch(() => {});
-    api.getOwnerPromotions().then(res => setPromotions(Array.isArray(res?.promotions) ? res.promotions : [])).catch(() => {});
+    api.getPosts(undefined, 'admin').then(res => setPosts(Array.isArray(res?.posts) ? res.posts : [])).catch(() => {});
+    api.getAds(undefined, 'admin').then(res => setAds(Array.isArray(res?.ads) ? res.ads : [])).catch(() => {});
+    api.getOwnerPromotions('admin').then(res => setPromotions(Array.isArray(res?.promotions) ? res.promotions : [])).catch(() => {});
     api.getAdminWithdrawals().then(res => setWithdrawals(Array.isArray(res?.withdrawals) ? res.withdrawals : [])).catch(() => {});
-    api.getSettings().then(res => {
+    api.getSettings('admin').then(res => {
       if (res?.settings) setSettings(res.settings);
     }).catch(() => {});
     api.getDormantOwners().then(res => setDormantOwners(Array.isArray(res?.dormantOwners) ? res.dormantOwners : [])).catch(() => {});
-    api.getWallet().then(res => {
+    api.getWallet('admin').then(res => {
       if (res?.wallet) setTreasuryWallet(res.wallet);
       setTreasuryLedger(Array.isArray(res?.ledger) ? res.ledger : []);
     }).catch(() => {});
@@ -555,7 +568,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       if (res?.counts) setTripDatingCounts(res.counts);
     }).catch(() => {});
     loadTripDatingSubmissions(tdStatusTab, tdPage);
-    api.getAdminListingMedia({ type: mediaTypeFilter, flaggedOnly: mediaFlaggedOnly, search: mediaSearch }).then(res => {
+    api.getAdminListingMedia({ type: mediaTypeFilter, flaggedOnly: mediaFlaggedOnly, search: mediaSearch }, 'admin').then(res => {
       if (Array.isArray(res?.media)) setListingMediaList(res.media);
     }).catch(() => {});
     api.getAdminSubscriptions().then(res => {
@@ -567,7 +580,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     api.getAdminReviews().then(res => {
       if (Array.isArray(res?.reviews)) setAdminReviews(res.reviews);
     }).catch(() => {});
-    api.getLiveUpdates().then(res => {
+    api.getLiveUpdates('admin').then(res => {
       if (res?.counts) setLiveCounts(res.counts);
     }).catch(() => {});
     api.getAdminWallets().then(res => {
@@ -580,7 +593,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         });
       }
     }).catch(() => {});
-    api.getPlusServiceRequests().then(res => {
+    api.getPlusServiceRequests('admin').then(res => {
       if (Array.isArray(res?.requests)) setPlusRequests(res.requests);
     }).catch(() => {});
     api.getAdminLocalProviders().then(res => {
@@ -636,10 +649,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         clearInterval(interval);
         return;
       }
-      api.getLiveUpdates().then(res => {
+      api.getLiveUpdates('admin').then(res => {
         if (res?.counts) setLiveCounts(res.counts);
       }).catch(() => {});
-      api.getPaymentRecords().then(res => {
+      api.getPaymentRecords(undefined, 'admin').then(res => {
         if (Array.isArray(res?.payments)) setAllPayments(res.payments);
       }).catch(stopOnAuthError);
       api.getAdminWallets().then(res => {
@@ -667,8 +680,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   useEffect(() => {
     if (!adminUser || adminUser.role !== 'admin' || !api.getToken('admin')) return;
-    if (tab === 'queue' || tab === 'wallets') {
-      api.getPaymentRecords().then(res => {
+    if (tab === 'queue' || tab === 'wallets' || tab === 'treasury') {
+      api.getPaymentRecords(undefined, 'admin').then(res => {
         if (Array.isArray(res?.payments)) setAllPayments(res.payments);
       }).catch(() => {});
       api.getAdminWallets().then(res => {
@@ -703,6 +716,134 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     window.addEventListener('airbus:trip-dating-counts', onTdCounts as EventListener);
     return () => window.removeEventListener('airbus:trip-dating-counts', onTdCounts as EventListener);
   }, [tab, tdStatusTab, tdPage, adminUser?.role]);
+
+  useEffect(() => {
+    const onPaymentUpdate = (e: Event) => {
+      if (!adminUser || adminUser.role !== 'admin' || !api.getToken('admin')) return;
+      const detail = (e as CustomEvent<any>).detail;
+      const incomingPay: PaymentRecord | undefined = detail?.payment;
+      if (incomingPay && incomingPay.id) {
+        setAllPayments(prev => {
+          const base = prev.length > 0 ? prev : payments;
+          const idx = base.findIndex(item => item.id === incomingPay.id);
+          if (idx >= 0) {
+            return base.map(item => (item.id === incomingPay.id ? { ...item, ...incomingPay } : item));
+          }
+          return [incomingPay, ...base];
+        });
+      }
+      if (typeof detail?.adminWalletBalance === 'number') {
+        setAwSummary(prev =>
+          prev ? { ...prev, adminWalletBalance: detail.adminWalletBalance } : prev
+        );
+      }
+      api.getPaymentRecords(undefined, 'admin').then(res => {
+        if (Array.isArray(res?.payments)) setAllPayments(res.payments);
+      }).catch(() => {});
+      api.getAdminWallets().then(res => {
+        if (res) {
+          setAdminWalletsData({
+            guestWallets: Array.isArray(res.guestWallets) ? res.guestWallets : [],
+            hostWallets: Array.isArray(res.hostWallets) ? res.hostWallets : [],
+            guestDeposits: Array.isArray(res.guestDeposits) ? res.guestDeposits : [],
+            hostDeposits: Array.isArray(res.hostDeposits) ? res.hostDeposits : [],
+          });
+        }
+      }).catch(() => {});
+      if (tab === 'treasury') {
+        loadAdminWalletAnalytics();
+      }
+    };
+    window.addEventListener('airbus:payment-update', onPaymentUpdate as EventListener);
+    return () => window.removeEventListener('airbus:payment-update', onPaymentUpdate as EventListener);
+  }, [adminUser?.role, tab, payments]);
+
+  const handleApprovePaymentRecord = async (payment: PaymentRecord) => {
+    if (!adminUser || adminUser.role !== 'admin' || !api.getToken('admin')) return;
+    setProcessingPayment(true);
+    setApprovingPaymentId(payment.id);
+    setPaymentModalError(null);
+    try {
+      const res = await api.approvePayment(payment.id);
+      const approvedPay = res?.payment || payment;
+      const approvedAmount = Number(
+        approvedPay.approvedAmount ??
+          approvedPay.claimedAmount ??
+          approvedPay.amountKes ??
+          approvedPay.amountSc ??
+          approvedPay.amount ??
+          0
+      );
+      const email = (approvedPay.userId || approvedPay.hostEmail || payment.userId || payment.hostEmail || '').toLowerCase();
+      const mpesaCode = String(approvedPay.mpesaCode || payment.mpesaCode || payment.referenceId || payment.id);
+      const userName = approvedPay.userName || payment.userName || email;
+
+      setAllPayments(prev => {
+        const base = prev.length > 0 ? prev : payments;
+        const exists = base.some(item => item.id === payment.id);
+        if (!exists) return [{ ...approvedPay, status: 'approved' }, ...base];
+        return base.map(item =>
+          item.id === payment.id
+            ? { ...item, ...approvedPay, status: 'approved', approvedAmount, approvedAt: approvedPay.approvedAt || Date.now() }
+            : item
+        );
+      });
+
+      setAdminWalletsData(prev => ({
+        ...prev,
+        hostDeposits: prev.hostDeposits.map(d =>
+          d.id === payment.id ? { ...d, ...approvedPay, status: 'approved', approvedAmount } : d
+        ),
+        guestDeposits: prev.guestDeposits.map(d =>
+          d.id === payment.id ? { ...d, ...approvedPay, status: 'approved', approvedAmount } : d
+        ),
+        hostWallets:
+          typeof res?.userWalletBalance === 'number'
+            ? prev.hostWallets.map(w =>
+                w.email.toLowerCase() === email ? { ...w, balance: res.userWalletBalance! } : w
+              )
+            : prev.hostWallets,
+        guestWallets:
+          typeof res?.userWalletBalance === 'number'
+            ? prev.guestWallets.map(w =>
+                w.email.toLowerCase() === email ? { ...w, balance: res.userWalletBalance! } : w
+              )
+            : prev.guestWallets,
+      }));
+
+      if (typeof res?.adminWalletBalance === 'number') {
+        setAwSummary(prev => (prev ? { ...prev, adminWalletBalance: res.adminWalletBalance! } : prev));
+        setTreasuryWallet(prev => (prev ? { ...prev, balance: res.adminWalletBalance! } : prev));
+      }
+
+      setLastApprovedBanner({
+        id: payment.id,
+        userName,
+        email,
+        amount: approvedAmount,
+        mpesaCode,
+        adminWalletBalance: res?.adminWalletBalance,
+        userWalletBalance: res?.userWalletBalance,
+        timestamp: Date.now(),
+      });
+
+      showToast?.(
+        `Approved KES ${approvedAmount.toLocaleString()} (${mpesaCode})! Wallet credited automatically.`
+      );
+      setApproveModalPayment(null);
+      loadAdminData();
+      if (onPaymentModerated) {
+        await Promise.resolve(onPaymentModerated()).catch(() => {});
+      }
+    } catch (err: any) {
+      const msg = err?.message || 'Approval failed.';
+      setPaymentModalError(msg);
+      showToast?.(msg);
+    } finally {
+      setProcessingPayment(false);
+      setApprovingPaymentId(null);
+    }
+  };
 
   const currentPaymentsList = allPayments.length > 0 ? allPayments : payments;
   const pendingPayments = currentPaymentsList.filter(p => p.status === 'pending');
@@ -1449,6 +1590,37 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <span>Refresh</span>
             </button>
           </div>
+
+          {lastApprovedBanner && (
+            <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-300 dark:border-emerald-700 text-emerald-900 dark:text-emerald-100 flex items-start justify-between gap-3 text-xs shadow-sm">
+              <div className="flex items-start gap-2.5">
+                <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                <div>
+                  <div className="font-extrabold text-sm">
+                    Approval Successful · KES {lastApprovedBanner.amount.toLocaleString()} Credited Automatically
+                  </div>
+                  <p className="text-[11px] text-emerald-800 dark:text-emerald-200 mt-0.5">
+                    M-Pesa Code <strong className="font-mono">{lastApprovedBanner.mpesaCode}</strong> for{' '}
+                    <strong>{lastApprovedBanner.userName}</strong> ({lastApprovedBanner.email}) is approved.
+                    {typeof lastApprovedBanner.userWalletBalance === 'number' && (
+                      <span> Host/User wallet: <strong className="font-mono">KES {lastApprovedBanner.userWalletBalance.toLocaleString()}</strong>.</span>
+                    )}
+                    {typeof lastApprovedBanner.adminWalletBalance === 'number' && (
+                      <span> Admin Wallet: <strong className="font-mono">KES {lastApprovedBanner.adminWalletBalance.toLocaleString()}</strong>.</span>
+                    )}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setLastApprovedBanner(null)}
+                className="p-1 rounded-full hover:bg-emerald-200/50 dark:hover:bg-emerald-800/50 text-emerald-700 dark:text-emerald-300 cursor-pointer"
+                aria-label="Dismiss approval confirmation"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
 
           {/* Filtering & Search Toolbar */}
           <div className="p-4 bg-stone-50 dark:bg-[#1a1c24] rounded-2xl border border-stone-200 dark:border-stone-800 space-y-3">
@@ -2976,6 +3148,174 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </div>
           </div>
 
+          {lastApprovedBanner && (
+            <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-300 dark:border-emerald-700 text-emerald-900 dark:text-emerald-100 flex items-start justify-between gap-3 text-xs shadow-sm">
+              <div className="flex items-start gap-2.5">
+                <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                <div>
+                  <div className="font-extrabold text-sm">
+                    Approval Successful · KES {lastApprovedBanner.amount.toLocaleString()} Credited Automatically
+                  </div>
+                  <p className="text-[11px] text-emerald-800 dark:text-emerald-200 mt-0.5">
+                    M-Pesa Code <strong className="font-mono">{lastApprovedBanner.mpesaCode}</strong> for{' '}
+                    <strong>{lastApprovedBanner.userName}</strong> ({lastApprovedBanner.email}) has been approved.
+                    {typeof lastApprovedBanner.userWalletBalance === 'number' && (
+                      <span> User/Host Wallet now: <strong className="font-mono">KES {lastApprovedBanner.userWalletBalance.toLocaleString()}</strong>.</span>
+                    )}
+                    {typeof lastApprovedBanner.adminWalletBalance === 'number' && (
+                      <span> Admin Wallet Cash Balance: <strong className="font-mono">KES {lastApprovedBanner.adminWalletBalance.toLocaleString()}</strong>.</span>
+                    )}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setLastApprovedBanner(null)}
+                className="p-1 rounded-full hover:bg-emerald-200/50 dark:hover:bg-emerald-800/50 text-emerald-700 dark:text-emerald-300 cursor-pointer"
+                aria-label="Dismiss approval notification"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
+          {/* PAYMENTS SECTION: PENDING PAYMENTS TABLE (Live M-Pesa Deposit Approval Queue inside Admin Wallet) */}
+          <div className="p-5 sm:p-6 bg-white dark:bg-[#15171e] rounded-3xl border border-amber-300/70 dark:border-amber-800/60 shadow-sm space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <CreditCard className="w-4 h-4 text-amber-500" />
+                  <h4 className="text-sm font-extrabold text-stone-900 dark:text-white uppercase tracking-wider">
+                    Payments — Pending Payments ({pendingPayments.length})
+                  </h4>
+                  {pendingPayments.length > 0 && (
+                    <span className="px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 text-[10px] font-black uppercase">
+                      Awaiting Approval
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] text-stone-500 mt-0.5">
+                  Review submitted M-Pesa deposit codes and exact integer KES amounts. Approving credits the Host or Guest wallet automatically in real time and records the entry in the Admin Wallet ledger.
+                </p>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={loadAdminData}
+                  className="px-3 py-1.5 rounded-xl border border-stone-200 dark:border-stone-700 text-xs font-bold flex items-center gap-1.5 hover:bg-stone-100 dark:hover:bg-stone-800 cursor-pointer"
+                >
+                  <RefreshCw className="w-3.5 h-3.5 text-stone-400" />
+                  <span>Sync Pending</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTab('queue')}
+                  className="px-3 py-1.5 rounded-xl bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 text-xs font-bold text-stone-700 dark:text-stone-200 cursor-pointer"
+                >
+                  Full Payments Audit
+                </button>
+              </div>
+            </div>
+
+            {pendingPayments.length === 0 ? (
+              <div className="p-6 text-center rounded-2xl bg-stone-50 dark:bg-stone-900/50 border border-dashed border-stone-200 dark:border-stone-800 text-xs text-stone-500">
+                No pending M-Pesa deposits or payments waiting right now. New submissions appear here automatically.
+              </div>
+            ) : (
+              <div className="overflow-x-auto rounded-2xl border border-stone-200 dark:border-stone-800">
+                <table className="w-full text-left text-xs min-w-[740px]">
+                  <thead className="bg-stone-50 dark:bg-stone-900 text-stone-500 uppercase text-[10px]">
+                    <tr>
+                      <th className="px-3 py-2.5">Submitted (EAT)</th>
+                      <th className="px-3 py-2.5">User / Host</th>
+                      <th className="px-3 py-2.5">Type / Method</th>
+                      <th className="px-3 py-2.5">M-Pesa Code</th>
+                      <th className="px-3 py-2.5 text-right">Amount (KES)</th>
+                      <th className="px-3 py-2.5">Status</th>
+                      <th className="px-3 py-2.5 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-stone-100 dark:divide-stone-800">
+                    {pendingPayments.map(p => {
+                      const amountDisplay = Number(p.claimedAmount ?? p.amountKes ?? p.amountSc ?? p.amount ?? 0);
+                      const isHostPayment = p.userRole === 'owner' || (p.userRole as string) === 'host';
+                      const isRowBusy = approvingPaymentId === p.id;
+                      return (
+                        <tr key={p.id} className="hover:bg-amber-50/40 dark:hover:bg-amber-950/10">
+                          <td className="px-3 py-3 whitespace-nowrap text-stone-600 dark:text-stone-300">
+                            <div className="font-semibold">{formatEATDateTime(p.createdAt)} EAT</div>
+                            <div className="text-[10px] font-mono text-stone-400">{p.id}</div>
+                          </td>
+                          <td className="px-3 py-3">
+                            <div className="font-bold text-stone-900 dark:text-white flex items-center gap-1.5">
+                              <span>{p.userName || p.userId || p.hostEmail}</span>
+                              {p.userRole && (
+                                <span
+                                  className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded-full ${
+                                    isHostPayment
+                                      ? 'bg-purple-100 dark:bg-purple-950 text-purple-800 dark:text-purple-300'
+                                      : 'bg-sky-100 dark:bg-sky-950 text-sky-800 dark:text-sky-300'
+                                  }`}
+                                >
+                                  {isHostPayment ? 'Host' : p.userRole}
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-[11px] font-mono text-stone-500">{p.userId || p.hostEmail}</div>
+                          </td>
+                          <td className="px-3 py-3">
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-200">
+                              {p.type || p.kind || 'deposit'}
+                            </span>
+                            <div className="text-[10px] text-stone-500 mt-0.5 uppercase">
+                              {p.method === 'mpesa_manual' ? 'M-Pesa' : p.method || 'M-Pesa'}
+                            </div>
+                          </td>
+                          <td className="px-3 py-3 font-mono font-black text-stone-900 dark:text-white tracking-wider">
+                            {p.mpesaCode || p.referenceId || p.reference || '—'}
+                          </td>
+                          <td className="px-3 py-3 text-right font-mono font-black text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
+                            KES {amountDisplay.toLocaleString()}
+                          </td>
+                          <td className="px-3 py-3">
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300">
+                              {p.status}
+                            </span>
+                          </td>
+                          <td className="px-3 py-3 text-right whitespace-nowrap">
+                            <div className="inline-flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                disabled={processingPayment || isRowBusy}
+                                onClick={() => handleApprovePaymentRecord(p)}
+                                className="px-3 py-1.5 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-extrabold shadow-xs cursor-pointer disabled:opacity-50 inline-flex items-center gap-1"
+                              >
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                <span>{isRowBusy ? 'Approving...' : 'Approve'}</span>
+                              </button>
+                              <button
+                                type="button"
+                                disabled={processingPayment || isRowBusy}
+                                onClick={() => {
+                                  setPaymentModalError(null);
+                                  setRejectModalPayment(p);
+                                  setRejectReason('Invalid or unverified receipt details.');
+                                }}
+                                className="px-3 py-1.5 rounded-full bg-stone-100 dark:bg-stone-800 hover:bg-rose-100 text-rose-600 text-[11px] font-bold cursor-pointer disabled:opacity-50"
+                              >
+                                Decline
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
           {/* EAT Granularity Controls & Date Range Filter */}
           <div className="p-5 bg-white dark:bg-[#15171e] rounded-3xl border border-stone-200 dark:border-stone-800 shadow-sm space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -3596,7 +3936,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   key={f.id}
                   onClick={() => {
                     setMediaTypeFilter(f.id as any);
-                    api.getAdminListingMedia({ type: f.id, flaggedOnly: mediaFlaggedOnly, search: mediaSearch }).then(res => setListingMediaList(res.media || []));
+                    api
+                      .getAdminListingMedia({ type: f.id, flaggedOnly: mediaFlaggedOnly, search: mediaSearch }, 'admin')
+                      .then(res => setListingMediaList(res.media || []))
+                      .catch(() => {});
                   }}
                   className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer ${
                     mediaTypeFilter === f.id
@@ -3612,7 +3955,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 onClick={() => {
                   const next = !mediaFlaggedOnly;
                   setMediaFlaggedOnly(next);
-                  api.getAdminListingMedia({ type: mediaTypeFilter, flaggedOnly: next, search: mediaSearch }).then(res => setListingMediaList(res.media || []));
+                  api
+                    .getAdminListingMedia({ type: mediaTypeFilter, flaggedOnly: next, search: mediaSearch }, 'admin')
+                    .then(res => setListingMediaList(res.media || []))
+                    .catch(() => {});
                 }}
                 className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
                   mediaFlaggedOnly
@@ -3633,7 +3979,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   value={mediaSearch}
                   onChange={e => {
                     setMediaSearch(e.target.value);
-                    api.getAdminListingMedia({ type: mediaTypeFilter, flaggedOnly: mediaFlaggedOnly, search: e.target.value }).then(res => setListingMediaList(res.media || []));
+                    api
+                      .getAdminListingMedia({ type: mediaTypeFilter, flaggedOnly: mediaFlaggedOnly, search: e.target.value }, 'admin')
+                      .then(res => setListingMediaList(res.media || []))
+                      .catch(() => {});
                   }}
                   placeholder="Search listings..."
                   className="w-full pl-8 pr-3 py-1.5 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-xs outline-none"
@@ -3641,7 +3990,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </div>
               <button
                 onClick={() => {
-                  api.getAdminListingMedia({ type: mediaTypeFilter, flaggedOnly: mediaFlaggedOnly, search: mediaSearch }).then(res => setListingMediaList(res.media || []));
+                  api
+                    .getAdminListingMedia({ type: mediaTypeFilter, flaggedOnly: mediaFlaggedOnly, search: mediaSearch }, 'admin')
+                    .then(res => setListingMediaList(res.media || []))
+                    .catch(() => {});
                 }}
                 className="p-2 rounded-xl border border-stone-200 dark:border-stone-800 hover:bg-stone-50 text-stone-600 cursor-pointer"
                 title="Refresh media queue"
@@ -5711,20 +6063,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <button
                 type="button"
                 disabled={processingPayment}
-                onClick={async () => {
-                  setProcessingPayment(true);
-                  setPaymentModalError(null);
-                  try {
-                    await api.approvePayment(approveModalPayment.id);
-                    showToast?.('Deposit approved and wallet credited with exact amount.');
-                    setApproveModalPayment(null);
-                    loadAdminData();
-                  } catch (err: any) {
-                    setPaymentModalError(err.message || 'Approval failed.');
-                  } finally {
-                    setProcessingPayment(false);
-                  }
-                }}
+                onClick={() => handleApprovePaymentRecord(approveModalPayment)}
                 className="px-5 py-2 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md cursor-pointer disabled:opacity-50"
               >
                 {processingPayment ? 'Activating...' : 'Yes, Approve & Activate'}

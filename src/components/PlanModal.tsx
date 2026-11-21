@@ -47,7 +47,10 @@ export const PlanModal: React.FC<PlanModalProps> = ({
   const [activeSub, setActiveSub] = useState<SubscriptionRecord | null>(null);
   const [pendingSub, setPendingSub] = useState<SubscriptionRecord | null>(null);
 
-  const resolvedSlot = portalSlot === 'owner' || portalSlot === 'guest' ? portalSlot : undefined;
+  const resolvedSlot =
+    portalSlot === 'owner' || portalSlot === 'guest' || portalSlot === 'admin'
+      ? portalSlot
+      : api.getActivePortalSlot();
   const walletAmount = Number.isInteger(Number(walletAmountInput.trim()))
     ? Math.max(0, Number(walletAmountInput.trim()))
     : 0;
@@ -60,13 +63,18 @@ export const PlanModal: React.FC<PlanModalProps> = ({
     setError(null);
     setSuccessMsg(null);
     setMpesaCode('');
-    api.getCurrentSubscription(resolvedSlot)
-      .then(res => {
-        if (!isMounted) return;
-        setActiveSub(res.activeSubscription || null);
-        setPendingSub(res.pendingSubscription || null);
-      })
-      .catch(() => {});
+    if (api.getToken(resolvedSlot)) {
+      api.getCurrentSubscription(resolvedSlot)
+        .then(res => {
+          if (!isMounted) return;
+          setActiveSub(res.activeSubscription || null);
+          setPendingSub(res.pendingSubscription || null);
+        })
+        .catch(() => {});
+    } else {
+      setActiveSub(null);
+      setPendingSub(null);
+    }
     return () => {
       isMounted = false;
     };
@@ -139,6 +147,11 @@ export const PlanModal: React.FC<PlanModalProps> = ({
     setError(null);
     setSuccessMsg(null);
 
+    if (!api.getToken(resolvedSlot)) {
+      setError('Please sign in to your Host or Guest account first before submitting an M-Pesa deposit.');
+      return;
+    }
+
     const parsedAmount = Number(walletAmountInput.trim());
     if (!walletAmountInput.trim() || !Number.isInteger(parsedAmount) || parsedAmount < 10) {
       setError('Minimum wallet deposit amount is KES 10 (whole integer Ksh).');
@@ -154,9 +167,12 @@ export const PlanModal: React.FC<PlanModalProps> = ({
     setSubmitting(true);
     try {
       const res = await api.topupWallet(parsedAmount, cleanCode, { slot: resolvedSlot });
+      if (!res?.payment || res.payment.status !== 'pending') {
+        throw new Error('Deposit could not be queued for Admin approval. Please try again.');
+      }
       setMpesaCode('');
       setSuccessMsg(
-        `Deposit (M-Pesa) of KES ${parsedAmount.toLocaleString()} (Code: ${cleanCode}) submitted as Pending! Your wallet will be credited with this exact amount once approved by Admin.`
+        `Deposit (M-Pesa) of KES ${parsedAmount.toLocaleString()} (Code: ${cleanCode}) submitted with status: pending! Your wallet will be credited automatically in real time as soon as Admin approves.`
       );
       try {
         onDepositSubmitted?.(res.payment);

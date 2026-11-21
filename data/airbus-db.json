@@ -3973,7 +3973,7 @@
       "updatedAt": 1794600565833,
       "host_id": "owner@airbus.ke",
       "plays": 1,
-      "replays": 48,
+      "replays": 79,
       "actionClicks": 1
     },
     {
@@ -7241,7 +7241,7 @@
       "ownerEmail": "owner@airbus.ke",
       "views": 0,
       "plays": 1,
-      "replays": 48,
+      "replays": 79,
       "clicks": {
         "availability": 0,
         "book": 0,
@@ -7249,7 +7249,7 @@
         "negotiate": 0,
         "whatsapp": 1
       },
-      "updatedAt": 1795275644888
+      "updatedAt": 1795277106738
     }
   },
   "guestCredentials": [
@@ -8241,6 +8241,42 @@
       "lastActiveAt": 1795165473590,
       "idleTimeoutMs": 1200000,
       "expiresAt": 1797757473590
+    },
+    "sess_guest_b8c6447d-73ba-4d5c-801a-1adf70517386": {
+      "token": "sess_guest_b8c6447d-73ba-4d5c-801a-1adf70517386",
+      "userId": "u_guest",
+      "userEmail": "guest@airbus.ke",
+      "username": "SarahWanjiku",
+      "portal": "guest",
+      "role": "guest",
+      "createdAt": 1795277112923,
+      "lastActiveAt": 1795277112999,
+      "idleTimeoutMs": 1200000,
+      "expiresAt": 1797869112923
+    },
+    "sess_owner_dfe13cbc-04a5-4b27-886a-d96fbdda8af4": {
+      "token": "sess_owner_dfe13cbc-04a5-4b27-886a-d96fbdda8af4",
+      "userId": "u_owner",
+      "userEmail": "owner@airbus.ke",
+      "username": "DavidMutua",
+      "portal": "owner",
+      "role": "owner",
+      "createdAt": 1795277112943,
+      "lastActiveAt": 1795277112943,
+      "idleTimeoutMs": 1200000,
+      "expiresAt": 1797869112943
+    },
+    "sess_admin_d2d11ea9-de34-4355-b92b-0b6b43c88052": {
+      "token": "sess_admin_d2d11ea9-de34-4355-b92b-0b6b43c88052",
+      "userId": "u_admin_master",
+      "userEmail": "kamalahari93@gmail.com",
+      "username": "KamalaHari",
+      "portal": "admin",
+      "role": "admin",
+      "createdAt": 1795277112951,
+      "lastActiveAt": 1795277112951,
+      "idleTimeoutMs": 1200000,
+      "expiresAt": 1797869112951
     }
   },
   "failedLoginAttempts": {

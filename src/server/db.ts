@@ -1793,6 +1793,18 @@ class DatabaseStore {
     holdBalance: number;
     available: number;
     updatedAt: number;
+    eventType?: string;
+    paymentId?: string;
+    approvedAmount?: number;
+    mpesaCode?: string;
+  }) => void>();
+  private paymentListeners = new Set<(event: {
+    eventType: 'payment_created' | 'payment_approved' | 'payment_rejected';
+    payment: PaymentRecord;
+    targetEmail: string;
+    walletBalance?: number;
+    adminWalletBalance?: number;
+    updatedAt: number;
   }) => void>();
   private feedListeners = new Set<(event: {
     id: string;
@@ -2262,6 +2274,10 @@ class DatabaseStore {
       holdBalance: number;
       available: number;
       updatedAt: number;
+      eventType?: string;
+      paymentId?: string;
+      approvedAmount?: number;
+      mpesaCode?: string;
     }) => void
   ): () => void {
     this.walletListeners.add(listener);
@@ -2270,7 +2286,15 @@ class DatabaseStore {
     };
   }
 
-  public emitWalletUpdate(email: string) {
+  public emitWalletUpdate(
+    email: string,
+    meta?: {
+      eventType?: string;
+      paymentId?: string;
+      approvedAmount?: number;
+      mpesaCode?: string;
+    }
+  ) {
     const cleanEmail = (email || '').toLowerCase().trim();
     if (!cleanEmail) return;
     const wr = this.ensureWallet(cleanEmail);
@@ -2281,12 +2305,52 @@ class DatabaseStore {
       holdBalance: wr.holdBalance || 0,
       available,
       updatedAt: Date.now(),
+      ...(meta || {}),
     };
     this.walletListeners.forEach(fn => {
       try {
         fn(payload);
       } catch (err) {
         console.warn('Wallet listener error:', err);
+      }
+    });
+  }
+
+  public subscribePaymentUpdates(
+    listener: (event: {
+      eventType: 'payment_created' | 'payment_approved' | 'payment_rejected';
+      payment: PaymentRecord;
+      targetEmail: string;
+      walletBalance?: number;
+      adminWalletBalance?: number;
+      updatedAt: number;
+    }) => void
+  ): () => void {
+    this.paymentListeners.add(listener);
+    return () => {
+      this.paymentListeners.delete(listener);
+    };
+  }
+
+  public emitPaymentUpdate(
+    eventType: 'payment_created' | 'payment_approved' | 'payment_rejected',
+    payment: PaymentRecord,
+    balances?: { walletBalance?: number; adminWalletBalance?: number }
+  ) {
+    const targetEmail = (payment.userId || payment.hostEmail || '').toLowerCase().trim();
+    const payload = {
+      eventType,
+      payment: { ...payment },
+      targetEmail,
+      walletBalance: balances?.walletBalance,
+      adminWalletBalance: balances?.adminWalletBalance,
+      updatedAt: Date.now(),
+    };
+    this.paymentListeners.forEach(fn => {
+      try {
+        fn(payload);
+      } catch (err) {
+        console.warn('Payment listener error:', err);
       }
     });
   }
@@ -5279,6 +5343,12 @@ class DatabaseStore {
         });
       });
     this.save();
+    if (p.status === 'pending') {
+      this.emitPaymentUpdate('payment_created', p, {
+        walletBalance: this.getWallet(payerEmail),
+        adminWalletBalance: this.getWallet('admin@airbus.ke'),
+      });
+    }
     return p;
   }
 
@@ -5571,6 +5641,10 @@ class DatabaseStore {
     });
 
     this.save();
+    this.emitPaymentUpdate('payment_created', payment, {
+      walletBalance: this.getWallet(cleanUserId),
+      adminWalletBalance: this.getWallet('admin@airbus.ke'),
+    });
     return payment;
   }
 
@@ -5697,8 +5771,22 @@ class DatabaseStore {
       });
 
       this.save();
-      this.emitWalletUpdate(hostEmail);
-      this.emitWalletUpdate('admin@airbus.ke');
+      this.emitWalletUpdate(hostEmail, {
+        eventType: 'deposit_approved',
+        paymentId: p.id,
+        approvedAmount: finalApprovedAmount,
+        mpesaCode: paymentCode,
+      });
+      this.emitWalletUpdate('admin@airbus.ke', {
+        eventType: 'deposit_approved',
+        paymentId: p.id,
+        approvedAmount: finalApprovedAmount,
+        mpesaCode: paymentCode,
+      });
+      this.emitPaymentUpdate('payment_approved', p, {
+        walletBalance: this.getWallet(hostEmail),
+        adminWalletBalance: this.getWallet('admin@airbus.ke'),
+      });
       return p;
     });
   }
@@ -5929,6 +6017,10 @@ class DatabaseStore {
     this.save();
     this.emitWalletUpdate(cleanUserId);
     this.emitWalletUpdate('admin@airbus.ke');
+    this.emitPaymentUpdate('payment_rejected', p, {
+      walletBalance: this.getWallet(cleanUserId),
+      adminWalletBalance: this.getWallet('admin@airbus.ke'),
+    });
     return p;
   }
 

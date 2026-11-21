@@ -2727,7 +2727,12 @@ app.post('/api/admin/payments/:id/approve', async (req, res) => {
       db.runWithIdempotency(idemKey, () => {
         const result = db.approvePayment(req.params.id, user.email, confirmedAmount);
         if (!result) throw new Error('Payment not found or already processed.');
-        return { payment: result };
+        const payerEmail = (result.userId || result.hostEmail || '').toLowerCase().trim();
+        return {
+          payment: result,
+          userWalletBalance: payerEmail ? db.getWallet(payerEmail) : undefined,
+          adminWalletBalance: db.getWallet('admin@airbus.ke'),
+        };
       })
     );
     return res.json(out.response);
@@ -3416,9 +3421,15 @@ app.get('/api/wallet/stream', (req, res) => {
     })}\n\n`
   );
 
-  const unsubscribe = db.subscribeWalletUpdates(payload => {
+  const unsubscribeWallet = db.subscribeWalletUpdates(payload => {
     if (payload.email === targetEmail) {
       res.write(`event: wallet_update\ndata: ${JSON.stringify(payload)}\n\n`);
+    }
+  });
+
+  const unsubscribePayment = db.subscribePaymentUpdates(evt => {
+    if (state.user?.role === 'admin' || evt.targetEmail === targetEmail) {
+      res.write(`event: payment_update\ndata: ${JSON.stringify(evt)}\n\n`);
     }
   });
 
@@ -3427,7 +3438,8 @@ app.get('/api/wallet/stream', (req, res) => {
     if (!check.user) {
       res.write(`event: session_expired\ndata: ${JSON.stringify({ reason: 'idle_timeout' })}\n\n`);
       clearInterval(keepalive);
-      unsubscribe();
+      unsubscribeWallet();
+      unsubscribePayment();
       res.end();
       return;
     }
@@ -3436,7 +3448,8 @@ app.get('/api/wallet/stream', (req, res) => {
 
   req.on('close', () => {
     clearInterval(keepalive);
-    unsubscribe();
+    unsubscribeWallet();
+    unsubscribePayment();
   });
 });
 

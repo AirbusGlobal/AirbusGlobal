@@ -642,7 +642,7 @@ export const api = {
     this.logout(targetSlot);
   },
 
-  async getMe(silent = false): Promise<{
+  async getMe(silent = false, slot?: PortalSlot): Promise<{
     user: User;
     session?: {
       portal: string;
@@ -654,7 +654,7 @@ export const api = {
     walletBalance?: number;
     hostPlan?: HostPlanStatus;
   }> {
-    return this.request(`/api/auth/me${silent ? '?silent=1' : ''}`);
+    return this.request(`/api/auth/me${silent ? '?silent=1' : ''}`, { portalSlot: slot });
   },
 
   async pingSession(slot?: PortalSlot): Promise<{
@@ -780,8 +780,8 @@ export const api = {
     return this.request(`/api/stays${qs ? `?${qs}` : ''}`);
   },
 
-  async getMyStays(): Promise<{ stays: Stay[] }> {
-    return this.request<{ stays: Stay[] }>('/api/stays/my-submissions');
+  async getMyStays(slot?: PortalSlot): Promise<{ stays: Stay[] }> {
+    return this.request<{ stays: Stay[] }>('/api/stays/my-submissions', { portalSlot: slot });
   },
 
   async resubmitStay(
@@ -1061,8 +1061,8 @@ export const api = {
   },
 
   // Bookings
-  async getBookings(): Promise<{ bookings: Booking[] }> {
-    return this.request<{ bookings: Booking[] }>('/api/bookings');
+  async getBookings(slot?: PortalSlot): Promise<{ bookings: Booking[] }> {
+    return this.request<{ bookings: Booking[] }>('/api/bookings', { portalSlot: slot });
   },
 
   async checkUpcomingCheckinReminders(): Promise<{
@@ -1099,8 +1099,8 @@ export const api = {
   },
 
   // Threads & Negotiations
-  async getThreads(): Promise<{ threads: ChatThread[] }> {
-    return this.request<{ threads: ChatThread[] }>('/api/threads');
+  async getThreads(slot?: PortalSlot): Promise<{ threads: ChatThread[] }> {
+    return this.request<{ threads: ChatThread[] }>('/api/threads', { portalSlot: slot });
   },
 
   async getThread(id: string): Promise<{ thread: ChatThread }> {
@@ -1141,28 +1141,33 @@ export const api = {
   },
 
   // Host Plan & Wallet
-  async getHostPlan(): Promise<{
+  async getHostPlan(slot?: PortalSlot): Promise<{
     plan: HostPlanStatus;
     wallet: number;
     availablePlans: Record<string, { p: number; l: number; name: string }>;
   }> {
-    return this.request('/api/host/plan');
+    return this.request('/api/host/plan', { portalSlot: slot });
   },
 
   // Payments (Ledger & Audit)
-  async getPaymentRecords(filter?: {
-    status?: string;
-    type?: string;
-    method?: string;
-    search?: string;
-  }): Promise<{ payments: PaymentRecord[]; count: number; pendingCount?: number }> {
+  async getPaymentRecords(
+    filter?: {
+      status?: string;
+      type?: string;
+      method?: string;
+      search?: string;
+    },
+    slot?: PortalSlot
+  ): Promise<{ payments: PaymentRecord[]; count: number; pendingCount?: number }> {
     const params = new URLSearchParams();
     if (filter?.status && filter.status !== 'all') params.set('status', filter.status);
     if (filter?.type && filter.type !== 'all') params.set('type', filter.type);
     if (filter?.method && filter.method !== 'all') params.set('method', filter.method);
     if (filter?.search) params.set('search', filter.search);
     const qs = params.toString() ? `?${params.toString()}` : '';
-    return this.request<{ payments: PaymentRecord[]; count: number; pendingCount?: number }>(`/api/payments${qs}`);
+    return this.request<{ payments: PaymentRecord[]; count: number; pendingCount?: number }>(`/api/payments${qs}`, {
+      portalSlot: slot,
+    });
   },
 
   async payWithWallet(data: {
@@ -1195,9 +1200,14 @@ export const api = {
     });
   },
 
-  async approvePayment(paymentId: string): Promise<{ payment: PaymentRecord }> {
+  async approvePayment(paymentId: string): Promise<{
+    payment: PaymentRecord;
+    userWalletBalance?: number;
+    adminWalletBalance?: number;
+  }> {
     return this.request(`/api/admin/payments/${paymentId}/approve`, {
       method: 'POST',
+      portalSlot: 'admin',
       body: JSON.stringify({}),
     });
   },
@@ -1432,6 +1442,7 @@ export const api = {
   async rejectPayment(paymentId: string, reason?: string): Promise<{ payment: PaymentRecord }> {
     return this.request(`/api/admin/payments/${paymentId}/reject`, {
       method: 'POST',
+      portalSlot: 'admin',
       body: JSON.stringify({ reason }),
     });
   },
@@ -1523,20 +1534,23 @@ export const api = {
   },
 
   // Wishlist
-  async getWishlist(): Promise<{ wishlist: string[]; stays: Stay[] }> {
-    return this.request<{ wishlist: string[]; stays: Stay[] }>('/api/wishlist');
+  async getWishlist(slot?: PortalSlot): Promise<{ wishlist: string[]; stays: Stay[] }> {
+    return this.request<{ wishlist: string[]; stays: Stay[] }>('/api/wishlist', { portalSlot: slot });
   },
 
-  async toggleWishlist(stayId: string): Promise<{ saved: boolean; wishlist: string[] }> {
+  async toggleWishlist(stayId: string, slot?: PortalSlot): Promise<{ saved: boolean; wishlist: string[] }> {
     return this.request<{ saved: boolean; wishlist: string[] }>('/api/wishlist/toggle', {
       method: 'POST',
+      portalSlot: slot,
       body: JSON.stringify({ stayId }),
     });
   },
 
   // Notifications (with delete and clear)
-  async getNotifications(): Promise<{ notifications: NotificationItem[]; unreadCount: number }> {
-    return this.request<{ notifications: NotificationItem[]; unreadCount: number }>('/api/notifications');
+  async getNotifications(slot?: PortalSlot): Promise<{ notifications: NotificationItem[]; unreadCount: number }> {
+    return this.request<{ notifications: NotificationItem[]; unreadCount: number }>('/api/notifications', {
+      portalSlot: slot,
+    });
   },
 
   async markNotificationsRead(): Promise<{ success: boolean }> {
@@ -1573,8 +1587,8 @@ export const api = {
   },
 
   // Admin
-  async getAdminOverview(): Promise<any> {
-    return this.request('/api/admin/overview');
+  async getAdminOverview(slot: PortalSlot = 'admin'): Promise<any> {
+    return this.request('/api/admin/overview', { portalSlot: slot });
   },
 
   async verifyUser(email: string): Promise<{ user: User }> {
@@ -1626,8 +1640,8 @@ export const api = {
   },
 
   // Dynamic Settings
-  async getSettings(): Promise<{ settings: PlatformSettings }> {
-    return this.request('/api/settings');
+  async getSettings(slot?: PortalSlot): Promise<{ settings: PlatformSettings }> {
+    return this.request('/api/settings', { portalSlot: slot });
   },
 
   async updateSettings(partial: Partial<PlatformSettings>): Promise<{ settings: PlatformSettings }> {
@@ -1738,13 +1752,16 @@ export const api = {
   },
 
   // Posts
-  async getPosts(filter?: { ownerEmail?: string; status?: PostStatus; type?: PostType }): Promise<{ posts: Post[] }> {
+  async getPosts(
+    filter?: { ownerEmail?: string; status?: PostStatus; type?: PostType },
+    slot?: PortalSlot
+  ): Promise<{ posts: Post[] }> {
     const params = new URLSearchParams();
     if (filter?.ownerEmail) params.set('ownerEmail', filter.ownerEmail);
     if (filter?.status) params.set('status', filter.status);
     if (filter?.type) params.set('type', filter.type);
     const qs = params.toString();
-    return this.request(`/api/posts${qs ? '?' + qs : ''}`);
+    return this.request(`/api/posts${qs ? '?' + qs : ''}`, { portalSlot: slot });
   },
 
   async getPostById(id: string): Promise<{ post: Post }> {
@@ -1770,12 +1787,12 @@ export const api = {
   },
 
   // Ads
-  async getAds(params?: { stayId?: string; status?: string }): Promise<{ ads: AdRequest[] }> {
+  async getAds(params?: { stayId?: string; status?: string }, slot?: PortalSlot): Promise<{ ads: AdRequest[] }> {
     const sp = new URLSearchParams();
     if (params?.stayId) sp.set('stayId', params.stayId);
     if (params?.status) sp.set('status', params.status);
     const qs = sp.toString();
-    return this.request(`/api/ads${qs ? '?' + qs : ''}`);
+    return this.request(`/api/ads${qs ? '?' + qs : ''}`, { portalSlot: slot });
   },
 
   async createAd(data: any): Promise<{ ad: AdRequest }> {
@@ -1815,8 +1832,8 @@ export const api = {
     });
   },
 
-  async getBoosts(): Promise<{ campaigns: BoostRecord[]; boosts: BoostRecord[] }> {
-    return this.request('/api/promotions/campaigns');
+  async getBoosts(slot?: PortalSlot): Promise<{ campaigns: BoostRecord[]; boosts: BoostRecord[] }> {
+    return this.request('/api/promotions/campaigns', { portalSlot: slot });
   },
 
   async purchaseSponsorSlot(
@@ -1854,8 +1871,8 @@ export const api = {
     });
   },
 
-  async getOwnerPromotions(): Promise<{ promotions: ListingPromotion[]; boosts?: BoostRecord[] }> {
-    return this.request('/api/owner/promotions');
+  async getOwnerPromotions(slot?: PortalSlot): Promise<{ promotions: ListingPromotion[]; boosts?: BoostRecord[] }> {
+    return this.request('/api/owner/promotions', { portalSlot: slot });
   },
 
   async recordPromoImpression(stayId: string): Promise<{ recorded: boolean }> {
@@ -2164,13 +2181,16 @@ export const api = {
   },
 
   // Admin Listing Media Moderation
-  async getAdminListingMedia(params: { type?: string; flaggedOnly?: boolean; search?: string } = {}): Promise<{ media: any[]; total: number }> {
+  async getAdminListingMedia(
+    params: { type?: string; flaggedOnly?: boolean; search?: string } = {},
+    slot: PortalSlot = 'admin'
+  ): Promise<{ media: any[]; total: number }> {
     const qs = new URLSearchParams();
     if (params.type) qs.set('type', params.type);
     if (params.flaggedOnly) qs.set('flaggedOnly', 'true');
     if (params.search) qs.set('search', params.search);
     const qStr = qs.toString();
-    return this.request(`/api/admin/listing-media${qStr ? `?${qStr}` : ''}`);
+    return this.request(`/api/admin/listing-media${qStr ? `?${qStr}` : ''}`, { portalSlot: slot });
   },
 
   async adminRemoveStayMedia(stayId: string, data: { mediaType: 'video' | 'photo'; photoUrl?: string; reason?: string }): Promise<{ stay: Stay }> {
@@ -2296,7 +2316,7 @@ export const api = {
   },
 
   // Live Sync Polling
-  async getLiveUpdates(): Promise<{
+  async getLiveUpdates(slot?: PortalSlot): Promise<{
     timestamp: number;
     counts: {
       pendingPayments: number;
@@ -2306,7 +2326,7 @@ export const api = {
       unreadNotifs: number;
     };
   }> {
-    return this.request('/api/live/updates');
+    return this.request('/api/live/updates', { portalSlot: slot });
   },
 
   // Manual M-Pesa Topup / Deposit
@@ -2383,8 +2403,8 @@ export const api = {
     return this.request(`/api/airbus/collections/${encodeURIComponent(id)}/listings${qs}`);
   },
 
-  async getPlusServiceRequests(): Promise<{ requests: import('./types').PlusServiceRequest[] }> {
-    return this.request('/api/collections/plus/service-requests');
+  async getPlusServiceRequests(slot?: PortalSlot): Promise<{ requests: import('./types').PlusServiceRequest[] }> {
+    return this.request('/api/collections/plus/service-requests', { portalSlot: slot });
   },
 
   async createPlusServiceRequest(
@@ -2520,8 +2540,8 @@ export const api = {
     });
   },
 
-  async getShortJobs(): Promise<{ jobs: ShortJob[] }> {
-    return this.request('/api/shorts/jobs');
+  async getShortJobs(slot?: PortalSlot): Promise<{ jobs: ShortJob[] }> {
+    return this.request('/api/shorts/jobs', { portalSlot: slot });
   },
 
   async getShortJob(id: string): Promise<{ job: ShortJob }> {
@@ -2621,8 +2641,8 @@ export const api = {
     });
   },
 
-  async getOwnerShortsAnalytics(): Promise<{ totals: any; byShort: any[] }> {
-    return this.request('/api/owner/shorts-analytics');
+  async getOwnerShortsAnalytics(slot?: PortalSlot): Promise<{ totals: any; byShort: any[] }> {
+    return this.request('/api/owner/shorts-analytics', { portalSlot: slot });
   },
 
   async toggleLikePost(postId: string): Promise<{ liked: boolean; likes: number }> {
