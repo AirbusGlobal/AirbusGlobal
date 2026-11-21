@@ -268,7 +268,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // Payments Tab State
   const [allPayments, setAllPayments] = useState<PaymentRecord[]>(payments || []);
   const [paymentStatusFilter, setPaymentStatusFilter] = useState<'all' | 'pending' | 'approved' | 'rejected' | 'refunded'>('all');
-  const [paymentTypeFilter, setPaymentTypeFilter] = useState<'all' | 'advert' | 'boost' | 'subscription' | 'vvvip' | 'booking_fee'>('all');
+  const [paymentTypeFilter, setPaymentTypeFilter] = useState<'all' | 'deposit' | 'advert' | 'boost' | 'subscription' | 'vvvip' | 'booking_fee'>('all');
   const [paymentMethodFilter, setPaymentMethodFilter] = useState<'all' | 'wallet' | 'mpesa'>('all');
   const [paymentSearch, setPaymentSearch] = useState('');
   const [rejectModalPayment, setRejectModalPayment] = useState<PaymentRecord | null>(null);
@@ -450,6 +450,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     status: 'PENDING_REVIEW' | 'APPROVED' | 'DECLINED' | 'ALL' = tdStatusTab,
     page = tdPage
   ) => {
+    if (!adminUser || adminUser.role !== 'admin' || !api.getToken('admin')) return;
     setTdLoading(true);
     api
       .getAdminTripDatingSubmissions({ status, page, limit: 10 })
@@ -463,6 +464,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   };
 
   const loadAdminWalletAnalytics = async () => {
+    if (!adminUser || adminUser.role !== 'admin' || !api.getToken('admin')) return;
     setAwLoading(true);
     try {
       const fyNum = awFiscalYear ? Number(awFiscalYear) : undefined;
@@ -514,12 +516,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   };
 
   useEffect(() => {
+    if (!adminUser || adminUser.role !== 'admin' || !api.getToken('admin')) return;
     if (tab === 'treasury') {
       loadAdminWalletAnalytics();
     }
-  }, [tab, awGranularity, awFiscalYear, awFrom, awTo, awPurpose, awRole, awKind, awSearch, awPage]);
+  }, [tab, awGranularity, awFiscalYear, awFrom, awTo, awPurpose, awRole, awKind, awSearch, awPage, adminUser?.role]);
 
   const loadAdminData = () => {
+    if (!adminUser || adminUser.role !== 'admin' || !api.getToken('admin')) return;
     api.getPaymentRecords().then(res => {
       if (Array.isArray(res?.payments)) setAllPayments(res.payments);
     }).catch(() => {});
@@ -617,27 +621,77 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   };
 
   useEffect(() => {
+    if (!adminUser || adminUser.role !== 'admin' || !api.getToken('admin')) {
+      return;
+    }
+    let stopped = false;
+    const stopOnAuthError = (err: any) => {
+      if (err?.status === 401 || err?.status === 403) {
+        stopped = true;
+      }
+    };
     loadAdminData();
     const interval = setInterval(() => {
+      if (stopped || !api.getToken('admin') || adminUser?.role !== 'admin') {
+        clearInterval(interval);
+        return;
+      }
       api.getLiveUpdates().then(res => {
         if (res?.counts) setLiveCounts(res.counts);
       }).catch(() => {});
+      api.getPaymentRecords().then(res => {
+        if (Array.isArray(res?.payments)) setAllPayments(res.payments);
+      }).catch(stopOnAuthError);
+      api.getAdminWallets().then(res => {
+        if (res) {
+          setAdminWalletsData({
+            guestWallets: Array.isArray(res.guestWallets) ? res.guestWallets : [],
+            hostWallets: Array.isArray(res.hostWallets) ? res.hostWallets : [],
+            guestDeposits: Array.isArray(res.guestDeposits) ? res.guestDeposits : [],
+            hostDeposits: Array.isArray(res.hostDeposits) ? res.hostDeposits : [],
+          });
+        }
+      }).catch(stopOnAuthError);
       api.getAdminReviewQueue().then(res => {
         if (res) setReviewQueue(normalizeReviewQueue(res));
-      }).catch(() => {});
+      }).catch(stopOnAuthError);
       api.getAdminTripDatingCounts().then(res => {
         if (res?.counts) setTripDatingCounts(res.counts);
-      }).catch(() => {});
-    }, 8000);
-    return () => clearInterval(interval);
-  }, []);
+      }).catch(stopOnAuthError);
+    }, 6000);
+    return () => {
+      stopped = true;
+      clearInterval(interval);
+    };
+  }, [adminUser?.email, adminUser?.role]);
 
   useEffect(() => {
+    if (!adminUser || adminUser.role !== 'admin' || !api.getToken('admin')) return;
+    if (tab === 'queue' || tab === 'wallets') {
+      api.getPaymentRecords().then(res => {
+        if (Array.isArray(res?.payments)) setAllPayments(res.payments);
+      }).catch(() => {});
+      api.getAdminWallets().then(res => {
+        if (res) {
+          setAdminWalletsData({
+            guestWallets: Array.isArray(res.guestWallets) ? res.guestWallets : [],
+            hostWallets: Array.isArray(res.hostWallets) ? res.hostWallets : [],
+            guestDeposits: Array.isArray(res.guestDeposits) ? res.guestDeposits : [],
+            hostDeposits: Array.isArray(res.hostDeposits) ? res.hostDeposits : [],
+          });
+        }
+      }).catch(() => {});
+    }
+  }, [tab, adminUser?.role]);
+
+  useEffect(() => {
+    if (!adminUser || adminUser.role !== 'admin' || !api.getToken('admin')) return;
     loadTripDatingSubmissions(tdStatusTab, tdPage);
-  }, [tdStatusTab, tdPage]);
+  }, [tdStatusTab, tdPage, adminUser?.role]);
 
   useEffect(() => {
     const onTdCounts = (e: Event) => {
+      if (!adminUser || adminUser.role !== 'admin' || !api.getToken('admin')) return;
       const evt = e as CustomEvent<TripDatingAdminCounts>;
       if (evt.detail) {
         setTripDatingCounts(evt.detail);
@@ -648,7 +702,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     };
     window.addEventListener('airbus:trip-dating-counts', onTdCounts as EventListener);
     return () => window.removeEventListener('airbus:trip-dating-counts', onTdCounts as EventListener);
-  }, [tab, tdStatusTab, tdPage]);
+  }, [tab, tdStatusTab, tdPage, adminUser?.role]);
 
   const currentPaymentsList = allPayments.length > 0 ? allPayments : payments;
   const pendingPayments = currentPaymentsList.filter(p => p.status === 'pending');
@@ -721,7 +775,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           {/* Core Metrics */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 w-full md:w-auto">
             <div className="bg-white/10 backdrop-blur-md p-3 rounded-2xl border border-white/10 text-center">
-              <div className="text-lg font-black text-amber-400">{metrics?.pendingPayments ?? 0}</div>
+              <div className="text-lg font-black text-amber-400">
+                {allPayments.length > 0 ? pendingPayments.length : (metrics?.pendingPayments ?? 0)}
+              </div>
               <div className="text-[10px] text-stone-300 uppercase font-semibold">Pending M-Pesa</div>
             </div>
 
@@ -1432,7 +1488,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               {/* Type Filter */}
               <div className="flex items-center gap-1 bg-white dark:bg-[#12141a] px-2 py-1 rounded-xl border border-stone-200 dark:border-stone-700">
                 <span className="text-[10px] text-stone-400 font-bold uppercase">Type:</span>
-                {(['all', 'boost', 'advert', 'subscription', 'vvvip', 'booking_fee'] as const).map(t => (
+                {(['all', 'deposit', 'boost', 'advert', 'subscription', 'vvvip', 'booking_fee'] as const).map(t => (
                   <button
                     key={t}
                     type="button"
@@ -1443,7 +1499,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         : 'text-stone-500 hover:text-stone-900 dark:hover:text-stone-200'
                     }`}
                   >
-                    {t === 'booking_fee' ? 'Booking' : t === 'vvvip' ? 'AirBus Plus' : t}
+                    {t === 'booking_fee' ? 'Booking' : t === 'vvvip' ? 'AirBus Plus' : t === 'deposit' ? 'Deposits' : t}
                   </button>
                 ))}
               </div>
@@ -1477,18 +1533,29 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 const matchType =
                   p.type === paymentTypeFilter ||
                   p.kind === paymentTypeFilter ||
+                  (paymentTypeFilter === 'deposit' && (
+                    p.type === 'wallet' ||
+                    p.kind === 'wallet' ||
+                    p.type === 'wallet_topup' ||
+                    p.type === 'mpesa_deposit'
+                  )) ||
                   (paymentTypeFilter === 'subscription' && p.kind === 'plan') ||
                   (paymentTypeFilter === 'boost' && (p.kind === 'boost' || p.referenceId?.startsWith('boost_')));
                 if (!matchType) return false;
               }
               if (paymentMethodFilter !== 'all') {
                 const method = p.method || 'mpesa';
-                if (method !== paymentMethodFilter) return false;
+                if (paymentMethodFilter === 'mpesa') {
+                  if (method !== 'mpesa' && method !== 'mpesa_manual') return false;
+                } else if (method !== paymentMethodFilter) {
+                  return false;
+                }
               }
               if (paymentSearch.trim()) {
                 const q = paymentSearch.toLowerCase().trim();
                 const matched =
                   (p.id && p.id.toLowerCase().includes(q)) ||
+                  (p.userName && p.userName.toLowerCase().includes(q)) ||
                   (p.userId && p.userId.toLowerCase().includes(q)) ||
                   (p.hostEmail && p.hostEmail.toLowerCase().includes(q)) ||
                   (p.referenceId && p.referenceId.toLowerCase().includes(q)) ||
@@ -1514,7 +1581,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   const isApproved = p.status === 'approved';
                   const isRejected = p.status === 'rejected';
                   const isRefunded = p.status === 'refunded';
-                  const amountDisplay = Number(p.amountSc ?? p.amountKes ?? p.amount ?? 0);
+                  const amountDisplay = Number(p.claimedAmount ?? p.amountKes ?? p.amountSc ?? p.amount ?? 0);
+                  const isHostPayment = p.userRole === 'owner' || (p.userRole as string) === 'host';
 
                   return (
                     <div
@@ -1542,6 +1610,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             {p.status}
                           </span>
 
+                          {/* Role Badge */}
+                          {p.userRole && (
+                            <span
+                              className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full ${
+                                isHostPayment
+                                  ? 'bg-purple-100 dark:bg-purple-950 text-purple-800 dark:text-purple-300'
+                                  : 'bg-sky-100 dark:bg-sky-950 text-sky-800 dark:text-sky-300'
+                              }`}
+                            >
+                              {isHostPayment ? 'Host' : p.userRole}
+                            </span>
+                          )}
+
                           {/* Type Badge */}
                           <span className="text-[10px] font-black uppercase bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 px-2 py-0.5 rounded-full">
                             {p.type || p.kind || 'Payment'}
@@ -1556,7 +1637,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             }`}
                           >
                             {p.method === 'wallet' ? <Wallet className="w-3 h-3" /> : <CreditCard className="w-3 h-3" />}
-                            <span>{p.method || 'M-Pesa'}</span>
+                            <span>{p.method === 'mpesa_manual' ? 'M-Pesa' : (p.method || 'M-Pesa')}</span>
                           </span>
 
                           {/* Amount */}
@@ -1567,7 +1648,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
                         {/* User & Reference info */}
                         <div className="text-xs text-stone-700 dark:text-stone-300 flex flex-wrap items-center gap-x-3 gap-y-1">
-                          <span>User: <strong className="text-stone-900 dark:text-white">{p.userId || p.hostEmail}</strong></span>
+                          <span>
+                            {isHostPayment ? 'Host' : 'User'}:{' '}
+                            <strong className="text-stone-900 dark:text-white">
+                              {p.userName ? `${p.userName} (${p.userId || p.hostEmail})` : (p.userId || p.hostEmail)}
+                            </strong>
+                          </span>
                           {p.referenceId && (
                             <span className="text-stone-400">
                               Ref: <span className="font-mono text-stone-600 dark:text-stone-300">{p.referenceId}</span>

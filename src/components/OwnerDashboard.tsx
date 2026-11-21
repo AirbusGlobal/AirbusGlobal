@@ -85,6 +85,7 @@ interface OwnerDashboardProps {
   onBackToFeed?: () => void;
   onNavigateToShorts?: () => void;
   onRefreshWallet?: () => void;
+  walletRefreshTick?: number;
   showToast?: (msg: string) => void;
 }
 
@@ -107,6 +108,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
   onBackToFeed,
   onNavigateToShorts,
   onRefreshWallet,
+  walletRefreshTick = 0,
   showToast,
 }) => {
   const [activeTab, setActiveTab] = useState<'listings' | 'reservations' | 'promotions' | 'wallet' | 'shorts' | 'new-stay' | 'insights'>('listings');
@@ -121,10 +123,23 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
   const [boostCampaigns, setBoostCampaigns] = useState<BoostRecord[]>([]);
   const [walletTransactions, setWalletTransactions] = useState<any[]>([]);
   const [loadingHostWallet, setLoadingHostWallet] = useState<boolean>(false);
+  const [hostDepositAmount, setHostDepositAmount] = useState<string>('2500');
+  const [hostDepositCode, setHostDepositCode] = useState<string>('');
+  const [hostDepositing, setHostDepositing] = useState<boolean>(false);
+  const [hostDepositFeedback, setHostDepositFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [selectedStayIdForPromo, setSelectedStayIdForPromo] = useState<string>(myStays[0]?.id || '');
   const [promoDays, setPromoDays] = useState<number>(7);
   const [promoLoading, setPromoLoading] = useState<boolean>(false);
   const [promoFeedback, setPromoFeedback] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
+
+  const ownerPortalSlot = user.role === 'owner' ? ('owner' as const) : undefined;
+
+  // Keep active public portal synced while OwnerDashboard is active for an owner
+  useEffect(() => {
+    if (user.role === 'owner') {
+      api.setActivePublicPortal('owner');
+    }
+  }, [user.role]);
 
   // Load host promotions, boosts, and private wallet transactions
   const fetchPromotions = () => {
@@ -138,7 +153,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
 
   const fetchHostWallet = () => {
     setLoadingHostWallet(true);
-    api.getWallet()
+    api.getWallet(ownerPortalSlot)
       .then(res => {
         if (Array.isArray(res?.transactions)) {
           setWalletTransactions(res.transactions);
@@ -151,7 +166,22 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
   useEffect(() => {
     fetchPromotions();
     fetchHostWallet();
-  }, [walletBalance]);
+  }, [walletBalance, walletRefreshTick]);
+
+  useEffect(() => {
+    if (activeTab === 'wallet') {
+      fetchHostWallet();
+    }
+  }, [activeTab]);
+
+  useEffect(() => {
+    const handleSubmitted = () => {
+      fetchHostWallet();
+      onRefreshWallet?.();
+    };
+    window.addEventListener('airbus:wallet-deposit-submitted', handleSubmitted);
+    return () => window.removeEventListener('airbus:wallet-deposit-submitted', handleSubmitted);
+  }, []);
 
   // Shorts & Reels Auto-Creation + Per-Listing Tier Quotas + Gold Listing Audio State
   const tierRules = getShortsTierRules(plan.tier, isPlanActive);
@@ -2438,7 +2468,10 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
             <div className="flex items-center gap-2 shrink-0">
               <button
                 type="button"
-                onClick={fetchHostWallet}
+                onClick={() => {
+                  fetchHostWallet();
+                  onRefreshWallet?.();
+                }}
                 className="px-4 py-2 rounded-full border border-white/20 text-xs font-bold text-white hover:bg-white/10 cursor-pointer"
               >
                 {loadingHostWallet ? 'Refreshing...' : 'Refresh'}
@@ -2451,6 +2484,138 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                 Deposit (M-Pesa)
               </button>
             </div>
+          </div>
+
+          {/* Inline Host Deposit (M-Pesa) Form */}
+          <div className="bg-white dark:bg-[#15171e] p-6 rounded-3xl border border-stone-200 dark:border-stone-800 shadow-sm space-y-5">
+            <div>
+              <span className="text-[10px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300">
+                Deposit (M-Pesa) · Till 943210 / Paybill 222111
+              </span>
+              <h3 className="text-lg font-extrabold text-stone-900 dark:text-white mt-2">
+                Deposit (M-Pesa) to Your Host Wallet
+              </h3>
+              <p className="text-xs text-stone-500 mt-1">
+                Go to M-Pesa → Lipa na M-Pesa → Buy Goods Till{' '}
+                <strong className="font-mono text-stone-900 dark:text-white">943210</strong> (or Paybill{' '}
+                <strong className="font-mono text-stone-900 dark:text-white">222111</strong> Acc:{' '}
+                <strong className="font-mono text-stone-900 dark:text-white">ff1314</strong>). Enter the exact whole Ksh amount you sent and your M-Pesa confirmation code below. Admin will see your exact amount and code to approve into your Host wallet.
+              </p>
+            </div>
+
+            <form
+              onSubmit={async e => {
+                e.preventDefault();
+                setHostDepositFeedback(null);
+                const num = Number(hostDepositAmount.trim());
+                if (!hostDepositAmount.trim() || !Number.isInteger(num) || num < 10) {
+                  setHostDepositFeedback({
+                    type: 'error',
+                    text: 'Minimum deposit amount is KES 10 (whole integer Ksh).',
+                  });
+                  return;
+                }
+                const cleanCode = hostDepositCode.trim().toUpperCase();
+                if (!/^[A-Z0-9]{8,15}$/.test(cleanCode)) {
+                  setHostDepositFeedback({
+                    type: 'error',
+                    text: 'Enter a valid 8-15 character M-Pesa confirmation code (e.g. QWE123RTY4).',
+                  });
+                  return;
+                }
+                setHostDepositing(true);
+                try {
+                  const res = await api.topupWallet(num, cleanCode, { slot: ownerPortalSlot });
+                  setHostDepositCode('');
+                  setHostDepositFeedback({
+                    type: 'success',
+                    text:
+                      res?.message ||
+                      `Deposit (M-Pesa) of KES ${num.toLocaleString()} (Code: ${cleanCode}) submitted as Pending. Awaiting Admin approval.`,
+                  });
+                  showToast?.(`Host deposit ${cleanCode} (KES ${num.toLocaleString()}) submitted for Admin approval.`);
+                  fetchHostWallet();
+                  onRefreshWallet?.();
+                } catch (err: any) {
+                  setHostDepositFeedback({
+                    type: 'error',
+                    text: err?.message || 'Deposit submission failed.',
+                  });
+                } finally {
+                  setHostDepositing(false);
+                }
+              }}
+              className="space-y-4"
+            >
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xs font-bold text-stone-700 dark:text-stone-300 block mb-1">
+                    Deposit Amount (KES)
+                  </label>
+                  <input
+                    type="number"
+                    min={10}
+                    step={1}
+                    required
+                    value={hostDepositAmount}
+                    onChange={e => setHostDepositAmount(e.target.value.replace(/[^0-9]/g, ''))}
+                    placeholder="e.g. 2500"
+                    className="w-full px-3.5 py-2.5 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-sm font-mono font-bold outline-none focus:border-emerald-500"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-stone-700 dark:text-stone-300 block mb-1">
+                    M-Pesa Confirmation Code
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    maxLength={15}
+                    value={hostDepositCode}
+                    onChange={e => setHostDepositCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
+                    placeholder="e.g. QGH7X2K9LM"
+                    className="w-full px-3.5 py-2.5 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-sm font-mono uppercase tracking-wider outline-none focus:border-emerald-500"
+                  />
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                {[500, 1000, 2500, 5000, 10000].map(preset => (
+                  <button
+                    key={preset}
+                    type="button"
+                    onClick={() => setHostDepositAmount(String(preset))}
+                    className={`px-3 py-1.5 rounded-full text-xs font-bold border transition-all cursor-pointer ${
+                      Number(hostDepositAmount) === preset
+                        ? 'bg-emerald-600 text-white border-emerald-600'
+                        : 'bg-stone-100 dark:bg-stone-800 border-stone-200 dark:border-stone-700 text-stone-700 dark:text-stone-300 hover:border-emerald-500'
+                    }`}
+                  >
+                    KES {preset.toLocaleString()}
+                  </button>
+                ))}
+              </div>
+
+              {hostDepositFeedback && (
+                <div
+                  className={`p-3 rounded-2xl text-xs font-semibold border ${
+                    hostDepositFeedback.type === 'success'
+                      ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300'
+                      : 'bg-rose-50 dark:bg-rose-950/40 border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-300'
+                  }`}
+                >
+                  {hostDepositFeedback.text}
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={hostDepositing}
+                className="w-full sm:w-auto px-6 py-2.5 rounded-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-extrabold shadow-md transition-all cursor-pointer disabled:opacity-50"
+              >
+                {hostDepositing ? 'Submitting Deposit...' : 'Submit Deposit (M-Pesa) for Approval'}
+              </button>
+            </form>
           </div>
 
           <div className="p-6 bg-white dark:bg-[#15171e] rounded-3xl border border-stone-200 dark:border-stone-800 shadow-sm space-y-4">
@@ -2475,7 +2640,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                       <th className="py-2.5 px-3">Type</th>
                       <th className="py-2.5 px-3">Amount</th>
                       <th className="py-2.5 px-3">Status</th>
-                      <th className="py-2.5 px-3">Reference</th>
+                      <th className="py-2.5 px-3">M-Pesa Code / Ref</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-stone-100 dark:divide-stone-800">
@@ -2503,14 +2668,14 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                                 : 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300'
                             }`}
                           >
-                            {tx.status}
+                            {tx.status === 'pending' ? 'Pending Approval' : tx.status}
                           </span>
                           {tx.status === 'rejected' && tx.rejectionReason && (
                             <div className="text-[10px] text-rose-500 mt-0.5">{tx.rejectionReason}</div>
                           )}
                         </td>
-                        <td className="py-3 px-3 font-mono text-[11px] text-stone-500">
-                          {tx.reference}
+                        <td className="py-3 px-3 font-mono text-[11px] font-bold text-stone-700 dark:text-stone-200">
+                          {tx.mpesaCode || tx.reference}
                         </td>
                       </tr>
                     ))}

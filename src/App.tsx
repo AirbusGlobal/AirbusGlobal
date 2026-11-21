@@ -19,7 +19,7 @@ import { GuestDashboard } from './components/GuestDashboard';
 import { OwnerDashboard } from './components/OwnerDashboard';
 import { AuthModal } from './components/AuthModal';
 import { AdminPortalLanding } from './components/AdminPortalLanding';
-import { isAdminRoute, ADMIN_PORTAL_PATH } from './config/adminRoute';
+import { isAdminRoute, ADMIN_PORTAL_PATH, getNormalizedBasePrefix } from './config/adminRoute';
 
 // Dynamic lazy import: AdminDashboard bundle is NEVER shipped to public visitors
 const AdminDashboard = React.lazy(() =>
@@ -126,6 +126,7 @@ export default function App() {
     hasPaidSubscription: false,
   });
   const [walletBalance, setWalletBalance] = useState(0);
+  const [walletRefreshTick, setWalletRefreshTick] = useState(0);
 
   // 20-Minute Idle Timeout & Countdown Modal State
   const [idleTimeoutMs, setIdleTimeoutMs] = useState<number>(DEFAULT_IDLE_TIMEOUT_MS);
@@ -1126,8 +1127,8 @@ export default function App() {
 
         <AdminErrorBoundary
           onBack={() => {
-            const basePrefix = window.location.pathname.startsWith('/AirbusGlobal') ? '/AirbusGlobal/' : '/';
-            window.history.pushState({}, '', basePrefix);
+            const basePrefix = getNormalizedBasePrefix(window.location.pathname);
+            window.history.pushState({}, '', `${basePrefix}/`);
             setIsOnAdminRoute(false);
             setCurrentTab('home');
           }}
@@ -1193,8 +1194,8 @@ export default function App() {
             }}
             currency={currency}
             onBackToFeed={() => {
-              const basePrefix = window.location.pathname.startsWith('/AirbusGlobal') ? '/AirbusGlobal/' : '/';
-              window.history.pushState({}, '', basePrefix);
+              const basePrefix = getNormalizedBasePrefix(window.location.pathname);
+              window.history.pushState({}, '', `${basePrefix}/`);
               setIsOnAdminRoute(false);
               setCurrentTab('home');
             }}
@@ -1251,7 +1252,7 @@ export default function App() {
             setPlanModalOpen(true);
           }}
           onOpenAdminWallet={() => {
-            const basePrefix = window.location.pathname.startsWith('/AirbusGlobal') ? '/AirbusGlobal' : '';
+            const basePrefix = getNormalizedBasePrefix(window.location.pathname);
             window.history.pushState({}, '', `${basePrefix}${ADMIN_PORTAL_PATH}`);
             setAdminInitialTab('treasury');
             setIsOnAdminRoute(true);
@@ -1468,14 +1469,16 @@ export default function App() {
               currency={currency}
               onBackToFeed={() => handleNavigate('home')}
               onNavigateToShorts={() => handleNavigate('shorts')}
-              onRefreshWallet={() =>
+              onRefreshWallet={() => {
+                const slot = user?.role === 'owner' ? 'owner' : user?.role === 'guest' ? 'guest' : undefined;
                 api
-                  .getWallet()
+                  .getWallet(slot)
                   .then(w => {
                     if (w?.wallet?.balance !== undefined) setWalletBalance(w.wallet.balance);
                   })
-                  .catch(() => {})
-              }
+                  .catch(() => {});
+              }}
+              walletRefreshTick={walletRefreshTick}
               showToast={showToast}
             />
           )
@@ -1664,6 +1667,17 @@ export default function App() {
         walletMode={planWalletMode}
         userWalletBalance={walletBalance}
         onPayFromWallet={handlePayPlanFromWallet}
+        portalSlot={user?.role === 'owner' ? 'owner' : user?.role === 'guest' ? 'guest' : undefined}
+        onDepositSubmitted={payment => {
+          setWalletRefreshTick(t => t + 1);
+          const amt = Number(payment?.claimedAmount ?? payment?.amountKes ?? payment?.amount ?? 0);
+          const code = payment?.mpesaCode || '';
+          showToast(
+            amt > 0
+              ? `Deposit of KES ${amt.toLocaleString()}${code ? ` (${code})` : ''} submitted for Admin approval.`
+              : 'Deposit (M-Pesa) submitted for Admin approval.'
+          );
+        }}
       />
 
       {/* 6. AI Trip Finder Modal */}

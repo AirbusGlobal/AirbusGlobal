@@ -18,6 +18,8 @@ interface PlanModalProps {
   walletMode?: boolean;
   userWalletBalance?: number;
   onPayFromWallet?: (tier: StayCategory, period?: 'monthly' | 'annual') => Promise<void>;
+  portalSlot?: 'guest' | 'owner' | 'admin';
+  onDepositSubmitted?: (payment: any) => void;
 }
 
 export const PlanModal: React.FC<PlanModalProps> = ({
@@ -28,12 +30,14 @@ export const PlanModal: React.FC<PlanModalProps> = ({
   walletMode = false,
   userWalletBalance = 0,
   onPayFromWallet,
+  portalSlot,
+  onDepositSubmitted,
 }) => {
   const [selectedTier, setSelectedTier] = useState<StayCategory>('Diamond');
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'annual'>('monthly');
   const [inPayStep, setInPayStep] = useState(walletMode);
   const [isDepositFlow, setIsDepositFlow] = useState(walletMode);
-  const [walletAmount, setWalletAmount] = useState(2500);
+  const [walletAmountInput, setWalletAmountInput] = useState('2500');
   const [mpesaCode, setMpesaCode] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [walletPaying, setWalletPaying] = useState(false);
@@ -43,6 +47,11 @@ export const PlanModal: React.FC<PlanModalProps> = ({
   const [activeSub, setActiveSub] = useState<SubscriptionRecord | null>(null);
   const [pendingSub, setPendingSub] = useState<SubscriptionRecord | null>(null);
 
+  const resolvedSlot = portalSlot === 'owner' || portalSlot === 'guest' ? portalSlot : undefined;
+  const walletAmount = Number.isInteger(Number(walletAmountInput.trim()))
+    ? Math.max(0, Number(walletAmountInput.trim()))
+    : 0;
+
   useEffect(() => {
     if (!isOpen) return;
     let isMounted = true;
@@ -51,7 +60,7 @@ export const PlanModal: React.FC<PlanModalProps> = ({
     setError(null);
     setSuccessMsg(null);
     setMpesaCode('');
-    api.getCurrentSubscription()
+    api.getCurrentSubscription(resolvedSlot)
       .then(res => {
         if (!isMounted) return;
         setActiveSub(res.activeSubscription || null);
@@ -61,7 +70,7 @@ export const PlanModal: React.FC<PlanModalProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [isOpen, walletMode]);
+  }, [isOpen, walletMode, resolvedSlot]);
 
   if (!isOpen) return null;
 
@@ -130,7 +139,8 @@ export const PlanModal: React.FC<PlanModalProps> = ({
     setError(null);
     setSuccessMsg(null);
 
-    if (!Number.isInteger(Number(walletAmount)) || Number(walletAmount) < 10) {
+    const parsedAmount = Number(walletAmountInput.trim());
+    if (!walletAmountInput.trim() || !Number.isInteger(parsedAmount) || parsedAmount < 10) {
       setError('Minimum wallet deposit amount is KES 10 (whole integer Ksh).');
       return;
     }
@@ -143,13 +153,17 @@ export const PlanModal: React.FC<PlanModalProps> = ({
 
     setSubmitting(true);
     try {
-      await api.topupWallet(Number(walletAmount), cleanCode);
-      setSuccessMsg('Deposit (M-Pesa) submitted as Pending! Your Host wallet will be credited with this exact amount upon Admin approval.');
-      setTimeout(() => {
-        onClose();
-      }, 2200);
+      const res = await api.topupWallet(parsedAmount, cleanCode, { slot: resolvedSlot });
+      setMpesaCode('');
+      setSuccessMsg(
+        `Deposit (M-Pesa) of KES ${parsedAmount.toLocaleString()} (Code: ${cleanCode}) submitted as Pending! Your wallet will be credited with this exact amount once approved by Admin.`
+      );
+      try {
+        onDepositSubmitted?.(res.payment);
+        window.dispatchEvent(new CustomEvent('airbus:wallet-deposit-submitted', { detail: res.payment }));
+      } catch {}
     } catch (err: any) {
-      setError(err.message || 'Deposit submission failed.');
+      setError(err?.message || 'Deposit submission failed.');
     } finally {
       setSubmitting(false);
     }
@@ -341,9 +355,11 @@ export const PlanModal: React.FC<PlanModalProps> = ({
                 <button
                   type="button"
                   onClick={() => {
-                    setWalletAmount(Math.max(10, (billingCycle === 'annual' ? selectedDetails.annualPrice : selectedDetails.monthlyPrice) - userWalletBalance));
+                    const shortfall = Math.max(10, (billingCycle === 'annual' ? selectedDetails.annualPrice : selectedDetails.monthlyPrice) - userWalletBalance);
+                    setWalletAmountInput(String(shortfall));
                     setIsDepositFlow(true);
                     setError(null);
+                    setSuccessMsg(null);
                     setInPayStep(true);
                   }}
                   className="px-3.5 py-1.5 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-[11px] shrink-0 shadow-sm cursor-pointer"
@@ -385,9 +401,10 @@ export const PlanModal: React.FC<PlanModalProps> = ({
                     type="button"
                     onClick={() => {
                       const diff = (billingCycle === 'annual' ? selectedDetails.annualPrice : selectedDetails.monthlyPrice) - userWalletBalance;
-                      setWalletAmount(Math.max(10, diff));
+                      setWalletAmountInput(String(Math.max(10, diff)));
                       setIsDepositFlow(true);
                       setError(null);
+                      setSuccessMsg(null);
                       setInPayStep(true);
                     }}
                     className="flex-1 sm:flex-initial px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-full font-extrabold flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
@@ -408,7 +425,7 @@ export const PlanModal: React.FC<PlanModalProps> = ({
                         if (userWalletBalance < cost) {
                           const diff = cost - userWalletBalance;
                           setError(`Insufficient wallet balance (KES ${userWalletBalance.toLocaleString()}). Required: KES ${cost.toLocaleString()}. Use Deposit (M-Pesa) first.`);
-                          setWalletAmount(Math.max(10, diff));
+                          setWalletAmountInput(String(Math.max(10, diff)));
                           return;
                         }
                         setError(null);
@@ -480,14 +497,28 @@ export const PlanModal: React.FC<PlanModalProps> = ({
                   type="number"
                   min="10"
                   step="1"
-                  value={walletAmount}
-                  onChange={e => {
-                    const v = Number(e.target.value);
-                    setWalletAmount(Number.isFinite(v) ? Math.floor(v) : 0);
-                  }}
-                  className="w-full px-3.5 py-2 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-xs font-bold outline-none"
+                  value={walletAmountInput}
+                  onChange={e => setWalletAmountInput(e.target.value.replace(/[^0-9]/g, ''))}
+                  placeholder="e.g. 2500"
+                  className="w-full px-3.5 py-2 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-sm font-mono font-bold outline-none focus:border-emerald-500"
                   required
                 />
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  {[500, 1000, 2500, 5000, 10000].map(preset => (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => setWalletAmountInput(String(preset))}
+                      className={`px-2.5 py-1 rounded-full text-[11px] font-bold border transition-all cursor-pointer ${
+                        Number(walletAmountInput) === preset
+                          ? 'bg-emerald-600 text-white border-emerald-600'
+                          : 'bg-stone-100 dark:bg-stone-800 border-stone-200 dark:border-stone-700 text-stone-700 dark:text-stone-300 hover:border-emerald-500'
+                      }`}
+                    >
+                      KES {preset.toLocaleString()}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               <div>
@@ -498,7 +529,7 @@ export const PlanModal: React.FC<PlanModalProps> = ({
                   type="text"
                   maxLength={15}
                   value={mpesaCode}
-                  onChange={e => setMpesaCode(e.target.value.toUpperCase())}
+                  onChange={e => setMpesaCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
                   placeholder="e.g. QGH7X2K9LM"
                   className="w-full px-3.5 py-2.5 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-sm font-mono font-bold tracking-widest uppercase outline-none focus:border-emerald-500"
                   required
@@ -509,14 +540,27 @@ export const PlanModal: React.FC<PlanModalProps> = ({
               </div>
 
               {error && (
-                <div className="p-3 bg-red-950/60 border border-red-500/50 text-xs text-red-200 rounded-xl">
-                  {error}
+                <div className="p-3 bg-red-50 dark:bg-red-950/60 border border-red-300 dark:border-red-500/50 text-xs text-red-700 dark:text-red-200 rounded-xl flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-red-500 mt-0.5" />
+                  <span>{error}</span>
                 </div>
               )}
 
               {successMsg && (
-                <div className="p-3 bg-emerald-950/60 border border-emerald-500/50 text-xs text-emerald-200 rounded-xl">
-                  {successMsg}
+                <div className="p-3.5 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-300 dark:border-emerald-500/50 text-xs text-emerald-800 dark:text-emerald-200 rounded-xl space-y-2">
+                  <div className="flex items-start gap-2 font-bold">
+                    <Check className="w-4 h-4 shrink-0 text-emerald-600 dark:text-emerald-400 mt-0.5" />
+                    <span>{successMsg}</span>
+                  </div>
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      onClick={onClose}
+                      className="px-3 py-1 rounded-full bg-emerald-600 text-white text-[11px] font-bold hover:bg-emerald-500 cursor-pointer"
+                    >
+                      Done
+                    </button>
+                  </div>
                 </div>
               )}
 

@@ -19,6 +19,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+app.set('trust proxy', true);
 const isProduction = process.env.NODE_ENV === 'production';
 const portArgIdx = process.argv.indexOf('--port');
 const cliPort =
@@ -184,6 +185,29 @@ function getAuthUser(req: express.Request, options?: { touch?: boolean }): User 
   const token = extractAuthToken(req);
   if (!token) return null;
   return db.getUserByAuthToken(token, options) || null;
+}
+
+function requireAdminUser(req: express.Request, res: express.Response): User | null {
+  const token = extractAuthToken(req);
+  if (!token) {
+    res.status(401).json({ error: 'Admin authentication required.', code: 'UNAUTHENTICATED' });
+    return null;
+  }
+  const state = db.getSessionState(token, { touch: true });
+  if (!state.user) {
+    res.status(401).json({
+      error: state.idleExpired
+        ? 'Admin session expired due to inactivity. Please log in again.'
+        : 'Admin session is invalid or expired. Please log in again.',
+      code: state.idleExpired ? 'SESSION_IDLE_EXPIRED' : 'UNAUTHENTICATED',
+    });
+    return null;
+  }
+  if (state.user.role !== 'admin') {
+    res.status(403).json({ error: 'Admin access required.' });
+    return null;
+  }
+  return state.user;
 }
 
 // In-Memory Rate Limiting Store
@@ -1753,10 +1777,8 @@ app.post('/api/listings/:id/promo-click', (req, res) => {
 
 // Admin approves listing to go live (syncs moderationState & emits real-time feed event)
 app.post('/api/admin/stays/:id/approve', (req, res) => {
-  const user = getAuthUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required.' });
-  }
+  const user = requireAdminUser(req, res);
+  if (!user) return;
   try {
     const stay = db.moderateStay(req.params.id, 'approve', user.email, req.body?.feedback);
     if (!stay) return res.status(404).json({ error: 'Stay not found' });
@@ -1768,19 +1790,15 @@ app.post('/api/admin/stays/:id/approve', (req, res) => {
 
 // Dedicated Admin Review Queue (oldest pending first)
 app.get('/api/admin/review-queue', (req, res) => {
-  const user = getAuthUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required.' });
-  }
+  const user = requireAdminUser(req, res);
+  if (!user) return;
   const queue = db.getAdminReviewQueue();
   return res.json(queue);
 });
 
 app.post('/api/admin/review-queue/stays/:id', (req, res) => {
-  const user = getAuthUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required.' });
-  }
+  const user = requireAdminUser(req, res);
+  if (!user) return;
   const { action, admin_feedback } = req.body || {};
   if (action !== 'approve' && action !== 'decline') {
     return res.status(400).json({ error: 'action must be approve or decline.' });
@@ -1802,10 +1820,8 @@ app.post('/api/admin/review-queue/stays/:id', (req, res) => {
 });
 
 app.post('/api/admin/review-queue/trip-dating/:id', (req, res) => {
-  const user = getAuthUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required.' });
-  }
+  const user = requireAdminUser(req, res);
+  if (!user) return;
   const { action, admin_feedback, reason } = req.body || {};
   if (action !== 'approve' && action !== 'decline') {
     return res.status(400).json({ error: 'action must be approve or decline.' });
@@ -2302,7 +2318,7 @@ app.post('/api/payments', async (req, res) => {
   try {
     const payment = await walletMutex.withWalletLock(user.email, () =>
       db.createPayment({
-        id: 'pay_dep_' + Date.now(),
+        id: 'pay_dep_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
         userId: user.email,
         user_id: user.email,
         hostEmail: user.email,
@@ -2667,15 +2683,13 @@ app.post('/api/support/report', (req, res) => {
 
 // Admin Console
 app.get('/api/admin/overview', (req, res) => {
-  const user = getAuthUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required.' });
-  }
+  const user = requireAdminUser(req, res);
+  if (!user) return;
 
   const raw = db.getRaw();
   const stays = raw.stays;
   const users = raw.users.map(({ passwordHash, ...u }: any) => u);
-  const payments = raw.payments;
+  const payments = db.getPaymentRecords({});
   const reports = raw.reports;
   const tickets = raw.tickets;
   const auditLogs = raw.auditLogs;
@@ -2701,10 +2715,8 @@ app.get('/api/admin/overview', (req, res) => {
 });
 
 app.post('/api/admin/payments/:id/approve', async (req, res) => {
-  const user = getAuthUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required.' });
-  }
+  const user = requireAdminUser(req, res);
+  if (!user) return;
   try {
     const hasConfirmedAmount = req.body && req.body.confirmedAmount !== undefined && req.body.confirmedAmount !== null && req.body.confirmedAmount !== '';
     const confirmedAmount = hasConfirmedAmount ? Number(req.body.confirmedAmount) : undefined;
@@ -2726,10 +2738,8 @@ app.post('/api/admin/payments/:id/approve', async (req, res) => {
 });
 
 app.post('/api/admin/payments/:id/reject', (req, res) => {
-  const user = getAuthUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required.' });
-  }
+  const user = requireAdminUser(req, res);
+  if (!user) return;
   const { reason } = req.body;
   const result = db.rejectPayment(req.params.id, user.email, reason);
   if (!result) return res.status(404).json({ error: 'Payment not found.' });
@@ -2737,45 +2747,35 @@ app.post('/api/admin/payments/:id/reject', (req, res) => {
 });
 
 app.get('/api/admin/wallet/reconciliation', (req, res) => {
-  const user = getAuthUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required.' });
-  }
+  const user = requireAdminUser(req, res);
+  if (!user) return;
   const result = db.getWalletReconciliation();
   return res.json(result);
 });
 
 app.get('/api/admin/wallet/income-report', (req, res) => {
-  const user = getAuthUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required.' });
-  }
+  const user = requireAdminUser(req, res);
+  if (!user) return;
   const result = db.getAdminIncomeReport();
   return res.json(result);
 });
 
 app.get('/api/admin/wallets', (req, res) => {
-  const user = getAuthUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required.' });
-  }
+  const user = requireAdminUser(req, res);
+  if (!user) return;
   return res.json(db.getAdminWalletsBreakdown());
 });
 
 app.get('/api/admin/wallet/summary', (req, res) => {
-  const user = getAuthUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required.' });
-  }
+  const user = requireAdminUser(req, res);
+  if (!user) return;
   const fiscalYear = req.query.fiscalYear ? Number(req.query.fiscalYear) : undefined;
   return res.json(db.getAdminWalletSummary(fiscalYear));
 });
 
 app.get('/api/admin/wallet/ledger', (req, res) => {
-  const user = getAuthUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required.' });
-  }
+  const user = requireAdminUser(req, res);
+  if (!user) return;
   const result = db.getAdminWalletLedger({
     q: typeof req.query.q === 'string' ? req.query.q : undefined,
     purpose: typeof req.query.purpose === 'string' ? req.query.purpose : undefined,
@@ -2791,10 +2791,8 @@ app.get('/api/admin/wallet/ledger', (req, res) => {
 });
 
 app.get('/api/admin/wallet/totals', (req, res) => {
-  const user = getAuthUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required.' });
-  }
+  const user = requireAdminUser(req, res);
+  if (!user) return;
   const gran = String(req.query.granularity || 'day').toLowerCase();
   const granularity = (['hour', 'day', 'month', 'year'].includes(gran) ? gran : 'day') as 'hour' | 'day' | 'month' | 'year';
   return res.json(
@@ -2808,10 +2806,8 @@ app.get('/api/admin/wallet/totals', (req, res) => {
 });
 
 app.get('/api/admin/wallet/breakdown', (req, res) => {
-  const user = getAuthUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required.' });
-  }
+  const user = requireAdminUser(req, res);
+  if (!user) return;
   return res.json(
     db.getAdminWalletBreakdown({
       from: typeof req.query.from === 'string' ? req.query.from : undefined,
@@ -2822,18 +2818,14 @@ app.get('/api/admin/wallet/breakdown', (req, res) => {
 });
 
 app.get('/api/admin/wallet/archives', (req, res) => {
-  const user = getAuthUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required.' });
-  }
+  const user = requireAdminUser(req, res);
+  if (!user) return;
   return res.json({ archives: db.getAdminWalletArchives() });
 });
 
 app.get('/api/admin/wallet/archives/:year', (req, res) => {
-  const user = getAuthUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required.' });
-  }
+  const user = requireAdminUser(req, res);
+  if (!user) return;
   const year = Number(req.params.year);
   if (!Number.isInteger(year)) {
     return res.status(400).json({ error: 'Invalid fiscal year.' });
@@ -2844,20 +2836,16 @@ app.get('/api/admin/wallet/archives/:year', (req, res) => {
 });
 
 app.post('/api/admin/wallet/archives/run', (req, res) => {
-  const user = getAuthUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required.' });
-  }
+  const user = requireAdminUser(req, res);
+  if (!user) return;
   const year = req.body?.fiscalYear ? Number(req.body.fiscalYear) : undefined;
   const archive = db.runYearEndWalletArchive(year, user.email);
   return res.json({ archive });
 });
 
 app.get('/api/admin/wallet/export', (req, res) => {
-  const user = getAuthUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required.' });
-  }
+  const user = requireAdminUser(req, res);
+  if (!user) return;
   const csv = db.exportAdminWalletCsv({
     q: typeof req.query.q === 'string' ? req.query.q : undefined,
     purpose: typeof req.query.purpose === 'string' ? req.query.purpose : undefined,
@@ -2873,10 +2861,8 @@ app.get('/api/admin/wallet/export', (req, res) => {
 });
 
 app.post('/api/admin/wallet/special-refund', async (req, res) => {
-  const user = getAuthUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required.' });
-  }
+  const user = requireAdminUser(req, res);
+  if (!user) return;
   const { adminPassword, reason, caseReference, originalPaymentCode, amount } = req.body || {};
   try {
     const out = await walletMutex.withWalletLock('admin@airbus.ke', () =>
@@ -2959,10 +2945,8 @@ app.post('/api/stays/:id/ai-short', (req, res) => {
 });
 
 app.post('/api/admin/users/:email/verify', (req, res) => {
-  const user = getAuthUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required.' });
-  }
+  const user = requireAdminUser(req, res);
+  if (!user) return;
   const targetUser = db.findUserByEmail(req.params.email);
   if (!targetUser) return res.status(404).json({ error: 'User not found' });
   targetUser.idVerified = !targetUser.idVerified;
@@ -2979,37 +2963,29 @@ app.post('/api/admin/users/:email/verify', (req, res) => {
 
 // Admin Dormant Owners & Delisting
 app.get('/api/admin/dormant-owners', (req, res) => {
-  const user = getAuthUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required.' });
-  }
+  const user = requireAdminUser(req, res);
+  if (!user) return;
   const dormantOwners = db.getDormantOwners();
   return res.json({ dormantOwners });
 });
 
 app.post('/api/admin/owners/:email/delist', (req, res) => {
-  const user = getAuthUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required.' });
-  }
+  const user = requireAdminUser(req, res);
+  if (!user) return;
   const success = db.delistOwner(req.params.email);
   return res.json({ success, dormantOwners: db.getDormantOwners() });
 });
 
 app.post('/api/admin/owners/:email/relist', (req, res) => {
-  const user = getAuthUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required.' });
-  }
+  const user = requireAdminUser(req, res);
+  if (!user) return;
   const success = db.relistOwner(req.params.email);
   return res.json({ success, dormantOwners: db.getDormantOwners() });
 });
 
 app.post('/api/admin/plan', (req, res) => {
-  const user = getAuthUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required.' });
-  }
+  const user = requireAdminUser(req, res);
+  if (!user) return;
   const { hostEmail, tier, durationDays } = req.body;
   if (!hostEmail || !tier) return res.status(400).json({ error: 'Host email and tier required.' });
   const days = Number(durationDays) || 30;
@@ -3038,10 +3014,8 @@ app.post('/api/admin/plan', (req, res) => {
 
 // 1. Listing Media Moderation Queue
 app.get('/api/admin/listing-media', (req, res) => {
-  const user = getAuthUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required.' });
-  }
+  const user = requireAdminUser(req, res);
+  if (!user) return;
 
   const { type, flaggedOnly, search } = req.query;
   const items = db.getListingMedia({
@@ -3054,10 +3028,8 @@ app.get('/api/admin/listing-media', (req, res) => {
 });
 
 app.post('/api/admin/stays/:id/media/remove', (req, res) => {
-  const user = getAuthUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required.' });
-  }
+  const user = requireAdminUser(req, res);
+  if (!user) return;
 
   const { mediaType, photoUrl, reason } = req.body;
   if (!mediaType || (mediaType !== 'video' && mediaType !== 'photo')) {
@@ -3073,10 +3045,8 @@ app.post('/api/admin/stays/:id/media/remove', (req, res) => {
 });
 
 app.post('/api/admin/stays/:id/media/flag', (req, res) => {
-  const user = getAuthUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required.' });
-  }
+  const user = requireAdminUser(req, res);
+  if (!user) return;
 
   const { status, reason } = req.body;
   if (!status || !['clean', 'flagged', 'under_review'].includes(status)) {
@@ -3093,10 +3063,8 @@ app.post('/api/admin/stays/:id/media/flag', (req, res) => {
 
 // 2. Listing Full Moderation (Approve, Reject with Reason, Suspend, Unsuspend, Delist, Delete)
 app.post('/api/admin/stays/:id/moderate', (req, res) => {
-  const user = getAuthUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required.' });
-  }
+  const user = requireAdminUser(req, res);
+  if (!user) return;
 
   const { action, reason } = req.body;
   const validActions = ['approve', 'reject', 'suspend', 'unsuspend', 'delist', 'relist', 'delete'];
@@ -3118,20 +3086,16 @@ app.post('/api/admin/stays/:id/moderate', (req, res) => {
 
 // 3. Subscriptions Moderation (View All, Approve, Reject, Extend, Revoke, Expire)
 app.get('/api/admin/subscriptions', (req, res) => {
-  const user = getAuthUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required.' });
-  }
+  const user = requireAdminUser(req, res);
+  if (!user) return;
 
   const subscriptions = db.getAllSubscriptions();
   return res.json({ subscriptions, total: subscriptions.length });
 });
 
 app.post('/api/admin/subscriptions/:id/moderate', (req, res) => {
-  const user = getAuthUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required.' });
-  }
+  const user = requireAdminUser(req, res);
+  if (!user) return;
 
   const { action, days, reason } = req.body;
   const validActions = ['approve', 'reject', 'extend', 'revoke', 'expire'];
@@ -3149,10 +3113,8 @@ app.post('/api/admin/subscriptions/:id/moderate', (req, res) => {
 
 // 4. Adverts Moderation (Approve, Reject, Pause, Resume, End Early)
 app.post('/api/admin/ads/:id/moderate', (req, res) => {
-  const user = getAuthUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required.' });
-  }
+  const user = requireAdminUser(req, res);
+  if (!user) return;
 
   const { action, reason } = req.body;
   const validActions = ['approve', 'reject', 'pause', 'resume', 'end'];
@@ -3174,10 +3136,8 @@ app.post('/api/admin/ads/:id/moderate', (req, res) => {
 
 // 5. Users & Hosts Moderation (Suspend, Ban, Reactivate, Verify)
 app.post('/api/admin/users/:email/status', (req, res) => {
-  const user = getAuthUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required.' });
-  }
+  const user = requireAdminUser(req, res);
+  if (!user) return;
 
   const { action, reason } = req.body;
   const validActions = ['suspend', 'reactivate', 'verify'];
@@ -3195,20 +3155,16 @@ app.post('/api/admin/users/:email/status', (req, res) => {
 
 // 6. Reports & Flags Moderation
 app.get('/api/admin/reports', (req, res) => {
-  const user = getAuthUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required.' });
-  }
+  const user = requireAdminUser(req, res);
+  if (!user) return;
 
   const reports = db.getReports();
   return res.json({ reports, total: reports.length });
 });
 
 app.post('/api/admin/reports/:id/action', (req, res) => {
-  const user = getAuthUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required.' });
-  }
+  const user = requireAdminUser(req, res);
+  if (!user) return;
 
   const { action, actionTaken } = req.body;
   const validActions = ['resolve', 'dismiss', 'penalize'];
@@ -3226,20 +3182,16 @@ app.post('/api/admin/reports/:id/action', (req, res) => {
 
 // 7. Reviews Moderation
 app.get('/api/admin/reviews', (req, res) => {
-  const user = getAuthUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required.' });
-  }
+  const user = requireAdminUser(req, res);
+  if (!user) return;
 
   const reviews = db.getAllReviews();
   return res.json({ reviews, total: reviews.length });
 });
 
 app.post('/api/admin/reviews/:id/moderate', (req, res) => {
-  const user = getAuthUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required.' });
-  }
+  const user = requireAdminUser(req, res);
+  if (!user) return;
 
   const { action } = req.body;
   const validActions = ['approve', 'hide', 'unhide', 'delete'];
@@ -3257,10 +3209,8 @@ app.post('/api/admin/reviews/:id/moderate', (req, res) => {
 
 // 8. Audit Log Read-Only View
 app.get('/api/admin/audit-logs', (req, res) => {
-  const user = getAuthUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required.' });
-  }
+  const user = requireAdminUser(req, res);
+  if (!user) return;
 
   const logs = db.getAuditLogs();
   return res.json({ logs, total: logs.length });
@@ -3513,7 +3463,7 @@ app.post('/api/wallet/topup', async (req, res) => {
 
   const payment = await walletMutex.withWalletLock(user.email, () =>
     db.createPayment({
-      id: 'pay_dep_' + Date.now(),
+      id: 'pay_dep_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
       userId: user.email,
       user_id: user.email,
       hostEmail: user.email,
@@ -3566,7 +3516,7 @@ app.post('/api/wallet/deposit', async (req, res) => {
 
   const payment = await walletMutex.withWalletLock(user.email, () =>
     db.createPayment({
-      id: 'pay_dep_' + Date.now(),
+      id: 'pay_dep_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
       userId: user.email,
       user_id: user.email,
       hostEmail: user.email,
@@ -3612,28 +3562,22 @@ app.post('/api/wallet/withdraw', (req, res) => {
 });
 
 app.get('/api/admin/withdrawals', (req, res) => {
-  const user = getAuthUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required.' });
-  }
+  const user = requireAdminUser(req, res);
+  if (!user) return;
   return res.json({ withdrawals: db.getWithdrawals() });
 });
 
 app.post('/api/admin/withdrawals/:id/approve', (req, res) => {
-  const user = getAuthUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required.' });
-  }
+  const user = requireAdminUser(req, res);
+  if (!user) return;
   const result = db.approveWithdrawal(req.params.id, user.email);
   if (!result) return res.status(404).json({ error: 'Withdrawal not found or already processed.' });
   return res.json({ withdrawal: result });
 });
 
 app.post('/api/admin/withdrawals/:id/reject', (req, res) => {
-  const user = getAuthUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required.' });
-  }
+  const user = requireAdminUser(req, res);
+  if (!user) return;
   const { reason } = req.body;
   const result = db.rejectWithdrawal(req.params.id, user.email, reason);
   if (!result) return res.status(404).json({ error: 'Withdrawal not found.' });
@@ -4693,18 +4637,14 @@ app.post('/api/trip-dating/reports', (req, res) => {
 // --- ADMIN TRIP DATING MANAGEMENT ROUTES ---
 
 app.get('/api/admin/trip-dating/counts', (req, res) => {
-  const user = getAuthUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required.' });
-  }
+  const user = requireAdminUser(req, res);
+  if (!user) return;
   return res.json(db.getTripDatingAdminCounts());
 });
 
 app.get('/api/admin/trip-dating/submissions', (req, res) => {
-  const user = getAuthUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required.' });
-  }
+  const user = requireAdminUser(req, res);
+  if (!user) return;
   const status = typeof req.query.status === 'string' ? req.query.status : 'PENDING_REVIEW';
   const page = req.query.page ? parseInt(String(req.query.page), 10) : 1;
   const limit = req.query.limit ? parseInt(String(req.query.limit), 10) : 20;
@@ -4712,10 +4652,8 @@ app.get('/api/admin/trip-dating/submissions', (req, res) => {
 });
 
 app.post('/api/admin/trip-dating/:id/approve', (req, res) => {
-  const user = getAuthUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required.' });
-  }
+  const user = requireAdminUser(req, res);
+  if (!user) return;
   try {
     const result = db.approveTripDatingSubmission(req.params.id, user.email);
     return res.json(result);
@@ -4726,10 +4664,8 @@ app.post('/api/admin/trip-dating/:id/approve', (req, res) => {
 });
 
 app.post('/api/admin/trip-dating/:id/decline', (req, res) => {
-  const user = getAuthUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required.' });
-  }
+  const user = requireAdminUser(req, res);
+  if (!user) return;
   const rawReason = String(req.body?.reason ?? req.body?.admin_feedback ?? '').trim();
   if (rawReason.length < 10 || rawReason.length > 500) {
     return res.status(400).json({
@@ -4746,19 +4682,15 @@ app.post('/api/admin/trip-dating/:id/decline', (req, res) => {
 });
 
 app.get('/api/admin/trip-dating/requests', (req, res) => {
-  const user = getAuthUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required.' });
-  }
+  const user = requireAdminUser(req, res);
+  if (!user) return;
   const requests = db.getTripDatingPaymentRequests();
   return res.json({ requests });
 });
 
 app.post('/api/admin/trip-dating/requests/:id/approve', (req, res) => {
-  const user = getAuthUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required.' });
-  }
+  const user = requireAdminUser(req, res);
+  if (!user) return;
   try {
     const result = db.approveTripDatingPayment(req.params.id, user.email);
     return res.json(result);
@@ -4768,10 +4700,8 @@ app.post('/api/admin/trip-dating/requests/:id/approve', (req, res) => {
 });
 
 app.post('/api/admin/trip-dating/requests/:id/reject', (req, res) => {
-  const user = getAuthUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required.' });
-  }
+  const user = requireAdminUser(req, res);
+  if (!user) return;
   try {
     const { reason } = req.body;
     const result = db.rejectTripDatingPayment(req.params.id, user.email, reason);
@@ -4782,10 +4712,8 @@ app.post('/api/admin/trip-dating/requests/:id/reject', (req, res) => {
 });
 
 app.post('/api/admin/trip-dating/profiles/:id/moderate', (req, res) => {
-  const user = getAuthUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required.' });
-  }
+  const user = requireAdminUser(req, res);
+  if (!user) return;
   try {
     const { status, reason } = req.body;
     const profile = db.adminModerateTripDatingProfile(req.params.id, status, reason, user.email);
@@ -4796,10 +4724,8 @@ app.post('/api/admin/trip-dating/profiles/:id/moderate', (req, res) => {
 });
 
 app.get('/api/admin/trip-dating/stats', (req, res) => {
-  const user = getAuthUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required.' });
-  }
+  const user = requireAdminUser(req, res);
+  if (!user) return;
   const stats = db.getTripDatingStats();
   const counts = db.getTripDatingAdminCounts();
   const allProfiles = db.getTripDatingProfiles(user.email, undefined, { showAllStatuses: true });
@@ -4914,10 +4840,8 @@ app.post('/api/collections/plus/service-requests', (req, res) => {
 });
 
 app.post('/api/admin/plus/service-requests/:id/link', (req, res) => {
-  const user = getAuthUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required.' });
-  }
+  const user = requireAdminUser(req, res);
+  if (!user) return;
   try {
     const request = db.linkPlusServiceRequest(req.params.id, user.email, req.body || {});
     return res.json({ request });
@@ -4948,18 +4872,14 @@ app.post('/api/collections/local/providers', (req, res) => {
 });
 
 app.get('/api/admin/local-providers', (req, res) => {
-  const user = getAuthUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required.' });
-  }
+  const user = requireAdminUser(req, res);
+  if (!user) return;
   return res.json({ providers: db.getLocalProviders(true) });
 });
 
 app.post('/api/admin/local-providers/:id/pull-down', (req, res) => {
-  const user = getAuthUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required.' });
-  }
+  const user = requireAdminUser(req, res);
+  if (!user) return;
   try {
     const provider = db.pullDownLocalProvider(req.params.id, user.email, req.body?.reason);
     return res.json({ provider });
@@ -5005,7 +4925,7 @@ async function startServer() {
     let viteMiddleware: express.RequestHandler | null = null;
     const viteReady = import('vite').then(async ({ createServer: createViteServer }) => {
       const vite = await createViteServer({
-        server: { middlewareMode: true, hmr: false, ws: false },
+        server: { middlewareMode: true, allowedHosts: true, hmr: false, ws: false },
         appType: 'spa',
       });
       viteMiddleware = vite.middlewares;

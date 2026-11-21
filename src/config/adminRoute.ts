@@ -5,32 +5,44 @@
  * (e.g., when the custom Airbus domain is connected).
  */
 export const ADMIN_PORTAL_PATH = '/admin-portal-k7x2q9';
+export const ADMIN_ALIAS_PATH = '/admin';
 
 /**
- * Normalizes a pathname to check if it matches the private admin portal route.
+ * Normalizes a pathname to check if it matches the private admin portal route (/admin-portal-k7x2q9 or /admin).
  * Handles both production (root `/`) and Vite base prefix (e.g., `/AirbusGlobal/`).
  */
 export function isAdminRoute(pathname: string = window.location.pathname): boolean {
-  // Strip trailing slashes and normalize
-  const cleanPath = pathname.replace(/\/+$/, '') || '/';
-  
-  if (cleanPath === ADMIN_PORTAL_PATH) {
+  const cleanPath = ('/' + pathname.replace(/^\/+/, '')).replace(/\/+$/, '') || '/';
+
+  if (cleanPath === ADMIN_PORTAL_PATH || cleanPath.endsWith(ADMIN_PORTAL_PATH)) {
     return true;
   }
-  
-  // Vite dev or GitHub Pages style sub-path: /AirbusGlobal/admin-portal-k7x2q9
-  if (cleanPath.endsWith(ADMIN_PORTAL_PATH)) {
+
+  if (cleanPath === ADMIN_ALIAS_PATH || cleanPath.endsWith(ADMIN_ALIAS_PATH)) {
     return true;
   }
-  
+
   return false;
+}
+
+/**
+ * Returns the root-normalized base prefix (never a relative './' prefix) so /admin resolves cleanly.
+ */
+export function getNormalizedBasePrefix(pathname: string = typeof window !== 'undefined' ? window.location.pathname : '/'): string {
+  if (pathname.startsWith('/AirbusGlobal')) {
+    return '/AirbusGlobal';
+  }
+  const base = import.meta.env.BASE_URL || '/';
+  if (!base || base === '/' || base === './' || base === '.') {
+    return '';
+  }
+  const leading = base.startsWith('/') ? base : `/${base}`;
+  return leading.replace(/\/+$/, '');
 }
 
 /**
  * Returns the full navigation path for the admin portal, taking into account Vite base URL.
  */
 export function getAdminPortalHref(): string {
-  const base = import.meta.env.BASE_URL || '/';
-  const prefix = base.endsWith('/') ? base.slice(0, -1) : base;
-  return `${prefix}${ADMIN_PORTAL_PATH}`;
+  return `${getNormalizedBasePrefix()}${ADMIN_PORTAL_PATH}`;
 }

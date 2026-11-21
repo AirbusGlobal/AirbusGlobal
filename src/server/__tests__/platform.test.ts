@@ -1292,5 +1292,115 @@ describe('AirBus Platform End-to-End Integrity Suite', () => {
     db.runStartupMigrations();
     db.runStartupMigrations();
   });
+
+  it('18. Host Deposit (M-Pesa) submission renders for Host & Admin with exact amount and code, and credits Host wallet on Admin approval', async () => {
+    const beforeHostWallet = await apiJson<{ wallet: any; transactions: any[] }>('/api/wallet', {
+      token: hostToken,
+    });
+    assert.equal(beforeHostWallet.status, 200);
+    const startingBalance = Number(beforeHostWallet.data.wallet.balance || 0);
+
+    const hostCode = `HST${Date.now().toString(36).toUpperCase().slice(-7)}`;
+    const depositAmount = 3750;
+
+    // 1. Host submits Deposit (M-Pesa) via /api/wallet/topup
+    const topupRes = await apiJson<{ payment: any; message: string }>('/api/wallet/topup', {
+      method: 'POST',
+      token: hostToken,
+      body: { amount: depositAmount, mpesaCode: hostCode },
+    });
+    assert.equal(topupRes.status, 201);
+    assert.equal(topupRes.data.payment.status, 'pending');
+    assert.equal(topupRes.data.payment.claimedAmount, depositAmount);
+    assert.equal(topupRes.data.payment.amountKes, depositAmount);
+    assert.equal(topupRes.data.payment.mpesaCode, hostCode);
+    assert.equal(topupRes.data.payment.userRole, 'owner');
+
+    // 2. Host immediately sees the pending deposit with code and amount in GET /api/wallet
+    const hostWalletPending = await apiJson<{ wallet: any; transactions: any[] }>('/api/wallet', {
+      token: hostToken,
+    });
+    assert.equal(hostWalletPending.status, 200);
+    const hostTxPending = hostWalletPending.data.transactions.find(
+      t => t.id === topupRes.data.payment.id || t.mpesaCode === hostCode
+    );
+    assert.ok(hostTxPending, 'Host wallet transactions must immediately render the submitted pending deposit');
+    assert.equal(hostTxPending.amount, depositAmount);
+    assert.equal(hostTxPending.mpesaCode, hostCode);
+    assert.equal(hostTxPending.status, 'pending');
+
+    // 3. Admin sees the submitted Host deposit in /api/payments, /api/admin/overview, and /api/admin/wallets
+    const [adminPayments, adminOverview, adminWallets] = await Promise.all([
+      apiJson<{ payments: any[] }>('/api/payments', { token: adminToken }),
+      apiJson<{ payments: any[] }>('/api/admin/overview', { token: adminToken }),
+      apiJson<{ hostDeposits: any[] }>('/api/admin/wallets', { token: adminToken }),
+    ]);
+
+    assert.equal(adminPayments.status, 200);
+    const inPayments = adminPayments.data.payments.find(p => p.id === topupRes.data.payment.id);
+    assert.ok(inPayments, 'Admin /api/payments must include the Host deposit');
+    assert.equal(inPayments.mpesaCode, hostCode);
+    assert.equal(inPayments.claimedAmount, depositAmount);
+    assert.equal(inPayments.userRole, 'owner');
+    assert.equal(inPayments.status, 'pending');
+
+    assert.equal(adminOverview.status, 200);
+    const inOverview = adminOverview.data.payments.find(p => p.id === topupRes.data.payment.id);
+    assert.ok(inOverview, 'Admin /api/admin/overview must include the Host deposit');
+    assert.equal(inOverview.mpesaCode, hostCode);
+
+    assert.equal(adminWallets.status, 200);
+    const inHostDeposits = adminWallets.data.hostDeposits.find(p => p.id === topupRes.data.payment.id);
+    assert.ok(inHostDeposits, 'Admin /api/admin/wallets hostDeposits must include the Host deposit');
+    assert.equal(inHostDeposits.mpesaCode, hostCode);
+    assert.equal(inHostDeposits.claimedAmount, depositAmount);
+    assert.equal(inHostDeposits.status, 'pending');
+
+    // 4. Admin approves Host deposit -> Host wallet increases by exact integer depositAmount
+    const approveRes = await apiJson<{ payment: any }>(
+      `/api/admin/payments/${topupRes.data.payment.id}/approve`,
+      {
+        method: 'POST',
+        token: adminToken,
+        body: {},
+      }
+    );
+    assert.equal(approveRes.status, 200);
+    assert.equal(approveRes.data.payment.status, 'approved');
+    assert.equal(approveRes.data.payment.approvedAmount, depositAmount);
+
+    const afterHostWallet = await apiJson<{ wallet: any; transactions: any[] }>('/api/wallet', {
+      token: hostToken,
+    });
+    assert.equal(afterHostWallet.status, 200);
+    assert.equal(
+      afterHostWallet.data.wallet.balance,
+      startingBalance + depositAmount,
+      'Host wallet balance must increase by exact approved deposit amount'
+    );
+    const hostTxApproved = afterHostWallet.data.transactions.find(
+      t => t.id === topupRes.data.payment.id
+    );
+    assert.equal(hostTxApproved?.status, 'approved');
+  });
+
+  it('19. Admin endpoints return 401 UNAUTHENTICATED for missing/invalid sessions and 403 for non-admin sessions', async () => {
+    const [noTokQueue, badTokCounts, guestQueue, guestCounts] = await Promise.all([
+      apiJson<{ code?: string }>('/api/admin/review-queue'),
+      apiJson<{ code?: string }>('/api/admin/trip-dating/counts', { token: 'stale_invalid_admin_token_xyz' }),
+      apiJson<{ error?: string }>('/api/admin/review-queue', { token: guestToken }),
+      apiJson<{ error?: string }>('/api/admin/trip-dating/counts', { token: guestToken }),
+    ]);
+
+    assert.equal(noTokQueue.status, 401);
+    assert.equal(noTokQueue.data.code, 'UNAUTHENTICATED');
+
+    assert.equal(badTokCounts.status, 401);
+    assert.equal(badTokCounts.data.code, 'UNAUTHENTICATED');
+
+    assert.equal(guestQueue.status, 403);
+    assert.equal(guestCounts.status, 403);
+  });
 });
+
 

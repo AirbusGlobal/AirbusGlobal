@@ -3861,15 +3861,31 @@ class DatabaseStore {
       else guestWallets.push(item);
     }
 
-    const allDeposits = (this.data.paymentRecords || [])
-      .filter(p => p.kind === 'deposit' || p.kind === 'wallet' || p.type === 'deposit' || p.type === 'wallet' || p.type === 'wallet_topup')
+    const sourceRecords =
+      this.data.paymentRecords && this.data.paymentRecords.length > 0
+        ? this.data.paymentRecords
+        : this.data.payments || [];
+
+    const allDeposits = sourceRecords
+      .filter(
+        p =>
+          p.kind === 'deposit' ||
+          p.kind === 'wallet' ||
+          p.type === 'deposit' ||
+          p.type === 'wallet' ||
+          p.type === 'wallet_topup' ||
+          p.type === 'mpesa_deposit'
+      )
       .map(p => {
-        const e = (p.userId || p.hostEmail || '').toLowerCase();
+        const e = (p.userId || p.hostEmail || '').toLowerCase().trim();
         const u = usersByEmail.get(e);
+        const rawRole = u?.role || p.userRole || 'guest';
+        const normalizedRole = (rawRole as string) === 'host' ? 'owner' : rawRole;
         return {
           ...p,
-          userRole: p.userRole || u?.role || 'guest',
+          userRole: normalizedRole,
           userName: p.userName || u?.username || u?.name || e,
+          claimedAmount: Number(p.claimedAmount ?? p.amountKes ?? p.amountSc ?? p.amount ?? 0),
         };
       })
       .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));

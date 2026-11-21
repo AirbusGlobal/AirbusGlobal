@@ -373,13 +373,17 @@ export const api = {
     } catch {}
   },
 
-  async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+  async request<T>(
+    endpoint: string,
+    options: RequestInit & { portalSlot?: PortalSlot } = {}
+  ): Promise<T> {
+    const { portalSlot: explicitSlot, ...fetchOptions } = options;
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      ...(options.headers as Record<string, string>),
+      ...(fetchOptions.headers as Record<string, string>),
     };
 
-    const slot = this.getActivePortalSlot(endpoint);
+    const slot = explicitSlot || this.getActivePortalSlot(endpoint);
     const token = this.getToken(slot, endpoint);
     if (token) {
       headers['Authorization'] = `Bearer ${token}`;
@@ -398,21 +402,23 @@ export const api = {
 
     const targetUrl = API_BASE_URL ? `${API_BASE_URL}${endpoint}` : endpoint;
 
+    const isCriticalEndpoint =
+      endpoint.startsWith('/api/auth/') ||
+      endpoint.startsWith('/api/wallet') ||
+      endpoint.startsWith('/api/payments') ||
+      endpoint.startsWith('/api/subscriptions') ||
+      endpoint.startsWith('/api/host/plan') ||
+      endpoint.startsWith('/api/admin');
+
     let res: Response;
     try {
       res = await fetch(targetUrl, {
-        ...options,
+        ...fetchOptions,
         headers,
       });
     } catch (err: any) {
       // Never fake auth/session/wallet success on transient network loss
-      if (
-        endpoint.startsWith('/api/auth/') ||
-        endpoint.startsWith('/api/wallet') ||
-        endpoint.startsWith('/api/subscriptions') ||
-        endpoint.startsWith('/api/host/plan') ||
-        endpoint.startsWith('/api/admin')
-      ) {
+      if (isCriticalEndpoint) {
         const netErr: any = new Error('Network connection interrupted. Please try again.');
         netErr.status = 0;
         netErr.isNetworkError = true;
@@ -423,14 +429,27 @@ export const api = {
     }
 
     const contentType = res.headers.get('content-type') || '';
-    // Detect GitHub Pages static 404 HTML fallback
+    // Detect static HTML / non-JSON response
     if (!contentType.includes('application/json')) {
+      if (isCriticalEndpoint) {
+        const unexpectedErr: any = new Error(
+          res.status === 401
+            ? 'Session expired. Please log in again.'
+            : `Server returned an unexpected response (HTTP ${res.status}). Please verify you are signed in and try again.`
+        );
+        unexpectedErr.status = res.status;
+        throw unexpectedErr;
+      }
       return this.getStaticFallback<T>(endpoint);
     }
 
     const data = await res.json();
     if (!res.ok) {
-      if (res.status === 401 && data?.code === 'SESSION_IDLE_EXPIRED' && token) {
+      if (
+        res.status === 401 &&
+        token &&
+        (data?.code === 'SESSION_IDLE_EXPIRED' || data?.code === 'UNAUTHENTICATED')
+      ) {
         this.setToken(null, slot);
         try {
           sessionExpiredListener?.(slot, data.error);
@@ -1418,14 +1437,14 @@ export const api = {
   },
 
   // Subscriptions (Server Enforced)
-  async getCurrentSubscription(): Promise<{
+  async getCurrentSubscription(slot?: PortalSlot): Promise<{
     activeSubscription: SubscriptionRecord | null;
     pendingSubscription: SubscriptionRecord | null;
     hostPlan: HostPlanStatus;
     wallet: number;
     availablePlans: any;
   }> {
-    return this.request('/api/subscriptions/current');
+    return this.request('/api/subscriptions/current', { portalSlot: slot });
   },
 
   async purchaseSubscription(data: {
@@ -1619,16 +1638,19 @@ export const api = {
   },
 
   // Wallets & Ledger
-  async getWallet(): Promise<{ wallet: WalletRecord; ledger: LedgerEntry[]; transactions?: any[] }> {
-    return this.request('/api/wallet');
+  async getWallet(slot?: PortalSlot): Promise<{ wallet: WalletRecord; ledger: LedgerEntry[]; transactions?: any[] }> {
+    return this.request('/api/wallet', { portalSlot: slot });
   },
 
-  async getWalletTransactions(params?: { email?: string; scope?: 'all' | 'self' }): Promise<{ transactions: any[] }> {
+  async getWalletTransactions(
+    params?: { email?: string; scope?: 'all' | 'self' },
+    slot?: PortalSlot
+  ): Promise<{ transactions: any[] }> {
     const sp = new URLSearchParams();
     if (params?.email) sp.set('email', params.email);
     if (params?.scope) sp.set('scope', params.scope);
     const qs = sp.toString();
-    return this.request(`/api/wallet/transactions${qs ? `?${qs}` : ''}`);
+    return this.request(`/api/wallet/transactions${qs ? `?${qs}` : ''}`, { portalSlot: slot });
   },
 
   getWalletStreamUrl(slot?: PortalSlot): string {
@@ -1666,10 +1688,20 @@ export const api = {
     return this.request('/api/admin/wallets');
   },
 
-  async topupWallet(amount: number, mpesaCode: string): Promise<{ payment: PaymentRecord; message?: string }> {
+  async topupWallet(
+    amount: number,
+    mpesaCode: string,
+    opts?: { phoneNumber?: string; purpose?: string; slot?: PortalSlot }
+  ): Promise<{ payment: PaymentRecord; message?: string }> {
     return this.request('/api/wallet/topup', {
       method: 'POST',
-      body: JSON.stringify({ amount, mpesaCode }),
+      portalSlot: opts?.slot,
+      body: JSON.stringify({
+        amount,
+        mpesaCode,
+        ...(opts?.phoneNumber ? { phoneNumber: opts.phoneNumber } : {}),
+        ...(opts?.purpose ? { purpose: opts.purpose } : {}),
+      }),
     });
   },
 
@@ -2076,7 +2108,9 @@ export const api = {
   },
 
   async getAdminTripDatingCounts(): Promise<{ counts: TripDatingAdminCounts }> {
-    return this.request<{ counts: TripDatingAdminCounts }>('/api/admin/trip-dating/counts');
+    return this.request<{ counts: TripDatingAdminCounts }>('/api/admin/trip-dating/counts', {
+      portalSlot: 'admin',
+    });
   },
 
   async getAdminTripDatingSubmissions(params?: {
@@ -2167,7 +2201,7 @@ export const api = {
     tripDating: TripDatingProfile[];
     counts: { stays: number; tripDating: number; total: number };
   }> {
-    return this.request('/api/admin/review-queue');
+    return this.request('/api/admin/review-queue', { portalSlot: 'admin' });
   },
 
   async moderateReviewQueueStay(

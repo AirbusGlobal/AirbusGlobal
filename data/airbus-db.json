@@ -3973,7 +3973,7 @@
       "updatedAt": 1794600565833,
       "host_id": "owner@airbus.ke",
       "plays": 1,
-      "replays": 9,
+      "replays": 48,
       "actionClicks": 1
     },
     {
@@ -7241,7 +7241,7 @@
       "ownerEmail": "owner@airbus.ke",
       "views": 0,
       "plays": 1,
-      "replays": 9,
+      "replays": 48,
       "clicks": {
         "availability": 0,
         "book": 0,
@@ -7249,7 +7249,7 @@
         "negotiate": 0,
         "whatsapp": 1
       },
-      "updatedAt": 1795271846992
+      "updatedAt": 1795275644888
     }
   },
   "guestCredentials": [
