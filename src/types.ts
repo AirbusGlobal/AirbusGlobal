@@ -492,6 +492,10 @@ export interface PaymentRecord {
   userRole?: UserRole;
   userName?: string;
   hostEmail?: string;
+  walletId?: string;
+  wallet_id?: string;
+  walletType?: 'AIRBUS' | 'USER' | 'ADMIN_PLATFORM';
+  wallet_type?: 'AIRBUS' | 'USER' | 'ADMIN_PLATFORM';
   kind?: 'plan' | 'wallet' | 'advert' | 'boost' | 'deposit' | 'trip_dating' | 'vvvip';
   type: PaymentRecordType;
   method: PaymentRecordMethod;
@@ -502,15 +506,18 @@ export interface PaymentRecord {
   amount: number; // Compatibility
   claimedAmount?: number;
   approvedAmount?: number;
-  purpose?: 'subscription' | 'wallet_topup' | 'advert' | 'trip_dating' | AdminWalletPurpose;
+  purpose?: 'subscription' | 'wallet_topup' | 'advert' | 'trip_dating' | AdminWalletPurpose | string;
   walletPurpose?: AdminWalletPurpose;
+  purposeLabel?: string;
   currency?: string;
   status: PaymentRecordStatus;
+  canonicalStatus?: 'PENDING' | 'APPROVED' | 'DECLINED' | 'REFUNDED';
   referenceId: string; // advert_id, boost_id or subscription_id
   reference_id?: string;
   reference?: string; // Unified M-Pesa code or transaction reference
   proofUrl?: string; // Optional payment screenshot
   phoneNumber?: string; // M-Pesa phone number
+  phone?: string;
   phone_number?: string;
   relatedId?: string; // subscription ID, advert ID, or listing ID
   related_id?: string;
@@ -525,11 +532,29 @@ export interface PaymentRecord {
   approvedBy?: string;
   approved_by?: string;
   reviewedBy?: string;
+  reviewed_by?: string;
   approvedAt?: number;
   approved_at?: number;
   reviewedAt?: number;
+  reviewed_at?: number;
+  submittedAt?: number;
+  submitted_at?: number;
   rejectionReason?: string;
   rejection_reason?: string;
+  declineReason?: string;
+  decline_reason?: string;
+  refundAmount?: number;
+  refund_amount?: number;
+  refundReason?: string;
+  refund_reason?: string;
+  refundReference?: string;
+  refund_reference?: string;
+  creditLedgerId?: string | null;
+  credit_ledger_id?: string | null;
+  refundLedgerId?: string | null;
+  refund_ledger_id?: string | null;
+  merchantNoticeEvent?: 'APPROVED' | 'DECLINED' | 'REFUNDED' | null;
+  merchantNoticeAckedAt?: number | null;
   createdAt: number;
   created_at?: number;
   updatedAt: number;

@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import {
   DatabaseSchema,
   User,
+  UserRole,
   Stay,
   Booking,
   Review,
@@ -89,6 +90,19 @@ import { shortJobQueue } from './services/shortJobQueue';
 import { AUDIO_UPLOAD_CONFIG, getShortsTierRules } from '../config/shortsTierConfig';
 import { logger } from './services/ops';
 import { getEATParts } from '../utils/time';
+import {
+  PaymentStatus,
+  PaymentPurpose,
+  WalletType,
+  MPESA_CONFIG,
+  PAYMENT_PURPOSE_OPTIONS,
+  normalizePaymentStatus,
+  toLegacyPaymentStatus,
+  isDepositRecord,
+  normalizePaymentPurpose,
+  normalizeKenyanPhone,
+  stripHtmlTags,
+} from '../shared/paymentConstants';
 
 export const DEFAULT_SETTINGS: PlatformSettings = {
   adPricePerDay: 100,
@@ -1799,13 +1813,16 @@ class DatabaseStore {
     mpesaCode?: string;
   }) => void>();
   private paymentListeners = new Set<(event: {
-    eventType: 'payment_created' | 'payment_approved' | 'payment_rejected';
+    eventType: 'payment_created' | 'payment_approved' | 'payment_rejected' | 'payment_refunded';
     payment: PaymentRecord;
     targetEmail: string;
     walletBalance?: number;
     adminWalletBalance?: number;
     updatedAt: number;
   }) => void>();
+  private paymentIndexById = new Map<string, PaymentRecord>();
+  private paymentIndexByCode = new Map<string, PaymentRecord>();
+  private outboxTestHook: ((eventKind: string, paymentId?: string) => void) | null = null;
   private feedListeners = new Set<(event: {
     id: string;
     type: 'stay' | 'trip_dating';
@@ -1827,6 +1844,7 @@ class DatabaseStore {
   constructor() {
     this.data = this.load();
     this.runStartupMigrations();
+    this.rebuildPaymentIndexes();
     this.checkAndRunAutoYearEndArchive();
     this.ensurePortalCredentialSeeds();
     this.checkAllExpirations();
@@ -2172,6 +2190,118 @@ class DatabaseStore {
       this.save();
       logger.info('migration_applied', { migrationId: migrationV3 });
     }
+
+    // Migration v4: Unify payments & paymentRecords into a single source of truth,
+    // normalize statuses/wallet fields, backfill credit_ledger_id & admin wallet entries.
+    const migrationV4 = 'v4_unified_payments_outbox_and_audit';
+    if (!this.data.appliedMigrations.some(m => m.id === migrationV4)) {
+      const cloneArr = <T>(arr: T[] | undefined): T[] => JSON.parse(JSON.stringify(arr || []));
+      const prevPaymentRecordsV4 = cloneArr(this.data.paymentRecords);
+      const prevPaymentsV4 = cloneArr(this.data.payments);
+      const prevLedgerV4 = cloneArr(this.data.ledgerEntries);
+      const prevAdminEntriesV4 = cloneArr(this.data.admin_wallet_entries);
+
+      if (!this.data.paymentRecords) this.data.paymentRecords = [];
+      if (!this.data.payments) this.data.payments = [];
+      if (!this.data.ledgerEntries) this.data.ledgerEntries = [];
+      if (!this.data.transactional_outbox) this.data.transactional_outbox = [];
+
+      const byId = new Map<string, PaymentRecord>();
+      let mergedCount = 0;
+      let normalizedCount = 0;
+      let ledgerLinkedCount = 0;
+
+      for (const rec of this.data.paymentRecords) {
+        byId.set(rec.id, rec);
+      }
+      for (const leg of this.data.payments) {
+        if (!byId.has(leg.id)) {
+          this.data.paymentRecords.push(leg);
+          byId.set(leg.id, leg);
+          mergedCount += 1;
+        }
+      }
+
+      for (const rec of this.data.paymentRecords) {
+        const beforeSnap = JSON.stringify({
+          status: rec.status,
+          canonicalStatus: rec.canonicalStatus,
+          walletId: rec.walletId,
+          creditLedgerId: rec.creditLedgerId,
+        });
+        this.normalizePaymentRecordFields(rec);
+
+        if (rec.canonicalStatus === PaymentStatus.APPROVED && isDepositRecord(rec) && !rec.creditLedgerId) {
+          const code = String(rec.mpesaCode || rec.reference || rec.referenceId || '').toUpperCase();
+          const ownerWallet = String(rec.walletId || rec.userId || rec.hostEmail || '').toLowerCase().trim();
+          const amt = Math.floor(Number(rec.approvedAmount ?? rec.claimedAmount ?? rec.amountKes ?? rec.amount ?? 0));
+          const matchedLedger = this.data.ledgerEntries.find(
+            l =>
+              (l.referenceId && (l.referenceId === rec.id || (code && l.referenceId.toUpperCase() === code))) ||
+              (code && l.paymentCode && l.paymentCode.toUpperCase() === code) ||
+              (l.fromWallet === 'external_mpesa' && l.toWallet === ownerWallet && l.amount === amt)
+          );
+          if (matchedLedger) {
+            rec.creditLedgerId = matchedLedger.id;
+            rec.credit_ledger_id = matchedLedger.id;
+            ledgerLinkedCount += 1;
+          } else if (amt > 0 && ownerWallet) {
+            const ledgId = `ledg_v4_${rec.id}`;
+            this.data.ledgerEntries.push({
+              id: ledgId,
+              fromWallet: 'external_mpesa',
+              toWallet: ownerWallet,
+              amount: amt,
+              type: 'topup',
+              referenceId: rec.id,
+              paymentCode: code || rec.id,
+              purpose: rec.walletPurpose || PaymentPurpose.OTHER,
+              fiscalYear: getEATParts(rec.approvedAt || rec.createdAt || Date.now()).year,
+              depositorName: rec.userName || ownerWallet,
+              depositorRole: rec.userRole || 'guest',
+              approvingAdmin: rec.approvedBy || MPESA_CONFIG.ADMIN_WALLET_ID,
+              description: `Backfilled deposit ledger entry (${code || rec.id})`,
+              createdAt: rec.approvedAt || rec.createdAt || Date.now(),
+            });
+            rec.creditLedgerId = ledgId;
+            rec.credit_ledger_id = ledgId;
+            ledgerLinkedCount += 1;
+          }
+        }
+
+        const afterSnap = JSON.stringify({
+          status: rec.status,
+          canonicalStatus: rec.canonicalStatus,
+          walletId: rec.walletId,
+          creditLedgerId: rec.creditLedgerId,
+        });
+        if (beforeSnap !== afterSnap) normalizedCount += 1;
+      }
+
+      this.data.paymentRecords.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+      this.data.payments = [...this.data.paymentRecords];
+      this.backfillAdminWalletEntries();
+      this.rebuildPaymentIndexes();
+
+      this.data.appliedMigrations.push({
+        id: migrationV4,
+        appliedAt: Date.now(),
+        snapshot: {
+          prevPaymentRecordsV4,
+          prevPaymentsV4,
+          prevLedgerV4,
+          prevAdminEntriesV4,
+          stats: { mergedCount, normalizedCount, ledgerLinkedCount },
+        },
+      });
+      this.save();
+      logger.info('migration_applied', {
+        migrationId: migrationV4,
+        mergedCount,
+        normalizedCount,
+        ledgerLinkedCount,
+      });
+    }
   }
 
   public rollbackMigration(migrationId: string): boolean {
@@ -2222,6 +2352,14 @@ class DatabaseStore {
     if (Array.isArray(snap?.prevMediaAssetIds) && Array.isArray(this.data.media_assets)) {
       const keep = new Set(snap.prevMediaAssetIds);
       this.data.media_assets = this.data.media_assets.filter(a => keep.has(a.id));
+    }
+    if (snap?.prevPaymentRecordsV4) {
+      this.data.paymentRecords = snap.prevPaymentRecordsV4;
+      this.data.payments = snap.prevPaymentsV4 || [];
+      this.data.ledgerEntries = snap.prevLedgerV4 || [];
+      this.data.admin_wallet_entries = snap.prevAdminEntriesV4 || [];
+      this.rebuildAdminWalletRollups();
+      this.rebuildPaymentIndexes();
     }
     this.data.appliedMigrations.splice(idx, 1);
     this.invalidateFeedCache();
@@ -2318,7 +2456,7 @@ class DatabaseStore {
 
   public subscribePaymentUpdates(
     listener: (event: {
-      eventType: 'payment_created' | 'payment_approved' | 'payment_rejected';
+      eventType: 'payment_created' | 'payment_approved' | 'payment_rejected' | 'payment_refunded';
       payment: PaymentRecord;
       targetEmail: string;
       walletBalance?: number;
@@ -2335,7 +2473,7 @@ class DatabaseStore {
   }
 
   public emitPaymentUpdate(
-    eventType: 'payment_created' | 'payment_approved' | 'payment_rejected',
+    eventType: 'payment_created' | 'payment_approved' | 'payment_rejected' | 'payment_refunded',
     payment: PaymentRecord,
     balances?: { walletBalance?: number; adminWalletBalance?: number }
   ) {
@@ -3933,21 +4071,10 @@ class DatabaseStore {
       else guestWallets.push(item);
     }
 
-    const sourceRecords =
-      this.data.paymentRecords && this.data.paymentRecords.length > 0
-        ? this.data.paymentRecords
-        : this.data.payments || [];
+    const sourceRecords = this.getPaymentRecords({});
 
     const allDeposits = sourceRecords
-      .filter(
-        p =>
-          p.kind === 'deposit' ||
-          p.kind === 'wallet' ||
-          p.type === 'deposit' ||
-          p.type === 'wallet' ||
-          p.type === 'wallet_topup' ||
-          p.type === 'mpesa_deposit'
-      )
+      .filter(p => isDepositRecord(p))
       .map(p => {
         const e = (p.userId || p.hostEmail || '').toLowerCase().trim();
         const u = usersByEmail.get(e);
@@ -5073,6 +5200,9 @@ class DatabaseStore {
       ledgerEntries: clone(this.data.ledgerEntries || []),
       paymentRecords: clone(this.data.paymentRecords || []),
       payments: clone(this.data.payments || []),
+      admin_wallet_entries: clone(this.data.admin_wallet_entries || []),
+      admin_wallet_rollups: clone(this.data.admin_wallet_rollups || { hour: {}, day: {}, month: {}, year: {} }),
+      transactional_outbox: clone(this.data.transactional_outbox || []),
       subscriptions: clone(this.data.subscriptions || []),
       hostPlans: clone(this.data.hostPlans || {}),
       stays: clone(this.data.stays || []),
@@ -5087,9 +5217,12 @@ class DatabaseStore {
       auditLogs: clone(this.data.auditLogs || []),
     };
     try {
-      return fn();
+      const res = fn();
+      this.rebuildPaymentIndexes();
+      return res;
     } catch (err) {
       Object.assign(this.data, snapshot);
+      this.rebuildPaymentIndexes();
       throw err;
     }
   }
@@ -5102,7 +5235,10 @@ class DatabaseStore {
     reference?: string;
     note: string;
     relatedPaymentId?: string;
-  }): WalletTransaction {
+    paymentCode?: string;
+    purpose?: AdminWalletPurpose;
+    approvingAdmin?: string;
+  }): WalletTransaction & { ledgerId?: string } {
     const cleanWallet = tx.walletId.toLowerCase().trim();
     const rawNum = Number(tx.amount);
     if (!Number.isInteger(rawNum) || rawNum <= 0) {
@@ -5118,8 +5254,9 @@ class DatabaseStore {
       );
     }
 
-    const newTx: WalletTransaction = {
-      id: 'wtx_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7),
+    const now = Date.now();
+    const newTx: WalletTransaction & { ledgerId?: string } = {
+      id: 'wtx_' + now + '_' + Math.random().toString(36).substring(2, 7),
       walletId: cleanWallet,
       wallet_id: cleanWallet,
       direction: tx.direction,
@@ -5129,7 +5266,7 @@ class DatabaseStore {
       reference: tx.reference || '',
       note: tx.note,
       relatedPaymentId: tx.relatedPaymentId,
-      createdAt: Date.now(),
+      createdAt: now,
     };
 
     if (!this.data.walletTransactions) this.data.walletTransactions = [];
@@ -5144,20 +5281,29 @@ class DatabaseStore {
     } else {
       wr.lifetimeSpent = (wr.lifetimeSpent || 0) + intAmount;
     }
-    wr.updatedAt = Date.now();
+    wr.updatedAt = now;
 
     if (tx.type === 'wallet_topup' || tx.type === 'deposit') {
       if (!this.data.ledgerEntries) this.data.ledgerEntries = [];
+      const ledgId = 'ledg_' + now + '_' + Math.random().toString(36).substring(2, 6);
+      const payer = this.findUserByEmail(cleanWallet);
       this.data.ledgerEntries.unshift({
-        id: 'ledg_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+        id: ledgId,
         fromWallet: 'external_mpesa',
         toWallet: cleanWallet,
         amount: intAmount,
         type: 'topup',
         referenceId: tx.relatedPaymentId || tx.reference,
+        paymentCode: tx.paymentCode || tx.reference,
+        purpose: tx.purpose || PaymentPurpose.OTHER,
+        fiscalYear: getEATParts(now).year,
+        depositorName: payer?.name || payer?.username || cleanWallet,
+        depositorRole: payer?.role || 'guest',
+        approvingAdmin: tx.approvingAdmin || MPESA_CONFIG.ADMIN_WALLET_ID,
         description: tx.note,
-        createdAt: Date.now(),
+        createdAt: now,
       });
+      newTx.ledgerId = ledgId;
     }
 
     this.save();
@@ -5246,29 +5392,193 @@ class DatabaseStore {
     }
   }
 
+  private normalizePaymentRecordFields(p: PaymentRecord): PaymentRecord {
+    const cleanEmail = String(p.userId || p.user_id || p.hostEmail || p.walletId || p.wallet_id || '')
+      .toLowerCase()
+      .trim();
+    const payer = cleanEmail ? this.findUserByEmail(cleanEmail) : undefined;
+    const role = (p.userRole || payer?.role || 'guest') as UserRole;
+    const canonical = normalizePaymentStatus(p.canonicalStatus || p.status);
+    const legacy = toLegacyPaymentStatus(canonical);
+    const intAmount = Math.floor(Number(p.approvedAmount ?? p.claimedAmount ?? p.amountKes ?? p.amount_kes ?? p.amountSc ?? p.amount_sc ?? p.amount ?? 0) || 0);
+    const claimed = Math.floor(Number(p.claimedAmount ?? p.amountKes ?? p.amount_kes ?? p.amountSc ?? p.amount ?? intAmount) || 0);
+    const purpose = normalizePaymentPurpose(p.walletPurpose || p.purpose || p.type || p.kind);
+    const purposeOpt =
+      PAYMENT_PURPOSE_OPTIONS.find(o => o.walletPurpose === purpose || o.value === String(p.purpose || '').toUpperCase()) ||
+      PAYMENT_PURPOSE_OPTIONS[0];
+    const walletType: WalletType =
+      cleanEmail === MPESA_CONFIG.ADMIN_WALLET_ID
+        ? WalletType.ADMIN_PLATFORM
+        : role === 'owner'
+        ? WalletType.AIRBUS
+        : WalletType.USER;
+    const mpesaCode = p.mpesaCode || p.mpesa_code || (p.method !== 'wallet' ? p.reference : undefined);
+    const refId = p.referenceId || p.reference_id || mpesaCode || p.id;
+    const phone = p.phone || p.phoneNumber || p.phone_number || payer?.phone || '';
+    const submittedAt = Number(p.submittedAt || p.submitted_at || p.createdAt || p.created_at || Date.now());
+    const updatedAt = Number(p.updatedAt || p.updated_at || submittedAt);
+    const reviewedAt = p.reviewedAt || p.reviewed_at || p.approvedAt || p.approved_at;
+    const reviewedBy = p.reviewedBy || p.reviewed_by || p.approvedBy || p.approved_by;
+    const declineReason = p.declineReason || p.decline_reason || p.rejectionReason || p.rejection_reason;
+
+    p.userId = cleanEmail;
+    p.user_id = cleanEmail;
+    p.hostEmail = cleanEmail;
+    p.walletId = cleanEmail;
+    p.wallet_id = cleanEmail;
+    p.walletType = walletType;
+    p.wallet_type = walletType;
+    p.userRole = role;
+    p.userName = p.userName || payer?.username || payer?.name || cleanEmail;
+    p.amount = intAmount;
+    p.amountSc = intAmount;
+    p.amount_sc = intAmount;
+    p.amountKes = intAmount;
+    p.amount_kes = intAmount;
+    p.claimedAmount = claimed;
+    p.walletPurpose = purpose;
+    p.purpose = p.purpose || purpose;
+    p.purposeLabel = p.purposeLabel || purposeOpt.label;
+    p.status = legacy;
+    p.canonicalStatus = canonical;
+    p.referenceId = refId;
+    p.reference_id = refId;
+    if (mpesaCode) {
+      const cleanMpesa = String(mpesaCode).trim().toUpperCase();
+      p.mpesaCode = cleanMpesa;
+      p.mpesa_code = cleanMpesa;
+      p.reference = cleanMpesa;
+    }
+    if (phone) {
+      const normPhone = normalizeKenyanPhone(phone);
+      p.phone = normPhone;
+      p.phoneNumber = normPhone;
+      p.phone_number = normPhone;
+    }
+    p.createdAt = submittedAt;
+    p.created_at = submittedAt;
+    p.submittedAt = submittedAt;
+    p.submitted_at = submittedAt;
+    p.updatedAt = updatedAt;
+    p.updated_at = updatedAt;
+    if (reviewedAt) {
+      p.approvedAt = reviewedAt;
+      p.approved_at = reviewedAt;
+      p.reviewedAt = reviewedAt;
+      p.reviewed_at = reviewedAt;
+    }
+    if (reviewedBy) {
+      p.approvedBy = reviewedBy;
+      p.approved_by = reviewedBy;
+      p.reviewedBy = reviewedBy;
+      p.reviewed_by = reviewedBy;
+    }
+    if (declineReason) {
+      p.rejectionReason = declineReason;
+      p.rejection_reason = declineReason;
+      p.declineReason = declineReason;
+      p.decline_reason = declineReason;
+    }
+    if (p.creditLedgerId || p.credit_ledger_id) {
+      const cid = p.creditLedgerId || p.credit_ledger_id || null;
+      p.creditLedgerId = cid;
+      p.credit_ledger_id = cid;
+    }
+    if (p.refundLedgerId || p.refund_ledger_id) {
+      const rid = p.refundLedgerId || p.refund_ledger_id || null;
+      p.refundLedgerId = rid;
+      p.refund_ledger_id = rid;
+    }
+    return p;
+  }
+
+  public rebuildPaymentIndexes() {
+    if (!this.data.paymentRecords) this.data.paymentRecords = [];
+    if (!this.data.payments) this.data.payments = [];
+
+    const seen = new Map<string, PaymentRecord>();
+    for (const p of this.data.paymentRecords) {
+      if (!p || !p.id) continue;
+      this.normalizePaymentRecordFields(p);
+      seen.set(p.id, p);
+    }
+    // Automatically merge any stray entries from legacy this.data.payments
+    for (const leg of this.data.payments) {
+      if (!leg || !leg.id) continue;
+      if (!seen.has(leg.id)) {
+        this.normalizePaymentRecordFields(leg);
+        this.data.paymentRecords.push(leg);
+        seen.set(leg.id, leg);
+      }
+    }
+
+    this.data.paymentRecords.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    this.data.payments = [...this.data.paymentRecords];
+
+    this.paymentIndexById.clear();
+    this.paymentIndexByCode.clear();
+    for (const rec of this.data.paymentRecords) {
+      this.paymentIndexById.set(rec.id, rec);
+      const code = String(rec.mpesaCode || rec.reference || '').trim().toUpperCase();
+      if (code && !this.paymentIndexByCode.has(code)) {
+        this.paymentIndexByCode.set(code, rec);
+      }
+    }
+  }
+
+  private mirrorSyncPaymentArrays(record: PaymentRecord) {
+    if (!this.data.paymentRecords) this.data.paymentRecords = [];
+    if (!this.data.payments) this.data.payments = [];
+    const idxRec = this.data.paymentRecords.findIndex(x => x.id === record.id);
+    if (idxRec >= 0) {
+      this.data.paymentRecords[idxRec] = record;
+    } else {
+      this.data.paymentRecords.unshift(record);
+    }
+    const idxLeg = this.data.payments.findIndex(x => x.id === record.id);
+    if (idxLeg >= 0) {
+      this.data.payments[idxLeg] = record;
+    } else {
+      this.data.payments.unshift(record);
+    }
+    this.paymentIndexById.set(record.id, record);
+    const code = String(record.mpesaCode || record.reference || '').trim().toUpperCase();
+    if (code) {
+      this.paymentIndexByCode.set(code, record);
+    }
+  }
+
   public getPayments(): PaymentRecord[] {
     return this.getPaymentRecords();
   }
 
   public getPaymentRecords(filter?: {
-    status?: PaymentRecordStatus;
-    type?: PaymentRecordType;
-    method?: PaymentRecordMethod;
+    status?: PaymentRecordStatus | PaymentStatus | string;
+    type?: PaymentRecordType | string;
+    method?: PaymentRecordMethod | string;
     search?: string;
   }): PaymentRecord[] {
-    let list = this.data.paymentRecords || [];
-    if (list.length === 0 && this.data.payments && this.data.payments.length > 0) {
-      list = this.data.payments as PaymentRecord[];
+    // Self-heal if legacy payments array received an entry directly
+    if (
+      (this.data.payments?.length || 0) > (this.data.paymentRecords?.length || 0)
+    ) {
+      this.rebuildPaymentIndexes();
     }
+    let list = (this.data.paymentRecords || []).map(p => this.normalizePaymentRecordFields(p));
 
     if (filter) {
-      if (filter.status && (filter.status as string) !== 'all') {
-        list = list.filter(p => p.status === filter.status);
+      if (filter.status && String(filter.status).toLowerCase() !== 'all') {
+        const wantCanonical = normalizePaymentStatus(String(filter.status));
+        list = list.filter(p => normalizePaymentStatus(p.canonicalStatus || p.status) === wantCanonical);
       }
-      if (filter.type && (filter.type as string) !== 'all') {
-        list = list.filter(p => p.type === filter.type || (filter.type === 'subscription' && p.kind === 'plan'));
+      if (filter.type && String(filter.type).toLowerCase() !== 'all') {
+        if (filter.type === 'deposit') {
+          list = list.filter(p => isDepositRecord(p));
+        } else {
+          list = list.filter(p => p.type === filter.type || (filter.type === 'subscription' && p.kind === 'plan'));
+        }
       }
-      if (filter.method && (filter.method as string) !== 'all') {
+      if (filter.method && String(filter.method).toLowerCase() !== 'all') {
         list = list.filter(p => (p.method || 'mpesa') === filter.method);
       }
       if (filter.search && filter.search.trim()) {
@@ -5276,9 +5586,12 @@ class DatabaseStore {
         list = list.filter(p =>
           (p.id && p.id.toLowerCase().includes(q)) ||
           (p.userId && p.userId.toLowerCase().includes(q)) ||
+          (p.userName && p.userName.toLowerCase().includes(q)) ||
           (p.hostEmail && p.hostEmail.toLowerCase().includes(q)) ||
           (p.referenceId && p.referenceId.toLowerCase().includes(q)) ||
-          (p.mpesaCode && p.mpesaCode.toLowerCase().includes(q))
+          (p.mpesaCode && p.mpesaCode.toLowerCase().includes(q)) ||
+          (p.phone && p.phone.toLowerCase().includes(q)) ||
+          (p.purposeLabel && p.purposeLabel.toLowerCase().includes(q))
         );
       }
     }
@@ -5287,77 +5600,340 @@ class DatabaseStore {
   }
 
   public createPayment(input: any): PaymentRecord {
-    const payerEmail = (input.userId || input.hostEmail || 'guest@airbus.ke').toLowerCase().trim();
-    const payer = this.findUserByEmail(payerEmail);
-    const p: PaymentRecord = {
-      id: input.id || ('pay_' + Date.now()),
-      userId: payerEmail,
-      user_id: payerEmail,
-      userRole: input.userRole || payer?.role || 'guest',
-      userName: input.userName || payer?.username || payer?.name || payerEmail,
-      hostEmail: input.hostEmail || payerEmail,
+    const rawEmail = String(input?.userId || input?.user_id || input?.hostEmail || '').toLowerCase().trim();
+    if (!rawEmail) {
+      throw new Error('Authenticated user email is required to create a payment record.');
+    }
+    const payer = this.findUserByEmail(rawEmail);
+    const now = Date.now();
+    const canonical = normalizePaymentStatus(input.canonicalStatus || input.status || PaymentStatus.PENDING);
+    const legacyStatus = toLegacyPaymentStatus(canonical);
+    const purpose = normalizePaymentPurpose(input.walletPurpose || input.purpose || input.type || input.kind);
+    const purposeOpt =
+      PAYMENT_PURPOSE_OPTIONS.find(o => o.walletPurpose === purpose || o.value === String(input.purpose || '').toUpperCase()) ||
+      PAYMENT_PURPOSE_OPTIONS[0];
+    const cleanPhone = input.phone || input.phoneNumber || payer?.phone || '';
+    const normPhone = cleanPhone ? normalizeKenyanPhone(String(cleanPhone)) : '';
+    const amt = Math.floor(Number(input.amountKes ?? input.amountSc ?? input.amount ?? 0) || 0);
+    const cleanMpesa = input.mpesaCode ? stripHtmlTags(String(input.mpesaCode)).toUpperCase() : undefined;
+    const role = (input.userRole || payer?.role || 'guest') as UserRole;
+    const walletType: WalletType =
+      rawEmail === MPESA_CONFIG.ADMIN_WALLET_ID
+        ? WalletType.ADMIN_PLATFORM
+        : role === 'owner'
+        ? WalletType.AIRBUS
+        : WalletType.USER;
+
+    const p: PaymentRecord = this.normalizePaymentRecordFields({
+      id: input.id || 'pay_' + now + '_' + crypto.randomBytes(2).toString('hex'),
+      userId: rawEmail,
+      user_id: rawEmail,
+      userRole: role,
+      userName: stripHtmlTags(String(input.userName || payer?.username || payer?.name || rawEmail)),
+      hostEmail: rawEmail,
+      walletId: rawEmail,
+      wallet_id: rawEmail,
+      walletType,
+      wallet_type: walletType,
       kind: input.kind || 'wallet',
       type: input.type || (input.kind === 'plan' ? 'subscription' : 'booking_fee'),
-      method: input.method || 'mpesa',
-      amountSc: input.amountSc || input.amount || 0,
-      amount_sc: input.amountSc || input.amount || 0,
-      amountKes: input.amountKes || input.amount || 0,
-      amount_kes: input.amountKes || input.amount || 0,
-      amount: input.amount || input.amountSc || 0,
-      status: input.status || 'pending',
-      referenceId: input.referenceId || input.id || ('ref_' + Date.now()),
-      reference_id: input.referenceId || input.id || ('ref_' + Date.now()),
-      mpesaCode: input.mpesaCode,
-      mpesa_code: input.mpesaCode,
+      method: input.method || 'mpesa_manual',
+      amountSc: amt,
+      amount_sc: amt,
+      amountKes: amt,
+      amount_kes: amt,
+      amount: amt,
+      status: legacyStatus,
+      canonicalStatus: canonical,
+      referenceId: input.referenceId || cleanMpesa || input.id || 'ref_' + now,
+      reference_id: input.referenceId || cleanMpesa || input.id || 'ref_' + now,
+      mpesaCode: cleanMpesa,
+      mpesa_code: cleanMpesa,
       planTier: input.planTier || input.tier,
       plan_tier: input.planTier || input.tier,
       tier: input.tier || input.planTier,
       durationDays: input.durationDays,
       duration_days: input.durationDays,
       period: input.period,
-      claimedAmount: input.claimedAmount,
-      phoneNumber: input.phoneNumber,
+      claimedAmount: input.claimedAmount ?? amt,
+      phoneNumber: normPhone || undefined,
+      phone: normPhone || undefined,
       proofUrl: input.proofUrl,
-      reference: input.reference,
-      walletPurpose:
-        typeof input.walletPurpose === 'string' &&
-        ['SUBSCRIPTION', 'ADVERTISING', 'TRIP_DATING', 'AIRBUS_PLUS', 'OTHER'].includes(input.walletPurpose.toUpperCase())
-          ? (input.walletPurpose.toUpperCase() as AdminWalletPurpose)
-          : undefined,
-      createdAt: input.createdAt || Date.now(),
-      created_at: input.createdAt || Date.now(),
-      updatedAt: input.updatedAt || Date.now(),
-      updated_at: input.updatedAt || Date.now(),
-    };
+      reference: input.reference || cleanMpesa,
+      walletPurpose: purpose,
+      purpose: input.purpose || purpose,
+      purposeLabel: purposeOpt.label,
+      creditLedgerId: null,
+      credit_ledger_id: null,
+      createdAt: input.createdAt || now,
+      created_at: input.createdAt || now,
+      submittedAt: input.createdAt || now,
+      submitted_at: input.createdAt || now,
+      updatedAt: input.updatedAt || now,
+      updated_at: input.updatedAt || now,
+    });
 
-    if (!this.data.paymentRecords) this.data.paymentRecords = [];
-    if (!this.data.payments) this.data.payments = [];
-    this.data.paymentRecords.unshift(p);
-    this.data.payments.unshift(p);
+    this.ensureWallet(rawEmail);
+    this.mirrorSyncPaymentArrays(p);
 
-    // Notify admin
     this.data.users
       .filter(u => u.role === 'admin')
       .forEach(admin => {
         this.createNotification({
-          id: 'notif_' + Date.now() + Math.random(),
+          id: 'notif_' + now + '_' + Math.random().toString(36).slice(2, 6),
           userEmail: admin.email,
           title: 'New Deposit Pending Verification',
-          message: `${p.userId || p.hostEmail} submitted Deposit (M-Pesa) of KES ${p.amountKes || p.amount} (Ref: ${p.mpesaCode || p.id}).`,
+          message: `${p.userName || p.userId} submitted Deposit (M-Pesa) of KES ${amt.toLocaleString()} (Ref: ${p.mpesaCode || p.id}).`,
           read: false,
           link: '/#admin',
           type: 'payment',
-          createdAt: Date.now(),
+          createdAt: now,
         });
       });
+
+    if (canonical === PaymentStatus.PENDING) {
+      this.enqueuePaymentOutboxEvent('payment.submitted', p.id, {
+        paymentId: p.id,
+        userId: p.userId,
+        amountKes: amt,
+        mpesaCode: p.mpesaCode,
+        purpose: p.walletPurpose,
+        submittedAt: p.submittedAt,
+      });
+    }
+
     this.save();
     if (p.status === 'pending') {
       this.emitPaymentUpdate('payment_created', p, {
-        walletBalance: this.getWallet(payerEmail),
-        adminWalletBalance: this.getWallet('admin@airbus.ke'),
+        walletBalance: this.getWallet(rawEmail),
+        adminWalletBalance: this.getWallet(MPESA_CONFIG.ADMIN_WALLET_ID),
       });
     }
     return p;
+  }
+
+  public submitMerchantDeposit(opts: {
+    userId: string;
+    amountKes: number;
+    mpesaCode: string;
+    phone?: string;
+    purpose?: string;
+    proofUrl?: string;
+    requirePhone?: boolean;
+  }): { payment: PaymentRecord; walletBalance: number } {
+    const cleanEmail = String(opts.userId || '').toLowerCase().trim();
+    const payer = this.findUserByEmail(cleanEmail);
+    if (!payer) {
+      throw new Error('Authenticated user account not found.');
+    }
+
+    const rawAmount = Number(opts.amountKes);
+    if (!Number.isInteger(rawAmount) || rawAmount < MPESA_CONFIG.MIN_DEPOSIT_KES || rawAmount > MPESA_CONFIG.MAX_DEPOSIT_KES) {
+      throw new Error(
+        `Deposit amount must be a whole integer between KES ${MPESA_CONFIG.MIN_DEPOSIT_KES.toLocaleString()} and KES ${MPESA_CONFIG.MAX_DEPOSIT_KES.toLocaleString()}.`
+      );
+    }
+
+    const cleanCode = stripHtmlTags(String(opts.mpesaCode || '')).toUpperCase().replace(/\s+/g, '');
+    if (!MPESA_CONFIG.CODE_REGEX.test(cleanCode)) {
+      throw new Error(
+        `M-Pesa transaction code must be ${MPESA_CONFIG.CODE_MIN_LEN}-${MPESA_CONFIG.CODE_MAX_LEN} uppercase letters/digits (e.g. QGH7X2K9LM).`
+      );
+    }
+
+    if (this.isMpesaCodeUsed(cleanCode)) {
+      throw new Error('Duplicate M-Pesa transaction code. This code has already been submitted and cannot be reused.');
+    }
+
+    const rawPhone = stripHtmlTags(String(opts.phone || payer.phone || '')).trim();
+    if (opts.requirePhone && !rawPhone) {
+      throw new Error('M-Pesa phone number is required (e.g. 0712345678 or +254712345678).');
+    }
+    if (rawPhone && !MPESA_CONFIG.PHONE_REGEX.test(rawPhone.replace(/[\s()-]/g, ''))) {
+      throw new Error('Please enter a valid Kenyan M-Pesa phone number (e.g. 0712345678 or +254712345678).');
+    }
+    const normPhone = rawPhone ? normalizeKenyanPhone(rawPhone) : '';
+
+    const normalizedPurpose = normalizePaymentPurpose(opts.purpose);
+    const purposeOpt =
+      PAYMENT_PURPOSE_OPTIONS.find(
+        o => o.value === String(opts.purpose || '').toUpperCase() || o.walletPurpose === normalizedPurpose
+      ) || PAYMENT_PURPOSE_OPTIONS[0];
+
+    const now = Date.now();
+    const payment = this.createPayment({
+      id: 'pay_dep_' + now + '_' + crypto.randomBytes(2).toString('hex'),
+      userId: payer.email,
+      hostEmail: payer.email,
+      userRole: payer.role,
+      userName: payer.username || payer.name,
+      kind: 'deposit',
+      type: 'deposit',
+      method: 'mpesa_manual',
+      amount: rawAmount,
+      amountKes: rawAmount,
+      amountSc: rawAmount,
+      claimedAmount: rawAmount,
+      mpesaCode: cleanCode,
+      reference: cleanCode,
+      referenceId: cleanCode,
+      phone: normPhone,
+      phoneNumber: normPhone,
+      proofUrl: opts.proofUrl ? stripHtmlTags(opts.proofUrl) : undefined,
+      walletPurpose: normalizedPurpose,
+      purpose: purposeOpt.value,
+      purposeLabel: purposeOpt.label,
+      status: 'pending',
+      canonicalStatus: PaymentStatus.PENDING,
+      createdAt: now,
+    });
+
+    this.createAuditLog({
+      id: 'aud_' + now + '_' + crypto.randomBytes(2).toString('hex'),
+      action: 'merchant_deposit_submitted',
+      actorEmail: payer.email,
+      details: `Submitted Deposit (M-Pesa) KES ${rawAmount.toLocaleString()} (Code: ${cleanCode}, Phone: ${normPhone || 'N/A'}, Purpose: ${purposeOpt.label})`,
+      createdAt: now,
+    });
+    this.save();
+
+    return {
+      payment,
+      walletBalance: this.getWallet(payer.email),
+    };
+  }
+
+  public getMerchantDeposits(userEmail: string): {
+    deposits: PaymentRecord[];
+    walletBalance: number;
+    unackedNotices: PaymentRecord[];
+    counts: { pending: number; approved: number; declined: number; refunded: number };
+  } {
+    const cleanEmail = String(userEmail || '').toLowerCase().trim();
+    const all = this.getPaymentRecords({}).filter(p => {
+      const owner = String(p.userId || p.hostEmail || '').toLowerCase().trim();
+      return owner === cleanEmail && isDepositRecord(p);
+    });
+    const unackedNotices = all.filter(p => Boolean(p.merchantNoticeEvent) && !p.merchantNoticeAckedAt);
+    return {
+      deposits: all,
+      walletBalance: this.getWallet(cleanEmail),
+      unackedNotices,
+      counts: {
+        pending: all.filter(p => p.canonicalStatus === PaymentStatus.PENDING).length,
+        approved: all.filter(p => p.canonicalStatus === PaymentStatus.APPROVED).length,
+        declined: all.filter(p => p.canonicalStatus === PaymentStatus.DECLINED).length,
+        refunded: all.filter(p => p.canonicalStatus === PaymentStatus.REFUNDED).length,
+      },
+    };
+  }
+
+  public ackMerchantNotice(paymentId: string, userEmail: string): PaymentRecord {
+    const cleanEmail = String(userEmail || '').toLowerCase().trim();
+    const rec = this.paymentIndexById.get(paymentId) || (this.data.paymentRecords || []).find(p => p.id === paymentId);
+    if (!rec) throw new Error('Deposit record not found.');
+    const owner = String(rec.userId || rec.hostEmail || '').toLowerCase().trim();
+    if (owner !== cleanEmail) {
+      throw new Error('Forbidden: you can only dismiss your own deposit notice.');
+    }
+    rec.merchantNoticeAckedAt = Date.now();
+    rec.updatedAt = Date.now();
+    rec.updated_at = rec.updatedAt;
+    this.mirrorSyncPaymentArrays(rec);
+    this.save();
+    return rec;
+  }
+
+  public getAdminPaymentCounts() {
+    const all = this.getPaymentRecords({});
+    let pending = 0;
+    let approved = 0;
+    let declined = 0;
+    let refunded = 0;
+    let pendingDeposits = 0;
+    let pendingTotalKes = 0;
+    let approvedTotalKes = 0;
+
+    for (const p of all) {
+      const amt = Math.floor(Number(p.approvedAmount ?? p.claimedAmount ?? p.amountKes ?? p.amount ?? 0) || 0);
+      if (p.canonicalStatus === PaymentStatus.PENDING) {
+        pending += 1;
+        pendingTotalKes += amt;
+        if (isDepositRecord(p)) pendingDeposits += 1;
+      } else if (p.canonicalStatus === PaymentStatus.APPROVED) {
+        approved += 1;
+        approvedTotalKes += amt;
+      } else if (p.canonicalStatus === PaymentStatus.DECLINED) {
+        declined += 1;
+      } else if (p.canonicalStatus === PaymentStatus.REFUNDED) {
+        refunded += 1;
+      }
+    }
+
+    return {
+      total: all.length,
+      pending,
+      approved,
+      declined,
+      rejected: declined,
+      refunded,
+      pendingDeposits,
+      pendingTotalKes,
+      approvedTotalKes,
+    };
+  }
+
+  public queryAdminPayments(opts: {
+    status?: string;
+    type?: string;
+    method?: string;
+    search?: string;
+    code?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    minAmount?: number;
+    maxAmount?: number;
+    page?: number;
+    limit?: number;
+  }) {
+    let list = this.getPaymentRecords({
+      status: opts.status,
+      type: opts.type,
+      method: opts.method,
+      search: opts.search || opts.code,
+    });
+
+    if (opts.dateFrom || opts.dateTo) {
+      list = list.filter(p => {
+        const dayKey = getEATParts(p.createdAt || Date.now()).dayKey;
+        if (opts.dateFrom && dayKey < opts.dateFrom) return false;
+        if (opts.dateTo && dayKey > opts.dateTo) return false;
+        return true;
+      });
+    }
+    if (opts.minAmount !== undefined && Number.isFinite(Number(opts.minAmount)) && Number(opts.minAmount) > 0) {
+      const min = Number(opts.minAmount);
+      list = list.filter(p => (p.amountKes ?? p.amount ?? 0) >= min);
+    }
+    if (opts.maxAmount !== undefined && Number.isFinite(Number(opts.maxAmount)) && Number(opts.maxAmount) > 0) {
+      const max = Number(opts.maxAmount);
+      list = list.filter(p => (p.amountKes ?? p.amount ?? 0) <= max);
+    }
+
+    const total = list.length;
+    const limit = Math.min(200, Math.max(1, Number(opts.limit) || 50));
+    const page = Math.max(1, Number(opts.page) || 1);
+    const totalPages = Math.max(1, Math.ceil(total / limit));
+    const offset = (page - 1) * limit;
+
+    return {
+      payments: list.slice(offset, offset + limit),
+      total,
+      page,
+      limit,
+      totalPages,
+      counts: this.getAdminPaymentCounts(),
+    };
   }
 
   public payWithWallet(opts: {
@@ -5564,22 +6140,24 @@ class DatabaseStore {
     durationDays?: number;
     period?: 'monthly' | 'annual';
     purpose?: AdminWalletPurpose;
+    phone?: string;
   }): PaymentRecord {
     const allowedMpesaTypes: PaymentRecordType[] = ['deposit', 'wallet', 'wallet_topup', 'mpesa_deposit', 'trip_dating'];
     if (!allowedMpesaTypes.includes(opts.type)) {
       throw new Error('Pay with M-Pesa has been removed. Please deposit funds via Deposit (M-Pesa) and pay from your wallet.');
     }
 
-    const cleanCode = opts.mpesaCode.trim().toUpperCase();
-    if (!cleanCode || !/^[A-Z0-9]{8,15}$/.test(cleanCode)) {
-      throw new Error('M-Pesa reference code must be 8-15 alphanumeric characters (e.g. QGH7X2K9LM).');
+    const cleanCode = stripHtmlTags(opts.mpesaCode).trim().toUpperCase();
+    if (!cleanCode || !MPESA_CONFIG.CODE_REGEX.test(cleanCode)) {
+      throw new Error(
+        `M-Pesa reference code must be ${MPESA_CONFIG.CODE_MIN_LEN}-${MPESA_CONFIG.CODE_MAX_LEN} alphanumeric characters (e.g. QGH7X2K9LM).`
+      );
     }
 
     const rawAmount = Number(opts.amountKes);
-    if (!Number.isInteger(rawAmount) || rawAmount < 10) {
-      throw new Error('Deposit amount must be a whole integer in Ksh (minimum Ksh 10).');
+    if (!Number.isInteger(rawAmount) || rawAmount < MPESA_CONFIG.MIN_DEPOSIT_KES || rawAmount > MPESA_CONFIG.MAX_DEPOSIT_KES) {
+      throw new Error(`Deposit amount must be a whole integer in Ksh (minimum Ksh ${MPESA_CONFIG.MIN_DEPOSIT_KES}).`);
     }
-    const intAmount = rawAmount;
 
     if (this.isMpesaCodeUsed(cleanCode)) {
       throw new Error('Duplicate M-Pesa transaction code. This code has already been submitted.');
@@ -5587,72 +6165,38 @@ class DatabaseStore {
 
     const cleanUserId = opts.userId.toLowerCase().trim();
     const payer = this.findUserByEmail(cleanUserId);
-    const resolvedKind: PaymentRecord['kind'] =
-      opts.type === 'trip_dating' ? 'trip_dating' : 'deposit';
+    const walletPurpose = normalizePaymentPurpose(opts.purpose || (opts.type === 'trip_dating' ? 'TRIP_DATING' : 'OTHER'));
 
-    const walletPurpose: AdminWalletPurpose = opts.purpose || (opts.type === 'trip_dating' ? 'TRIP_DATING' : 'OTHER');
-
-    const now = Date.now();
-    const paymentId = 'pay_dep_' + now + '_' + Math.random().toString(36).substring(2, 6);
-    const payment: PaymentRecord = {
-      id: paymentId,
+    const payment = this.createPayment({
+      id: 'pay_dep_' + Date.now() + '_' + crypto.randomBytes(2).toString('hex'),
       userId: cleanUserId,
-      user_id: cleanUserId,
       userRole: payer?.role || 'guest',
       userName: payer?.username || payer?.name || cleanUserId,
       hostEmail: cleanUserId,
       type: opts.type === 'trip_dating' ? 'trip_dating' : 'deposit',
-      kind: resolvedKind,
+      kind: opts.type === 'trip_dating' ? 'trip_dating' : 'deposit',
       method: 'mpesa_manual',
-      amountSc: intAmount,
-      amount_sc: intAmount,
-      amountKes: intAmount,
-      amount_kes: intAmount,
-      amount: intAmount,
-      claimedAmount: intAmount,
+      amountSc: rawAmount,
+      amountKes: rawAmount,
+      amount: rawAmount,
+      claimedAmount: rawAmount,
       walletPurpose,
+      purpose: walletPurpose,
+      phone: opts.phone || payer?.phone,
       status: 'pending',
+      canonicalStatus: PaymentStatus.PENDING,
       referenceId: cleanCode,
-      reference_id: cleanCode,
       mpesaCode: cleanCode,
-      mpesa_code: cleanCode,
-      createdAt: now,
-      created_at: now,
-      updatedAt: now,
-      updated_at: now,
-    };
-
-    if (!this.data.paymentRecords) this.data.paymentRecords = [];
-    this.data.paymentRecords.unshift(payment);
-    if (!this.data.payments) this.data.payments = [];
-    this.data.payments.unshift(payment);
+    });
 
     this.createAuditLog({
-      id: 'aud_' + now,
-      action: `mpesa_deposit_submitted`,
+      id: 'aud_' + Date.now(),
+      action: 'mpesa_deposit_submitted',
       actorEmail: cleanUserId,
-      details: `Submitted M-Pesa deposit ${cleanCode} for KES ${intAmount}`,
-      createdAt: now,
+      details: `Submitted M-Pesa deposit ${cleanCode} for KES ${rawAmount}`,
+      createdAt: Date.now(),
     });
-
-    this.data.users.filter(u => u.role === 'admin').forEach(admin => {
-      this.createNotification({
-        id: 'notif_' + now + Math.random(),
-        userEmail: admin.email,
-        title: 'New M-Pesa Deposit Pending',
-        message: `${cleanUserId} submitted M-Pesa deposit code ${cleanCode} for KES ${intAmount}.`,
-        read: false,
-        link: '/#admin',
-        type: 'payment',
-        createdAt: now,
-      });
-    });
-
     this.save();
-    this.emitPaymentUpdate('payment_created', payment, {
-      walletBalance: this.getWallet(cleanUserId),
-      adminWalletBalance: this.getWallet('admin@airbus.ke'),
-    });
     return payment;
   }
 
@@ -5661,22 +6205,33 @@ class DatabaseStore {
   }
 
   public approvePaymentRecord(paymentId: string, adminEmail: string, confirmedAmount?: number): PaymentRecord {
-    const p = (this.data.paymentRecords || []).find(x => x.id === paymentId) ||
-              (this.data.payments || []).find(x => x.id === paymentId);
+    const p =
+      this.paymentIndexById.get(paymentId) ||
+      (this.data.paymentRecords || []).find(x => x.id === paymentId) ||
+      (this.data.payments || []).find(x => x.id === paymentId);
     if (!p) throw new Error('Payment record not found.');
-    if (p.status === 'approved') return p;
-    if (p.status !== 'pending') throw new Error(`Payment is already ${p.status}.`);
+    this.normalizePaymentRecordFields(p);
+    // Idempotent approve: already approved returns same state without re-crediting wallet or ledger
+    if (p.canonicalStatus === PaymentStatus.APPROVED || p.status === 'approved') {
+      return p;
+    }
+    if (p.canonicalStatus !== PaymentStatus.PENDING) {
+      throw new Error(`Payment is already ${p.status}.`);
+    }
 
     const submittedAmount = Math.floor(Number(p.claimedAmount ?? p.amountKes ?? p.amount ?? 0) || 0);
     if (submittedAmount <= 0) {
       throw new Error('Invalid submitted amount.');
     }
     if (confirmedAmount !== undefined && Number.isFinite(Number(confirmedAmount)) && Math.floor(Number(confirmedAmount)) !== submittedAmount) {
-      throw new Error('Admin cannot edit the deposit amount. If the M-Pesa SMS amount does not match KES ' + submittedAmount + ', reject this deposit so the user can resubmit.');
+      throw new Error(
+        'Admin cannot edit the deposit amount. If the M-Pesa SMS amount does not match KES ' +
+          submittedAmount +
+          ', decline this deposit so the user can resubmit.'
+      );
     }
 
     const paymentCode = String(p.mpesaCode || p.reference || p.referenceId || p.id).trim().toUpperCase();
-    // Reject duplicate payment code in Admin Wallet ledger
     const alreadyRecordedCode = (this.data.admin_wallet_entries || []).some(
       e => e.sourceKind === 'APPROVED_DEPOSIT' && e.paymentCode.toUpperCase() === paymentCode && e.relatedPaymentId !== p.id
     );
@@ -5694,51 +6249,103 @@ class DatabaseStore {
         p.walletPurpose || this.mapTypeToWalletPurpose(String(p.type || p.kind || 'deposit'));
 
       p.status = 'approved';
+      p.canonicalStatus = PaymentStatus.APPROVED;
       p.approvedAmount = finalApprovedAmount;
       p.amount = finalApprovedAmount;
       p.amountKes = finalApprovedAmount;
+      p.amount_kes = finalApprovedAmount;
       p.amountSc = finalApprovedAmount;
+      p.amount_sc = finalApprovedAmount;
       p.walletPurpose = resolvedPurpose;
       p.approvedBy = adminEmail;
       p.approved_by = adminEmail;
+      p.reviewedBy = adminEmail;
+      p.reviewed_by = adminEmail;
       p.approvedAt = now;
       p.approved_at = now;
+      p.reviewedAt = now;
+      p.reviewed_at = now;
       p.updatedAt = now;
       p.updated_at = now;
+      p.merchantNoticeEvent = 'APPROVED';
+      p.merchantNoticeAckedAt = null;
 
-      const pMirror = (this.data.payments || []).find(x => x.id === paymentId);
-      if (pMirror && pMirror !== p) {
-        pMirror.status = 'approved';
-        pMirror.approvedAmount = finalApprovedAmount;
-        pMirror.amount = finalApprovedAmount;
-        pMirror.amountKes = finalApprovedAmount;
-        pMirror.amountSc = finalApprovedAmount;
-        pMirror.approvedAt = now;
-        pMirror.updatedAt = now;
-      }
+      let creditLedgerId: string | null = null;
 
-      // 1. Wallet Deposit (M-Pesa): credit user wallet with exact submitted integer amount
-      if (p.kind === 'wallet' || p.kind === 'deposit' || p.type === 'wallet' || p.type === 'wallet_topup' || p.type === 'deposit' || p.type === 'mpesa_deposit') {
-        this.recordWalletTransaction({
+      if (isDepositRecord(p)) {
+        const wtx = this.recordWalletTransaction({
           walletId: hostEmail,
           direction: 'credit',
           amount: finalApprovedAmount,
           type: 'wallet_topup',
           reference: paymentCode,
-          note: `Deposit (M-Pesa) Till 943210 approved (Code: ${paymentCode})`,
+          paymentCode,
+          purpose: resolvedPurpose,
+          approvingAdmin: adminEmail,
+          note: `Deposit (M-Pesa) Till ${MPESA_CONFIG.TILL_NUMBER} approved (Code: ${paymentCode})`,
           relatedPaymentId: p.id,
         });
+        creditLedgerId = wtx.ledgerId || null;
       } else if (p.type === 'trip_dating' || p.kind === 'trip_dating') {
-        this.recordWalletTransaction({
-          walletId: 'admin@airbus.ke',
+        const wtx = this.recordWalletTransaction({
+          walletId: MPESA_CONFIG.ADMIN_WALLET_ID,
           direction: 'credit',
           amount: finalApprovedAmount,
           type: 'trip_dating',
           reference: p.id,
+          paymentCode,
+          purpose: 'TRIP_DATING',
+          approvingAdmin: adminEmail,
           note: `Trip Dating contact unlock fee (${p.referenceId || p.id})`,
           relatedPaymentId: p.id,
         });
+        creditLedgerId = wtx.ledgerId || null;
+      } else if (p.type === 'subscription' || p.kind === 'plan') {
+        // Activate any pending subscription linked to this payment record inside the same atomic tx
+        const linkedSub = (this.data.subscriptions || []).find(
+          s => s.paymentId === p.id || s.id === p.referenceId || s.id === p.relatedId
+        );
+        if (linkedSub) {
+          const days = linkedSub.billing === 'annual' ? 365 : p.durationDays || 30;
+          linkedSub.status = 'active';
+          linkedSub.startsAt = now;
+          linkedSub.endsAt = now + days * 864e5;
+          linkedSub.updatedAt = now;
+          const tier = (linkedSub.tier || p.planTier || 'Silver') as StayCategory;
+          this.data.hostPlans[hostEmail] = {
+            tier,
+            status: 'active',
+            expiresAt: linkedSub.endsAt,
+            graceExpiresAt: linkedSub.endsAt + 7 * 864e5,
+            hasPaidSubscription: true,
+            period: linkedSub.billing || p.period || 'monthly',
+          };
+        }
+      } else if (p.type === 'advert' || p.kind === 'advert') {
+        const linkedAd = (this.data.adSlots || []).find(s => s.paymentId === p.id || s.id === p.referenceId);
+        if (linkedAd && linkedAd.status !== 'active') {
+          linkedAd.status = 'active';
+          linkedAd.startsAt = now;
+          linkedAd.endsAt = now + (linkedAd.durationDays || 7) * 864e5;
+          linkedAd.updatedAt = now;
+        }
+      } else if (p.type === 'boost' || p.kind === 'boost') {
+        const linkedBoost = (this.data.boosts || []).find(b => b.payment_id === p.id || b.id === p.referenceId);
+        if (linkedBoost && linkedBoost.status !== 'active') {
+          linkedBoost.status = 'active';
+          linkedBoost.startsAt = now;
+          linkedBoost.starts_at = now;
+          linkedBoost.endsAt = now + (linkedBoost.days || 7) * 864e5;
+          linkedBoost.ends_at = linkedBoost.endsAt;
+        }
       }
+
+      if (creditLedgerId) {
+        p.creditLedgerId = creditLedgerId;
+        p.credit_ledger_id = creditLedgerId;
+      }
+
+      this.mirrorSyncPaymentArrays(p);
 
       // Record once in the unified Admin Wallet ledger with depositor metadata, UTC timestamp, unique payment code, purpose, and approving admin
       this.recordAdminWalletEntry({
@@ -5759,16 +6366,16 @@ class DatabaseStore {
       });
 
       this.createAuditLog({
-        id: 'aud_' + now,
+        id: 'aud_' + now + '_' + crypto.randomBytes(2).toString('hex'),
         action: 'payment_approve',
         actorEmail: adminEmail,
-        details: `Approved ${p.type || p.kind} (KES ${finalApprovedAmount}, code ${paymentCode}) for ${hostEmail}`,
+        details: `Approved ${p.type || p.kind} (KES ${finalApprovedAmount}, code ${paymentCode}, ledger ${creditLedgerId || 'N/A'}) for ${hostEmail}`,
         createdAt: now,
       });
 
       const isGuest = payerUser?.role === 'guest';
       this.createNotification({
-        id: 'notif_' + now,
+        id: 'notif_' + now + '_' + crypto.randomBytes(2).toString('hex'),
         userEmail: hostEmail,
         title: 'Wallet Deposit Approved!',
         message: `Your M-Pesa deposit of KES ${finalApprovedAmount.toLocaleString()} (Ref: ${paymentCode}) was approved and credited to your wallet.`,
@@ -5778,6 +6385,19 @@ class DatabaseStore {
         createdAt: now,
       });
 
+      const newHostBal = this.getWallet(hostEmail);
+      const newAdminBal = this.getWallet(MPESA_CONFIG.ADMIN_WALLET_ID);
+
+      this.enqueuePaymentOutboxEvent('payment.approved', p.id, {
+        paymentId: p.id,
+        userId: hostEmail,
+        approvedAmount: finalApprovedAmount,
+        mpesaCode: paymentCode,
+        creditLedgerId,
+        walletBalance: newHostBal,
+        adminWalletBalance: newAdminBal,
+      });
+
       this.save();
       this.emitWalletUpdate(hostEmail, {
         eventType: 'deposit_approved',
@@ -5785,15 +6405,15 @@ class DatabaseStore {
         approvedAmount: finalApprovedAmount,
         mpesaCode: paymentCode,
       });
-      this.emitWalletUpdate('admin@airbus.ke', {
+      this.emitWalletUpdate(MPESA_CONFIG.ADMIN_WALLET_ID, {
         eventType: 'deposit_approved',
         paymentId: p.id,
         approvedAmount: finalApprovedAmount,
         mpesaCode: paymentCode,
       });
       this.emitPaymentUpdate('payment_approved', p, {
-        walletBalance: this.getWallet(hostEmail),
-        adminWalletBalance: this.getWallet('admin@airbus.ke'),
+        walletBalance: newHostBal,
+        adminWalletBalance: newAdminBal,
       });
       return p;
     });
@@ -5887,149 +6507,413 @@ class DatabaseStore {
   }
 
   public rejectPayment(paymentId: string, adminEmail: string, reason?: string): PaymentRecord | null {
-    return this.rejectPaymentRecord(paymentId, adminEmail, reason || 'Invalid or unverified receipt details.');
+    return this.declinePaymentRecord(paymentId, adminEmail, reason || '');
+  }
+
+  public declinePaymentRecord(paymentId: string, adminEmail: string, rejectionReason: string): PaymentRecord {
+    return this.rejectPaymentRecord(paymentId, adminEmail, rejectionReason);
   }
 
   public rejectPaymentRecord(paymentId: string, adminEmail: string, rejectionReason: string): PaymentRecord {
-    const p = (this.data.paymentRecords || []).find(x => x.id === paymentId) ||
-              (this.data.payments || []).find(x => x.id === paymentId);
+    const p =
+      this.paymentIndexById.get(paymentId) ||
+      (this.data.paymentRecords || []).find(x => x.id === paymentId) ||
+      (this.data.payments || []).find(x => x.id === paymentId);
     if (!p) throw new Error('Payment record not found.');
-    if (p.status !== 'pending') throw new Error(`Payment is already ${p.status}.`);
+    this.normalizePaymentRecordFields(p);
+    if (p.canonicalStatus !== PaymentStatus.PENDING) {
+      throw new Error(`Payment is already ${p.status}.`);
+    }
 
-    const cleanReason = rejectionReason.trim() || 'Payment could not be verified.';
-    p.status = 'rejected';
-    p.rejectionReason = cleanReason;
-    p.rejection_reason = cleanReason;
-    p.approvedBy = adminEmail;
-    p.approved_by = adminEmail;
-    p.updatedAt = Date.now();
-    p.updated_at = Date.now();
+    const cleanReason = stripHtmlTags(String(rejectionReason || '')).trim();
+    if (
+      cleanReason.length < MPESA_CONFIG.DECLINE_REASON_MIN_LEN ||
+      cleanReason.length > MPESA_CONFIG.DECLINE_REASON_MAX_LEN
+    ) {
+      throw new Error(
+        `Decline reason must be between ${MPESA_CONFIG.DECLINE_REASON_MIN_LEN} and ${MPESA_CONFIG.DECLINE_REASON_MAX_LEN} characters.`
+      );
+    }
 
-    const pMirror = (this.data.payments || []).find(x => x.id === paymentId);
-    if (pMirror && pMirror !== p) {
-      pMirror.status = 'rejected';
-      pMirror.rejectionReason = cleanReason;
+    return this.runAtomicWalletTransaction(() => {
+      const now = Date.now();
+      p.status = 'rejected';
+      p.canonicalStatus = PaymentStatus.DECLINED;
+      p.rejectionReason = cleanReason;
+      p.rejection_reason = cleanReason;
+      p.declineReason = cleanReason;
+      p.decline_reason = cleanReason;
+      p.approvedBy = adminEmail;
+      p.approved_by = adminEmail;
+      p.reviewedBy = adminEmail;
+      p.reviewed_by = adminEmail;
+      p.reviewedAt = now;
+      p.reviewed_at = now;
+      p.updatedAt = now;
+      p.updated_at = now;
+      p.merchantNoticeEvent = 'DECLINED';
+      p.merchantNoticeAckedAt = null;
+
+      this.mirrorSyncPaymentArrays(p);
+
+      const cleanUserId = (p.userId || p.hostEmail || '').toLowerCase().trim();
+      const amount = p.amountKes || p.amountSc || p.amount || 0;
+
+      // Reversal transfer only for wallet-funded service payments (deposits never move money until approved)
+      if (p.method === 'wallet') {
+        const adminWallet = this.ensureWallet(MPESA_CONFIG.ADMIN_WALLET_ID);
+        adminWallet.balance = Math.max(0, adminWallet.balance - amount);
+        adminWallet.updatedAt = now;
+        this.data.wallets[MPESA_CONFIG.ADMIN_WALLET_ID] = adminWallet.balance;
+
+        const userWallet = this.ensureWallet(cleanUserId);
+        userWallet.balance += amount;
+        userWallet.lifetimeSpent = Math.max(0, (userWallet.lifetimeSpent || 0) - amount);
+        userWallet.updatedAt = now;
+        this.data.wallets[cleanUserId] = userWallet.balance;
+
+        const adminRevTx: WalletTransaction = {
+          id: 'wtx_' + now + '_rev_dr',
+          walletId: MPESA_CONFIG.ADMIN_WALLET_ID,
+          wallet_id: MPESA_CONFIG.ADMIN_WALLET_ID,
+          direction: 'debit',
+          amount,
+          amountSc: amount,
+          amount_sc: amount,
+          relatedPaymentId: p.id,
+          related_payment_id: p.id,
+          note: `Reversal debit for declined payment ${p.id}: ${cleanReason}`,
+          createdAt: now,
+          created_at: now,
+        };
+
+        const userRevTx: WalletTransaction = {
+          id: 'wtx_' + now + '_rev_cr',
+          walletId: cleanUserId,
+          wallet_id: cleanUserId,
+          direction: 'credit',
+          amount,
+          amountSc: amount,
+          amount_sc: amount,
+          relatedPaymentId: p.id,
+          related_payment_id: p.id,
+          note: `Refund for declined ${p.type || p.kind} payment: ${cleanReason}`,
+          createdAt: now,
+          created_at: now,
+        };
+
+        if (!this.data.walletTransactions) this.data.walletTransactions = [];
+        this.data.walletTransactions.unshift(adminRevTx, userRevTx);
+
+        if (!this.data.ledgerEntries) this.data.ledgerEntries = [];
+        this.data.ledgerEntries.unshift({
+          id: 'ledg_' + now + '_refund',
+          fromWallet: MPESA_CONFIG.ADMIN_WALLET_ID,
+          toWallet: cleanUserId,
+          amount,
+          type: 'ad_fee',
+          referenceId: p.id,
+          description: `Refund of KES ${amount} for declined payment (${cleanReason})`,
+          createdAt: now,
+        });
+      }
+
+      if (p.type === 'boost' || p.referenceId?.startsWith('boost_') || p.kind === 'boost') {
+        const boost = (this.data.boosts || []).find(b => b.id === p.referenceId || b.payment_id === p.id);
+        if (boost) boost.status = 'rejected';
+      }
+      if (p.type === 'advert' || p.referenceId?.startsWith('adslot_') || p.referenceId?.startsWith('sponsor_') || p.kind === 'advert') {
+        const slot = (this.data.adSlots || []).find(s => s.id === p.referenceId || s.paymentId === p.id);
+        if (slot) {
+          slot.status = 'rejected';
+          slot.rejectionReason = cleanReason;
+          slot.updatedAt = now;
+        }
+        const sp = (this.data.sponsorSlots || []).find(s => s.id === p.referenceId || s.payment_id === p.id);
+        if (sp) sp.status = 'rejected';
+      }
+      if (p.type === 'subscription') {
+        const sub = (this.data.subscriptions || []).find(s => s.id === p.referenceId || s.paymentId === p.id);
+        if (sub) {
+          sub.status = 'rejected';
+          sub.updatedAt = now;
+        }
+      }
+
+      this.createAuditLog({
+        id: 'aud_' + now + '_' + crypto.randomBytes(2).toString('hex'),
+        action: 'payment_declined',
+        actorEmail: adminEmail,
+        details: `Declined ${p.type || p.kind} payment ${p.id} for ${cleanUserId}. Reason: ${cleanReason}`,
+        createdAt: now,
+      });
+
+      const payerUser = this.findUserByEmail(cleanUserId);
+      const isGuest = payerUser?.role === 'guest';
+      this.createNotification({
+        id: 'notif_' + now + '_' + crypto.randomBytes(2).toString('hex'),
+        userEmail: cleanUserId,
+        title: 'Deposit / Payment Declined',
+        message: `Your submission of KES ${amount.toLocaleString()} (Ref: ${p.mpesaCode || p.referenceId || p.id}) was declined: "${cleanReason}".`,
+        read: false,
+        link: isGuest ? '/#guest' : '/#owner',
+        type: 'payment',
+        createdAt: now,
+      });
+
+      this.enqueuePaymentOutboxEvent('payment.declined', p.id, {
+        paymentId: p.id,
+        userId: cleanUserId,
+        mpesaCode: p.mpesaCode,
+        reason: cleanReason,
+      });
+
+      this.save();
+      this.emitWalletUpdate(cleanUserId);
+      this.emitWalletUpdate(MPESA_CONFIG.ADMIN_WALLET_ID);
+      this.emitPaymentUpdate('payment_rejected', p, {
+        walletBalance: this.getWallet(cleanUserId),
+        adminWalletBalance: this.getWallet(MPESA_CONFIG.ADMIN_WALLET_ID),
+      });
+      return p;
+    });
+  }
+
+  public refundApprovedPaymentRecord(opts: {
+    paymentId: string;
+    adminEmail: string;
+    adminPassword: string;
+    amount: number;
+    reason: string;
+  }): {
+    payment: PaymentRecord;
+    userWalletBalance: number;
+    adminWalletBalance: number;
+    refundLedgerId: string;
+    refundReference: string;
+  } {
+    const admin = this.findUserByEmail(opts.adminEmail);
+    if (!admin || admin.role !== 'admin') {
+      throw new Error('Administrator account required.');
+    }
+    if (!opts.adminPassword || admin.passwordHash !== hashPassword(String(opts.adminPassword))) {
+      throw new Error('Admin password re-authentication failed.');
+    }
+
+    const p =
+      this.paymentIndexById.get(opts.paymentId) ||
+      (this.data.paymentRecords || []).find(x => x.id === opts.paymentId) ||
+      (this.data.payments || []).find(x => x.id === opts.paymentId);
+    if (!p) throw new Error('Payment record not found.');
+    this.normalizePaymentRecordFields(p);
+
+    if (p.canonicalStatus !== PaymentStatus.APPROVED) {
+      throw new Error('Only APPROVED payments can be refunded. Pending payments should be Declined instead.');
+    }
+
+    const cleanReason = stripHtmlTags(String(opts.reason || '')).trim();
+    if (
+      cleanReason.length < MPESA_CONFIG.DECLINE_REASON_MIN_LEN ||
+      cleanReason.length > MPESA_CONFIG.DECLINE_REASON_MAX_LEN
+    ) {
+      throw new Error(
+        `Refund reason must be between ${MPESA_CONFIG.DECLINE_REASON_MIN_LEN} and ${MPESA_CONFIG.DECLINE_REASON_MAX_LEN} characters.`
+      );
+    }
+
+    const intAmount = Math.floor(Number(opts.amount));
+    if (!Number.isInteger(intAmount) || intAmount <= 0) {
+      throw new Error('Refund amount must be a positive whole integer in KES.');
+    }
+
+    const originalApproved = Math.floor(Number(p.approvedAmount ?? p.amountKes ?? p.amount ?? 0));
+    const alreadyRefunded = Math.floor(Number(p.refundAmount || 0));
+    const maxRefundable = Math.max(0, originalApproved - alreadyRefunded);
+    if (intAmount > maxRefundable) {
+      throw new Error(
+        `Refund amount KES ${intAmount.toLocaleString()} exceeds remaining refundable balance of KES ${maxRefundable.toLocaleString()}.`
+      );
     }
 
     const cleanUserId = (p.userId || p.hostEmail || '').toLowerCase().trim();
-    const amount = p.amountSc || p.amount;
+    const depositFlow = isDepositRecord(p);
 
-    // REVERSAL TRANSFER IF WALLET:
-    // Admin wallet debited, user credited, ledger entries created
-    if (p.method === 'wallet') {
-      const adminWallet = this.ensureWallet('admin@airbus.ke');
-      adminWallet.balance = Math.max(0, adminWallet.balance - amount);
-      adminWallet.updatedAt = Date.now();
-      this.data.wallets['admin@airbus.ke'] = adminWallet.balance;
+    if (depositFlow) {
+      const wr = this.ensureWallet(cleanUserId);
+      const available = Math.floor(wr.balance - (wr.holdBalance || 0));
+      if (intAmount > available) {
+        throw new Error(
+          `Cannot refund KES ${intAmount.toLocaleString()}: user wallet only has KES ${available.toLocaleString()} available (balance must never go negative).`
+        );
+      }
+    } else {
+      const adminAvail = this.getWalletBalance(MPESA_CONFIG.ADMIN_WALLET_ID);
+      if (intAmount > adminAvail) {
+        throw new Error(
+          `Insufficient Admin Wallet balance (KES ${adminAvail.toLocaleString()}) to refund KES ${intAmount.toLocaleString()}.`
+        );
+      }
+    }
 
-      const userWallet = this.ensureWallet(cleanUserId);
-      userWallet.balance += amount;
-      userWallet.lifetimeSpent = Math.max(0, (userWallet.lifetimeSpent || 0) - amount);
-      userWallet.updatedAt = Date.now();
-      this.data.wallets[cleanUserId] = userWallet.balance;
+    return this.runAtomicWalletTransaction(() => {
+      const now = Date.now();
+      const fiscalYear = getEATParts(now).year;
+      const origCode = String(p.mpesaCode || p.reference || p.referenceId || p.id).trim().toUpperCase();
+      const refundRef = `REF_${origCode}_${now.toString(36).toUpperCase().slice(-5)}`;
+      const refundLedgerId = `ledg_ref_${now}_${crypto.randomBytes(2).toString('hex')}`;
+      const payerUser = this.findUserByEmail(cleanUserId);
 
-      const adminRevTx: WalletTransaction = {
-        id: 'wtx_' + Date.now() + '_rev_dr',
-        walletId: 'admin@airbus.ke',
-        wallet_id: 'admin@airbus.ke',
-        direction: 'debit',
-        amount: amount,
-        amountSc: amount,
-        amount_sc: amount,
+      if (depositFlow) {
+        const wtx = this.recordWalletTransaction({
+          walletId: cleanUserId,
+          direction: 'debit',
+          amount: intAmount,
+          type: 'refund_reversal',
+          reference: refundRef,
+          note: `Refund reversal on deposit ${origCode}: ${cleanReason}`,
+          relatedPaymentId: p.id,
+        });
+        void wtx;
+        if (!this.data.ledgerEntries) this.data.ledgerEntries = [];
+        this.data.ledgerEntries.unshift({
+          id: refundLedgerId,
+          fromWallet: cleanUserId,
+          toWallet: 'withdrawal_payout',
+          amount: intAmount,
+          type: 'SPECIAL_REFUND',
+          referenceId: p.id,
+          paymentCode: refundRef,
+          purpose: p.walletPurpose || PaymentPurpose.OTHER,
+          fiscalYear,
+          depositorName: payerUser?.name || p.userName || cleanUserId,
+          depositorRole: payerUser?.role || p.userRole || 'guest',
+          approvingAdmin: admin.email,
+          description: `M-Pesa Deposit Refund (${origCode}): ${cleanReason}`,
+          createdAt: now,
+        });
+      } else {
+        this.recordWalletTransaction({
+          walletId: MPESA_CONFIG.ADMIN_WALLET_ID,
+          direction: 'debit',
+          amount: intAmount,
+          type: 'refund_reversal',
+          reference: refundRef,
+          note: `Service payment refund (${origCode}): ${cleanReason}`,
+          relatedPaymentId: p.id,
+        });
+        this.recordWalletTransaction({
+          walletId: cleanUserId,
+          direction: 'credit',
+          amount: intAmount,
+          type: 'refund_credit',
+          reference: refundRef,
+          note: `Refund credited for ${origCode}: ${cleanReason}`,
+          relatedPaymentId: p.id,
+        });
+        if (!this.data.ledgerEntries) this.data.ledgerEntries = [];
+        this.data.ledgerEntries.unshift({
+          id: refundLedgerId,
+          fromWallet: MPESA_CONFIG.ADMIN_WALLET_ID,
+          toWallet: cleanUserId,
+          amount: intAmount,
+          type: 'SPECIAL_REFUND',
+          referenceId: p.id,
+          paymentCode: refundRef,
+          purpose: p.walletPurpose || PaymentPurpose.OTHER,
+          fiscalYear,
+          depositorName: payerUser?.name || p.userName || cleanUserId,
+          depositorRole: payerUser?.role || p.userRole || 'guest',
+          approvingAdmin: admin.email,
+          description: `Service Payment Refund (${origCode}): ${cleanReason}`,
+          createdAt: now,
+        });
+      }
+
+      this.recordAdminWalletEntry({
+        id: `awe_ref_${now}_${crypto.randomBytes(2).toString('hex')}`,
+        sourceKind: 'SPECIAL_REFUND',
+        depositorName: payerUser?.name || payerUser?.username || p.userName || cleanUserId,
+        depositorId: payerUser?.id || cleanUserId,
+        depositorRole: payerUser?.role || p.userRole || 'guest',
+        timestampUtc: now,
+        fiscalYear,
+        paymentCode: refundRef,
+        amount: -intAmount,
+        purpose: p.walletPurpose || PaymentPurpose.OTHER,
+        subPurpose: 'PAYMENT_REFUND',
+        approvingAdmin: admin.email,
+        description: `Refund on ${origCode}: ${cleanReason}`,
         relatedPaymentId: p.id,
-        related_payment_id: p.id,
-        note: `Reversal debit for rejected payment ${p.id}: ${cleanReason}`,
-        createdAt: Date.now(),
-        created_at: Date.now(),
-      };
-
-      const userRevTx: WalletTransaction = {
-        id: 'wtx_' + Date.now() + '_rev_cr',
-        walletId: cleanUserId,
-        wallet_id: cleanUserId,
-        direction: 'credit',
-        amount: amount,
-        amountSc: amount,
-        amount_sc: amount,
-        relatedPaymentId: p.id,
-        related_payment_id: p.id,
-        note: `Refund for rejected ${p.type || p.kind} payment: ${cleanReason}`,
-        createdAt: Date.now(),
-        created_at: Date.now(),
-      };
-
-      if (!this.data.walletTransactions) this.data.walletTransactions = [];
-      this.data.walletTransactions.unshift(adminRevTx, userRevTx);
-
-      if (!this.data.ledgerEntries) this.data.ledgerEntries = [];
-      this.data.ledgerEntries.unshift({
-        id: 'ledg_' + Date.now() + '_refund',
-        fromWallet: 'admin@airbus.ke',
-        toWallet: cleanUserId,
-        amount: amount,
-        type: 'ad_fee',
-        referenceId: p.id,
-        description: `Refund of ${amount} SC for rejected payment (${cleanReason})`,
-        createdAt: Date.now(),
+        originalPaymentCode: origCode,
+        reason: cleanReason,
       });
-    }
 
-    // Deactivate item
-    if (p.type === 'boost' || p.referenceId?.startsWith('boost_') || p.kind === 'boost') {
-      const boost = (this.data.boosts || []).find(b => b.id === p.referenceId || b.payment_id === p.id);
-      if (boost) {
-        boost.status = 'rejected';
-      }
-    }
-    if (p.type === 'advert' || p.referenceId?.startsWith('adslot_') || p.referenceId?.startsWith('sponsor_') || p.kind === 'advert') {
-      const slot = (this.data.adSlots || []).find(s => s.id === p.referenceId || s.paymentId === p.id);
-      if (slot) {
-        slot.status = 'rejected';
-        slot.rejectionReason = cleanReason;
-        slot.updatedAt = Date.now();
-      }
-      const sp = (this.data.sponsorSlots || []).find(s => s.id === p.referenceId || s.payment_id === p.id);
-      if (sp) {
-        sp.status = 'rejected';
-      }
-    }
-    if (p.type === 'subscription') {
-      const sub = (this.data.subscriptions || []).find(s => s.id === p.referenceId || s.paymentId === p.id);
-      if (sub) {
-        sub.status = 'rejected';
-        sub.updatedAt = Date.now();
-      }
-    }
+      p.status = 'refunded';
+      p.canonicalStatus = PaymentStatus.REFUNDED;
+      p.refundAmount = alreadyRefunded + intAmount;
+      p.refund_amount = p.refundAmount;
+      p.refundReason = cleanReason;
+      p.refund_reason = cleanReason;
+      p.refundReference = refundRef;
+      p.refund_reference = refundRef;
+      p.refundLedgerId = refundLedgerId;
+      p.refund_ledger_id = refundLedgerId;
+      p.reviewedBy = admin.email;
+      p.reviewed_by = admin.email;
+      p.reviewedAt = now;
+      p.reviewed_at = now;
+      p.updatedAt = now;
+      p.updated_at = now;
+      p.merchantNoticeEvent = 'REFUNDED';
+      p.merchantNoticeAckedAt = null;
+      this.mirrorSyncPaymentArrays(p);
 
-    // Audit log
-    this.createAuditLog({
-      id: 'aud_' + Date.now(),
-      action: 'payment_rejected',
-      actorEmail: adminEmail,
-      details: `Rejected ${p.type || p.kind} payment ${p.id} for ${cleanUserId}. Reason: ${cleanReason}`,
-      createdAt: Date.now(),
+      this.createAuditLog({
+        id: `aud_ref_${now}_${crypto.randomBytes(2).toString('hex')}`,
+        action: 'payment_refunded',
+        actorEmail: admin.email,
+        details: `Refunded KES ${intAmount.toLocaleString()} on payment ${p.id} (${origCode}). Reason: ${cleanReason}`,
+        createdAt: now,
+      });
+
+      this.createNotification({
+        id: `notif_ref_${now}`,
+        userEmail: cleanUserId,
+        title: 'Deposit / Payment Refunded',
+        message: `A refund of KES ${intAmount.toLocaleString()} for Ref ${origCode} has been processed (${refundRef}): ${cleanReason}`,
+        read: false,
+        link: payerUser?.role === 'guest' ? '/#guest' : '/#owner',
+        type: 'payment',
+        createdAt: now,
+      });
+
+      const userWalletBalance = this.getWallet(cleanUserId);
+      const adminWalletBalance = this.getWallet(MPESA_CONFIG.ADMIN_WALLET_ID);
+
+      this.enqueuePaymentOutboxEvent('payment.refunded', p.id, {
+        paymentId: p.id,
+        userId: cleanUserId,
+        refundAmount: intAmount,
+        refundReference: refundRef,
+        refundLedgerId,
+      });
+
+      this.save();
+      this.emitWalletUpdate(cleanUserId);
+      this.emitWalletUpdate(MPESA_CONFIG.ADMIN_WALLET_ID);
+      this.emitPaymentUpdate('payment_refunded', p, {
+        walletBalance: userWalletBalance,
+        adminWalletBalance,
+      });
+
+      return {
+        payment: p,
+        userWalletBalance,
+        adminWalletBalance,
+        refundLedgerId,
+        refundReference: refundRef,
+      };
     });
-
-    // Notify User
-    this.createNotification({
-      id: 'notif_' + Date.now(),
-      userEmail: cleanUserId,
-      title: 'Payment Verification Declined',
-      message: `Your payment of ${amount} Coins (${p.method.toUpperCase()}) was declined: "${cleanReason}". ${p.method === 'wallet' ? 'Your wallet balance has been refunded in full.' : 'Please check your receipt or contact support.'}`,
-      read: false,
-      link: '/#owner',
-      type: 'payment',
-      createdAt: Date.now(),
-    });
-
-    this.save();
-    this.emitWalletUpdate(cleanUserId);
-    this.emitWalletUpdate('admin@airbus.ke');
-    this.emitPaymentUpdate('payment_rejected', p, {
-      walletBalance: this.getWallet(cleanUserId),
-      adminWalletBalance: this.getWallet('admin@airbus.ke'),
-    });
-    return p;
   }
 
   // --- Ad Slots (100 KES/day dynamic adverts - Wallet Only) ---
@@ -9348,6 +10232,7 @@ class DatabaseStore {
   public isMpesaCodeUsed(code: string): boolean {
     if (!code || !code.trim()) return false;
     const clean = code.trim().toUpperCase();
+    if (this.paymentIndexByCode.has(clean)) return true;
     const records = this.data.paymentRecords || [];
     const payments = this.data.payments || [];
     const datingReqs = this.data.tripDatingPaymentRequests || [];
@@ -10068,7 +10953,202 @@ class DatabaseStore {
     return rev;
   }
 
-  // --- Wallet Reconciliation (Platform Ledger Audit) ---
+  // --- Transactional Outbox for Payment Events ---
+  public setOutboxDeliveryHookForTest(hook: ((eventKind: string, paymentId?: string) => void) | null) {
+    this.outboxTestHook = hook;
+  }
+
+  public enqueuePaymentOutboxEvent(
+    kind: 'payment.submitted' | 'payment.approved' | 'payment.declined' | 'payment.refunded',
+    paymentId: string,
+    payload: unknown
+  ) {
+    if (!this.data.transactional_outbox) this.data.transactional_outbox = [];
+    const now = Date.now();
+    this.data.transactional_outbox.unshift({
+      id: `ob_pay_${now}_${crypto.randomBytes(2).toString('hex')}`,
+      kind,
+      paymentId,
+      payload,
+      status: 'pending',
+      attempts: 0,
+      nextRetryAt: now,
+      createdAt: now,
+    });
+    if (this.data.transactional_outbox.length > 500) {
+      this.data.transactional_outbox.length = 500;
+    }
+  }
+
+  public processTransactionalOutbox(now = Date.now()): { processed: number; delivered: number; failed: number } {
+    if (!this.data.transactional_outbox) this.data.transactional_outbox = [];
+    let processed = 0;
+    let delivered = 0;
+    let failed = 0;
+
+    for (const item of this.data.transactional_outbox) {
+      if (!String(item.kind || '').startsWith('payment.')) continue;
+      if (item.status === 'delivered') continue;
+      if ((item.attempts || 0) >= 5) continue;
+      if (item.nextRetryAt && item.nextRetryAt > now) continue;
+
+      processed += 1;
+      item.attempts = (item.attempts || 0) + 1;
+      try {
+        if (this.outboxTestHook) {
+          this.outboxTestHook(item.kind, item.paymentId);
+        }
+        item.status = 'delivered';
+        item.deliveredAt = now;
+        item.lastError = undefined;
+        delivered += 1;
+      } catch (err: any) {
+        item.status = 'failed';
+        item.lastError = err?.message || 'Outbox delivery failed';
+        const backoffMs = Math.min(60_000, 2000 * Math.pow(2, item.attempts - 1));
+        item.nextRetryAt = now + backoffMs;
+        failed += 1;
+      }
+    }
+
+    if (processed > 0) {
+      this.save();
+    }
+    return { processed, delivered, failed };
+  }
+
+  // --- Payments & Ledger Audit + Reconciliation + Repair ---
+  public getPaymentLedgerAudit(opts?: {
+    q?: string;
+    type?: string;
+    purpose?: string;
+    from?: string;
+    to?: string;
+    page?: number;
+    limit?: number;
+  }) {
+    const ledger = (this.data.ledgerEntries || []).slice();
+    const payments = this.getPaymentRecords({});
+    const paymentById = new Map(payments.map(p => [p.id, p]));
+
+    let rows = ledger.map(entry => {
+      const linkedPayment = entry.referenceId ? paymentById.get(entry.referenceId) : undefined;
+      const ts = entry.createdAt || Date.now();
+      const eat = getEATParts(ts);
+      const code =
+        entry.paymentCode ||
+        linkedPayment?.mpesaCode ||
+        linkedPayment?.reference ||
+        entry.referenceId ||
+        entry.id;
+      const purpose = entry.purpose || linkedPayment?.walletPurpose || 'OTHER';
+      return {
+        id: entry.id,
+        type: entry.type,
+        fromWallet: entry.fromWallet,
+        toWallet: entry.toWallet,
+        amount: Math.floor(Number(entry.amount || 0)),
+        paymentCode: String(code),
+        purpose,
+        purposeLabel: linkedPayment?.purposeLabel || purpose,
+        depositorName: entry.depositorName || linkedPayment?.userName || entry.toWallet,
+        depositorRole: entry.depositorRole || linkedPayment?.userRole || 'guest',
+        approvingAdmin: entry.approvingAdmin || linkedPayment?.approvedBy || MPESA_CONFIG.ADMIN_WALLET_ID,
+        relatedPaymentId: linkedPayment?.id || entry.referenceId || null,
+        paymentStatus: linkedPayment?.canonicalStatus || null,
+        description: entry.description,
+        timestampUtc: ts,
+        timestampUtcIso: new Date(ts).toISOString(),
+        timestampEat: `${eat.dayKey} ${eat.hourKey.slice(11)}:00 EAT`,
+        eatDayKey: eat.dayKey,
+      };
+    });
+
+    if (opts?.type && opts.type !== 'ALL') {
+      rows = rows.filter(r => r.type === opts.type);
+    }
+    if (opts?.purpose && opts.purpose !== 'ALL') {
+      rows = rows.filter(r => r.purpose === opts.purpose);
+    }
+    if (opts?.from) {
+      rows = rows.filter(r => r.eatDayKey >= opts.from!);
+    }
+    if (opts?.to) {
+      rows = rows.filter(r => r.eatDayKey <= opts.to!);
+    }
+    if (opts?.q && opts.q.trim()) {
+      const q = opts.q.toLowerCase().trim();
+      rows = rows.filter(r =>
+        `${r.id} ${r.fromWallet} ${r.toWallet} ${r.paymentCode} ${r.purpose} ${r.depositorName} ${r.description}`
+          .toLowerCase()
+          .includes(q)
+      );
+    }
+
+    rows.sort((a, b) => b.timestampUtc - a.timestampUtc);
+    const total = rows.length;
+    const limit = Math.min(200, Math.max(1, Number(opts?.limit) || 50));
+    const page = Math.max(1, Number(opts?.page) || 1);
+    const totalPages = Math.max(1, Math.ceil(total / limit));
+    const offset = (page - 1) * limit;
+
+    return {
+      entries: rows.slice(offset, offset + limit),
+      total,
+      page,
+      limit,
+      totalPages,
+      reconciliation: this.getWalletReconciliation(),
+    };
+  }
+
+  public exportPaymentLedgerAuditCsv(opts?: {
+    q?: string;
+    type?: string;
+    purpose?: string;
+    from?: string;
+    to?: string;
+  }): string {
+    const res = this.getPaymentLedgerAudit({ ...opts, page: 1, limit: 10000 });
+    const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const header = [
+      'Ledger ID',
+      'Type',
+      'From Wallet',
+      'To Wallet',
+      'Amount (KES)',
+      'Payment Code',
+      'Purpose',
+      'Depositor Name',
+      'Depositor Role',
+      'Approving Admin',
+      'Payment ID',
+      'Timestamp (UTC)',
+      'Timestamp (Africa/Nairobi EAT)',
+      'Description',
+    ].join(',');
+    const lines = res.entries.map(r =>
+      [
+        esc(r.id),
+        esc(r.type),
+        esc(r.fromWallet),
+        esc(r.toWallet),
+        esc(r.amount),
+        esc(r.paymentCode),
+        esc(r.purpose),
+        esc(r.depositorName),
+        esc(r.depositorRole),
+        esc(r.approvingAdmin),
+        esc(r.relatedPaymentId || ''),
+        esc(r.timestampUtcIso),
+        esc(r.timestampEat),
+        esc(r.description),
+      ].join(',')
+    );
+    return [header, ...lines].join('\n');
+  }
+
+  // --- Wallet & Payment-Ledger Reconciliation (Platform Ledger Audit) ---
   public getWalletReconciliation() {
     const allEmails = new Set<string>();
     (this.data.users || []).forEach(u => allEmails.add(u.email.toLowerCase().trim()));
@@ -10077,7 +11157,7 @@ class DatabaseStore {
         allEmails.add(k.toLowerCase().trim());
       }
     });
-    allEmails.add('admin@airbus.ke');
+    allEmails.add(MPESA_CONFIG.ADMIN_WALLET_ID);
 
     const wtxTotals: Record<string, number> = {};
     for (const tx of this.data.walletTransactions || []) {
@@ -10110,7 +11190,7 @@ class DatabaseStore {
     for (const email of allEmails) {
       if (!email || email === 'treasury') continue;
       const storedBal = Math.floor(Number(this.data.wallets?.[email] ?? this.data.walletRecords?.[email]?.balance ?? 0));
-      const isAdmin = email === 'admin@airbus.ke';
+      const isAdmin = email === MPESA_CONFIG.ADMIN_WALLET_ID;
       if (!isAdmin) {
         userWalletsSum += storedBal;
       }
@@ -10136,7 +11216,43 @@ class DatabaseStore {
       });
     }
 
-    const adminBalance = this.getWalletBalance('admin@airbus.ke');
+    // Cross-check every approved deposit has a matching credit ledger entry and vice versa
+    const payments = this.getPaymentRecords({});
+    const paymentById = new Map(payments.map(p => [p.id, p]));
+    const topupLedger = (this.data.ledgerEntries || []).filter(l => l.type === 'topup' && l.fromWallet === 'external_mpesa');
+
+    const approvedDeposits = payments.filter(
+      p => isDepositRecord(p) && (p.canonicalStatus === PaymentStatus.APPROVED || p.canonicalStatus === PaymentStatus.REFUNDED)
+    );
+    const missingDepositLedgerPaymentIds: string[] = [];
+    for (const dep of approvedDeposits) {
+      const hasLedger =
+        (dep.creditLedgerId && topupLedger.some(l => l.id === dep.creditLedgerId)) ||
+        topupLedger.some(l => l.referenceId === dep.id);
+      if (!hasLedger) {
+        missingDepositLedgerPaymentIds.push(dep.id);
+      }
+    }
+
+    const orphanDepositLedgerIds: string[] = [];
+    for (const entry of topupLedger) {
+      if (!entry.referenceId || !paymentById.has(entry.referenceId)) {
+        // Also match by paymentCode if legacy entry stored code in referenceId
+        const codeUpper = String(entry.paymentCode || entry.referenceId || '').toUpperCase();
+        const byCode = codeUpper ? this.paymentIndexByCode.get(codeUpper) : undefined;
+        if (!byCode) {
+          orphanDepositLedgerIds.push(entry.id);
+        }
+      }
+    }
+
+    const outboxPendingCount = (this.data.transactional_outbox || []).filter(
+      o => String(o.kind || '').startsWith('payment.') && o.status !== 'delivered'
+    ).length;
+
+    const adminBalance = this.getWalletBalance(MPESA_CONFIG.ADMIN_WALLET_ID);
+    const totalAnomalies =
+      totalMismatches + missingDepositLedgerPaymentIds.length + orphanDepositLedgerIds.length;
 
     return {
       timestamp: Date.now(),
@@ -10145,7 +11261,115 @@ class DatabaseStore {
       userWalletsSum,
       adminBalance,
       wallets: reconciliationList,
+      approvedDepositsCount: approvedDeposits.length,
+      missingDepositLedgerCount: missingDepositLedgerPaymentIds.length,
+      orphanDepositLedgerCount: orphanDepositLedgerIds.length,
+      missingDepositLedgerPaymentIds,
+      orphanDepositLedgerIds,
+      outboxPendingCount,
+      totalAnomalies,
     };
+  }
+
+  public getPaymentLedgerReconciliation() {
+    return this.getWalletReconciliation();
+  }
+
+  public repairPaymentLedgerReconciliation(adminEmail: string = MPESA_CONFIG.ADMIN_WALLET_ID) {
+    return this.runAtomicWalletTransaction(() => {
+      const before = this.getWalletReconciliation();
+      const actions: string[] = [];
+      const now = Date.now();
+      if (!this.data.ledgerEntries) this.data.ledgerEntries = [];
+      if (!this.data.walletTransactions) this.data.walletTransactions = [];
+
+      // 1. Repair missing credit ledger entries for approved deposits
+      for (const payId of before.missingDepositLedgerPaymentIds) {
+        const dep = this.paymentIndexById.get(payId);
+        if (!dep) continue;
+        const ownerWallet = String(dep.userId || dep.hostEmail || '').toLowerCase().trim();
+        const amt = Math.floor(Number(dep.approvedAmount ?? dep.amountKes ?? dep.amount ?? 0));
+        const code = String(dep.mpesaCode || dep.reference || dep.id).toUpperCase();
+        if (!ownerWallet || amt <= 0) continue;
+
+        const ledgId = `ledg_rep_${dep.id}_${now.toString(36)}`;
+        this.data.ledgerEntries.unshift({
+          id: ledgId,
+          fromWallet: 'external_mpesa',
+          toWallet: ownerWallet,
+          amount: amt,
+          type: 'topup',
+          referenceId: dep.id,
+          paymentCode: code,
+          purpose: dep.walletPurpose || PaymentPurpose.OTHER,
+          fiscalYear: getEATParts(dep.approvedAt || dep.createdAt || now).year,
+          depositorName: dep.userName || ownerWallet,
+          depositorRole: dep.userRole || 'guest',
+          approvingAdmin: dep.approvedBy || adminEmail,
+          description: `Reconciled deposit ledger entry (${code})`,
+          createdAt: dep.approvedAt || dep.createdAt || now,
+        });
+        dep.creditLedgerId = ledgId;
+        dep.credit_ledger_id = ledgId;
+        actions.push(`Linked missing credit ledger entry ${ledgId} for payment ${dep.id}`);
+      }
+
+      // 2. Re-link or mark orphan topup ledger entries whose referenceId used payment code
+      for (const orphanId of before.orphanDepositLedgerIds) {
+        const entry = this.data.ledgerEntries.find(l => l.id === orphanId);
+        if (!entry) continue;
+        const codeUpper = String(entry.paymentCode || entry.referenceId || '').toUpperCase();
+        const matchedPay = codeUpper ? this.paymentIndexByCode.get(codeUpper) : undefined;
+        if (matchedPay) {
+          entry.referenceId = matchedPay.id;
+          if (!matchedPay.creditLedgerId) {
+            matchedPay.creditLedgerId = entry.id;
+            matchedPay.credit_ledger_id = entry.id;
+          }
+          actions.push(`Re-linked ledger ${entry.id} to payment ${matchedPay.id}`);
+        } else {
+          // Quarantine orphan synthetic topup entry by converting its type so deposit-to-ledger invariant is clean
+          const idx = this.data.ledgerEntries.findIndex(l => l.id === orphanId);
+          if (idx >= 0) {
+            this.data.ledgerEntries.splice(idx, 1);
+            actions.push(`Removed unbacked orphan topup ledger entry ${orphanId}`);
+          }
+        }
+      }
+
+      // 3. Reconcile any wallet balance drift with walletTransactions
+      for (const w of before.wallets) {
+        if (w.isMatched) continue;
+        const wr = this.ensureWallet(w.email);
+        const aligned = Math.max(0, w.ledgerBalance);
+        wr.balance = aligned;
+        wr.updatedAt = now;
+        this.data.wallets[w.email] = aligned;
+        actions.push(`Aligned stored wallet ${w.email} balance from ${w.storedBalance} to ledger balance ${aligned}`);
+      }
+
+      this.backfillAdminWalletEntries();
+      this.rebuildPaymentIndexes();
+
+      if (actions.length > 0) {
+        this.createAuditLog({
+          id: `aud_recon_${now}`,
+          action: 'payment_ledger_reconcile_repair',
+          actorEmail: adminEmail,
+          details: `Repaired ${actions.length} payment/ledger anomalies: ${actions.slice(0, 5).join('; ')}`,
+          createdAt: now,
+        });
+        this.save();
+      }
+
+      const after = this.getWalletReconciliation();
+      return {
+        before,
+        after,
+        repairedCount: actions.length,
+        actions,
+      };
+    });
   }
 
   // --- Segmented Platform Income Report ---

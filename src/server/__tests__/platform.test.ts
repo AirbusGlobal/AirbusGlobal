@@ -1533,6 +1533,356 @@ describe('AirBus Platform End-to-End Integrity Suite', () => {
     );
     assert.equal(hostPayEvt?.data?.userWalletBalance, hostStartBal + rtAmount);
   });
+
+  it('21. Unified Merchant Deposit -> Admin Payments Queue -> Approve/Decline/Gated Refund -> Notice Ack -> Idempotency & 403/401 Auth Guards', async () => {
+    // 1. Server-side authorization: unauthenticated -> 401; guest & host -> 403 on all /api/admin/payments* endpoints
+    const adminEndpoints: Array<{ url: string; method?: string; body?: any }> = [
+      { url: '/api/admin/payments' },
+      { url: '/api/admin/payments/counts' },
+      { url: '/api/admin/payments/audit' },
+      { url: '/api/admin/payments/audit/export' },
+      { url: '/api/admin/payments/reconciliation' },
+      { url: '/api/admin/payments/reconciliation/repair', method: 'POST' },
+      { url: '/api/admin/payments/fake_id/approve', method: 'POST', body: {} },
+      { url: '/api/admin/payments/fake_id/decline', method: 'POST', body: { reason: 'Testing guard access check' } },
+      { url: '/api/admin/payments/fake_id/refund', method: 'POST', body: { adminPassword: 'x', amount: 100, reason: 'Testing guard' } },
+    ];
+
+    for (const ep of adminEndpoints) {
+      const unauth = await apiJson(ep.url, { method: ep.method || 'GET', body: ep.body });
+      assert.equal(unauth.status, 401, `${ep.method || 'GET'} ${ep.url} must return 401 without token`);
+      const asGuest = await apiJson(ep.url, { method: ep.method || 'GET', token: guestToken, body: ep.body });
+      assert.equal(asGuest.status, 403, `${ep.method || 'GET'} ${ep.url} must return 403 for guest`);
+      const asHost = await apiJson(ep.url, { method: ep.method || 'GET', token: hostToken, body: ep.body });
+      assert.equal(asHost.status, 403, `${ep.method || 'GET'} ${ep.url} must return 403 for merchant/owner`);
+    }
+
+    // 2. Merchant deposit validation errors
+    const badPhone = await apiJson('/api/merchant/deposits', {
+      method: 'POST',
+      token: hostToken,
+      body: { amountKes: 500, mpesaCode: 'MPVALID01', phone: '12345', purpose: 'AIRBUS_WALLET_TOPUP' },
+    });
+    assert.equal(badPhone.status, 400, 'Invalid Kenyan phone must return 400');
+
+    const badDecimal = await apiJson('/api/merchant/deposits', {
+      method: 'POST',
+      token: hostToken,
+      body: { amountKes: 500.75, mpesaCode: 'MPVALID02', phone: '0712345678', purpose: 'AIRBUS_WALLET_TOPUP' },
+    });
+    assert.equal(badDecimal.status, 400, 'Non-integer KES amount must return 400');
+
+    const badLow = await apiJson('/api/merchant/deposits', {
+      method: 'POST',
+      token: hostToken,
+      body: { amountKes: 5, mpesaCode: 'MPVALID03', phone: '0712345678', purpose: 'AIRBUS_WALLET_TOPUP' },
+    });
+    assert.equal(badLow.status, 400, 'Below minimum KES amount must return 400');
+
+    // 3. Submit merchant deposit with Idempotency-Key -> single record, normalized +254 phone, canonical PENDING
+    const hostWalletBefore = await apiJson<{ wallet: any }>('/api/wallet', { token: hostToken });
+    const startHostBal = Number(hostWalletBefore.data.wallet.balance || 0);
+    const countsBefore = await apiJson<{ pending: number; approved: number; declined: number; refunded: number; total: number }>(
+      '/api/admin/payments/counts',
+      { token: adminToken }
+    );
+    assert.equal(countsBefore.status, 200);
+
+    const depCode1 = `MER${Date.now().toString(36).toUpperCase().slice(-7)}`;
+    const depIdemKey = `dep_idem_${Date.now()}`;
+    const submit1 = await apiJson<{ payment: any; message: string }>('/api/merchant/deposits', {
+      method: 'POST',
+      token: hostToken,
+      headers: { 'Idempotency-Key': depIdemKey },
+      body: {
+        amountKes: 2800,
+        mpesaCode: depCode1,
+        phone: '0712345678',
+        purpose: 'WALLET_TOPUP',
+      },
+    });
+    assert.equal(submit1.status, 201);
+    assert.equal(submit1.data.payment.canonicalStatus, 'PENDING');
+    assert.equal(submit1.data.payment.status, 'pending');
+    assert.equal(submit1.data.payment.phone, '+254712345678');
+    assert.equal(submit1.data.payment.purpose, 'WALLET_TOPUP');
+    assert.equal(submit1.data.payment.walletPurpose, 'OTHER');
+    const payId1 = submit1.data.payment.id;
+
+    // Duplicate retry with identical Idempotency-Key returns same payment without inserting a duplicate
+    const submit1Retry = await apiJson<{ payment: any }>('/api/merchant/deposits', {
+      method: 'POST',
+      token: hostToken,
+      headers: { 'Idempotency-Key': depIdemKey },
+      body: {
+        amountKes: 2800,
+        mpesaCode: depCode1,
+        phone: '0712345678',
+        purpose: 'WALLET_TOPUP',
+      },
+    });
+    assert.equal(submit1Retry.status, 200);
+    assert.equal(submit1Retry.data.payment.id, payId1, 'Idempotent retry must return original payment');
+
+    // Duplicate code with different idempotency key must reject
+    const dupCodeRes = await apiJson('/api/merchant/deposits', {
+      method: 'POST',
+      token: hostToken,
+      body: {
+        amountKes: 2800,
+        mpesaCode: depCode1,
+        phone: '0712345678',
+        purpose: 'AIRBUS_WALLET_TOPUP',
+      },
+    });
+    assert.equal(dupCodeRes.status, 400, 'Duplicate M-Pesa code must be rejected');
+
+    // 4. Immediately visible in Admin Queue (/api/admin/payments?status=PENDING), /counts, /api/payments, & /api/admin/wallets
+    const [pendingQueue, countsAfterSubmit, legacyPayments, adminWallets] = await Promise.all([
+      apiJson<{ payments: any[]; counts: any; totalCount: number }>(`/api/admin/payments?status=PENDING&search=${depCode1}`, {
+        token: adminToken,
+      }),
+      apiJson<{ pending: number }>('/api/admin/payments/counts', { token: adminToken }),
+      apiJson<{ payments: any[]; counts: any }>('/api/payments', { token: adminToken }),
+      apiJson<{ hostDeposits: any[] }>('/api/admin/wallets', { token: adminToken }),
+    ]);
+
+    assert.equal(pendingQueue.status, 200);
+    assert.equal(pendingQueue.data.payments.length, 1, 'Submitted deposit must appear once in Admin Pending queue');
+    assert.equal(pendingQueue.data.payments[0].id, payId1);
+    assert.equal(pendingQueue.data.payments[0].phone, '+254712345678');
+    assert.equal(countsAfterSubmit.data.pending, countsBefore.data.pending + 1);
+    assert.ok(legacyPayments.data.payments.some(p => p.id === payId1));
+    assert.ok(adminWallets.data.hostDeposits.some(p => p.id === payId1));
+
+    // Pending payment cannot be refunded (must use Decline)
+    const refundPendingAttempt = await apiJson(`/api/admin/payments/${payId1}/refund`, {
+      method: 'POST',
+      token: adminToken,
+      body: { adminPassword: '2019xyz//', amount: 500, reason: 'Cannot refund pending row' },
+    });
+    assert.equal(refundPendingAttempt.status, 400);
+
+    // 5. Admin Approve & Activate (with idempotent double-click test) -> credits wallet once, writes ledger, creates unacked notice
+    const approveIdemKey = `app_idem_${Date.now()}`;
+    const app1 = await apiJson<{ payment: any; userWalletBalance: number; counts: any }>(
+      `/api/admin/payments/${payId1}/approve`,
+      {
+        method: 'POST',
+        token: adminToken,
+        headers: { 'Idempotency-Key': approveIdemKey },
+        body: {},
+      }
+    );
+    assert.equal(app1.status, 200);
+    assert.equal(app1.data.payment.canonicalStatus, 'APPROVED');
+    assert.ok(app1.data.payment.creditLedgerId, 'Approved deposit must record creditLedgerId');
+    assert.equal(app1.data.userWalletBalance, startHostBal + 2800);
+
+    // Repeat approve (both with same key and without key) must NOT double-credit
+    const appRepeatKey = await apiJson<{ userWalletBalance: number }>(
+      `/api/admin/payments/${payId1}/approve`,
+      { method: 'POST', token: adminToken, headers: { 'Idempotency-Key': approveIdemKey }, body: {} }
+    );
+    const appRepeatNoKey = await apiJson<{ userWalletBalance: number }>(
+      `/api/admin/payments/${payId1}/approve`,
+      { method: 'POST', token: adminToken, body: {} }
+    );
+    assert.equal(appRepeatKey.status, 200);
+    assert.equal(appRepeatNoKey.status, 200);
+    assert.equal(appRepeatNoKey.data.userWalletBalance, startHostBal + 2800, 'Repeated approve must never double-credit');
+
+    // Merchant sees approved deposit in GET /api/merchant/deposits & unackedNotices until acked
+    const merchDeps1 = await apiJson<{ deposits: any[]; unackedNotices: any[]; walletBalance: number }>(
+      '/api/merchant/deposits',
+      { token: hostToken }
+    );
+    assert.equal(merchDeps1.status, 200);
+    assert.equal(merchDeps1.data.walletBalance, startHostBal + 2800);
+    assert.ok(merchDeps1.data.unackedNotices.some(n => n.id === payId1 && n.merchantNoticeEvent === 'APPROVED'));
+
+    const ackApp = await apiJson<{ payment: any }>(`/api/merchant/deposits/${payId1}/ack`, {
+      method: 'POST',
+      token: hostToken,
+    });
+    assert.equal(ackApp.status, 200);
+    assert.ok(ackApp.data.payment.merchantNoticeAckedAt);
+
+    const merchDepsAfterAck = await apiJson<{ unackedNotices: any[] }>('/api/merchant/deposits', { token: hostToken });
+    assert.equal(merchDepsAfterAck.data.unackedNotices.some(n => n.id === payId1), false);
+
+    // 6. Gated Refund on APPROVED deposit
+    const wrongPw = await apiJson(`/api/admin/payments/${payId1}/refund`, {
+      method: 'POST',
+      token: adminToken,
+      body: { adminPassword: 'bad-password', amount: 800, reason: 'Incorrect password test case' },
+    });
+    assert.equal(wrongPw.status, 400);
+
+    const overRefund = await apiJson(`/api/admin/payments/${payId1}/refund`, {
+      method: 'POST',
+      token: adminToken,
+      body: { adminPassword: '2019xyz//', amount: 999999, reason: 'Excessive refund amount test' },
+    });
+    assert.equal(overRefund.status, 400);
+
+    const validRefund = await apiJson<{ payment: any; userWalletBalance: number; refundLedgerId: string; counts: any }>(
+      `/api/admin/payments/${payId1}/refund`,
+      {
+        method: 'POST',
+        token: adminToken,
+        body: { adminPassword: '2019xyz//', amount: 800, reason: 'Partial reversal of duplicate merchant payment' },
+      }
+    );
+    assert.equal(validRefund.status, 200);
+    assert.equal(validRefund.data.payment.canonicalStatus, 'REFUNDED');
+    assert.equal(validRefund.data.userWalletBalance, startHostBal + 2000);
+    assert.ok(validRefund.data.refundLedgerId);
+
+    // Ack refund notice
+    const merchAfterRefund = await apiJson<{ unackedNotices: any[] }>('/api/merchant/deposits', { token: hostToken });
+    assert.ok(merchAfterRefund.data.unackedNotices.some(n => n.id === payId1 && n.merchantNoticeEvent === 'REFUNDED'));
+    await apiJson(`/api/merchant/deposits/${payId1}/ack`, { method: 'POST', token: hostToken });
+
+    // 7. Submit second deposit & Admin Decline (enforces 10-500 char reason, HTML stripped, no wallet mutation)
+    const depCode2 = `DEC${Date.now().toString(36).toUpperCase().slice(-7)}`;
+    const submit2 = await apiJson<{ payment: any }>('/api/merchant/deposits', {
+      method: 'POST',
+      token: hostToken,
+      body: {
+        amountKes: 1500,
+        mpesaCode: depCode2,
+        phone: '+254722111222',
+        purpose: 'SUBSCRIPTION',
+      },
+    });
+    assert.equal(submit2.status, 201);
+    const payId2 = submit2.data.payment.id;
+
+    const shortDecline = await apiJson(`/api/admin/payments/${payId2}/decline`, {
+      method: 'POST',
+      token: adminToken,
+      body: { reason: 'Too short' },
+    });
+    assert.equal(shortDecline.status, 400);
+
+    const validDecline = await apiJson<{ payment: any; counts: any }>(`/api/admin/payments/${payId2}/decline`, {
+      method: 'POST',
+      token: adminToken,
+      body: { reason: '<b>M-Pesa confirmation code</b> not found in Till statement.' },
+    });
+    assert.equal(validDecline.status, 200);
+    assert.equal(validDecline.data.payment.canonicalStatus, 'DECLINED');
+    assert.equal(
+      validDecline.data.payment.declineReason,
+      'M-Pesa confirmation code not found in Till statement.',
+      'Decline reason must strip HTML tags'
+    );
+
+    const walletAfterDecline = await apiJson<{ wallet: any }>('/api/wallet', { token: hostToken });
+    assert.equal(walletAfterDecline.data.wallet.balance, startHostBal + 2000, 'Declining deposit must not alter balance');
+
+    const merchAfterDecline = await apiJson<{ deposits: any[]; unackedNotices: any[] }>('/api/merchant/deposits', {
+      token: hostToken,
+    });
+    const declinedRow = merchAfterDecline.data.deposits.find(d => d.id === payId2);
+    assert.equal(declinedRow?.canonicalStatus, 'DECLINED');
+    assert.ok(merchAfterDecline.data.unackedNotices.some(n => n.id === payId2 && n.merchantNoticeEvent === 'DECLINED'));
+  });
+
+  it('22. Payments & Ledger Audit CSV Export, Anomaly Reconciliation Repair, Outbox Exponential Backoff Retry, and Reversible v4 Migration', async () => {
+    // 1. Submit & approve a deposit so audit & CSV definitely contain a recent deposit entry
+    const code = `AUD${Date.now().toString(36).toUpperCase().slice(-7)}`;
+    const dep = await apiJson<{ payment: any }>('/api/merchant/deposits', {
+      method: 'POST',
+      token: hostToken,
+      body: { amountKes: 1200, mpesaCode: code, phone: '0733445566', purpose: 'AIRBUS_WALLET_TOPUP' },
+    });
+    assert.equal(dep.status, 201);
+    const payId = dep.data.payment.id;
+
+    const appRes = await apiJson<{ payment: any }>(`/api/admin/payments/${payId}/approve`, {
+      method: 'POST',
+      token: adminToken,
+      body: {},
+    });
+    assert.equal(appRes.status, 200);
+    const creditLedgerId = appRes.data.payment.creditLedgerId as string;
+    assert.ok(creditLedgerId);
+
+    // 2. Payments & Ledger Audit query + CSV export
+    const auditRes = await apiJson<{ entries: any[]; total: number; reconciliation: any }>(
+      `/api/admin/payments/audit?q=${encodeURIComponent(code)}`,
+      { token: adminToken }
+    );
+    assert.equal(auditRes.status, 200);
+    assert.ok(auditRes.data.entries.some(e => e.paymentCode === code && e.amount === 1200));
+
+    const csvRes = await fetch(`${baseUrl}/api/admin/payments/audit/export?q=${encodeURIComponent(code)}`, {
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
+    assert.equal(csvRes.status, 200);
+    const csvText = await csvRes.text();
+    assert.ok(csvText.includes('Timestamp (UTC)'));
+    assert.ok(csvText.includes('Timestamp (Africa/Nairobi EAT)'));
+    assert.ok(csvText.includes(code));
+
+    // 3. Reconciliation detects missing ledger link & repair restores totalAnomalies === 0
+    const rawData = (db as any).data;
+    const ledgerIdx = rawData.ledgerEntries.findIndex((l: any) => l.id === creditLedgerId);
+    assert.ok(ledgerIdx >= 0, 'Credit ledger entry must exist before simulated anomaly');
+    rawData.ledgerEntries.splice(ledgerIdx, 1);
+
+    const recBroken = await apiJson<{ missingDepositLedgerCount: number; missingDepositLedgerPaymentIds: string[]; totalAnomalies: number }>(
+      '/api/admin/payments/reconciliation',
+      { token: adminToken }
+    );
+    assert.equal(recBroken.status, 200);
+    assert.ok(recBroken.data.missingDepositLedgerCount >= 1);
+    assert.ok(recBroken.data.missingDepositLedgerPaymentIds.includes(payId));
+    assert.ok(recBroken.data.totalAnomalies >= 1);
+
+    const recRepair = await apiJson<{ repairedCount: number; after: { totalAnomalies: number; missingDepositLedgerCount: number } }>(
+      '/api/admin/payments/reconciliation/repair',
+      { method: 'POST', token: adminToken }
+    );
+    assert.equal(recRepair.status, 200);
+    assert.ok(recRepair.data.repairedCount >= 1);
+    assert.equal(recRepair.data.after.missingDepositLedgerCount, 0);
+    assert.equal(recRepair.data.after.totalAnomalies, 0);
+
+    // 4. Transactional Outbox retry with failure + exponential backoff recovery
+    try {
+      db.enqueuePaymentOutboxEvent('payment.approved', payId, { testRetry: true });
+      let failOnce = true;
+      db.setOutboxDeliveryHookForTest((_kind, targetPayId) => {
+        if (targetPayId === payId && failOnce) {
+          failOnce = false;
+          throw new Error('Simulated transient webhook timeout');
+        }
+      });
+
+      const run1 = db.processTransactionalOutbox(Date.now());
+      assert.ok(run1.failed >= 1, 'First outbox pass must record transient failure');
+      const failedRow = (rawData.transactional_outbox || []).find(
+        (o: any) => o.paymentId === payId && o.status === 'failed'
+      );
+      assert.ok(failedRow, 'Failed outbox item must persist backoff metadata');
+      assert.equal(failedRow.attempts, 1);
+
+      const run2 = db.processTransactionalOutbox(Date.now() + 120_000);
+      assert.ok(run2.delivered >= 1, 'Second outbox pass after backoff must deliver cleanly');
+    } finally {
+      db.setOutboxDeliveryHookForTest(null);
+    }
+
+    // 5. Reversible v4 migration rollback + idempotent re-run
+    const v4RolledBack = db.rollbackMigration('v4_unified_payments_outbox_and_audit');
+    assert.equal(typeof v4RolledBack, 'boolean');
+    db.runStartupMigrations();
+    db.runStartupMigrations();
+  });
 });
+
 
 

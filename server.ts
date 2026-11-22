@@ -12,6 +12,7 @@ import { CHUNK_UPLOADS_DIR, mediaProcessingService, VIDEOS_OUTPUT_DIR } from './
 import { shortJobQueue } from './src/server/services/shortJobQueue';
 import { SHORTS_TIER_CONFIG, AUDIO_UPLOAD_CONFIG } from './src/config/shortsTierConfig';
 import { apiRateLimiter, logger, opsMetrics, requestIdMiddleware, walletMutex } from './src/server/services/ops';
+import { MPESA_CONFIG, PaymentStatus, normalizePaymentStatus } from './src/shared/paymentConstants';
 
 dotenv.config();
 
@@ -2211,7 +2212,7 @@ app.get('/api/payments', (req, res) => {
     return res.json({ payments: list, count: list.length });
   }
 
-  // Admins see all filtered payments
+  // Admins see all filtered payments + unified counts
   const payments = db.getPaymentRecords({
     status: status as any,
     type: type as any,
@@ -2219,8 +2220,8 @@ app.get('/api/payments', (req, res) => {
     search: search as string,
   });
 
-  const pendingCount = payments.filter(p => p.status === 'pending').length;
-  return res.json({ payments, count: payments.length, pendingCount });
+  const counts = db.getAdminPaymentCounts();
+  return res.json({ payments, count: payments.length, pendingCount: counts.pending, counts });
 });
 
 // Atomic Wallet Payment
@@ -2252,7 +2253,7 @@ app.post('/api/payments/wallet', async (req, res) => {
 
   const idemKey = (req.headers['idempotency-key'] as string) || req.body?.idempotencyKey;
   try {
-    const out = await walletMutex.withWalletLock([user.email, 'admin@airbus.ke'], () =>
+    const out = await walletMutex.withWalletLock([user.email, MPESA_CONFIG.ADMIN_WALLET_ID], () =>
       db.runWithIdempotency(idemKey, () =>
         db.payWithWallet({
           userId: user.email,
@@ -2290,57 +2291,89 @@ app.post('/api/payments', async (req, res) => {
   if (!rl.allowed) {
     return res.status(429).json({ error: `Rate limit exceeded. Retry in ${rl.retryAfterSec}s.` });
   }
-  const { kind, amount, mpesaCode, referenceId } = req.body;
+  const { kind, amount, amountKes, mpesaCode, phone, phoneNumber, purpose, proofUrl } = req.body || {};
 
-  const rawType = String(kind || req.body.type || req.body.purpose || '');
-  if (!['wallet', 'wallet_topup', 'deposit'].includes(rawType)) {
+  const rawType = String(kind || req.body?.type || req.body?.purpose || '');
+  if (!['wallet', 'wallet_topup', 'deposit', 'mpesa_deposit'].includes(rawType)) {
     return res.status(400).json({
       error: 'Pay with M-Pesa has been removed. Submit Deposit (M-Pesa) to fund your wallet, then Pay from Wallet.',
     });
   }
 
-  if (!mpesaCode || !/^[A-Z0-9]{8,15}$/i.test(String(mpesaCode).trim())) {
-    return res.status(400).json({
-      error: 'M-Pesa reference code must be 8-15 alphanumeric characters (e.g. QGH7X2K9LM).',
-    });
-  }
-
-  const numAmount = Number(amount);
-  if (!Number.isInteger(numAmount) || numAmount < 10) {
-    return res.status(400).json({ error: 'Minimum deposit amount is KES 10 (whole integer Ksh).' });
-  }
-
-  const cleanCode = String(mpesaCode).trim().toUpperCase();
-  if (db.isMpesaCodeUsed(cleanCode)) {
-    return res.status(400).json({ error: 'Duplicate M-Pesa transaction code. This code has already been submitted and cannot be reused.' });
-  }
-
+  const idemKey = (req.headers['idempotency-key'] as string) || req.body?.idempotencyKey;
   try {
-    const payment = await walletMutex.withWalletLock(user.email, () =>
-      db.createPayment({
-        id: 'pay_dep_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
-        userId: user.email,
-        user_id: user.email,
-        hostEmail: user.email,
-        userRole: user.role,
-        userName: user.username || user.name,
-        kind: 'deposit',
-        type: 'deposit',
-        method: 'mpesa_manual',
-        amount: numAmount,
-        amountKes: numAmount,
-        amountSc: numAmount,
-        claimedAmount: numAmount,
-        mpesaCode: cleanCode,
-        reference: cleanCode,
-        referenceId: referenceId || cleanCode,
-        status: 'pending',
-        createdAt: Date.now(),
-      })
+    const out = await walletMutex.withWalletLock(user.email, () =>
+      db.runWithIdempotency(idemKey, () =>
+        db.submitMerchantDeposit({
+          userId: user.email,
+          amountKes: Number(amountKes ?? amount),
+          mpesaCode: String(mpesaCode || ''),
+          phone: phone || phoneNumber,
+          purpose,
+          proofUrl,
+          requirePhone: false,
+        }),
+        201
+      )
     );
-    return res.status(201).json({ payment });
+    return res.status(out.deduplicated ? 200 : 201).json(out.response);
   } catch (err: any) {
     return res.status(400).json({ error: err.message || 'Deposit submission failed.' });
+  }
+});
+
+// Unified Merchant/Host Deposit (M-Pesa) endpoints
+app.post('/api/merchant/deposits', async (req, res) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ error: 'Not authenticated' });
+  const rl = apiRateLimiter.check(`dep:${user.email.toLowerCase()}`, 20, 60_000);
+  if (!rl.allowed) {
+    return res.status(429).json({ error: `Rate limit exceeded. Retry in ${rl.retryAfterSec}s.` });
+  }
+  const { amount, amountKes, mpesaCode, phone, phoneNumber, purpose, proofUrl } = req.body || {};
+  const idemKey = (req.headers['idempotency-key'] as string) || req.body?.idempotencyKey;
+
+  try {
+    const out = await walletMutex.withWalletLock(user.email, () =>
+      db.runWithIdempotency(idemKey, () => {
+        const result = db.submitMerchantDeposit({
+          userId: user.email,
+          amountKes: Number(amountKes ?? amount),
+          mpesaCode: String(mpesaCode || ''),
+          phone: phone || phoneNumber,
+          purpose,
+          proofUrl,
+          requirePhone: true,
+        });
+        return {
+          message: `Deposit (M-Pesa) of KES ${result.payment.amountKes?.toLocaleString() || result.payment.amount.toLocaleString()} submitted and awaiting Admin verification.`,
+          payment: result.payment,
+          walletBalance: result.walletBalance,
+        };
+      }, 201)
+    );
+    return res.status(out.deduplicated ? 200 : 201).json(out.response);
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'Deposit submission failed.' });
+  }
+});
+
+app.get('/api/merchant/deposits', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ error: 'Not authenticated' });
+  return res.json(db.getMerchantDeposits(user.email));
+});
+
+app.post('/api/merchant/deposits/:id/ack', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ error: 'Not authenticated' });
+  try {
+    const payment = db.ackMerchantNotice(req.params.id, user.email);
+    return res.json({ payment });
+  } catch (err: any) {
+    const msg = err.message || 'Could not dismiss notice.';
+    const status = msg.startsWith('Forbidden') ? 403 : msg.includes('not found') ? 404 : 400;
+    return res.status(status).json({ error: msg });
   }
 });
 
@@ -2690,6 +2723,7 @@ app.get('/api/admin/overview', (req, res) => {
   const stays = raw.stays;
   const users = raw.users.map(({ passwordHash, ...u }: any) => u);
   const payments = db.getPaymentRecords({});
+  const paymentCounts = db.getAdminPaymentCounts();
   const reports = raw.reports;
   const tickets = raw.tickets;
   const auditLogs = raw.auditLogs;
@@ -2701,17 +2735,93 @@ app.get('/api/admin/overview', (req, res) => {
       liveStays: stays.filter(s => s.status === 'live' || s.status === 'PUBLISHED').length,
       pendingReviews: stays.filter(s => s.status === 'review').length,
       totalUsers: users.length,
-      pendingPayments: payments.filter(p => p.status === 'pending').length,
+      pendingPayments: paymentCounts.pending,
       totalBookings: bookings.length,
       volumeKes: bookings.filter(b => b.status === 'confirmed').reduce((acc, b) => acc + b.total, 0),
     },
     stays,
     users,
     payments,
+    paymentCounts,
     reports,
     tickets,
     auditLogs,
   });
+});
+
+app.get('/api/admin/payments/counts', (req, res) => {
+  const user = requireAdminUser(req, res);
+  if (!user) return;
+  return res.json(db.getAdminPaymentCounts());
+});
+
+app.get('/api/admin/payments/audit', (req, res) => {
+  const user = requireAdminUser(req, res);
+  if (!user) return;
+  return res.json(
+    db.getPaymentLedgerAudit({
+      q: typeof req.query.q === 'string' ? req.query.q : undefined,
+      type: typeof req.query.type === 'string' ? req.query.type : undefined,
+      purpose: typeof req.query.purpose === 'string' ? req.query.purpose : undefined,
+      from: typeof req.query.from === 'string' ? req.query.from : undefined,
+      to: typeof req.query.to === 'string' ? req.query.to : undefined,
+      page: req.query.page ? Number(req.query.page) : 1,
+      limit: req.query.limit ? Number(req.query.limit) : 50,
+    })
+  );
+});
+
+app.get('/api/admin/payments/audit/export', (req, res) => {
+  const user = requireAdminUser(req, res);
+  if (!user) return;
+  const csv = db.exportPaymentLedgerAuditCsv({
+    q: typeof req.query.q === 'string' ? req.query.q : undefined,
+    type: typeof req.query.type === 'string' ? req.query.type : undefined,
+    purpose: typeof req.query.purpose === 'string' ? req.query.purpose : undefined,
+    from: typeof req.query.from === 'string' ? req.query.from : undefined,
+    to: typeof req.query.to === 'string' ? req.query.to : undefined,
+  });
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', 'attachment; filename="airbus-payments-ledger-audit.csv"');
+  return res.send(csv);
+});
+
+app.get('/api/admin/payments/reconciliation', (req, res) => {
+  const user = requireAdminUser(req, res);
+  if (!user) return;
+  return res.json(db.getPaymentLedgerReconciliation());
+});
+
+app.post('/api/admin/payments/reconciliation/repair', async (req, res) => {
+  const user = requireAdminUser(req, res);
+  if (!user) return;
+  try {
+    const out = await walletMutex.withWalletLock([MPESA_CONFIG.ADMIN_WALLET_ID], () =>
+      db.repairPaymentLedgerReconciliation(user.email)
+    );
+    return res.json(out);
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'Reconciliation repair failed.' });
+  }
+});
+
+app.get('/api/admin/payments', (req, res) => {
+  const user = requireAdminUser(req, res);
+  if (!user) return;
+  const out = db.queryAdminPayments({
+    status: typeof req.query.status === 'string' ? req.query.status : undefined,
+    type: typeof req.query.type === 'string' ? req.query.type : undefined,
+    method: typeof req.query.method === 'string' ? req.query.method : undefined,
+    search: typeof req.query.search === 'string' ? req.query.search : undefined,
+    code: typeof req.query.code === 'string' ? req.query.code : undefined,
+    dateFrom: typeof req.query.dateFrom === 'string' ? req.query.dateFrom : undefined,
+    dateTo: typeof req.query.dateTo === 'string' ? req.query.dateTo : undefined,
+    minAmount: req.query.minAmount ? Number(req.query.minAmount) : undefined,
+    maxAmount: req.query.maxAmount ? Number(req.query.maxAmount) : undefined,
+    page: req.query.page ? Number(req.query.page) : 1,
+    limit: req.query.limit ? Number(req.query.limit) : 50,
+  });
+  return res.json(out);
 });
 
 app.post('/api/admin/payments/:id/approve', async (req, res) => {
@@ -2721,7 +2831,7 @@ app.post('/api/admin/payments/:id/approve', async (req, res) => {
     const hasConfirmedAmount = req.body && req.body.confirmedAmount !== undefined && req.body.confirmedAmount !== null && req.body.confirmedAmount !== '';
     const confirmedAmount = hasConfirmedAmount ? Number(req.body.confirmedAmount) : undefined;
     const targetPay = db.getPaymentRecords({}).find(p => p.id === req.params.id);
-    const lockKeys = [targetPay?.userId || targetPay?.hostEmail || '', 'admin@airbus.ke'];
+    const lockKeys = [targetPay?.userId || targetPay?.hostEmail || '', MPESA_CONFIG.ADMIN_WALLET_ID];
     const idemKey = (req.headers['idempotency-key'] as string) || req.body?.idempotencyKey;
     const out = await walletMutex.withWalletLock(lockKeys, () =>
       db.runWithIdempotency(idemKey, () => {
@@ -2731,7 +2841,8 @@ app.post('/api/admin/payments/:id/approve', async (req, res) => {
         return {
           payment: result,
           userWalletBalance: payerEmail ? db.getWallet(payerEmail) : undefined,
-          adminWalletBalance: db.getWallet('admin@airbus.ke'),
+          adminWalletBalance: db.getWallet(MPESA_CONFIG.ADMIN_WALLET_ID),
+          counts: db.getAdminPaymentCounts(),
         };
       })
     );
@@ -2742,13 +2853,68 @@ app.post('/api/admin/payments/:id/approve', async (req, res) => {
   }
 });
 
-app.post('/api/admin/payments/:id/reject', (req, res) => {
+app.post('/api/admin/payments/:id/decline', async (req, res) => {
   const user = requireAdminUser(req, res);
   if (!user) return;
-  const { reason } = req.body;
-  const result = db.rejectPayment(req.params.id, user.email, reason);
-  if (!result) return res.status(404).json({ error: 'Payment not found.' });
-  return res.json({ payment: result });
+  try {
+    const reason = String(req.body?.reason ?? '');
+    const targetPay = db.getPaymentRecords({}).find(p => p.id === req.params.id);
+    const lockKeys = [targetPay?.userId || targetPay?.hostEmail || '', MPESA_CONFIG.ADMIN_WALLET_ID];
+    const result = await walletMutex.withWalletLock(lockKeys, () =>
+      db.declinePaymentRecord(req.params.id, user.email, reason)
+    );
+    return res.json({ payment: result, counts: db.getAdminPaymentCounts() });
+  } catch (err: any) {
+    const msg = err.message || 'Could not decline payment.';
+    return res.status(msg.includes('not found') ? 404 : 400).json({ error: msg });
+  }
+});
+
+app.post('/api/admin/payments/:id/reject', async (req, res) => {
+  const user = requireAdminUser(req, res);
+  if (!user) return;
+  try {
+    const reason = String(req.body?.reason ?? '');
+    const targetPay = db.getPaymentRecords({}).find(p => p.id === req.params.id);
+    const lockKeys = [targetPay?.userId || targetPay?.hostEmail || '', MPESA_CONFIG.ADMIN_WALLET_ID];
+    const result = await walletMutex.withWalletLock(lockKeys, () =>
+      db.declinePaymentRecord(req.params.id, user.email, reason)
+    );
+    return res.json({ payment: result, counts: db.getAdminPaymentCounts() });
+  } catch (err: any) {
+    const msg = err.message || 'Could not decline payment.';
+    return res.status(msg.includes('not found') ? 404 : 400).json({ error: msg });
+  }
+});
+
+app.post('/api/admin/payments/:id/refund', async (req, res) => {
+  const user = requireAdminUser(req, res);
+  if (!user) return;
+  const { adminPassword, amount, reason } = req.body || {};
+  const targetPay = db.getPaymentRecords({}).find(p => p.id === req.params.id);
+  const lockKeys = [targetPay?.userId || targetPay?.hostEmail || '', MPESA_CONFIG.ADMIN_WALLET_ID];
+  const idemKey = (req.headers['idempotency-key'] as string) || req.body?.idempotencyKey;
+  try {
+    const out = await walletMutex.withWalletLock(lockKeys, () =>
+      db.runWithIdempotency(idemKey, () => {
+        const resRefund = db.refundApprovedPaymentRecord({
+          paymentId: req.params.id,
+          adminEmail: user.email,
+          adminPassword: String(adminPassword || ''),
+          amount: Number(amount),
+          reason: String(reason || ''),
+        });
+        return {
+          ...resRefund,
+          counts: db.getAdminPaymentCounts(),
+        };
+      })
+    );
+    return res.json(out.response);
+  } catch (err: any) {
+    const msg = err.message || 'Refund failed.';
+    return res.status(msg.includes('not found') ? 404 : 400).json({ error: msg });
+  }
 });
 
 app.get('/api/admin/wallet/reconciliation', (req, res) => {
@@ -3460,50 +3626,32 @@ app.post('/api/wallet/topup', async (req, res) => {
   if (!rl.allowed) {
     return res.status(429).json({ error: `Rate limit exceeded. Retry in ${rl.retryAfterSec}s.` });
   }
-  const { amount, mpesaCode, phoneNumber, proofUrl, purpose } = req.body;
-  const numAmount = Number(amount);
-  if (!Number.isInteger(numAmount) || numAmount < 10) {
-    return res.status(400).json({ error: 'Minimum deposit amount is KES 10 (whole integer Ksh).' });
-  }
-  if (!mpesaCode || !/^[A-Z0-9]{8,15}$/i.test(String(mpesaCode).trim())) {
-    return res.status(400).json({ error: 'M-Pesa code must be a valid 8-15 character alphanumeric transaction reference (e.g. QWE123RTY4).' });
-  }
+  const { amount, amountKes, mpesaCode, phone, phoneNumber, proofUrl, purpose } = req.body || {};
+  const idemKey = (req.headers['idempotency-key'] as string) || req.body?.idempotencyKey;
 
-  const cleanCode = String(mpesaCode).trim().toUpperCase();
-  if (db.isMpesaCodeUsed(cleanCode)) {
-    return res.status(400).json({ error: 'Duplicate M-Pesa transaction code. This code has already been submitted and cannot be reused.' });
+  try {
+    const out = await walletMutex.withWalletLock(user.email, () =>
+      db.runWithIdempotency(idemKey, () => {
+        const result = db.submitMerchantDeposit({
+          userId: user.email,
+          amountKes: Number(amountKes ?? amount),
+          mpesaCode: String(mpesaCode || ''),
+          phone: phone || phoneNumber,
+          purpose,
+          proofUrl,
+          requirePhone: false,
+        });
+        return {
+          message: `Deposit (M-Pesa) of KES ${result.payment.amountKes?.toLocaleString() || result.payment.amount.toLocaleString()} submitted. Awaiting Admin approval.`,
+          payment: result.payment,
+          walletBalance: result.walletBalance,
+        };
+      }, 201)
+    );
+    return res.status(out.deduplicated ? 200 : 201).json(out.response);
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'Deposit submission failed.' });
   }
-
-  const payment = await walletMutex.withWalletLock(user.email, () =>
-    db.createPayment({
-      id: 'pay_dep_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
-      userId: user.email,
-      user_id: user.email,
-      hostEmail: user.email,
-      userRole: user.role,
-      userName: user.username || user.name,
-      kind: 'deposit',
-      type: 'deposit',
-      method: 'mpesa_manual',
-      amount: numAmount,
-      amountKes: numAmount,
-      amountSc: numAmount,
-      claimedAmount: numAmount,
-      mpesaCode: cleanCode,
-      reference: cleanCode,
-      referenceId: cleanCode,
-      phoneNumber: phoneNumber || user.phone || '',
-      proofUrl: proofUrl || undefined,
-      walletPurpose: typeof purpose === 'string' ? purpose : undefined,
-      status: 'pending',
-      createdAt: Date.now(),
-    })
-  );
-
-  return res.status(201).json({
-    message: `Deposit (M-Pesa) of KES ${numAmount.toLocaleString()} submitted. Awaiting Admin approval.`,
-    payment,
-  });
 });
 
 app.post('/api/wallet/deposit', async (req, res) => {
@@ -3513,50 +3661,32 @@ app.post('/api/wallet/deposit', async (req, res) => {
   if (!rl.allowed) {
     return res.status(429).json({ error: `Rate limit exceeded. Retry in ${rl.retryAfterSec}s.` });
   }
-  const { amount, mpesaCode, phoneNumber, proofUrl, purpose } = req.body;
-  const numAmount = Number(amount);
-  if (!Number.isInteger(numAmount) || numAmount < 10) {
-    return res.status(400).json({ error: 'Deposit amount must be a whole integer Ksh (minimum KES 10).' });
-  }
-  if (!mpesaCode || !/^[A-Z0-9]{8,15}$/i.test(String(mpesaCode).trim())) {
-    return res.status(400).json({ error: 'M-Pesa code must be a valid 8-15 character alphanumeric transaction reference.' });
-  }
+  const { amount, amountKes, mpesaCode, phone, phoneNumber, proofUrl, purpose } = req.body || {};
+  const idemKey = (req.headers['idempotency-key'] as string) || req.body?.idempotencyKey;
 
-  const cleanCode = String(mpesaCode).trim().toUpperCase();
-  if (db.isMpesaCodeUsed(cleanCode)) {
-    return res.status(400).json({ error: 'Duplicate M-Pesa transaction code. This code has already been submitted and cannot be reused.' });
+  try {
+    const out = await walletMutex.withWalletLock(user.email, () =>
+      db.runWithIdempotency(idemKey, () => {
+        const result = db.submitMerchantDeposit({
+          userId: user.email,
+          amountKes: Number(amountKes ?? amount),
+          mpesaCode: String(mpesaCode || ''),
+          phone: phone || phoneNumber,
+          purpose,
+          proofUrl,
+          requirePhone: false,
+        });
+        return {
+          message: `Deposit (M-Pesa) of KES ${result.payment.amountKes?.toLocaleString() || result.payment.amount.toLocaleString()} submitted and awaiting Admin approval.`,
+          payment: result.payment,
+          walletBalance: result.walletBalance,
+        };
+      }, 201)
+    );
+    return res.status(out.deduplicated ? 200 : 201).json(out.response);
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'Deposit submission failed.' });
   }
-
-  const payment = await walletMutex.withWalletLock(user.email, () =>
-    db.createPayment({
-      id: 'pay_dep_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
-      userId: user.email,
-      user_id: user.email,
-      hostEmail: user.email,
-      userRole: user.role,
-      userName: user.username || user.name,
-      kind: 'deposit',
-      type: 'deposit',
-      method: 'mpesa_manual',
-      amount: numAmount,
-      amountKes: numAmount,
-      amountSc: numAmount,
-      claimedAmount: numAmount,
-      mpesaCode: cleanCode,
-      reference: cleanCode,
-      referenceId: cleanCode,
-      phoneNumber: phoneNumber || user.phone || '',
-      proofUrl: proofUrl || undefined,
-      walletPurpose: typeof purpose === 'string' ? purpose : undefined,
-      status: 'pending',
-      createdAt: Date.now(),
-    })
-  );
-
-  return res.status(201).json({
-    message: `Deposit (M-Pesa) of KES ${numAmount.toLocaleString()} submitted and awaiting Admin approval.`,
-    payment,
-  });
 });
 
 app.post('/api/wallet/withdraw', (req, res) => {
@@ -4979,6 +5109,33 @@ async function startServer() {
       }
     }, 60 * 1000);
     expiryScheduler.unref();
+
+    // Background transactional outbox delivery & retry worker
+    const outboxScheduler = setInterval(() => {
+      try {
+        db.processTransactionalOutbox();
+      } catch (err) {
+        console.warn('Outbox processor warning:', err);
+      }
+    }, 5000);
+    outboxScheduler.unref();
+
+    // Scheduled reconciliation audit job
+    const reconciliationScheduler = setInterval(() => {
+      try {
+        const report = db.getPaymentLedgerReconciliation();
+        if (report.totalAnomalies > 0) {
+          logger.warn('payment_ledger_reconciliation_anomaly', {
+            mismatches: report.mismatches,
+            missingDepositLedgerCount: report.missingDepositLedgerCount,
+            orphanDepositLedgerCount: report.orphanDepositLedgerCount,
+          });
+        }
+      } catch (err) {
+        console.warn('Reconciliation scheduler warning:', err);
+      }
+    }, MPESA_CONFIG.RECONCILIATION_INTERVAL_MS);
+    reconciliationScheduler.unref();
 
     // Warm local audio tracks only after server is listening & Vite has settled
     setTimeout(() => {

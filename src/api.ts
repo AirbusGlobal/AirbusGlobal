@@ -1200,12 +1200,247 @@ export const api = {
     });
   },
 
-  async approvePayment(paymentId: string): Promise<{
+  async approvePayment(
+    paymentId: string,
+    idempotencyKey?: string
+  ): Promise<{
     payment: PaymentRecord;
     userWalletBalance?: number;
     adminWalletBalance?: number;
+    counts?: {
+      total: number;
+      pending: number;
+      approved: number;
+      declined: number;
+      rejected: number;
+      refunded: number;
+      pendingDeposits: number;
+      pendingTotalKes: number;
+      approvedTotalKes: number;
+    };
   }> {
     return this.request(`/api/admin/payments/${paymentId}/approve`, {
+      method: 'POST',
+      portalSlot: 'admin',
+      headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined,
+      body: JSON.stringify({ idempotencyKey }),
+    });
+  },
+
+  async getAdminPayments(params?: {
+    status?: string;
+    type?: string;
+    method?: string;
+    search?: string;
+    code?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    minAmount?: number;
+    maxAmount?: number;
+    page?: number;
+    limit?: number;
+  }): Promise<{
+    payments: PaymentRecord[];
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+    counts: {
+      total: number;
+      pending: number;
+      approved: number;
+      declined: number;
+      rejected: number;
+      refunded: number;
+      pendingDeposits: number;
+      pendingTotalKes: number;
+      approvedTotalKes: number;
+    };
+  }> {
+    const sp = new URLSearchParams();
+    if (params?.status && params.status !== 'all') sp.set('status', params.status);
+    if (params?.type && params.type !== 'all') sp.set('type', params.type);
+    if (params?.method && params.method !== 'all') sp.set('method', params.method);
+    if (params?.search) sp.set('search', params.search);
+    if (params?.code) sp.set('code', params.code);
+    if (params?.dateFrom) sp.set('dateFrom', params.dateFrom);
+    if (params?.dateTo) sp.set('dateTo', params.dateTo);
+    if (params?.minAmount !== undefined && Number.isFinite(params.minAmount) && params.minAmount > 0) {
+      sp.set('minAmount', String(params.minAmount));
+    }
+    if (params?.maxAmount !== undefined && Number.isFinite(params.maxAmount) && params.maxAmount > 0) {
+      sp.set('maxAmount', String(params.maxAmount));
+    }
+    if (params?.page) sp.set('page', String(params.page));
+    if (params?.limit) sp.set('limit', String(params.limit));
+    const qs = sp.toString() ? `?${sp.toString()}` : '';
+    return this.request(`/api/admin/payments${qs}`, { portalSlot: 'admin' });
+  },
+
+  async getAdminPaymentCounts(): Promise<{
+    total: number;
+    pending: number;
+    approved: number;
+    declined: number;
+    rejected: number;
+    refunded: number;
+    pendingDeposits: number;
+    pendingTotalKes: number;
+    approvedTotalKes: number;
+  }> {
+    return this.request('/api/admin/payments/counts', { portalSlot: 'admin' });
+  },
+
+  async declineAdminPayment(
+    paymentId: string,
+    reason: string
+  ): Promise<{
+    payment: PaymentRecord;
+    counts?: {
+      total: number;
+      pending: number;
+      approved: number;
+      declined: number;
+      rejected: number;
+      refunded: number;
+      pendingDeposits: number;
+      pendingTotalKes: number;
+      approvedTotalKes: number;
+    };
+  }> {
+    return this.request(`/api/admin/payments/${paymentId}/decline`, {
+      method: 'POST',
+      portalSlot: 'admin',
+      body: JSON.stringify({ reason }),
+    });
+  },
+
+  async refundAdminPayment(
+    paymentId: string,
+    payload: { amount: number; reason: string; adminPassword: string; idempotencyKey?: string }
+  ): Promise<{
+    payment: PaymentRecord;
+    refundAmount: number;
+    refundReference: string;
+    counts?: {
+      total: number;
+      pending: number;
+      approved: number;
+      declined: number;
+      rejected: number;
+      refunded: number;
+      pendingDeposits: number;
+      pendingTotalKes: number;
+      approvedTotalKes: number;
+    };
+  }> {
+    return this.request(`/api/admin/payments/${paymentId}/refund`, {
+      method: 'POST',
+      portalSlot: 'admin',
+      headers: payload.idempotencyKey ? { 'Idempotency-Key': payload.idempotencyKey } : undefined,
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async getAdminPaymentsAudit(params?: {
+    q?: string;
+    type?: string;
+    purpose?: string;
+    from?: string;
+    to?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<{
+    entries: Array<{
+      id: string;
+      type: string;
+      fromWallet: string;
+      toWallet: string;
+      amount: number;
+      paymentCode: string;
+      purpose: string;
+      purposeLabel: string;
+      depositorName: string;
+      depositorRole: string;
+      approvingAdmin: string;
+      relatedPaymentId: string | null;
+      paymentStatus: string | null;
+      description: string;
+      timestampUtc: number;
+      timestampUtcIso: string;
+      timestampEat: string;
+      eatDayKey: string;
+    }>;
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+    reconciliation: any;
+  }> {
+    const sp = new URLSearchParams();
+    if (params?.q) sp.set('q', params.q);
+    if (params?.type && params.type !== 'ALL') sp.set('type', params.type);
+    if (params?.purpose && params.purpose !== 'ALL') sp.set('purpose', params.purpose);
+    if (params?.from) sp.set('from', params.from);
+    if (params?.to) sp.set('to', params.to);
+    if (params?.page) sp.set('page', String(params.page));
+    if (params?.limit) sp.set('limit', String(params.limit));
+    const qs = sp.toString() ? `?${sp.toString()}` : '';
+    return this.request(`/api/admin/payments/audit${qs}`, { portalSlot: 'admin' });
+  },
+
+  async exportAdminPaymentsAuditCsv(params?: {
+    q?: string;
+    type?: string;
+    purpose?: string;
+    from?: string;
+    to?: string;
+  }): Promise<string> {
+    const sp = new URLSearchParams();
+    if (params?.q) sp.set('q', params.q);
+    if (params?.type && params.type !== 'ALL') sp.set('type', params.type);
+    if (params?.purpose && params.purpose !== 'ALL') sp.set('purpose', params.purpose);
+    if (params?.from) sp.set('from', params.from);
+    if (params?.to) sp.set('to', params.to);
+    const qs = sp.toString() ? `?${sp.toString()}` : '';
+    const token = this.getToken('admin', '/api/admin/payments/audit/export');
+    const res = await fetch(`${API_BASE_URL || ''}/api/admin/payments/audit/export${qs}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new Error('Could not export Payments & Ledger Audit CSV.');
+    return res.text();
+  },
+
+  async getAdminPaymentReconciliation(): Promise<{
+    timestamp: number;
+    totalWallets: number;
+    mismatches: number;
+    userWalletsSum: number;
+    adminBalance: number;
+    approvedDepositsCount: number;
+    missingDepositLedgerCount: number;
+    orphanDepositLedgerCount: number;
+    missingDepositLedgerPaymentIds: string[];
+    orphanDepositLedgerIds: string[];
+    outboxPendingCount: number;
+    totalAnomalies: number;
+    wallets: Array<{
+      email: string;
+      storedBalance: number;
+      ledgerBalance: number;
+      difference: number;
+      isMatched: boolean;
+    }>;
+  }> {
+    return this.request('/api/admin/payments/reconciliation', { portalSlot: 'admin' });
+  },
+
+  async repairAdminPaymentReconciliation(): Promise<{
+    repairedCount: number;
+    actions: string[];
+    reconciliation: any;
+  }> {
+    return this.request('/api/admin/payments/reconciliation/repair', {
       method: 'POST',
       portalSlot: 'admin',
       body: JSON.stringify({}),
@@ -1705,17 +1940,55 @@ export const api = {
   async topupWallet(
     amount: number,
     mpesaCode: string,
-    opts?: { phoneNumber?: string; purpose?: string; slot?: PortalSlot }
+    opts?: { phoneNumber?: string; phone?: string; purpose?: string; slot?: PortalSlot; idempotencyKey?: string }
   ): Promise<{ payment: PaymentRecord; message?: string }> {
     return this.request('/api/wallet/topup', {
       method: 'POST',
       portalSlot: opts?.slot,
+      headers: opts?.idempotencyKey ? { 'Idempotency-Key': opts.idempotencyKey } : undefined,
       body: JSON.stringify({
         amount,
         mpesaCode,
-        ...(opts?.phoneNumber ? { phoneNumber: opts.phoneNumber } : {}),
+        ...(opts?.phone || opts?.phoneNumber ? { phone: opts.phone || opts.phoneNumber, phoneNumber: opts.phoneNumber || opts.phone } : {}),
         ...(opts?.purpose ? { purpose: opts.purpose } : {}),
+        ...(opts?.idempotencyKey ? { idempotencyKey: opts.idempotencyKey } : {}),
       }),
+    });
+  },
+
+  async submitMerchantDeposit(
+    payload: {
+      amount: number;
+      mpesaCode: string;
+      phone: string;
+      purpose: string;
+      proofUrl?: string;
+      idempotencyKey?: string;
+    },
+    slot?: PortalSlot
+  ): Promise<{ payment: PaymentRecord; walletBalance: number; message?: string }> {
+    return this.request('/api/merchant/deposits', {
+      method: 'POST',
+      portalSlot: slot,
+      headers: payload.idempotencyKey ? { 'Idempotency-Key': payload.idempotencyKey } : undefined,
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async getMerchantDeposits(slot?: PortalSlot): Promise<{
+    deposits: PaymentRecord[];
+    walletBalance: number;
+    unackedNotices: PaymentRecord[];
+    counts: { pending: number; approved: number; declined: number; refunded: number };
+  }> {
+    return this.request('/api/merchant/deposits', { portalSlot: slot });
+  },
+
+  async ackMerchantDepositNotice(paymentId: string, slot?: PortalSlot): Promise<{ payment: PaymentRecord }> {
+    return this.request(`/api/merchant/deposits/${encodeURIComponent(paymentId)}/ack`, {
+      method: 'POST',
+      portalSlot: slot,
+      body: JSON.stringify({}),
     });
   },
 

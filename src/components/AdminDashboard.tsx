@@ -78,6 +78,7 @@ import { api } from '../api';
 import { ListingMediaViewer } from './ListingMediaViewer';
 import { SharedVideoPlayer } from './shared/SharedVideoPlayer';
 import { formatEATDateTime } from '../utils/time';
+import { MPESA_CONFIG, PaymentStatus, isDepositRecord } from '../shared/paymentConstants';
 
 interface AdminDashboardProps {
   adminUser: User;
@@ -269,13 +270,50 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   // Payments Tab State
   const [allPayments, setAllPayments] = useState<PaymentRecord[]>(payments || []);
+  const [adminPaymentsRows, setAdminPaymentsRows] = useState<PaymentRecord[]>([]);
+  const [paymentCounts, setPaymentCounts] = useState<{
+    total: number;
+    pending: number;
+    approved: number;
+    declined: number;
+    rejected: number;
+    refunded: number;
+    pendingDeposits: number;
+    pendingTotalKes: number;
+    approvedTotalKes: number;
+  }>({
+    total: 0,
+    pending: 0,
+    approved: 0,
+    declined: 0,
+    rejected: 0,
+    refunded: 0,
+    pendingDeposits: 0,
+    pendingTotalKes: 0,
+    approvedTotalKes: 0,
+  });
   const [paymentStatusFilter, setPaymentStatusFilter] = useState<'all' | 'pending' | 'approved' | 'rejected' | 'refunded'>('all');
   const [paymentTypeFilter, setPaymentTypeFilter] = useState<'all' | 'deposit' | 'advert' | 'boost' | 'subscription' | 'vvvip' | 'booking_fee'>('all');
   const [paymentMethodFilter, setPaymentMethodFilter] = useState<'all' | 'wallet' | 'mpesa'>('all');
   const [paymentSearch, setPaymentSearch] = useState('');
+  const [paymentDateFrom, setPaymentDateFrom] = useState('');
+  const [paymentDateTo, setPaymentDateTo] = useState('');
+  const [paymentMinAmount, setPaymentMinAmount] = useState('');
+  const [paymentMaxAmount, setPaymentMaxAmount] = useState('');
+  const [paymentPage, setPaymentPage] = useState(1);
+  const [paymentTotalPages, setPaymentTotalPages] = useState(1);
+  const [paymentTotalCount, setPaymentTotalCount] = useState(0);
+  const [paymentsLoading, setPaymentsLoading] = useState(false);
+  const [paymentsLoadError, setPaymentsLoadError] = useState<string | null>(null);
   const [rejectModalPayment, setRejectModalPayment] = useState<PaymentRecord | null>(null);
-  const [rejectReason, setRejectReason] = useState('Invalid or unverified receipt code.');
+  const [rejectReason, setRejectReason] = useState('Invalid or unverified M-Pesa receipt code.');
   const [approveModalPayment, setApproveModalPayment] = useState<PaymentRecord | null>(null);
+  const [refundModalPayment, setRefundModalPayment] = useState<PaymentRecord | null>(null);
+  const [refundAmountInput, setRefundAmountInput] = useState('');
+  const [refundReason, setRefundReason] = useState('');
+  const [refundAdminPassword, setRefundAdminPassword] = useState('');
+  const [refundError, setRefundError] = useState<string | null>(null);
+  const [refundBusy, setRefundBusy] = useState(false);
   const [processingPayment, setProcessingPayment] = useState(false);
   const [approvingPaymentId, setApprovingPaymentId] = useState<string | null>(null);
   const [paymentModalError, setPaymentModalError] = useState<string | null>(null);
@@ -290,6 +328,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     timestamp: number;
   } | null>(null);
   const [reconciliation, setReconciliation] = useState<any>(null);
+  const [repairingReconciliation, setRepairingReconciliation] = useState(false);
+  const [showLedgerAuditPanel, setShowLedgerAuditPanel] = useState(false);
+  const [ledgerAuditEntries, setLedgerAuditEntries] = useState<any[]>([]);
+  const [ledgerAuditTotal, setLedgerAuditTotal] = useState(0);
+  const [ledgerAuditPage, setLedgerAuditPage] = useState(1);
+  const [ledgerAuditTotalPages, setLedgerAuditTotalPages] = useState(1);
+  const [ledgerAuditLoading, setLedgerAuditLoading] = useState(false);
   const [incomeReport, setIncomeReport] = useState<any>(null);
 
   // Admin Wallet (Grand Wallet) EAT Analytics, Ledger, Archives & Special Refund State
@@ -535,11 +580,88 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
   }, [tab, awGranularity, awFiscalYear, awFrom, awTo, awPurpose, awRole, awKind, awSearch, awPage, adminUser?.role]);
 
+  const loadAdminPayments = async (overridePage?: number) => {
+    if (!adminUser || adminUser.role !== 'admin' || !api.getToken('admin')) return;
+    const targetPage = overridePage ?? paymentPage;
+    setPaymentsLoading(true);
+    setPaymentsLoadError(null);
+    try {
+      const res = await api.getAdminPayments({
+        status: paymentStatusFilter,
+        type: paymentTypeFilter,
+        method: paymentMethodFilter,
+        search: paymentSearch.trim() || undefined,
+        dateFrom: paymentDateFrom || undefined,
+        dateTo: paymentDateTo || undefined,
+        minAmount: paymentMinAmount ? Number(paymentMinAmount) : undefined,
+        maxAmount: paymentMaxAmount ? Number(paymentMaxAmount) : undefined,
+        page: targetPage,
+        limit: 25,
+      });
+      setAdminPaymentsRows(Array.isArray(res?.payments) ? res.payments : []);
+      setPaymentTotalCount(typeof res?.total === 'number' ? res.total : 0);
+      setPaymentTotalPages(Math.max(1, res?.totalPages || 1));
+      if (res?.counts) setPaymentCounts(res.counts);
+    } catch (err: any) {
+      setPaymentsLoadError(err?.message || 'Failed to load payments queue.');
+    } finally {
+      setPaymentsLoading(false);
+    }
+  };
+
+  const loadPaymentsAudit = async (pageOverride?: number) => {
+    if (!adminUser || adminUser.role !== 'admin' || !api.getToken('admin')) return;
+    setLedgerAuditLoading(true);
+    try {
+      const res = await api.getAdminPaymentsAudit({
+        q: paymentSearch.trim() || undefined,
+        from: paymentDateFrom || undefined,
+        to: paymentDateTo || undefined,
+        page: pageOverride ?? ledgerAuditPage,
+        limit: 20,
+      });
+      setLedgerAuditEntries(Array.isArray(res?.entries) ? res.entries : []);
+      setLedgerAuditTotal(res?.total || 0);
+      setLedgerAuditTotalPages(Math.max(1, res?.totalPages || 1));
+      if (res?.reconciliation) setReconciliation(res.reconciliation);
+    } catch {
+      // keep existing audit rows on transient error
+    } finally {
+      setLedgerAuditLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!adminUser || adminUser.role !== 'admin' || !api.getToken('admin')) return;
+    loadAdminPayments();
+    if (showLedgerAuditPanel) {
+      loadPaymentsAudit();
+    }
+  }, [
+    tab,
+    paymentStatusFilter,
+    paymentTypeFilter,
+    paymentMethodFilter,
+    paymentSearch,
+    paymentDateFrom,
+    paymentDateTo,
+    paymentMinAmount,
+    paymentMaxAmount,
+    paymentPage,
+    showLedgerAuditPanel,
+    ledgerAuditPage,
+    adminUser?.role,
+  ]);
+
   const loadAdminData = () => {
     if (!adminUser || adminUser.role !== 'admin' || !api.getToken('admin')) return;
     api.getPaymentRecords(undefined, 'admin').then(res => {
       if (Array.isArray(res?.payments)) setAllPayments(res.payments);
     }).catch(() => {});
+    api.getAdminPaymentCounts().then(cnt => {
+      if (cnt) setPaymentCounts(cnt);
+    }).catch(() => {});
+    loadAdminPayments();
     api.getPosts(undefined, 'admin').then(res => setPosts(Array.isArray(res?.posts) ? res.posts : [])).catch(() => {});
     api.getAds(undefined, 'admin').then(res => setAds(Array.isArray(res?.ads) ? res.ads : [])).catch(() => {});
     api.getOwnerPromotions('admin').then(res => setPromotions(Array.isArray(res?.promotions) ? res.promotions : [])).catch(() => {});
@@ -552,7 +674,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       if (res?.wallet) setTreasuryWallet(res.wallet);
       setTreasuryLedger(Array.isArray(res?.ledger) ? res.ledger : []);
     }).catch(() => {});
-    api.getWalletReconciliation().then(res => {
+    api.getAdminPaymentReconciliation().then(res => {
       if (res) setReconciliation(res);
     }).catch(() => {});
     api.getAdminIncomeReport().then(res => {
@@ -655,6 +777,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       api.getPaymentRecords(undefined, 'admin').then(res => {
         if (Array.isArray(res?.payments)) setAllPayments(res.payments);
       }).catch(stopOnAuthError);
+      api.getAdminPaymentCounts().then(cnt => {
+        if (cnt) setPaymentCounts(cnt);
+      }).catch(stopOnAuthError);
+      if (tab === 'queue') {
+        loadAdminPayments();
+      }
       api.getAdminWallets().then(res => {
         if (res) {
           setAdminWalletsData({
@@ -671,18 +799,24 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       api.getAdminTripDatingCounts().then(res => {
         if (res?.counts) setTripDatingCounts(res.counts);
       }).catch(stopOnAuthError);
-    }, 6000);
+    }, MPESA_CONFIG.POLL_INTERVAL_MS);
     return () => {
       stopped = true;
       clearInterval(interval);
     };
-  }, [adminUser?.email, adminUser?.role]);
+  }, [adminUser?.email, adminUser?.role, tab]);
 
   useEffect(() => {
     if (!adminUser || adminUser.role !== 'admin' || !api.getToken('admin')) return;
     if (tab === 'queue' || tab === 'wallets' || tab === 'treasury') {
       api.getPaymentRecords(undefined, 'admin').then(res => {
         if (Array.isArray(res?.payments)) setAllPayments(res.payments);
+      }).catch(() => {});
+      api.getAdminPaymentCounts().then(cnt => {
+        if (cnt) setPaymentCounts(cnt);
+      }).catch(() => {});
+      api.getAdminPaymentReconciliation().then(res => {
+        if (res) setReconciliation(res);
       }).catch(() => {});
       api.getAdminWallets().then(res => {
         if (res) {
@@ -750,9 +884,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           });
         }
       }).catch(() => {});
+      if (tab === 'queue') {
+        loadAdminPayments();
+      }
       if (tab === 'treasury') {
         loadAdminWalletAnalytics();
       }
+      api.getAdminPaymentCounts().then(cnt => {
+        if (cnt) setPaymentCounts(cnt);
+      }).catch(() => {});
     };
     window.addEventListener('airbus:payment-update', onPaymentUpdate as EventListener);
     return () => window.removeEventListener('airbus:payment-update', onPaymentUpdate as EventListener);
@@ -764,8 +904,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setApprovingPaymentId(payment.id);
     setPaymentModalError(null);
     try {
-      const res = await api.approvePayment(payment.id);
+      const idemKey = `approve_${payment.id}`;
+      const res = await api.approvePayment(payment.id, idemKey);
       const approvedPay = res?.payment || payment;
+      if (res?.counts) setPaymentCounts(res.counts);
       const approvedAmount = Number(
         approvedPay.approvedAmount ??
           approvedPay.claimedAmount ??
@@ -781,10 +923,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       setAllPayments(prev => {
         const base = prev.length > 0 ? prev : payments;
         const exists = base.some(item => item.id === payment.id);
-        if (!exists) return [{ ...approvedPay, status: 'approved' }, ...base];
+        if (!exists) return [{ ...approvedPay, status: 'approved', canonicalStatus: PaymentStatus.APPROVED }, ...base];
         return base.map(item =>
           item.id === payment.id
-            ? { ...item, ...approvedPay, status: 'approved', approvedAmount, approvedAt: approvedPay.approvedAt || Date.now() }
+            ? {
+                ...item,
+                ...approvedPay,
+                status: 'approved',
+                canonicalStatus: PaymentStatus.APPROVED,
+                approvedAmount,
+                approvedAt: approvedPay.approvedAt || Date.now(),
+              }
             : item
         );
       });
@@ -792,10 +941,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       setAdminWalletsData(prev => ({
         ...prev,
         hostDeposits: prev.hostDeposits.map(d =>
-          d.id === payment.id ? { ...d, ...approvedPay, status: 'approved', approvedAmount } : d
+          d.id === payment.id ? { ...d, ...approvedPay, status: 'approved', canonicalStatus: PaymentStatus.APPROVED, approvedAmount } : d
         ),
         guestDeposits: prev.guestDeposits.map(d =>
-          d.id === payment.id ? { ...d, ...approvedPay, status: 'approved', approvedAmount } : d
+          d.id === payment.id ? { ...d, ...approvedPay, status: 'approved', canonicalStatus: PaymentStatus.APPROVED, approvedAmount } : d
         ),
         hostWallets:
           typeof res?.userWalletBalance === 'number'
@@ -846,7 +995,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   };
 
   const currentPaymentsList = allPayments.length > 0 ? allPayments : payments;
-  const pendingPayments = currentPaymentsList.filter(p => p.status === 'pending');
+  const pendingPayments = currentPaymentsList.filter(p => p.status === 'pending' || p.canonicalStatus === PaymentStatus.PENDING);
+  const syncedPendingCount =
+    paymentCounts.total > 0 || adminPaymentsRows.length > 0
+      ? paymentCounts.pending
+      : allPayments.length > 0
+      ? pendingPayments.length
+      : (metrics?.pendingPayments ?? 0);
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-8">
@@ -917,7 +1072,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 w-full md:w-auto">
             <div className="bg-white/10 backdrop-blur-md p-3 rounded-2xl border border-white/10 text-center">
               <div className="text-lg font-black text-amber-400">
-                {allPayments.length > 0 ? pendingPayments.length : (metrics?.pendingPayments ?? 0)}
+                {syncedPendingCount}
               </div>
               <div className="text-[10px] text-stone-300 uppercase font-semibold">Pending M-Pesa</div>
             </div>
@@ -955,9 +1110,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         >
           <CreditCard className="w-4 h-4" />
           <span>1. Payments</span>
-          {pendingPayments.length > 0 && (
+          {syncedPendingCount > 0 && (
             <span className="ml-1 px-1.5 py-0.5 rounded-full bg-rose-600 text-white text-[10px] font-black animate-pulse">
-              {pendingPayments.length}
+              {syncedPendingCount}
             </span>
           )}
         </button>
@@ -1572,24 +1727,112 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         <div className="space-y-5">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-stone-200 dark:border-stone-800">
             <div>
-              <h3 className="text-base font-extrabold text-stone-900 dark:text-white flex items-center gap-2">
+              <h3 className="text-base font-extrabold text-stone-900 dark:text-white flex flex-wrap items-center gap-2">
                 <span>Payments &amp; Ledger Audit</span>
                 <span className="px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 text-xs font-bold">
-                  {currentPaymentsList.length} total
+                  {paymentCounts.total || paymentTotalCount || currentPaymentsList.length} total · {syncedPendingCount} pending
                 </span>
               </h3>
               <p className="text-xs text-stone-500 mt-0.5">
-                Verify and moderate all M-Pesa receipts and atomic wallet transactions for adverts, subscriptions, and platform bookings.
+                Verify and moderate all M-Pesa deposits and atomic AirBus wallet transactions (Africa/Nairobi EAT).
               </p>
             </div>
-            <button
-              onClick={loadAdminData}
-              className="self-start sm:self-auto px-3 py-1.5 rounded-xl border border-stone-200 dark:border-stone-800 text-xs font-bold text-stone-700 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800 flex items-center gap-1.5 cursor-pointer shadow-xs"
-            >
-              <RefreshCw className="w-3.5 h-3.5 text-stone-400" />
-              <span>Refresh</span>
-            </button>
+            <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+              <button
+                type="button"
+                onClick={() => setShowLedgerAuditPanel(v => !v)}
+                className={`px-3 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-xs ${
+                  showLedgerAuditPanel
+                    ? 'bg-amber-500 text-stone-950 border-amber-400'
+                    : 'border-stone-200 dark:border-stone-800 text-stone-700 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800'
+                }`}
+              >
+                <FileText className="w-3.5 h-3.5" />
+                <span>{showLedgerAuditPanel ? 'Hide Ledger Audit' : 'Ledger Audit'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    const csv = await api.exportAdminPaymentsAuditCsv({
+                      q: paymentSearch.trim() || undefined,
+                      from: paymentDateFrom || undefined,
+                      to: paymentDateTo || undefined,
+                    });
+                    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `airbus-payments-ledger-audit.csv`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                    showToast?.('Payments & Ledger Audit CSV exported.');
+                  } catch (err: any) {
+                    showToast?.(err?.message || 'CSV export failed.');
+                  }
+                }}
+                className="px-3 py-1.5 rounded-xl border border-stone-200 dark:border-stone-800 text-xs font-bold text-stone-700 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800 flex items-center gap-1.5 cursor-pointer shadow-xs"
+              >
+                <Download className="w-3.5 h-3.5 text-emerald-500" />
+                <span>Export CSV</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={loadAdminData}
+                className="px-3 py-1.5 rounded-xl border border-stone-200 dark:border-stone-800 text-xs font-bold text-stone-700 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800 flex items-center gap-1.5 cursor-pointer shadow-xs"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 text-stone-400 ${paymentsLoading ? 'animate-spin' : ''}`} />
+                <span>Refresh</span>
+              </button>
+            </div>
           </div>
+
+          {/* Reconciliation Health & Repair Status Strip */}
+          {reconciliation && (
+            <div
+              className={`p-3.5 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs ${
+                (reconciliation.totalAnomalies ?? reconciliation.mismatches ?? 0) === 0
+                  ? 'bg-emerald-50/70 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-900/60 text-emerald-900 dark:text-emerald-200'
+                  : 'bg-rose-50 dark:bg-rose-950/30 border-rose-300 dark:border-rose-800 text-rose-900 dark:text-rose-200'
+              }`}
+            >
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                <span className="font-extrabold flex items-center gap-1.5">
+                  <ShieldCheck className="w-4 h-4" />
+                  {(reconciliation.totalAnomalies ?? reconciliation.mismatches ?? 0) === 0
+                    ? 'Wallet & Ledger Reconciled (0 Anomalies)'
+                    : `Reconciliation Alert: ${reconciliation.totalAnomalies} Anomalies Detected`}
+                </span>
+                <span className="text-[11px] opacity-85 font-mono">
+                  Drift: {reconciliation.mismatches ?? 0} · Missing Deposit Ledger: {reconciliation.missingDepositLedgerCount ?? 0} · Orphan Ledger: {reconciliation.orphanDepositLedgerCount ?? 0} · Outbox Queue: {reconciliation.outboxPendingCount ?? 0}
+                </span>
+              </div>
+              {(reconciliation.totalAnomalies ?? reconciliation.mismatches ?? 0) > 0 && (
+                <button
+                  type="button"
+                  disabled={repairingReconciliation}
+                  onClick={async () => {
+                    setRepairingReconciliation(true);
+                    try {
+                      const res = await api.repairAdminPaymentReconciliation();
+                      if (res?.reconciliation) setReconciliation(res.reconciliation);
+                      showToast?.(`Reconciliation repaired (${res?.repairedCount || 0} fixes applied).`);
+                      loadAdminData();
+                    } catch (err: any) {
+                      showToast?.(err?.message || 'Reconciliation repair failed.');
+                    } finally {
+                      setRepairingReconciliation(false);
+                    }
+                  }}
+                  className="px-3.5 py-1.5 rounded-full bg-rose-600 hover:bg-rose-500 text-white text-[11px] font-bold cursor-pointer disabled:opacity-50 shrink-0"
+                >
+                  {repairingReconciliation ? 'Repairing...' : 'Repair Anomalies'}
+                </button>
+              )}
+            </div>
+          )}
 
           {lastApprovedBanner && (
             <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-300 dark:border-emerald-700 text-emerald-900 dark:text-emerald-100 flex items-start justify-between gap-3 text-xs shadow-sm">
@@ -1622,18 +1865,84 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </div>
           )}
 
+          {paymentsLoadError && (
+            <div className="p-3.5 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-200 text-xs flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                <span>{paymentsLoadError}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => loadAdminPayments()}
+                className="px-3 py-1 rounded-full bg-rose-600 text-white text-[11px] font-bold hover:bg-rose-500 cursor-pointer"
+              >
+                Retry
+              </button>
+            </div>
+          )}
+
           {/* Filtering & Search Toolbar */}
           <div className="p-4 bg-stone-50 dark:bg-[#1a1c24] rounded-2xl border border-stone-200 dark:border-stone-800 space-y-3">
-            {/* Search Input */}
-            <div className="relative">
+            {/* Search & EAT Date/Amount Filters */}
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-2">
+              <div className="relative md:col-span-2">
+                <input
+                  type="text"
+                  value={paymentSearch}
+                  onChange={e => {
+                    setPaymentSearch(e.target.value);
+                    setPaymentPage(1);
+                  }}
+                  placeholder="Search user email, name, M-Pesa code, phone..."
+                  className="w-full pl-9 pr-4 py-2 bg-white dark:bg-[#12141a] border border-stone-200 dark:border-stone-700 rounded-xl text-xs outline-none focus:border-amber-500 transition-colors"
+                />
+                <CreditCard className="w-4 h-4 text-stone-400 absolute left-3 top-2.5" />
+              </div>
+
               <input
-                type="text"
-                value={paymentSearch}
-                onChange={e => setPaymentSearch(e.target.value)}
-                placeholder="Search payments by user email, reference ID, or M-Pesa receipt code..."
-                className="w-full pl-9 pr-4 py-2 bg-white dark:bg-[#12141a] border border-stone-200 dark:border-stone-700 rounded-xl text-xs outline-none focus:border-amber-500 transition-colors"
+                type="date"
+                value={paymentDateFrom}
+                onChange={e => {
+                  setPaymentDateFrom(e.target.value);
+                  setPaymentPage(1);
+                }}
+                aria-label="Filter from EAT date"
+                className="px-3 py-2 bg-white dark:bg-[#12141a] border border-stone-200 dark:border-stone-700 rounded-xl text-xs outline-none focus:border-amber-500"
               />
-              <CreditCard className="w-4 h-4 text-stone-400 absolute left-3 top-2.5" />
+              <input
+                type="date"
+                value={paymentDateTo}
+                onChange={e => {
+                  setPaymentDateTo(e.target.value);
+                  setPaymentPage(1);
+                }}
+                aria-label="Filter to EAT date"
+                className="px-3 py-2 bg-white dark:bg-[#12141a] border border-stone-200 dark:border-stone-700 rounded-xl text-xs outline-none focus:border-amber-500"
+              />
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="number"
+                  min={0}
+                  value={paymentMinAmount}
+                  onChange={e => {
+                    setPaymentMinAmount(e.target.value.replace(/[^0-9]/g, ''));
+                    setPaymentPage(1);
+                  }}
+                  placeholder="Min KES"
+                  className="w-full px-2.5 py-2 bg-white dark:bg-[#12141a] border border-stone-200 dark:border-stone-700 rounded-xl text-xs font-mono outline-none focus:border-amber-500"
+                />
+                <input
+                  type="number"
+                  min={0}
+                  value={paymentMaxAmount}
+                  onChange={e => {
+                    setPaymentMaxAmount(e.target.value.replace(/[^0-9]/g, ''));
+                    setPaymentPage(1);
+                  }}
+                  placeholder="Max KES"
+                  className="w-full px-2.5 py-2 bg-white dark:bg-[#12141a] border border-stone-200 dark:border-stone-700 rounded-xl text-xs font-mono outline-none focus:border-amber-500"
+                />
+              </div>
             </div>
 
             {/* Filter Pills */}
@@ -1645,14 +1954,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <button
                     key={s}
                     type="button"
-                    onClick={() => setPaymentStatusFilter(s)}
+                    onClick={() => {
+                      setPaymentStatusFilter(s);
+                      setPaymentPage(1);
+                    }}
                     className={`px-2 py-0.5 rounded-lg text-[11px] font-bold capitalize transition-all cursor-pointer ${
                       paymentStatusFilter === s
                         ? 'bg-amber-500 text-stone-950 font-black shadow-xs'
                         : 'text-stone-500 hover:text-stone-900 dark:hover:text-stone-200'
                     }`}
                   >
-                    {s}
+                    {s === 'rejected' ? 'Declined' : s}
+                    {s === 'pending' && syncedPendingCount > 0 ? ` (${syncedPendingCount})` : ''}
                   </button>
                 ))}
               </div>
@@ -1664,7 +1977,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <button
                     key={t}
                     type="button"
-                    onClick={() => setPaymentTypeFilter(t)}
+                    onClick={() => {
+                      setPaymentTypeFilter(t);
+                      setPaymentPage(1);
+                    }}
                     className={`px-2 py-0.5 rounded-lg text-[11px] font-bold capitalize transition-all cursor-pointer ${
                       paymentTypeFilter === t
                         ? 'bg-[#e4002b] text-white font-black shadow-xs'
@@ -1683,7 +1999,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <button
                     key={m}
                     type="button"
-                    onClick={() => setPaymentMethodFilter(m)}
+                    onClick={() => {
+                      setPaymentMethodFilter(m);
+                      setPaymentPage(1);
+                    }}
                     className={`px-2 py-0.5 rounded-lg text-[11px] font-bold uppercase transition-all cursor-pointer ${
                       paymentMethodFilter === m
                         ? 'bg-emerald-600 text-white font-black shadow-xs'
@@ -1697,47 +2016,112 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </div>
           </div>
 
-          {/* Payment Records List */}
-          {(() => {
-            const filtered = currentPaymentsList.filter(p => {
-              if (paymentStatusFilter !== 'all' && p.status !== paymentStatusFilter) return false;
-              if (paymentTypeFilter !== 'all') {
-                const matchType =
-                  p.type === paymentTypeFilter ||
-                  p.kind === paymentTypeFilter ||
-                  (paymentTypeFilter === 'deposit' && (
-                    p.type === 'wallet' ||
-                    p.kind === 'wallet' ||
-                    p.type === 'wallet_topup' ||
-                    p.type === 'mpesa_deposit'
-                  )) ||
-                  (paymentTypeFilter === 'subscription' && p.kind === 'plan') ||
-                  (paymentTypeFilter === 'boost' && (p.kind === 'boost' || p.referenceId?.startsWith('boost_')));
-                if (!matchType) return false;
-              }
-              if (paymentMethodFilter !== 'all') {
-                const method = p.method || 'mpesa';
-                if (paymentMethodFilter === 'mpesa') {
-                  if (method !== 'mpesa' && method !== 'mpesa_manual') return false;
-                } else if (method !== paymentMethodFilter) {
-                  return false;
-                }
-              }
-              if (paymentSearch.trim()) {
-                const q = paymentSearch.toLowerCase().trim();
-                const matched =
-                  (p.id && p.id.toLowerCase().includes(q)) ||
-                  (p.userName && p.userName.toLowerCase().includes(q)) ||
-                  (p.userId && p.userId.toLowerCase().includes(q)) ||
-                  (p.hostEmail && p.hostEmail.toLowerCase().includes(q)) ||
-                  (p.referenceId && p.referenceId.toLowerCase().includes(q)) ||
-                  (p.mpesaCode && p.mpesaCode.toLowerCase().includes(q));
-                if (!matched) return false;
-              }
-              return true;
-            });
+          {/* Collapsible Payments & Ledger Audit Panel */}
+          {showLedgerAuditPanel && (
+            <div className="p-5 bg-white dark:bg-[#15171e] rounded-3xl border border-stone-200 dark:border-stone-800 shadow-sm space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="text-sm font-extrabold text-stone-900 dark:text-white">
+                    Payments &amp; Ledger Audit ({ledgerAuditTotal} entries)
+                  </h4>
+                  <p className="text-[11px] text-stone-500">
+                    Double-entry wallet ledger synced with M-Pesa deposits, subscriptions, adverts, and refunds (UTC &amp; EAT).
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => loadPaymentsAudit()}
+                  className="px-3 py-1 rounded-xl border border-stone-200 dark:border-stone-700 text-xs font-bold cursor-pointer"
+                >
+                  {ledgerAuditLoading ? 'Loading...' : 'Refresh Audit'}
+                </button>
+              </div>
+              <div className="overflow-x-auto rounded-2xl border border-stone-200 dark:border-stone-800">
+                <table className="w-full text-left text-xs min-w-[760px]">
+                  <thead className="bg-stone-50 dark:bg-stone-900 text-stone-500 uppercase text-[10px]">
+                    <tr>
+                      <th className="px-3 py-2">Timestamp (EAT / UTC)</th>
+                      <th className="px-3 py-2">Type / Purpose</th>
+                      <th className="px-3 py-2">From → To Wallet</th>
+                      <th className="px-3 py-2">Code / Payment</th>
+                      <th className="px-3 py-2 text-right">Amount</th>
+                      <th className="px-3 py-2">Admin</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-stone-100 dark:divide-stone-800">
+                    {ledgerAuditEntries.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="px-3 py-6 text-center text-stone-400">
+                          No ledger audit entries match the current filters.
+                        </td>
+                      </tr>
+                    ) : (
+                      ledgerAuditEntries.map(row => (
+                        <tr key={row.id} className="hover:bg-stone-50 dark:hover:bg-stone-900/40">
+                          <td className="px-3 py-2 whitespace-nowrap text-stone-600 dark:text-stone-300">
+                            <div className="font-semibold">{row.timestampEat}</div>
+                            <div className="text-[10px] font-mono text-stone-400">{row.timestampUtcIso}</div>
+                          </td>
+                          <td className="px-3 py-2">
+                            <span className="font-bold uppercase text-stone-900 dark:text-white">{row.type}</span>
+                            <div className="text-[10px] text-stone-500">{row.purposeLabel}</div>
+                          </td>
+                          <td className="px-3 py-2 font-mono text-[11px] text-stone-700 dark:text-stone-300">
+                            {row.fromWallet} → {row.toWallet}
+                          </td>
+                          <td className="px-3 py-2 font-mono text-[11px]">
+                            <div className="font-bold text-stone-900 dark:text-white">{row.paymentCode}</div>
+                            <div className="text-[10px] text-stone-400">{row.relatedPaymentId || row.id}</div>
+                          </td>
+                          <td className="px-3 py-2 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
+                            KES {Number(row.amount || 0).toLocaleString()}
+                          </td>
+                          <td className="px-3 py-2 font-mono text-[11px] text-stone-500">
+                            {row.approvingAdmin}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              {ledgerAuditTotalPages > 1 && (
+                <div className="flex items-center justify-end gap-2 text-xs">
+                  <button
+                    type="button"
+                    disabled={ledgerAuditPage <= 1}
+                    onClick={() => setLedgerAuditPage(p => Math.max(1, p - 1))}
+                    className="px-3 py-1 rounded-lg border border-stone-200 dark:border-stone-700 disabled:opacity-40 cursor-pointer"
+                  >
+                    Prev
+                  </button>
+                  <span className="text-stone-500">Page {ledgerAuditPage} of {ledgerAuditTotalPages}</span>
+                  <button
+                    type="button"
+                    disabled={ledgerAuditPage >= ledgerAuditTotalPages}
+                    onClick={() => setLedgerAuditPage(p => Math.min(ledgerAuditTotalPages, p + 1))}
+                    className="px-3 py-1 rounded-lg border border-stone-200 dark:border-stone-700 disabled:opacity-40 cursor-pointer"
+                  >
+                    Next
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
 
-            if (filtered.length === 0) {
+          {/* Payment Records List (Server-Side Filtered & Paginated) */}
+          {(() => {
+            const rowsToRender = adminPaymentsRows;
+
+            if (paymentsLoading && rowsToRender.length === 0) {
+              return (
+                <div className="p-10 text-center bg-white dark:bg-[#15171e] rounded-3xl border border-stone-200 dark:border-stone-800 text-xs text-stone-400">
+                  Loading payments queue...
+                </div>
+              );
+            }
+
+            if (rowsToRender.length === 0) {
               return (
                 <div className="p-12 text-center bg-white dark:bg-[#15171e] rounded-3xl border border-dashed border-stone-300 dark:border-stone-800 text-xs text-stone-400">
                   <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto mb-2" />
@@ -1748,13 +2132,23 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
             return (
               <div className="space-y-3">
-                {filtered.map(p => {
-                  const isPending = p.status === 'pending';
-                  const isApproved = p.status === 'approved';
-                  const isRejected = p.status === 'rejected';
-                  const isRefunded = p.status === 'refunded';
+                {rowsToRender.map(p => {
+                  const canon =
+                    p.canonicalStatus ||
+                    (p.status === 'approved'
+                      ? PaymentStatus.APPROVED
+                      : p.status === 'rejected'
+                      ? PaymentStatus.DECLINED
+                      : p.status === 'refunded'
+                      ? PaymentStatus.REFUNDED
+                      : PaymentStatus.PENDING);
+                  const isPending = canon === PaymentStatus.PENDING || p.status === 'pending';
+                  const isApproved = canon === PaymentStatus.APPROVED || p.status === 'approved';
                   const amountDisplay = Number(p.claimedAmount ?? p.amountKes ?? p.amountSc ?? p.amount ?? 0);
                   const isHostPayment = p.userRole === 'owner' || (p.userRole as string) === 'host';
+                  const isRowBusy = approvingPaymentId === p.id;
+                  const alreadyRefunded = Number(p.refundAmount || 0);
+                  const remainingRefundable = Math.max(0, amountDisplay - alreadyRefunded);
 
                   return (
                     <div
@@ -1769,17 +2163,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     >
                       <div className="space-y-1.5 flex-1 min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
-                          {/* Status Badge */}
+                          {/* Canonical Status Badge */}
                           <span
                             className={`text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full ${
                               isPending
                                 ? 'bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 animate-pulse'
                                 : isApproved
                                 ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300'
+                                : canon === PaymentStatus.REFUNDED
+                                ? 'bg-sky-100 dark:bg-sky-950 text-sky-800 dark:text-sky-300'
                                 : 'bg-rose-100 dark:bg-rose-950 text-rose-800 dark:text-rose-300'
                             }`}
                           >
-                            {p.status}
+                            {canon}
                           </span>
 
                           {/* Role Badge */}
@@ -1797,7 +2193,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
                           {/* Type Badge */}
                           <span className="text-[10px] font-black uppercase bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 px-2 py-0.5 rounded-full">
-                            {p.type || p.kind || 'Payment'}
+                            {isDepositRecord(p) ? 'M-Pesa Deposit' : (p.type || p.kind || 'Payment')}
                           </span>
 
                           {/* Method Badge */}
@@ -1821,14 +2217,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         {/* User & Reference info */}
                         <div className="text-xs text-stone-700 dark:text-stone-300 flex flex-wrap items-center gap-x-3 gap-y-1">
                           <span>
-                            {isHostPayment ? 'Host' : 'User'}:{' '}
+                            {isHostPayment ? 'Merchant/Host' : 'User'}:{' '}
                             <strong className="text-stone-900 dark:text-white">
                               {p.userName ? `${p.userName} (${p.userId || p.hostEmail})` : (p.userId || p.hostEmail)}
                             </strong>
                           </span>
-                          {p.referenceId && (
-                            <span className="text-stone-400">
-                              Ref: <span className="font-mono text-stone-600 dark:text-stone-300">{p.referenceId}</span>
+                          {(p.phone || p.phoneNumber) && (
+                            <span className="text-stone-500">
+                              Phone: <strong className="font-mono text-stone-700 dark:text-stone-200">{p.phone || p.phoneNumber}</strong>
+                            </span>
+                          )}
+                          {p.purposeLabel && (
+                            <span className="text-emerald-700 dark:text-emerald-400 font-semibold">
+                              Purpose: {p.purposeLabel}
                             </span>
                           )}
                           {p.planTier && (
@@ -1838,7 +2239,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           )}
                         </div>
 
-                        {/* Receipt Code and Dates */}
+                        {/* Receipt Code, Ledger Link and EAT Dates */}
                         <div className="text-[11px] text-stone-400 flex flex-wrap items-center gap-x-3 gap-y-1">
                           {p.mpesaCode && (
                             <span>
@@ -1848,50 +2249,112 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                               </span>
                             </span>
                           )}
-                          <span>Submitted: {new Date(p.createdAt).toLocaleString()}</span>
-                          {p.approvedAt && <span>Approved: {new Date(p.approvedAt).toLocaleTimeString()}</span>}
+                          <span>Submitted: {formatEATDateTime(p.submittedAt || p.createdAt)}</span>
+                          {p.approvedAt && <span>Approved: {formatEATDateTime(p.approvedAt)}</span>}
+                          {(p.creditLedgerId || p.credit_ledger_id) && (
+                            <span className="font-mono text-emerald-600 dark:text-emerald-400">
+                              Ledger: {p.creditLedgerId || p.credit_ledger_id}
+                            </span>
+                          )}
+                          {(p.refundReference || p.refundLedgerId) && (
+                            <span className="font-mono text-sky-600 dark:text-sky-400">
+                              Refund Ref: {p.refundReference || p.refundLedgerId}
+                            </span>
+                          )}
                         </div>
 
-                        {/* Rejection notice */}
-                        {p.rejectionReason && (
+                        {/* Decline or Refund notice */}
+                        {(p.declineReason || p.rejectionReason) && (
                           <div className="text-[11px] text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 p-2 rounded-xl">
-                            <strong>Decline Reason: </strong>{p.rejectionReason}
+                            <strong>Decline Reason: </strong>{p.declineReason || p.rejectionReason}
+                          </div>
+                        )}
+                        {p.refundReason && (
+                          <div className="text-[11px] text-sky-700 dark:text-sky-300 bg-sky-50 dark:bg-sky-950/40 border border-sky-200 dark:border-sky-900/60 p-2 rounded-xl">
+                            <strong>Refunded KES {alreadyRefunded.toLocaleString()}: </strong>{p.refundReason}
                           </div>
                         )}
                       </div>
 
-                      {/* Action Buttons for Pending Payments */}
+                      {/* Context-Aware Action Buttons */}
                       {isPending && (
                         <div className="flex items-center gap-2 shrink-0 pt-2 md:pt-0 border-t md:border-t-0 border-stone-100 dark:border-stone-800">
                           <button
                             type="button"
+                            disabled={processingPayment || isRowBusy}
                             onClick={() => {
                               setPaymentModalError(null);
                               setApproveModalPayment(p);
                             }}
-                            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-full text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center gap-1.5 active:scale-95"
+                            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-full text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center gap-1.5 active:scale-95 disabled:opacity-50"
                           >
                             <CheckCircle2 className="w-4 h-4" />
-                            <span>Approve &amp; Activate</span>
+                            <span>{isRowBusy ? 'Approving...' : 'Approve & Activate'}</span>
                           </button>
 
                           <button
                             type="button"
+                            disabled={processingPayment || isRowBusy}
                             onClick={() => {
                               setPaymentModalError(null);
                               setRejectModalPayment(p);
-                              setRejectReason('Invalid or unverified receipt details.');
+                              setRejectReason('Unverified M-Pesa confirmation receipt details.');
                             }}
-                            className="px-4 py-2 bg-stone-100 dark:bg-stone-800 hover:bg-rose-100 text-rose-600 rounded-full text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 active:scale-95"
+                            className="px-4 py-2 bg-stone-100 dark:bg-stone-800 hover:bg-rose-100 text-rose-600 rounded-full text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 active:scale-95 disabled:opacity-50"
                           >
                             <XCircle className="w-4 h-4" />
-                            <span>Decline / Refund</span>
+                            <span>Decline</span>
+                          </button>
+                        </div>
+                      )}
+
+                      {isApproved && remainingRefundable > 0 && (
+                        <div className="flex items-center gap-2 shrink-0 pt-2 md:pt-0 border-t md:border-t-0 border-stone-100 dark:border-stone-800">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setRefundError(null);
+                              setRefundModalPayment(p);
+                              setRefundAmountInput(String(remainingRefundable));
+                              setRefundReason('');
+                              setRefundAdminPassword('');
+                            }}
+                            className="px-4 py-2 bg-stone-100 dark:bg-stone-800 hover:bg-sky-100 dark:hover:bg-sky-950/60 text-sky-700 dark:text-sky-300 rounded-full text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5"
+                          >
+                            <Lock className="w-3.5 h-3.5" />
+                            <span>Refund</span>
                           </button>
                         </div>
                       )}
                     </div>
                   );
                 })}
+
+                {paymentTotalPages > 1 && (
+                  <div className="flex items-center justify-between pt-2 text-xs text-stone-500">
+                    <span>
+                      Showing page {paymentPage} of {paymentTotalPages} ({paymentTotalCount} matching records)
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={paymentPage <= 1}
+                        onClick={() => setPaymentPage(p => Math.max(1, p - 1))}
+                        className="px-3.5 py-1.5 rounded-xl border border-stone-200 dark:border-stone-700 font-bold disabled:opacity-40 cursor-pointer"
+                      >
+                        Previous
+                      </button>
+                      <button
+                        type="button"
+                        disabled={paymentPage >= paymentTotalPages}
+                        onClick={() => setPaymentPage(p => Math.min(paymentTotalPages, p + 1))}
+                        className="px-3.5 py-1.5 rounded-xl border border-stone-200 dark:border-stone-700 font-bold disabled:opacity-40 cursor-pointer"
+                      >
+                        Next
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })()}
@@ -3261,52 +3724,55 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                 </span>
                               )}
                             </div>
-                            <div className="text-[11px] font-mono text-stone-500">{p.userId || p.hostEmail}</div>
-                          </td>
-                          <td className="px-3 py-3">
-                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-200">
-                              {p.type || p.kind || 'deposit'}
-                            </span>
-                            <div className="text-[10px] text-stone-500 mt-0.5 uppercase">
-                              {p.method === 'mpesa_manual' ? 'M-Pesa' : p.method || 'M-Pesa'}
-                            </div>
-                          </td>
-                          <td className="px-3 py-3 font-mono font-black text-stone-900 dark:text-white tracking-wider">
-                            {p.mpesaCode || p.referenceId || p.reference || '—'}
-                          </td>
-                          <td className="px-3 py-3 text-right font-mono font-black text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
-                            KES {amountDisplay.toLocaleString()}
-                          </td>
-                          <td className="px-3 py-3">
-                            <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300">
-                              {p.status}
-                            </span>
-                          </td>
-                          <td className="px-3 py-3 text-right whitespace-nowrap">
-                            <div className="inline-flex items-center gap-1.5">
-                              <button
-                                type="button"
-                                disabled={processingPayment || isRowBusy}
-                                onClick={() => handleApprovePaymentRecord(p)}
-                                className="px-3 py-1.5 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-extrabold shadow-xs cursor-pointer disabled:opacity-50 inline-flex items-center gap-1"
-                              >
-                                <CheckCircle2 className="w-3.5 h-3.5" />
-                                <span>{isRowBusy ? 'Approving...' : 'Approve'}</span>
-                              </button>
-                              <button
-                                type="button"
-                                disabled={processingPayment || isRowBusy}
-                                onClick={() => {
-                                  setPaymentModalError(null);
-                                  setRejectModalPayment(p);
-                                  setRejectReason('Invalid or unverified receipt details.');
-                                }}
-                                className="px-3 py-1.5 rounded-full bg-stone-100 dark:bg-stone-800 hover:bg-rose-100 text-rose-600 text-[11px] font-bold cursor-pointer disabled:opacity-50"
-                              >
-                                Decline
-                              </button>
-                            </div>
-                          </td>
+                              <div className="text-[11px] font-mono text-stone-500">
+                                {p.userId || p.hostEmail}
+                                {(p.phone || p.phoneNumber) ? ` · ${p.phone || p.phoneNumber}` : ''}
+                              </div>
+                            </td>
+                            <td className="px-3 py-3">
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-200">
+                                {isDepositRecord(p) ? 'M-Pesa Deposit' : (p.type || p.kind || 'deposit')}
+                              </span>
+                              <div className="text-[10px] text-stone-500 mt-0.5">
+                                {p.purposeLabel || (p.method === 'mpesa_manual' ? 'M-Pesa' : p.method || 'M-Pesa')}
+                              </div>
+                            </td>
+                            <td className="px-3 py-3 font-mono font-black text-stone-900 dark:text-white tracking-wider">
+                              {p.mpesaCode || p.referenceId || p.reference || '—'}
+                            </td>
+                            <td className="px-3 py-3 text-right font-mono font-black text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
+                              KES {amountDisplay.toLocaleString()}
+                            </td>
+                            <td className="px-3 py-3">
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300">
+                                {p.canonicalStatus || p.status}
+                              </span>
+                            </td>
+                            <td className="px-3 py-3 text-right whitespace-nowrap">
+                              <div className="inline-flex items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  disabled={processingPayment || isRowBusy}
+                                  onClick={() => handleApprovePaymentRecord(p)}
+                                  className="px-3 py-1.5 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-extrabold shadow-xs cursor-pointer disabled:opacity-50 inline-flex items-center gap-1"
+                                >
+                                  <CheckCircle2 className="w-3.5 h-3.5" />
+                                  <span>{isRowBusy ? 'Approving...' : 'Approve'}</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={processingPayment || isRowBusy}
+                                  onClick={() => {
+                                    setPaymentModalError(null);
+                                    setRejectModalPayment(p);
+                                    setRejectReason('Unverified M-Pesa confirmation receipt details.');
+                                  }}
+                                  className="px-3 py-1.5 rounded-full bg-stone-100 dark:bg-stone-800 hover:bg-rose-100 text-rose-600 text-[11px] font-bold cursor-pointer disabled:opacity-50"
+                                >
+                                  Decline
+                                </button>
+                              </div>
+                            </td>
                         </tr>
                       );
                     })}
@@ -6073,7 +6539,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
       )}
 
-      {/* SHARED REJECT & REFUND MODAL (Queue & Wallets tabs) */}
+      {/* SHARED DECLINE MODAL (Queue & Wallets tabs) */}
       {rejectModalPayment && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white dark:bg-[#15171e] text-stone-900 dark:text-stone-100 rounded-3xl p-6 max-w-md w-full shadow-2xl border border-stone-200 dark:border-stone-800 space-y-4">
@@ -6086,7 +6552,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
             <div className="p-3 bg-stone-50 dark:bg-stone-900 rounded-2xl text-xs space-y-1 text-stone-600 dark:text-stone-300">
               <div>User: <strong className="text-stone-900 dark:text-white">{rejectModalPayment.userName || rejectModalPayment.userId || rejectModalPayment.hostEmail}</strong></div>
-              <div>Method: <strong className="uppercase">{rejectModalPayment.method || 'M-Pesa'}</strong></div>
+              <div>Code / Ref: <strong className="font-mono">{rejectModalPayment.mpesaCode || rejectModalPayment.reference || rejectModalPayment.referenceId || rejectModalPayment.id}</strong></div>
               <div>Amount: <strong className="font-mono text-rose-600">KES {Number(rejectModalPayment.claimedAmount ?? rejectModalPayment.amountKes ?? rejectModalPayment.amountSc ?? rejectModalPayment.amount ?? 0).toLocaleString()}</strong></div>
             </div>
 
@@ -6097,13 +6563,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             )}
 
             <div>
-              <label className="text-xs font-bold text-stone-700 dark:text-stone-300 block mb-1">
-                Reason for Rejection *
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs font-bold text-stone-700 dark:text-stone-300">
+                  Decline Reason ({MPESA_CONFIG.DECLINE_REASON_MIN_LEN}–{MPESA_CONFIG.DECLINE_REASON_MAX_LEN} chars) *
+                </label>
+                <span className={`text-[10px] font-mono ${rejectReason.trim().length < MPESA_CONFIG.DECLINE_REASON_MIN_LEN ? 'text-rose-500 font-bold' : 'text-stone-400'}`}>
+                  {rejectReason.trim().length}/{MPESA_CONFIG.DECLINE_REASON_MAX_LEN}
+                </span>
+              </div>
               <textarea
                 rows={3}
+                maxLength={MPESA_CONFIG.DECLINE_REASON_MAX_LEN}
                 value={rejectReason}
-                onChange={e => setRejectReason(e.target.value)}
+                onChange={e => {
+                  setRejectReason(e.target.value);
+                  if (paymentModalError) setPaymentModalError(null);
+                }}
                 placeholder="Enter specific reason (e.g. M-Pesa receipt could not be verified on statement)..."
                 className="w-full px-3 py-2 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-xs outline-none focus:border-rose-500"
                 required
@@ -6131,20 +6606,31 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </button>
               <button
                 type="button"
-                disabled={processingPayment || !rejectReason.trim()}
+                disabled={processingPayment}
                 onClick={async () => {
+                  const trimmed = rejectReason.trim();
+                  if (
+                    trimmed.length < MPESA_CONFIG.DECLINE_REASON_MIN_LEN ||
+                    trimmed.length > MPESA_CONFIG.DECLINE_REASON_MAX_LEN
+                  ) {
+                    setPaymentModalError(
+                      `Decline reason must be between ${MPESA_CONFIG.DECLINE_REASON_MIN_LEN} and ${MPESA_CONFIG.DECLINE_REASON_MAX_LEN} characters.`
+                    );
+                    return;
+                  }
                   setProcessingPayment(true);
                   setPaymentModalError(null);
                   try {
-                    await api.rejectPayment(rejectModalPayment.id, rejectReason.trim());
-                    showToast?.('Payment declined and ledger updated.');
+                    const res = await api.declineAdminPayment(rejectModalPayment.id, trimmed);
+                    if (res?.counts) setPaymentCounts(res.counts);
+                    showToast?.('Payment declined and merchant notified.');
                     setRejectModalPayment(null);
                     loadAdminData();
                     if (onPaymentModerated) {
                       await Promise.resolve(onPaymentModerated()).catch(() => {});
                     }
                   } catch (err: any) {
-                    setPaymentModalError(err.message || 'Decline failed.');
+                    setPaymentModalError(err?.message || 'Decline failed.');
                   } finally {
                     setProcessingPayment(false);
                   }
@@ -6154,6 +6640,145 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 {processingPayment ? 'Processing...' : 'Confirm Decline & Notify'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* GATED REFUND MODAL (Approved Payments Only) */}
+      {refundModalPayment && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-[#15171e] text-stone-900 dark:text-stone-100 rounded-3xl p-6 max-w-md w-full shadow-2xl border border-stone-200 dark:border-stone-800 space-y-4">
+            <div className="flex items-center gap-2 text-sky-600">
+              <Lock className="w-6 h-6" />
+              <h4 className="text-base font-extrabold text-stone-900 dark:text-white">
+                Refund Approved Payment
+              </h4>
+            </div>
+
+            <div className="p-3 bg-stone-50 dark:bg-stone-900 rounded-2xl text-xs space-y-1 text-stone-600 dark:text-stone-300">
+              <div>Account: <strong className="text-stone-900 dark:text-white">{refundModalPayment.userName || refundModalPayment.userId || refundModalPayment.hostEmail}</strong></div>
+              <div>M-Pesa / Ref Code: <strong className="font-mono">{refundModalPayment.mpesaCode || refundModalPayment.reference || refundModalPayment.id}</strong></div>
+              <div>Original Amount: <strong className="font-mono">KES {Number(refundModalPayment.approvedAmount ?? refundModalPayment.amountKes ?? refundModalPayment.amount ?? 0).toLocaleString()}</strong></div>
+            </div>
+
+            <form
+              onSubmit={async e => {
+                e.preventDefault();
+                setRefundError(null);
+                const maxRefund =
+                  Number(refundModalPayment.approvedAmount ?? refundModalPayment.amountKes ?? refundModalPayment.amount ?? 0) -
+                  Number(refundModalPayment.refundAmount || 0);
+                const amt = Number(refundAmountInput.trim());
+                if (!Number.isInteger(amt) || amt <= 0 || amt > maxRefund) {
+                  setRefundError(`Refund amount must be a whole integer between 1 and KES ${maxRefund.toLocaleString()}.`);
+                  return;
+                }
+                const trimmedReason = refundReason.trim();
+                if (
+                  trimmedReason.length < MPESA_CONFIG.DECLINE_REASON_MIN_LEN ||
+                  trimmedReason.length > MPESA_CONFIG.DECLINE_REASON_MAX_LEN
+                ) {
+                  setRefundError(
+                    `Refund reason must be ${MPESA_CONFIG.DECLINE_REASON_MIN_LEN}-${MPESA_CONFIG.DECLINE_REASON_MAX_LEN} characters.`
+                  );
+                  return;
+                }
+                if (!refundAdminPassword) {
+                  setRefundError('Admin password confirmation is required.');
+                  return;
+                }
+                setRefundBusy(true);
+                try {
+                  const res = await api.refundAdminPayment(refundModalPayment.id, {
+                    amount: amt,
+                    reason: trimmedReason,
+                    adminPassword: refundAdminPassword,
+                    idempotencyKey: `ref_${refundModalPayment.id}_${amt}_${Date.now()}`,
+                  });
+                  if (res?.counts) setPaymentCounts(res.counts);
+                  showToast?.(`Refunded KES ${amt.toLocaleString()} (Ref: ${res.refundReference}).`);
+                  setRefundModalPayment(null);
+                  loadAdminData();
+                  if (onPaymentModerated) {
+                    await Promise.resolve(onPaymentModerated()).catch(() => {});
+                  }
+                } catch (err: any) {
+                  setRefundError(err?.message || 'Refund failed.');
+                } finally {
+                  setRefundBusy(false);
+                }
+              }}
+              className="space-y-3"
+            >
+              <div>
+                <label className="text-xs font-bold text-stone-700 dark:text-stone-300 block mb-1">
+                  Refund Amount (KES integer) *
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  step={1}
+                  required
+                  value={refundAmountInput}
+                  onChange={e => setRefundAmountInput(e.target.value.replace(/[^0-9]/g, ''))}
+                  className="w-full px-3 py-2 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-xs font-mono font-bold outline-none focus:border-sky-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-stone-700 dark:text-stone-300 block mb-1">
+                  Refund Reason ({MPESA_CONFIG.DECLINE_REASON_MIN_LEN}–{MPESA_CONFIG.DECLINE_REASON_MAX_LEN} chars) *
+                </label>
+                <textarea
+                  rows={3}
+                  maxLength={MPESA_CONFIG.DECLINE_REASON_MAX_LEN}
+                  required
+                  value={refundReason}
+                  onChange={e => setRefundReason(e.target.value)}
+                  placeholder="State clear reason for authorizing this refund..."
+                  className="w-full px-3 py-2 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-xs outline-none focus:border-sky-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-stone-700 dark:text-stone-300 block mb-1">
+                  Admin Password Re-Auth *
+                </label>
+                <input
+                  type="password"
+                  required
+                  value={refundAdminPassword}
+                  onChange={e => setRefundAdminPassword(e.target.value)}
+                  placeholder="Enter admin password to authorize"
+                  className="w-full px-3 py-2 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-xs outline-none focus:border-sky-500"
+                />
+              </div>
+
+              {refundError && (
+                <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 shrink-0" />
+                  <span>{refundError}</span>
+                </div>
+              )}
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  disabled={refundBusy}
+                  onClick={() => setRefundModalPayment(null)}
+                  className="px-4 py-2 rounded-full border border-stone-200 dark:border-stone-700 text-xs font-bold text-stone-600 hover:bg-stone-100 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={refundBusy}
+                  className="px-5 py-2 rounded-full bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold shadow-md cursor-pointer disabled:opacity-50"
+                >
+                  {refundBusy ? 'Processing Refund...' : 'Confirm Refund'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

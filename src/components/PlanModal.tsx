@@ -1,8 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { HostPlanStatus, StayCategory, SubscriptionRecord } from '../types';
 import { X, Check, ShieldCheck, ArrowRight, ArrowLeft, Wallet, Zap, AlertCircle, Clock } from 'lucide-react';
 import { PLANS } from '../constants';
 import { api } from '../api';
+import {
+  MPESA_CONFIG,
+  PAYMENT_PURPOSE_OPTIONS,
+  PaymentStatus,
+  normalizeKenyanPhone,
+} from '../shared/paymentConstants';
 
 interface PlanModalProps {
   isOpen: boolean;
@@ -17,6 +23,7 @@ interface PlanModalProps {
   ) => Promise<void>;
   walletMode?: boolean;
   userWalletBalance?: number;
+  userPhone?: string;
   onPayFromWallet?: (tier: StayCategory, period?: 'monthly' | 'annual') => Promise<void>;
   portalSlot?: 'guest' | 'owner' | 'admin';
   onDepositSubmitted?: (payment: any) => void;
@@ -29,6 +36,7 @@ export const PlanModal: React.FC<PlanModalProps> = ({
   onSubmitPayment,
   walletMode = false,
   userWalletBalance = 0,
+  userPhone = '',
   onPayFromWallet,
   portalSlot,
   onDepositSubmitted,
@@ -39,10 +47,13 @@ export const PlanModal: React.FC<PlanModalProps> = ({
   const [isDepositFlow, setIsDepositFlow] = useState(walletMode);
   const [walletAmountInput, setWalletAmountInput] = useState('2500');
   const [mpesaCode, setMpesaCode] = useState('');
+  const [depositPhone, setDepositPhone] = useState(userPhone || '');
+  const [depositPurpose, setDepositPurpose] = useState<string>(PAYMENT_PURPOSE_OPTIONS[0].value);
   const [submitting, setSubmitting] = useState(false);
   const [walletPaying, setWalletPaying] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const idempotencyKeyRef = useRef<string>('');
 
   const [activeSub, setActiveSub] = useState<SubscriptionRecord | null>(null);
   const [pendingSub, setPendingSub] = useState<SubscriptionRecord | null>(null);
@@ -63,6 +74,9 @@ export const PlanModal: React.FC<PlanModalProps> = ({
     setError(null);
     setSuccessMsg(null);
     setMpesaCode('');
+    if (userPhone && !depositPhone) setDepositPhone(userPhone);
+    setDepositPurpose(walletMode ? PAYMENT_PURPOSE_OPTIONS[0].value : 'SUBSCRIPTION');
+    idempotencyKeyRef.current = '';
     if (api.getToken(resolvedSlot)) {
       api.getCurrentSubscription(resolvedSlot)
         .then(res => {
@@ -153,26 +167,59 @@ export const PlanModal: React.FC<PlanModalProps> = ({
     }
 
     const parsedAmount = Number(walletAmountInput.trim());
-    if (!walletAmountInput.trim() || !Number.isInteger(parsedAmount) || parsedAmount < 10) {
-      setError('Minimum wallet deposit amount is KES 10 (whole integer Ksh).');
+    if (
+      !walletAmountInput.trim() ||
+      !Number.isInteger(parsedAmount) ||
+      parsedAmount < MPESA_CONFIG.MIN_DEPOSIT_KES ||
+      parsedAmount > MPESA_CONFIG.MAX_DEPOSIT_KES
+    ) {
+      setError(
+        `Deposit amount must be a whole integer between KES ${MPESA_CONFIG.MIN_DEPOSIT_KES.toLocaleString()} and KES ${MPESA_CONFIG.MAX_DEPOSIT_KES.toLocaleString()}.`
+      );
       return;
     }
 
     const cleanCode = mpesaCode.trim().toUpperCase();
-    if (!cleanCode || !/^[A-Z0-9]{8,15}$/.test(cleanCode)) {
-      setError('M-Pesa code must be 8-15 letters/digits (e.g. QGH7X2K9LM).');
+    if (!cleanCode || !MPESA_CONFIG.CODE_REGEX.test(cleanCode)) {
+      setError(
+        `M-Pesa code must be ${MPESA_CONFIG.CODE_MIN_LEN}-${MPESA_CONFIG.CODE_MAX_LEN} letters/digits (e.g. QGH7X2K9LM).`
+      );
       return;
+    }
+
+    const rawPhone = depositPhone.replace(/[\s()-]/g, '').trim();
+    if (!rawPhone || !MPESA_CONFIG.PHONE_REGEX.test(rawPhone)) {
+      setError('Enter a valid Kenyan M-Pesa phone number (e.g. 0712345678 or +254712345678).');
+      return;
+    }
+    const cleanPhone = normalizeKenyanPhone(rawPhone);
+
+    if (!idempotencyKeyRef.current) {
+      idempotencyKeyRef.current = `dep_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     }
 
     setSubmitting(true);
     try {
-      const res = await api.topupWallet(parsedAmount, cleanCode, { slot: resolvedSlot });
-      if (!res?.payment || res.payment.status !== 'pending') {
+      const res = await api.submitMerchantDeposit(
+        {
+          amount: parsedAmount,
+          mpesaCode: cleanCode,
+          phone: cleanPhone,
+          purpose: depositPurpose || PAYMENT_PURPOSE_OPTIONS[0].value,
+          idempotencyKey: idempotencyKeyRef.current,
+        },
+        resolvedSlot
+      );
+      if (
+        !res?.payment ||
+        (res.payment.canonicalStatus !== PaymentStatus.PENDING && res.payment.status !== 'pending')
+      ) {
         throw new Error('Deposit could not be queued for Admin approval. Please try again.');
       }
+      idempotencyKeyRef.current = '';
       setMpesaCode('');
       setSuccessMsg(
-        `Deposit (M-Pesa) of KES ${parsedAmount.toLocaleString()} (Code: ${cleanCode}) submitted with status: pending! Your wallet will be credited automatically in real time as soon as Admin approves.`
+        `Deposit (M-Pesa) of KES ${parsedAmount.toLocaleString()} (Code: ${cleanCode}) submitted for Admin approval! Your AirBus wallet will update automatically in real time once approved.`
       );
       try {
         onDepositSubmitted?.(res.payment);
@@ -496,11 +543,16 @@ export const PlanModal: React.FC<PlanModalProps> = ({
             {/* M-PESA INSTRUCTIONS TICKET */}
             <div className="p-4 bg-stone-900 text-emerald-400 font-mono text-xs rounded-2xl shadow-inner border border-emerald-500/30 mb-5 space-y-1">
               <div className="text-white font-bold tracking-wider mb-1">DEPOSIT (M-PESA) — LIPA NA M-PESA</div>
-              <div>Paybill Number: <span className="text-white font-bold text-sm">222111</span> · Account: <span className="text-white font-bold text-sm">ff1314</span></div>
-              <div>Till Option: <span className="text-white font-bold text-sm">943210</span></div>
+              <div>
+                Paybill Number: <span className="text-white font-bold text-sm">{MPESA_CONFIG.PAYBILL_NUMBER}</span> · Account:{' '}
+                <span className="text-white font-bold text-sm">{MPESA_CONFIG.PAYBILL_ACCOUNT}</span>
+              </div>
+              <div>
+                Till Option: <span className="text-white font-bold text-sm">{MPESA_CONFIG.TILL_NUMBER}</span>
+              </div>
               <div>Deposit Amount: <span className="text-emerald-300 font-bold text-sm">KES {Number(walletAmount || 0).toLocaleString()}</span></div>
               <div className="text-stone-400 text-[10px] pt-1">
-                Submit exact integer Ksh sent via M-Pesa. Admin will approve this exact amount into your wallet.
+                Submit exact integer Ksh sent via M-Pesa. Admin will approve this exact amount into your AirBus wallet.
               </div>
             </div>
 
@@ -511,20 +563,27 @@ export const PlanModal: React.FC<PlanModalProps> = ({
                 </label>
                 <input
                   type="number"
-                  min="10"
+                  min={MPESA_CONFIG.MIN_DEPOSIT_KES}
+                  max={MPESA_CONFIG.MAX_DEPOSIT_KES}
                   step="1"
                   value={walletAmountInput}
-                  onChange={e => setWalletAmountInput(e.target.value.replace(/[^0-9]/g, ''))}
+                  onChange={e => {
+                    idempotencyKeyRef.current = '';
+                    setWalletAmountInput(e.target.value.replace(/[^0-9]/g, ''));
+                  }}
                   placeholder="e.g. 2500"
                   className="w-full px-3.5 py-2 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-sm font-mono font-bold outline-none focus:border-emerald-500"
                   required
                 />
                 <div className="flex flex-wrap gap-1.5 mt-2">
-                  {[500, 1000, 2500, 5000, 10000].map(preset => (
+                  {MPESA_CONFIG.PRESET_AMOUNTS_KES.map(preset => (
                     <button
                       key={preset}
                       type="button"
-                      onClick={() => setWalletAmountInput(String(preset))}
+                      onClick={() => {
+                        idempotencyKeyRef.current = '';
+                        setWalletAmountInput(String(preset));
+                      }}
                       className={`px-2.5 py-1 rounded-full text-[11px] font-bold border transition-all cursor-pointer ${
                         Number(walletAmountInput) === preset
                           ? 'bg-emerald-600 text-white border-emerald-600'
@@ -537,15 +596,57 @@ export const PlanModal: React.FC<PlanModalProps> = ({
                 </div>
               </div>
 
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-bold text-stone-700 dark:text-stone-300 block mb-1">
+                    M-Pesa Phone Number *
+                  </label>
+                  <input
+                    type="tel"
+                    value={depositPhone}
+                    onChange={e => {
+                      idempotencyKeyRef.current = '';
+                      setDepositPhone(e.target.value);
+                    }}
+                    placeholder="e.g. 0712345678 or +254712345678"
+                    className="w-full px-3.5 py-2 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-sm font-mono outline-none focus:border-emerald-500"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-stone-700 dark:text-stone-300 block mb-1">
+                    Deposit Purpose *
+                  </label>
+                  <select
+                    value={depositPurpose}
+                    onChange={e => {
+                      idempotencyKeyRef.current = '';
+                      setDepositPurpose(e.target.value);
+                    }}
+                    className="w-full px-3.5 py-2 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-xs font-semibold outline-none focus:border-emerald-500"
+                  >
+                    {PAYMENT_PURPOSE_OPTIONS.map(opt => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
               <div>
                 <label className="text-xs font-bold text-stone-700 dark:text-stone-300 block mb-1">
                   M-Pesa Transaction Receipt Code *
                 </label>
                 <input
                   type="text"
-                  maxLength={15}
+                  maxLength={MPESA_CONFIG.CODE_MAX_LEN}
                   value={mpesaCode}
-                  onChange={e => setMpesaCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
+                  onChange={e => {
+                    idempotencyKeyRef.current = '';
+                    setMpesaCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''));
+                  }}
                   placeholder="e.g. QGH7X2K9LM"
                   className="w-full px-3.5 py-2.5 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-sm font-mono font-bold tracking-widest uppercase outline-none focus:border-emerald-500"
                   required

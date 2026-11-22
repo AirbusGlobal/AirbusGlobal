@@ -1743,6 +1743,7 @@ export default function App() {
         onSubmitPayment={handleSubmitPayment}
         walletMode={planWalletMode}
         userWalletBalance={walletBalance}
+        userPhone={user?.phone || ''}
         onPayFromWallet={handlePayPlanFromWallet}
         portalSlot={
           user?.role === 'owner'

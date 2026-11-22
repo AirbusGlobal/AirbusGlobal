@@ -88,10 +88,20 @@ export interface DatabaseSchema {
   listing_collections?: import('../types').ListingCollectionJoin[];
   transactional_outbox?: Array<{
     id: string;
-    kind: 'stay_approved_notification' | 'stay_approved_sse';
-    stayId: string;
+    kind:
+      | 'stay_approved_notification'
+      | 'stay_approved_sse'
+      | 'payment.submitted'
+      | 'payment.approved'
+      | 'payment.declined'
+      | 'payment.refunded';
+    stayId?: string;
+    paymentId?: string;
     payload: unknown;
-    status: 'pending' | 'delivered';
+    status: 'pending' | 'delivered' | 'failed';
+    attempts?: number;
+    nextRetryAt?: number;
+    lastError?: string;
     createdAt: number;
     deliveredAt?: number;
   }>;

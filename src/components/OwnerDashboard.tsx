@@ -12,9 +12,17 @@ import {
   ShortJob,
   ListingAudioConfig,
   ShortAudioConfig,
+  PaymentRecord,
 } from '../types';
 import { api } from '../api';
 import { SharedVideoPlayer } from './shared/SharedVideoPlayer';
+import {
+  MPESA_CONFIG,
+  PAYMENT_PURPOSE_OPTIONS,
+  PaymentStatus,
+  normalizeKenyanPhone,
+} from '../shared/paymentConstants';
+import { formatEATDateTime } from '../utils/time';
 import {
   Plus,
   CreditCard,
@@ -123,11 +131,16 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
   const [promotions, setPromotions] = useState<ListingPromotion[]>([]);
   const [boostCampaigns, setBoostCampaigns] = useState<BoostRecord[]>([]);
   const [walletTransactions, setWalletTransactions] = useState<any[]>([]);
+  const [merchantDeposits, setMerchantDeposits] = useState<PaymentRecord[]>([]);
+  const [unackedDepositNotices, setUnackedDepositNotices] = useState<PaymentRecord[]>([]);
   const [loadingHostWallet, setLoadingHostWallet] = useState<boolean>(false);
   const [hostDepositAmount, setHostDepositAmount] = useState<string>('2500');
   const [hostDepositCode, setHostDepositCode] = useState<string>('');
+  const [hostDepositPhone, setHostDepositPhone] = useState<string>(user.phone || '');
+  const [hostDepositPurpose, setHostDepositPurpose] = useState<string>(PAYMENT_PURPOSE_OPTIONS[0].value);
   const [hostDepositing, setHostDepositing] = useState<boolean>(false);
   const [hostDepositFeedback, setHostDepositFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const hostDepositIdemKeyRef = useRef<string>('');
   const [selectedStayIdForPromo, setSelectedStayIdForPromo] = useState<string>(myStays[0]?.id || '');
   const [promoDays, setPromoDays] = useState<number>(7);
   const [promoLoading, setPromoLoading] = useState<boolean>(false);
@@ -169,9 +182,12 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
   const fetchHostWallet = () => {
     if (!api.getToken(ownerPortalSlot)) return;
     setLoadingHostWallet(true);
-    api.getWallet(ownerPortalSlot)
-      .then(res => {
-        if (Array.isArray(res?.transactions)) {
+    Promise.all([
+      api.getWallet(ownerPortalSlot).catch(() => null),
+      api.getMerchantDeposits(ownerPortalSlot).catch(() => null),
+    ])
+      .then(([res, depRes]) => {
+        if (res && Array.isArray(res?.transactions)) {
           const prevApproved = seenApprovedTxIdsRef.current;
           const approvedNow = res.transactions.filter((tx: any) => tx.status === 'approved');
           if (prevApproved !== null) {
@@ -191,9 +207,21 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
           seenApprovedTxIdsRef.current = new Set(approvedNow.map((tx: any) => tx.id));
           setWalletTransactions(res.transactions);
         }
+        if (depRes) {
+          setMerchantDeposits(Array.isArray(depRes.deposits) ? depRes.deposits : []);
+          setUnackedDepositNotices(Array.isArray(depRes.unackedNotices) ? depRes.unackedNotices : []);
+        }
       })
-      .catch(() => {})
       .finally(() => setLoadingHostWallet(false));
+  };
+
+  const handleDismissDepositNotice = async (paymentId: string) => {
+    setUnackedDepositNotices(prev => prev.filter(n => n.id !== paymentId));
+    try {
+      await api.ackMerchantDepositNotice(paymentId, ownerPortalSlot);
+    } catch {
+      // ignore transient error; next poll will sync
+    }
   };
 
   useEffect(() => {
@@ -235,18 +263,20 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
     };
   }, [user.email]);
 
-  // Fast background sync while Host Wallet tab is open or any deposit is pending
+  // Background polling sync (15s standard fallback + 5s when wallet tab is open or deposits pending)
   useEffect(() => {
-    const hasPendingDeposit = walletTransactions.some((tx: any) => tx.status === 'pending');
-    if (activeTab !== 'wallet' && !hasPendingDeposit) return;
+    const hasPendingDeposit =
+      walletTransactions.some((tx: any) => tx.status === 'pending') ||
+      merchantDeposits.some(d => d.canonicalStatus === PaymentStatus.PENDING || d.status === 'pending');
     if (!api.getToken(ownerPortalSlot)) return;
+    const pollMs = activeTab === 'wallet' || hasPendingDeposit ? 5000 : MPESA_CONFIG.POLL_INTERVAL_MS;
     const timer = window.setInterval(() => {
       if (!api.getToken(ownerPortalSlot)) return;
       fetchHostWallet();
       onRefreshWallet?.();
-    }, 4000);
+    }, pollMs);
     return () => window.clearInterval(timer);
-  }, [activeTab, walletTransactions, ownerPortalSlot]);
+  }, [activeTab, walletTransactions, merchantDeposits, ownerPortalSlot]);
 
   // Shorts & Reels Auto-Creation + Per-Listing Tier Quotas + Gold Listing Audio State
   const tierRules = getShortsTierRules(plan.tier, isPlanActive);
@@ -1265,6 +1295,70 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
           >
             {plan.hasPaidSubscription ? 'Renew & Restore Listings' : 'Pay & Activate Plan'}
           </button>
+        </div>
+      )}
+
+      {/* One-time Offline/Realtime Deposit Approval, Decline & Refund Notice Banners */}
+      {unackedDepositNotices.length > 0 && (
+        <div className="mb-6 space-y-2.5">
+          {unackedDepositNotices.map(notice => {
+            const eventKind = notice.merchantNoticeEvent || 'APPROVED';
+            const amt = Number(notice.approvedAmount ?? notice.claimedAmount ?? notice.amountKes ?? notice.amount ?? 0);
+            const code = notice.mpesaCode || notice.reference || notice.referenceId || notice.id;
+            const isApproved = eventKind === 'APPROVED';
+            const isDeclined = eventKind === 'DECLINED';
+            return (
+              <div
+                key={notice.id}
+                className={`p-4 rounded-2xl border flex items-start justify-between gap-3 text-xs shadow-sm ${
+                  isApproved
+                    ? 'bg-emerald-50 dark:bg-emerald-950/50 border-emerald-300 dark:border-emerald-700 text-emerald-900 dark:text-emerald-100'
+                    : isDeclined
+                    ? 'bg-rose-50 dark:bg-rose-950/50 border-rose-300 dark:border-rose-700 text-rose-900 dark:text-rose-100'
+                    : 'bg-amber-50 dark:bg-amber-950/50 border-amber-300 dark:border-amber-700 text-amber-900 dark:text-amber-100'
+                }`}
+              >
+                <div className="flex items-start gap-2.5">
+                  {isApproved ? (
+                    <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                  ) : (
+                    <AlertCircle className="w-5 h-5 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
+                  )}
+                  <div>
+                    <div className="font-extrabold text-sm">
+                      {isApproved
+                        ? `M-Pesa Deposit Approved · +KES ${amt.toLocaleString()} Credited`
+                        : isDeclined
+                        ? `M-Pesa Deposit Declined · KES ${amt.toLocaleString()}`
+                        : `M-Pesa Deposit Refunded · KES ${Number(notice.refundAmount || amt).toLocaleString()}`}
+                    </div>
+                    <p className="text-[11px] mt-0.5 opacity-90">
+                      Code <strong className="font-mono">{code}</strong>
+                      {notice.purposeLabel ? ` · ${notice.purposeLabel}` : ''}
+                      {isDeclined && (notice.declineReason || notice.rejectionReason) && (
+                        <span> — Reason: <strong>{notice.declineReason || notice.rejectionReason}</strong></span>
+                      )}
+                      {!isApproved && !isDeclined && notice.refundReason && (
+                        <span> — Reason: <strong>{notice.refundReason}</strong></span>
+                      )}
+                      {isApproved && (
+                        <span>
+                          {' '}· Current AirBus Wallet: <strong className="font-mono">KES {walletBalance.toLocaleString()}</strong>.
+                        </span>
+                      )}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleDismissDepositNotice(notice.id)}
+                  className="px-2.5 py-1 rounded-full bg-white/60 dark:bg-black/30 hover:bg-white dark:hover:bg-black/50 text-[11px] font-bold cursor-pointer shrink-0"
+                >
+                  Dismiss
+                </button>
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -2584,16 +2678,16 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
           <div className="bg-white dark:bg-[#15171e] p-6 rounded-3xl border border-stone-200 dark:border-stone-800 shadow-sm space-y-5">
             <div>
               <span className="text-[10px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300">
-                Deposit (M-Pesa) · Till 943210 / Paybill 222111
+                Deposit (M-Pesa) · Till {MPESA_CONFIG.TILL_NUMBER} / Paybill {MPESA_CONFIG.PAYBILL_NUMBER}
               </span>
               <h3 className="text-lg font-extrabold text-stone-900 dark:text-white mt-2">
                 Deposit (M-Pesa) to Your Host Wallet
               </h3>
               <p className="text-xs text-stone-500 mt-1">
                 Go to M-Pesa → Lipa na M-Pesa → Buy Goods Till{' '}
-                <strong className="font-mono text-stone-900 dark:text-white">943210</strong> (or Paybill{' '}
-                <strong className="font-mono text-stone-900 dark:text-white">222111</strong> Acc:{' '}
-                <strong className="font-mono text-stone-900 dark:text-white">ff1314</strong>). Enter the exact whole Ksh amount you sent and your M-Pesa confirmation code below. Admin will see your exact amount and code to approve into your Host wallet.
+                <strong className="font-mono text-stone-900 dark:text-white">{MPESA_CONFIG.TILL_NUMBER}</strong> (or Paybill{' '}
+                <strong className="font-mono text-stone-900 dark:text-white">{MPESA_CONFIG.PAYBILL_NUMBER}</strong> Acc:{' '}
+                <strong className="font-mono text-stone-900 dark:text-white">{MPESA_CONFIG.PAYBILL_ACCOUNT}</strong>). Enter the exact whole Ksh amount, M-Pesa phone number, purpose, and confirmation code below. Admin will see your exact submission in Payments for approval.
               </p>
             </div>
 
@@ -2602,24 +2696,51 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                 e.preventDefault();
                 setHostDepositFeedback(null);
                 const num = Number(hostDepositAmount.trim());
-                if (!hostDepositAmount.trim() || !Number.isInteger(num) || num < 10) {
+                if (
+                  !hostDepositAmount.trim() ||
+                  !Number.isInteger(num) ||
+                  num < MPESA_CONFIG.MIN_DEPOSIT_KES ||
+                  num > MPESA_CONFIG.MAX_DEPOSIT_KES
+                ) {
                   setHostDepositFeedback({
                     type: 'error',
-                    text: 'Minimum deposit amount is KES 10 (whole integer Ksh).',
+                    text: `Deposit amount must be a whole integer between KES ${MPESA_CONFIG.MIN_DEPOSIT_KES.toLocaleString()} and KES ${MPESA_CONFIG.MAX_DEPOSIT_KES.toLocaleString()}.`,
                   });
                   return;
                 }
                 const cleanCode = hostDepositCode.trim().toUpperCase();
-                if (!/^[A-Z0-9]{8,15}$/.test(cleanCode)) {
+                if (!MPESA_CONFIG.CODE_REGEX.test(cleanCode)) {
                   setHostDepositFeedback({
                     type: 'error',
-                    text: 'Enter a valid 8-15 character M-Pesa confirmation code (e.g. QWE123RTY4).',
+                    text: `Enter a valid ${MPESA_CONFIG.CODE_MIN_LEN}-${MPESA_CONFIG.CODE_MAX_LEN} character M-Pesa confirmation code (e.g. QWE123RTY4).`,
                   });
                   return;
                 }
+                const rawPhone = hostDepositPhone.replace(/[\s()-]/g, '').trim();
+                if (!rawPhone || !MPESA_CONFIG.PHONE_REGEX.test(rawPhone)) {
+                  setHostDepositFeedback({
+                    type: 'error',
+                    text: 'Enter a valid Kenyan M-Pesa phone number (e.g. 0712345678 or +254712345678).',
+                  });
+                  return;
+                }
+                const cleanPhone = normalizeKenyanPhone(rawPhone);
+                if (!hostDepositIdemKeyRef.current) {
+                  hostDepositIdemKeyRef.current = `dep_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+                }
                 setHostDepositing(true);
                 try {
-                  const res = await api.topupWallet(num, cleanCode, { slot: ownerPortalSlot });
+                  const res = await api.submitMerchantDeposit(
+                    {
+                      amount: num,
+                      mpesaCode: cleanCode,
+                      phone: cleanPhone,
+                      purpose: hostDepositPurpose || PAYMENT_PURPOSE_OPTIONS[0].value,
+                      idempotencyKey: hostDepositIdemKeyRef.current,
+                    },
+                    ownerPortalSlot
+                  );
+                  hostDepositIdemKeyRef.current = '';
                   setHostDepositCode('');
                   setHostDepositFeedback({
                     type: 'success',
@@ -2641,21 +2762,60 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
               }}
               className="space-y-4"
             >
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div>
                   <label className="text-xs font-bold text-stone-700 dark:text-stone-300 block mb-1">
                     Deposit Amount (KES)
                   </label>
                   <input
                     type="number"
-                    min={10}
+                    min={MPESA_CONFIG.MIN_DEPOSIT_KES}
+                    max={MPESA_CONFIG.MAX_DEPOSIT_KES}
                     step={1}
                     required
                     value={hostDepositAmount}
-                    onChange={e => setHostDepositAmount(e.target.value.replace(/[^0-9]/g, ''))}
+                    onChange={e => {
+                      hostDepositIdemKeyRef.current = '';
+                      setHostDepositAmount(e.target.value.replace(/[^0-9]/g, ''));
+                    }}
                     placeholder="e.g. 2500"
                     className="w-full px-3.5 py-2.5 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-sm font-mono font-bold outline-none focus:border-emerald-500"
                   />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-stone-700 dark:text-stone-300 block mb-1">
+                    M-Pesa Phone Number *
+                  </label>
+                  <input
+                    type="tel"
+                    required
+                    value={hostDepositPhone}
+                    onChange={e => {
+                      hostDepositIdemKeyRef.current = '';
+                      setHostDepositPhone(e.target.value);
+                    }}
+                    placeholder="e.g. 0712345678"
+                    className="w-full px-3.5 py-2.5 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-sm font-mono outline-none focus:border-emerald-500"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-stone-700 dark:text-stone-300 block mb-1">
+                    Purpose *
+                  </label>
+                  <select
+                    value={hostDepositPurpose}
+                    onChange={e => {
+                      hostDepositIdemKeyRef.current = '';
+                      setHostDepositPurpose(e.target.value);
+                    }}
+                    className="w-full px-3 py-2.5 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-xs font-semibold outline-none focus:border-emerald-500"
+                  >
+                    {PAYMENT_PURPOSE_OPTIONS.map(opt => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div>
                   <label className="text-xs font-bold text-stone-700 dark:text-stone-300 block mb-1">
@@ -2664,9 +2824,12 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                   <input
                     type="text"
                     required
-                    maxLength={15}
+                    maxLength={MPESA_CONFIG.CODE_MAX_LEN}
                     value={hostDepositCode}
-                    onChange={e => setHostDepositCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
+                    onChange={e => {
+                      hostDepositIdemKeyRef.current = '';
+                      setHostDepositCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''));
+                    }}
                     placeholder="e.g. QGH7X2K9LM"
                     className="w-full px-3.5 py-2.5 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-sm font-mono uppercase tracking-wider outline-none focus:border-emerald-500"
                   />
@@ -2674,11 +2837,14 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
               </div>
 
               <div className="flex flex-wrap gap-2">
-                {[500, 1000, 2500, 5000, 10000].map(preset => (
+                {MPESA_CONFIG.PRESET_AMOUNTS_KES.map(preset => (
                   <button
                     key={preset}
                     type="button"
-                    onClick={() => setHostDepositAmount(String(preset))}
+                    onClick={() => {
+                      hostDepositIdemKeyRef.current = '';
+                      setHostDepositAmount(String(preset));
+                    }}
                     className={`px-3 py-1.5 rounded-full text-xs font-bold border transition-all cursor-pointer ${
                       Number(hostDepositAmount) === preset
                         ? 'bg-emerald-600 text-white border-emerald-600'
@@ -2712,6 +2878,106 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
             </form>
           </div>
 
+          {/* Dedicated My Deposits Status History */}
+          <div className="p-6 bg-white dark:bg-[#15171e] rounded-3xl border border-stone-200 dark:border-stone-800 shadow-sm space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h4 className="text-sm font-extrabold text-stone-900 dark:text-white">
+                  My Deposits ({merchantDeposits.length})
+                </h4>
+                <p className="text-[11px] text-stone-500">
+                  Live moderation status for every M-Pesa deposit you submitted to your AirBus Wallet (Africa/Nairobi EAT).
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5 text-[10px] font-bold">
+                <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300">
+                  Pending: {merchantDeposits.filter(d => d.canonicalStatus === PaymentStatus.PENDING || d.status === 'pending').length}
+                </span>
+                <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
+                  Approved: {merchantDeposits.filter(d => d.canonicalStatus === PaymentStatus.APPROVED || d.status === 'approved').length}
+                </span>
+                <span className="px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300">
+                  Declined: {merchantDeposits.filter(d => d.canonicalStatus === PaymentStatus.DECLINED || d.status === 'rejected').length}
+                </span>
+              </div>
+            </div>
+
+            {merchantDeposits.length === 0 ? (
+              <div className="p-6 text-center border border-dashed border-stone-200 dark:border-stone-800 rounded-2xl text-xs text-stone-400">
+                No M-Pesa deposit submissions yet. Submit one above to fund your AirBus Wallet.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs min-w-[720px]">
+                  <thead className="border-b border-stone-200 dark:border-stone-800 text-[10px] uppercase font-bold text-stone-400">
+                    <tr>
+                      <th className="py-2.5 px-3">Submitted (EAT)</th>
+                      <th className="py-2.5 px-3">M-Pesa Code</th>
+                      <th className="py-2.5 px-3">Phone</th>
+                      <th className="py-2.5 px-3">Purpose</th>
+                      <th className="py-2.5 px-3">Amount</th>
+                      <th className="py-2.5 px-3">Status &amp; Review Note</th>
+                      <th className="py-2.5 px-3">Ledger Ref</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-stone-100 dark:divide-stone-800">
+                    {merchantDeposits.map(dep => {
+                      const canon = dep.canonicalStatus || (dep.status === 'approved' ? PaymentStatus.APPROVED : dep.status === 'rejected' ? PaymentStatus.DECLINED : dep.status === 'refunded' ? PaymentStatus.REFUNDED : PaymentStatus.PENDING);
+                      const amt = Number(dep.approvedAmount ?? dep.claimedAmount ?? dep.amountKes ?? dep.amount ?? 0);
+                      return (
+                        <tr key={dep.id} className="hover:bg-stone-50 dark:hover:bg-stone-900/50">
+                          <td className="py-3 px-3 text-stone-500 whitespace-nowrap">
+                            {formatEATDateTime(dep.submittedAt || dep.createdAt)}
+                          </td>
+                          <td className="py-3 px-3 font-mono font-bold text-stone-900 dark:text-white">
+                            {dep.mpesaCode || dep.reference || dep.referenceId}
+                          </td>
+                          <td className="py-3 px-3 font-mono text-stone-600 dark:text-stone-300">
+                            {dep.phone || dep.phoneNumber || '—'}
+                          </td>
+                          <td className="py-3 px-3 text-stone-700 dark:text-stone-300">
+                            {dep.purposeLabel || dep.purpose || 'AirBus Wallet Top-Up'}
+                          </td>
+                          <td className="py-3 px-3 font-mono font-black text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
+                            KES {amt.toLocaleString()}
+                          </td>
+                          <td className="py-3 px-3">
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase ${
+                                canon === PaymentStatus.APPROVED
+                                  ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
+                                  : canon === PaymentStatus.PENDING
+                                  ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
+                                  : canon === PaymentStatus.REFUNDED
+                                  ? 'bg-sky-100 text-sky-800 dark:bg-sky-950/60 dark:text-sky-300'
+                                  : 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300'
+                              }`}
+                            >
+                              {canon === PaymentStatus.PENDING ? 'Pending Approval' : canon}
+                            </span>
+                            {canon === PaymentStatus.DECLINED && (dep.declineReason || dep.rejectionReason) && (
+                              <div className="text-[10px] text-rose-600 dark:text-rose-400 mt-1">
+                                Reason: {dep.declineReason || dep.rejectionReason}
+                              </div>
+                            )}
+                            {canon === PaymentStatus.REFUNDED && dep.refundReason && (
+                              <div className="text-[10px] text-sky-600 dark:text-sky-400 mt-1">
+                                Refund ({dep.refundReference || 'Ref'}): {dep.refundReason}
+                              </div>
+                            )}
+                          </td>
+                          <td className="py-3 px-3 font-mono text-[10px] text-stone-500">
+                            {dep.creditLedgerId || dep.refundLedgerId || '—'}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
           <div className="p-6 bg-white dark:bg-[#15171e] rounded-3xl border border-stone-200 dark:border-stone-800 shadow-sm space-y-4">
             <div className="flex items-center justify-between">
               <h4 className="text-sm font-extrabold text-stone-900 dark:text-white">
@@ -2729,7 +2995,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                 <table className="w-full text-left text-xs min-w-[640px]">
                   <thead className="border-b border-stone-200 dark:border-stone-800 text-[10px] uppercase font-bold text-stone-400">
                     <tr>
-                      <th className="py-2.5 px-3">Date</th>
+                      <th className="py-2.5 px-3">Date (EAT)</th>
                       <th className="py-2.5 px-3">User</th>
                       <th className="py-2.5 px-3">Type</th>
                       <th className="py-2.5 px-3">Amount</th>
@@ -2741,7 +3007,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                     {walletTransactions.map(tx => (
                       <tr key={tx.id} className="hover:bg-stone-50 dark:hover:bg-stone-900/50">
                         <td className="py-3 px-3 text-stone-500 whitespace-nowrap">
-                          {new Date(tx.date || tx.createdAt).toLocaleString()}
+                          {formatEATDateTime(tx.date || tx.createdAt)}
                         </td>
                         <td className="py-3 px-3 font-mono text-[11px] text-stone-700 dark:text-stone-300">
                           {tx.user}
