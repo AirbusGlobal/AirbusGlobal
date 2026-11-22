@@ -57,6 +57,7 @@ import {
   Music,
   RefreshCw,
   Captions,
+  X,
 } from 'lucide-react';
 import { AMENITY_GROUPS, PLANS } from '../constants';
 import { extractYouTubeId, getYouTubeThumbnailUrl, isYouTubeUrl } from '../utils/youtube';
@@ -132,7 +133,20 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
   const [promoLoading, setPromoLoading] = useState<boolean>(false);
   const [promoFeedback, setPromoFeedback] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
 
-  const ownerPortalSlot = user.role === 'owner' ? ('owner' as const) : undefined;
+  const [realtimeApprovedDeposit, setRealtimeApprovedDeposit] = useState<{
+    id: string;
+    amount: number;
+    mpesaCode: string;
+    balance?: number;
+  } | null>(null);
+  const seenApprovedTxIdsRef = useRef<Set<string> | null>(null);
+
+  const ownerPortalSlot =
+    user.role === 'owner'
+      ? ('owner' as const)
+      : user.role === 'admin'
+      ? ('admin' as const)
+      : ('guest' as const);
 
   // Keep active public portal synced while OwnerDashboard is active for an owner
   useEffect(() => {
@@ -143,19 +157,38 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
 
   // Load host promotions, boosts, and private wallet transactions
   const fetchPromotions = () => {
-    api.getBoosts()
+    if (!api.getToken(ownerPortalSlot)) return;
+    api.getBoosts(ownerPortalSlot)
       .then(res => setBoostCampaigns(res.campaigns || res.boosts || []))
       .catch(() => {});
-    api.getOwnerPromotions()
+    api.getOwnerPromotions(ownerPortalSlot)
       .then(res => setPromotions(res.promotions || []))
       .catch(() => {});
   };
 
   const fetchHostWallet = () => {
+    if (!api.getToken(ownerPortalSlot)) return;
     setLoadingHostWallet(true);
     api.getWallet(ownerPortalSlot)
       .then(res => {
         if (Array.isArray(res?.transactions)) {
+          const prevApproved = seenApprovedTxIdsRef.current;
+          const approvedNow = res.transactions.filter((tx: any) => tx.status === 'approved');
+          if (prevApproved !== null) {
+            const newlyApproved = approvedNow.find((tx: any) => !prevApproved.has(tx.id));
+            if (newlyApproved) {
+              const amt = Number(
+                newlyApproved.approvedAmount ?? newlyApproved.claimedAmount ?? newlyApproved.amountKes ?? newlyApproved.amount ?? 0
+              );
+              setRealtimeApprovedDeposit({
+                id: newlyApproved.id,
+                amount: amt,
+                mpesaCode: newlyApproved.mpesaCode || newlyApproved.referenceId || newlyApproved.id,
+                balance: res?.wallet?.balance,
+              });
+            }
+          }
+          seenApprovedTxIdsRef.current = new Set(approvedNow.map((tx: any) => tx.id));
           setWalletTransactions(res.transactions);
         }
       })
@@ -166,7 +199,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
   useEffect(() => {
     fetchPromotions();
     fetchHostWallet();
-  }, [walletBalance, walletRefreshTick]);
+  }, [walletBalance, walletRefreshTick, ownerPortalSlot]);
 
   useEffect(() => {
     if (activeTab === 'wallet') {
@@ -179,9 +212,41 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
       fetchHostWallet();
       onRefreshWallet?.();
     };
+    const handlePaymentUpdate = (e: Event) => {
+      const detail = (e as CustomEvent<any>).detail;
+      const targetEmail = String(detail?.targetEmail || '').toLowerCase();
+      if (targetEmail && targetEmail !== user.email.toLowerCase()) return;
+      if (detail?.eventType === 'payment_approved' && typeof detail?.approvedAmount === 'number') {
+        setRealtimeApprovedDeposit({
+          id: detail?.payment?.id || `approved_${Date.now()}`,
+          amount: detail.approvedAmount,
+          mpesaCode: detail?.payment?.mpesaCode || detail?.mpesaCode || 'M-Pesa',
+          balance: typeof detail?.userWalletBalance === 'number' ? detail.userWalletBalance : undefined,
+        });
+      }
+      fetchHostWallet();
+      onRefreshWallet?.();
+    };
     window.addEventListener('airbus:wallet-deposit-submitted', handleSubmitted);
-    return () => window.removeEventListener('airbus:wallet-deposit-submitted', handleSubmitted);
-  }, []);
+    window.addEventListener('airbus:payment-update', handlePaymentUpdate as EventListener);
+    return () => {
+      window.removeEventListener('airbus:wallet-deposit-submitted', handleSubmitted);
+      window.removeEventListener('airbus:payment-update', handlePaymentUpdate as EventListener);
+    };
+  }, [user.email]);
+
+  // Fast background sync while Host Wallet tab is open or any deposit is pending
+  useEffect(() => {
+    const hasPendingDeposit = walletTransactions.some((tx: any) => tx.status === 'pending');
+    if (activeTab !== 'wallet' && !hasPendingDeposit) return;
+    if (!api.getToken(ownerPortalSlot)) return;
+    const timer = window.setInterval(() => {
+      if (!api.getToken(ownerPortalSlot)) return;
+      fetchHostWallet();
+      onRefreshWallet?.();
+    }, 4000);
+    return () => window.clearInterval(timer);
+  }, [activeTab, walletTransactions, ownerPortalSlot]);
 
   // Shorts & Reels Auto-Creation + Per-Listing Tier Quotas + Gold Listing Audio State
   const tierRules = getShortsTierRules(plan.tier, isPlanActive);
@@ -205,12 +270,13 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
   const [listingAudioSaving, setListingAudioSaving] = useState(false);
 
   const loadCreatorShorts = async () => {
+    if (!api.getToken(ownerPortalSlot)) return;
     setLoadingShorts(true);
     try {
       const [jobsRes, feedRes, analyticsRes] = await Promise.all([
-        api.getShortJobs().catch(() => ({ jobs: [] })),
+        api.getShortJobs(ownerPortalSlot).catch(() => ({ jobs: [] })),
         api.getShortsFeed({ ownerEmail: user.email }).catch(() => ({ posts: [] })),
-        api.getOwnerShortsAnalytics().catch(() => ({ byShort: [] })),
+        api.getOwnerShortsAnalytics(ownerPortalSlot).catch(() => ({ byShort: [] })),
       ]);
       setMyShortJobs(jobsRes.jobs || []);
       setMyShortsPosts(feedRes.posts || []);
@@ -237,10 +303,11 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
 
   useEffect(() => {
     const hasActiveJobs = myShortJobs.some(j => j.state === 'queued' || j.state === 'processing');
-    if (!hasActiveJobs) return;
+    if (!hasActiveJobs || !api.getToken(ownerPortalSlot)) return;
     const timer = window.setInterval(async () => {
+      if (!api.getToken(ownerPortalSlot)) return;
       try {
-        const res = await api.getShortJobs();
+        const res = await api.getShortJobs(ownerPortalSlot);
         const prevMap = new Map(myShortJobs.map(j => [j.id, j.state]));
         for (const job of res.jobs || []) {
           const prev = prevMap.get(job.id);
@@ -259,7 +326,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
       } catch {}
     }, 3000);
     return () => window.clearInterval(timer);
-  }, [myShortJobs, user.email]);
+  }, [myShortJobs, user.email, ownerPortalSlot]);
 
   const fileToDataUrl = (file: File): Promise<string> =>
     new Promise((resolve, reject) => {
@@ -2485,6 +2552,33 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
               </button>
             </div>
           </div>
+
+          {realtimeApprovedDeposit && (
+            <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-300 dark:border-emerald-700 text-emerald-900 dark:text-emerald-100 flex items-start justify-between gap-3 text-xs shadow-sm">
+              <div className="flex items-start gap-2.5">
+                <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                <div>
+                  <div className="font-extrabold text-sm">
+                    M-Pesa Deposit Approved · +KES {realtimeApprovedDeposit.amount.toLocaleString()} Credited Automatically
+                  </div>
+                  <p className="text-[11px] text-emerald-800 dark:text-emerald-200 mt-0.5">
+                    Code <strong className="font-mono">{realtimeApprovedDeposit.mpesaCode}</strong> was approved by Admin and reflected in your Host Wallet in real time.
+                    {typeof realtimeApprovedDeposit.balance === 'number' && (
+                      <span> New balance: <strong className="font-mono">KES {realtimeApprovedDeposit.balance.toLocaleString()}</strong>.</span>
+                    )}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setRealtimeApprovedDeposit(null)}
+                className="p-1 rounded-full hover:bg-emerald-200/50 dark:hover:bg-emerald-800/50 text-emerald-700 dark:text-emerald-300 cursor-pointer"
+                aria-label="Dismiss deposit notification"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
 
           {/* Inline Host Deposit (M-Pesa) Form */}
           <div className="bg-white dark:bg-[#15171e] p-6 rounded-3xl border border-stone-200 dark:border-stone-800 shadow-sm space-y-5">

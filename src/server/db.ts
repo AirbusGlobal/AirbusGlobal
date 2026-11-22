@@ -2322,6 +2322,8 @@ class DatabaseStore {
       payment: PaymentRecord;
       targetEmail: string;
       walletBalance?: number;
+      userWalletBalance?: number;
+      approvedAmount?: number;
       adminWalletBalance?: number;
       updatedAt: number;
     }) => void
@@ -2338,11 +2340,17 @@ class DatabaseStore {
     balances?: { walletBalance?: number; adminWalletBalance?: number }
   ) {
     const targetEmail = (payment.userId || payment.hostEmail || '').toLowerCase().trim();
+    const approvedAmount =
+      eventType === 'payment_approved'
+        ? Number(payment.approvedAmount ?? payment.claimedAmount ?? payment.amountKes ?? payment.amount ?? 0)
+        : undefined;
     const payload = {
       eventType,
       payment: { ...payment },
       targetEmail,
       walletBalance: balances?.walletBalance,
+      userWalletBalance: balances?.walletBalance,
+      approvedAmount,
       adminWalletBalance: balances?.adminWalletBalance,
       updatedAt: Date.now(),
     };

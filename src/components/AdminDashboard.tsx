@@ -6140,6 +6140,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     showToast?.('Payment declined and ledger updated.');
                     setRejectModalPayment(null);
                     loadAdminData();
+                    if (onPaymentModerated) {
+                      await Promise.resolve(onPaymentModerated()).catch(() => {});
+                    }
                   } catch (err: any) {
                     setPaymentModalError(err.message || 'Decline failed.');
                   } finally {

@@ -2729,12 +2729,20 @@ export const TripDatingPage: React.FC<TripDatingPageProps> = ({
                               setSelectedProfileForContact(profile);
                               setPaymentMsg(null);
                               if (currentUser) {
-                                api.getWallet().then(res => {
-                                  if (res?.wallet) {
-                                    setLiveWalletBalance(res.wallet.balance);
-                                    onWalletBalanceUpdated?.(res.wallet.balance);
-                                  }
-                                }).catch(() => {});
+                                const tdSlot =
+                                  currentUser.role === 'admin'
+                                    ? ('admin' as const)
+                                    : currentUser.role === 'owner'
+                                    ? ('owner' as const)
+                                    : ('guest' as const);
+                                if (api.getToken(tdSlot)) {
+                                  api.getWallet(tdSlot).then(res => {
+                                    if (res?.wallet) {
+                                      setLiveWalletBalance(res.wallet.balance);
+                                      onWalletBalanceUpdated?.(res.wallet.balance);
+                                    }
+                                  }).catch(() => {});
+                                }
                               }
                             }}
                             className={`inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider shadow-lg transition active:scale-95 shrink-0 cursor-pointer ${

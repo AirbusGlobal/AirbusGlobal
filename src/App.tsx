@@ -183,27 +183,34 @@ export default function App() {
   };
 
   const loadUserData = useCallback(async (currentUser: User) => {
+    const slot =
+      currentUser.role === 'admin'
+        ? ('admin' as const)
+        : currentUser.role === 'owner'
+        ? ('owner' as const)
+        : ('guest' as const);
+    if (!api.getToken(slot)) return;
     try {
       // Bookings
-      const bRes = await api.getBookings();
+      const bRes = await api.getBookings(slot);
       setBookings(bRes.bookings);
 
       // Threads
-      const tRes = await api.getThreads();
+      const tRes = await api.getThreads(slot);
       setThreads(tRes.threads);
 
       // Wishlist
-      const wRes = await api.getWishlist();
+      const wRes = await api.getWishlist(slot);
       setWishlistIds(wRes.wishlist);
 
       // Notifications
-      const nRes = await api.getNotifications();
+      const nRes = await api.getNotifications(slot);
       setNotifications(nRes.notifications);
       setUnreadNotifsCount(nRes.unreadCount);
 
       // Real wallet balance from unified backend ledger
       try {
-        const walRes = await api.getWallet();
+        const walRes = await api.getWallet(slot);
         if (walRes?.wallet?.balance !== undefined) {
           setWalletBalance(walRes.wallet.balance);
         }
@@ -212,8 +219,8 @@ export default function App() {
       // Host plan, owner listings (including pending/declined/hidden stays), & wallet
       if (currentUser.role === 'owner') {
         const [pRes, myStaysRes] = await Promise.all([
-          api.getHostPlan(),
-          api.getMyStays().catch(() => api.getStays({ ownerEmail: currentUser.email })),
+          api.getHostPlan(slot),
+          api.getMyStays(slot).catch(() => api.getStays({ ownerEmail: currentUser.email })),
         ]);
         if (pRes?.plan) setHostPlan(pRes.plan);
         if (pRes?.wallet !== undefined) setWalletBalance(pRes.wallet);
@@ -223,8 +230,8 @@ export default function App() {
       // Admin metrics
       if (currentUser.role === 'admin') {
         const [pResSettled, aResSettled] = await Promise.allSettled([
-          api.getHostPlan(),
-          api.getAdminOverview(),
+          api.getHostPlan(slot),
+          api.getAdminOverview(slot),
         ]);
         if (pResSettled.status === 'fulfilled' && pResSettled.value) {
           if (pResSettled.value.plan) setHostPlan(pResSettled.value.plan);
@@ -262,7 +269,7 @@ export default function App() {
       const token = api.getToken(slot);
       if (token) {
         try {
-          const meRes = await api.getMe();
+          const meRes = await api.getMe(false, slot);
           setUser(meRes.user);
           if (typeof meRes.walletBalance === 'number') {
             setWalletBalance(meRes.walletBalance);
@@ -553,7 +560,7 @@ export default function App() {
     };
   }, [user, isOnAdminRoute, idleTimeoutMs, resetIdleTimer, handleLogout]);
 
-  // Real-Time Wallet Balance SSE Stream (Updates Guest & Host wallets immediately on Admin approval)
+  // Real-Time Wallet & Payment SSE Stream (Updates Admin, Host & Guest wallets immediately on deposit & approval)
   useEffect(() => {
     const slot = isOnAdminRoute ? 'admin' : user?.role === 'owner' ? 'owner' : 'guest';
     const token = api.getToken(slot);
@@ -566,27 +573,56 @@ export default function App() {
         if (typeof payload.balance === 'number') {
           setWalletBalance(prev => {
             if (prev !== payload.balance && payload.balance > prev) {
-              showToast(`Wallet updated: KES ${payload.balance.toLocaleString()}`);
+              const codeHint = payload.mpesaCode ? ` (${payload.mpesaCode})` : '';
+              showToast(`Wallet updated${codeHint}: KES ${payload.balance.toLocaleString()}`);
             }
             return payload.balance;
           });
-          if (user.role === 'owner' || user.role === 'admin') {
-            api.getHostPlan().then(p => setHostPlan(p.plan)).catch(() => {});
+          setWalletRefreshTick(t => t + 1);
+          if (api.getToken(slot)) {
+            if (user.role === 'owner' || user.role === 'admin') {
+              api.getHostPlan(slot).then(p => setHostPlan(p.plan)).catch(() => {});
+            }
+            if (user.role === 'owner') {
+              api.getMyStays(slot).then(r => setOwnerStays(r?.stays || [])).catch(() => {});
+              api.getStays().then(r => setStays(r.stays)).catch(() => {});
+            }
+            api
+              .getNotifications(slot)
+              .then(n => {
+                setNotifications(n.notifications);
+                setUnreadNotifsCount(n.unreadCount);
+              })
+              .catch(() => {});
           }
-          if (user.role === 'owner') {
-            api.getStays().then(r => setStays(r.stays)).catch(() => {});
-            api.getStays({ ownerEmail: user.email }).then(r => setOwnerStays(r.stays || [])).catch(() => {});
-          }
-          api
-            .getNotifications()
-            .then(n => {
-              setNotifications(n.notifications);
-              setUnreadNotifsCount(n.unreadCount);
-            })
-            .catch(() => {});
         }
       } catch {
         // Ignore malformed SSE frame
+      }
+    };
+
+    const handlePaymentUpdateEvent = (event: MessageEvent) => {
+      try {
+        const payload = JSON.parse(event.data || '{}');
+        const targetEmail = String(payload?.targetEmail || '').toLowerCase();
+        const isSelfTarget = !isOnAdminRoute && targetEmail && targetEmail === user.email.toLowerCase();
+        if (isSelfTarget && typeof payload?.userWalletBalance === 'number') {
+          setWalletBalance(payload.userWalletBalance);
+        }
+        if (
+          isSelfTarget &&
+          payload?.eventType === 'payment_approved' &&
+          typeof payload?.approvedAmount === 'number'
+        ) {
+          const codeLabel = payload?.payment?.mpesaCode ? ` (${payload.payment.mpesaCode})` : '';
+          showToast(
+            `Deposit approved${codeLabel}: +KES ${payload.approvedAmount.toLocaleString()} added to your wallet!`
+          );
+        }
+        setWalletRefreshTick(t => t + 1);
+        window.dispatchEvent(new CustomEvent('airbus:payment-update', { detail: payload }));
+      } catch {
+        // Ignore malformed payment_update frame
       }
     };
 
@@ -599,11 +635,23 @@ export default function App() {
       }
     };
 
+    const handleStreamError = () => {
+      if (!api.getToken(slot)) {
+        try {
+          es.close();
+        } catch {}
+      }
+    };
+
     es.addEventListener('wallet_update', handleWalletEvent as EventListener);
+    es.addEventListener('payment_update', handlePaymentUpdateEvent as EventListener);
     es.addEventListener('session_expired', handleSessionExpiredEvent as EventListener);
+    es.onerror = handleStreamError;
     return () => {
       es.removeEventListener('wallet_update', handleWalletEvent as EventListener);
+      es.removeEventListener('payment_update', handlePaymentUpdateEvent as EventListener);
       es.removeEventListener('session_expired', handleSessionExpiredEvent as EventListener);
+      es.onerror = null;
       es.close();
     };
   }, [user, isOnAdminRoute, handleLogout]);
@@ -1162,21 +1210,31 @@ export default function App() {
             auditLogs={Array.isArray(adminOverview?.auditLogs) ? adminOverview.auditLogs : []}
             onApprovePayment={async id => {
               await api.approvePayment(id);
-              const updated = await api.getAdminOverview();
+              const [updated, sRes] = await Promise.all([
+                api.getAdminOverview('admin'),
+                api.getStays(),
+              ]);
               setAdminOverview(updated);
-              const sRes = await api.getStays();
               setStays(sRes.stays);
-              showToast('Payment approved & subscription activated!');
+              showToast('Payment approved & wallet credited automatically!');
             }}
             onRejectPayment={async (id, reason) => {
               await api.rejectPayment(id, reason);
-              const updated = await api.getAdminOverview();
+              const updated = await api.getAdminOverview('admin');
               setAdminOverview(updated);
               showToast('Payment marked as rejected.');
             }}
+            onPaymentModerated={async () => {
+              const [updated, sRes] = await Promise.all([
+                api.getAdminOverview('admin'),
+                api.getStays(),
+              ]);
+              setAdminOverview(updated);
+              setStays(sRes.stays);
+            }}
             onVerifyUser={async email => {
               await api.verifyUser(email);
-              const updated = await api.getAdminOverview();
+              const updated = await api.getAdminOverview('admin');
               setAdminOverview(updated);
               showToast('User ID verification toggled.');
             }}
@@ -1185,7 +1243,7 @@ export default function App() {
             onAdjustHostPlan={async (hostEmail, tier, days) => {
               await api.adjustHostPlan(hostEmail, tier, days);
               const [updated, sRes] = await Promise.all([
-                api.getAdminOverview(),
+                api.getAdminOverview('admin'),
                 api.getStays(),
               ]);
               setAdminOverview(updated);
@@ -1456,12 +1514,14 @@ export default function App() {
               }}
               onCreateStay={handleCreateStay}
               onResubmitStay={handleResubmitStay}
-              onRefreshMyStays={() =>
+              onRefreshMyStays={() => {
+                const slot = user?.role === 'admin' ? ('admin' as const) : ('owner' as const);
+                if (!api.getToken(slot)) return;
                 api
-                  .getMyStays()
+                  .getMyStays(slot)
                   .then(r => setOwnerStays(r?.stays || []))
-                  .catch(() => {})
-              }
+                  .catch(() => {});
+              }}
               onUpdateStay={handleUpdateStay}
               onDeleteStay={handleDeleteStay}
               onUpdateBookingStatus={handleUpdateBookingStatus}
@@ -1470,7 +1530,13 @@ export default function App() {
               onBackToFeed={() => handleNavigate('home')}
               onNavigateToShorts={() => handleNavigate('shorts')}
               onRefreshWallet={() => {
-                const slot = user?.role === 'owner' ? 'owner' : user?.role === 'guest' ? 'guest' : undefined;
+                const slot =
+                  user?.role === 'admin'
+                    ? ('admin' as const)
+                    : user?.role === 'owner'
+                    ? ('owner' as const)
+                    : ('guest' as const);
+                if (!api.getToken(slot)) return;
                 api
                   .getWallet(slot)
                   .then(w => {
@@ -1547,9 +1613,20 @@ export default function App() {
             onUserUpgraded={updatedUser => {
               setUser(updatedUser);
               api.getStays().then(r => setStays(r.stays)).catch(() => {});
-              api.getWallet().then(w => {
-                if (w?.wallet?.balance !== undefined) setWalletBalance(w.wallet.balance);
-              }).catch(() => {});
+              const slot =
+                updatedUser.role === 'admin'
+                  ? ('admin' as const)
+                  : updatedUser.role === 'owner'
+                  ? ('owner' as const)
+                  : ('guest' as const);
+              if (api.getToken(slot)) {
+                api
+                  .getWallet(slot)
+                  .then(w => {
+                    if (w?.wallet?.balance !== undefined) setWalletBalance(w.wallet.balance);
+                  })
+                  .catch(() => {});
+              }
             }}
             showToast={showToast}
           />
@@ -1667,7 +1744,15 @@ export default function App() {
         walletMode={planWalletMode}
         userWalletBalance={walletBalance}
         onPayFromWallet={handlePayPlanFromWallet}
-        portalSlot={user?.role === 'owner' ? 'owner' : user?.role === 'guest' ? 'guest' : undefined}
+        portalSlot={
+          user?.role === 'owner'
+            ? 'owner'
+            : user?.role === 'guest'
+            ? 'guest'
+            : user?.role === 'admin'
+            ? 'admin'
+            : undefined
+        }
         onDepositSubmitted={payment => {
           setWalletRefreshTick(t => t + 1);
           const amt = Number(payment?.claimedAmount ?? payment?.amountKes ?? payment?.amount ?? 0);

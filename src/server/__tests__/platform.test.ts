@@ -1401,6 +1401,138 @@ describe('AirBus Platform End-to-End Integrity Suite', () => {
     assert.equal(guestQueue.status, 403);
     assert.equal(guestCounts.status, 403);
   });
+
+  it('20. Real-time SSE wallet/payment stream pushes pending deposits to Admin and auto-credits Host & Admin wallets on approval', async () => {
+    const readSseUntil = async (
+      streamUrl: string,
+      predicate: (events: Array<{ event: string; data: any }>) => boolean,
+      triggerFn: () => Promise<void>,
+      timeoutMs = 5000
+    ) => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      const res = await fetch(streamUrl, { signal: controller.signal });
+      assert.equal(res.status, 200);
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      const collected: Array<{ event: string; data: any }> = [];
+
+      await triggerFn();
+
+      try {
+        while (!predicate(collected)) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const frames = buffer.split('\n\n');
+          buffer = frames.pop() || '';
+          for (const frame of frames) {
+            if (!frame.trim() || frame.startsWith(':')) continue;
+            let evtName = 'message';
+            let dataStr = '';
+            for (const line of frame.split('\n')) {
+              if (line.startsWith('event:')) evtName = line.slice(6).trim();
+              else if (line.startsWith('data:')) dataStr += line.slice(5).trim();
+            }
+            if (dataStr) {
+              try {
+                collected.push({ event: evtName, data: JSON.parse(dataStr) });
+              } catch {
+                collected.push({ event: evtName, data: dataStr });
+              }
+            }
+          }
+        }
+      } finally {
+        clearTimeout(timer);
+        controller.abort();
+        try {
+          await reader.cancel();
+        } catch {}
+      }
+      return collected;
+    };
+
+    const beforeHost = await apiJson<{ wallet: any }>('/api/wallet', { token: hostToken });
+    const beforeAdminSummary = await apiJson<{
+      adminWalletBalance: number;
+      yearToDate: { approvedDeposits: number; totalCredits: number };
+    }>('/api/admin/wallet/summary', {
+      token: adminToken,
+    });
+    const hostStartBal = Number(beforeHost.data.wallet.balance || 0);
+    const adminStartBal = Number(beforeAdminSummary.data.adminWalletBalance || 0);
+    const adminStartApprovedDeposits = Number(beforeAdminSummary.data.yearToDate?.approvedDeposits || 0);
+
+    const rtAmount = 4200;
+    const rtCode = `RT${Date.now().toString(36).toUpperCase().slice(-8)}`;
+    let createdPaymentId = '';
+
+    // Open Admin SSE stream and trigger Host M-Pesa deposit submission
+    const adminEvents = await readSseUntil(
+      `${baseUrl}/api/wallet/stream?token=${encodeURIComponent(adminToken)}`,
+      evts => evts.some(e => e.event === 'payment_update' && e.data?.eventType === 'payment_created' && e.data?.payment?.mpesaCode === rtCode),
+      async () => {
+        const res = await apiJson<{ payment: any }>('/api/wallet/topup', {
+          method: 'POST',
+          token: hostToken,
+          body: { amount: rtAmount, mpesaCode: rtCode },
+        });
+        assert.equal(res.status, 201);
+        assert.equal(res.data.payment.status, 'pending');
+        createdPaymentId = res.data.payment.id;
+      }
+    );
+    assert.ok(
+      adminEvents.some(e => e.event === 'payment_update' && e.data?.eventType === 'payment_created' && e.data?.payment?.claimedAmount === rtAmount),
+      'Admin SSE must receive payment_created event with exact amount and code'
+    );
+
+    // Open Host SSE stream and trigger Admin approval
+    let approvePayload: any = null;
+    const hostEvents = await readSseUntil(
+      `${baseUrl}/api/wallet/stream?token=${encodeURIComponent(hostToken)}`,
+      evts =>
+        evts.some(e => e.event === 'wallet_update' && e.data?.paymentId === createdPaymentId) &&
+        evts.some(e => e.event === 'payment_update' && e.data?.eventType === 'payment_approved' && e.data?.payment?.id === createdPaymentId),
+      async () => {
+        const approveRes = await apiJson<{ payment: any; userWalletBalance?: number; adminWalletBalance?: number }>(
+          `/api/admin/payments/${createdPaymentId}/approve`,
+          { method: 'POST', token: adminToken, body: {} }
+        );
+        assert.equal(approveRes.status, 200);
+        approvePayload = approveRes.data;
+      }
+    );
+
+    assert.equal(approvePayload?.payment?.status, 'approved');
+    assert.equal(approvePayload?.userWalletBalance, hostStartBal + rtAmount);
+    assert.equal(approvePayload?.adminWalletBalance, adminStartBal);
+
+    const afterAdminSummary = await apiJson<{
+      adminWalletBalance: number;
+      yearToDate: { approvedDeposits: number; totalCredits: number };
+    }>('/api/admin/wallet/summary', {
+      token: adminToken,
+    });
+    assert.equal(afterAdminSummary.status, 200);
+    assert.equal(
+      afterAdminSummary.data.yearToDate.approvedDeposits,
+      adminStartApprovedDeposits + rtAmount,
+      'Admin Wallet YTD Approved Deposits ledger must increase by exact deposit amount'
+    );
+
+    const hostWalletEvt = hostEvents.find(e => e.event === 'wallet_update' && e.data?.paymentId === createdPaymentId);
+    assert.equal(hostWalletEvt?.data?.balance, hostStartBal + rtAmount);
+    assert.equal(hostWalletEvt?.data?.approvedAmount, rtAmount);
+    assert.equal(hostWalletEvt?.data?.mpesaCode, rtCode);
+
+    const hostPayEvt = hostEvents.find(
+      e => e.event === 'payment_update' && e.data?.eventType === 'payment_approved' && e.data?.payment?.id === createdPaymentId
+    );
+    assert.equal(hostPayEvt?.data?.userWalletBalance, hostStartBal + rtAmount);
+  });
 });
 
 

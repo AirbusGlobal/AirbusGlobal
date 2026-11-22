@@ -3965,14 +3965,14 @@
       "likedByUserEmails": [],
       "moderationStatus": "approved",
       "status": "approved",
-      "views": 0,
+      "views": 1,
       "likes": 0,
       "shares": 0,
-      "viralityScore": 50,
+      "viralityScore": 0,
       "createdAt": 1794600565565,
       "updatedAt": 1794600565833,
       "host_id": "owner@airbus.ke",
-      "plays": 1,
+      "plays": 2,
       "replays": 79,
       "actionClicks": 1
     },
@@ -4628,7 +4628,13 @@
   },
   "referralCommissions": [],
   "withdrawals": [],
-  "viewEvents": [],
+  "viewEvents": [
+    {
+      "postId": "post_short_1794600565565_pv0d",
+      "viewer": "102.204.89.232",
+      "timestamp": 1795375099739
+    }
+  ],
   "promotions": [
     {
       "id": "promo_1793264151352",
@@ -6380,7 +6386,7 @@
       "paymentId": "pay_demo_1",
       "payment_id": "pay_demo_1",
       "paymentMethod": "wallet",
-      "impressions": 1426,
+      "impressions": 1427,
       "clicks": 86,
       "startsAt": 1793543326423,
       "endsAt": 1796135326423,
@@ -7240,7 +7246,7 @@
       "shortId": "post_short_1794600565565_pv0d",
       "ownerEmail": "owner@airbus.ke",
       "views": 0,
-      "plays": 1,
+      "plays": 2,
       "replays": 79,
       "clicks": {
         "availability": 0,
@@ -7249,7 +7255,7 @@
         "negotiate": 0,
         "whatsapp": 1
       },
-      "updatedAt": 1795277106738
+      "updatedAt": 1795375099752
     }
   },
   "guestCredentials": [

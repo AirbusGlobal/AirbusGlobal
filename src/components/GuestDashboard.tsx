@@ -98,10 +98,19 @@ export const GuestDashboard: React.FC<GuestDashboardProps> = ({
   const [depositing, setDepositing] = useState(false);
   const [depositMsg, setDepositMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
+  const [realtimeApprovedDeposit, setRealtimeApprovedDeposit] = useState<{
+    id: string;
+    amount: number;
+    mpesaCode: string;
+    balance?: number;
+  } | null>(null);
+  const seenApprovedTxIdsRef = React.useRef<Set<string> | null>(null);
+
   const loadGuestWallet = React.useCallback(async () => {
+    if (!api.getToken('guest')) return;
     setLoadingWallet(true);
     try {
-      const res = await api.getWallet();
+      const res = await api.getWallet('guest');
       if (res?.wallet?.balance !== undefined) {
         onWalletBalanceUpdated?.(res.wallet.balance);
       }
@@ -109,6 +118,23 @@ export const GuestDashboard: React.FC<GuestDashboardProps> = ({
         setLedger(res.ledger);
       }
       if (Array.isArray(res?.transactions)) {
+        const prevApproved = seenApprovedTxIdsRef.current;
+        const approvedNow = res.transactions.filter((tx: any) => tx.status === 'approved');
+        if (prevApproved !== null) {
+          const newlyApproved = approvedNow.find((tx: any) => !prevApproved.has(tx.id));
+          if (newlyApproved) {
+            const amt = Number(
+              newlyApproved.approvedAmount ?? newlyApproved.claimedAmount ?? newlyApproved.amountKes ?? newlyApproved.amount ?? 0
+            );
+            setRealtimeApprovedDeposit({
+              id: newlyApproved.id,
+              amount: amt,
+              mpesaCode: newlyApproved.mpesaCode || newlyApproved.referenceId || newlyApproved.id,
+              balance: res?.wallet?.balance,
+            });
+          }
+        }
+        seenApprovedTxIdsRef.current = new Set(approvedNow.map((tx: any) => tx.id));
         setWalletTransactions(res.transactions);
       }
     } catch {
@@ -123,6 +149,36 @@ export const GuestDashboard: React.FC<GuestDashboardProps> = ({
       loadGuestWallet();
     }
   }, [activeTab, walletBalance, loadGuestWallet]);
+
+  React.useEffect(() => {
+    const onPaymentUpdate = (e: Event) => {
+      const detail = (e as CustomEvent<any>).detail;
+      const targetEmail = String(detail?.targetEmail || '').toLowerCase();
+      if (targetEmail && targetEmail !== user.email.toLowerCase()) return;
+      if (detail?.eventType === 'payment_approved' && typeof detail?.approvedAmount === 'number') {
+        setRealtimeApprovedDeposit({
+          id: detail?.payment?.id || `approved_${Date.now()}`,
+          amount: detail.approvedAmount,
+          mpesaCode: detail?.payment?.mpesaCode || detail?.mpesaCode || 'M-Pesa',
+          balance: typeof detail?.userWalletBalance === 'number' ? detail.userWalletBalance : undefined,
+        });
+      }
+      loadGuestWallet();
+    };
+    window.addEventListener('airbus:payment-update', onPaymentUpdate as EventListener);
+    return () => window.removeEventListener('airbus:payment-update', onPaymentUpdate as EventListener);
+  }, [user.email, loadGuestWallet]);
+
+  React.useEffect(() => {
+    const hasPending = walletTransactions.some((tx: any) => tx.status === 'pending');
+    if (activeTab !== 'wallet' && !hasPending) return;
+    if (!api.getToken('guest')) return;
+    const timer = window.setInterval(() => {
+      if (!api.getToken('guest')) return;
+      loadGuestWallet();
+    }, 4000);
+    return () => window.clearInterval(timer);
+  }, [activeTab, walletTransactions, loadGuestWallet]);
 
   // Profile form state
   const [name, setName] = useState(user.name);
@@ -568,7 +624,33 @@ export const GuestDashboard: React.FC<GuestDashboardProps> = ({
 
       {/* TAB: PRIVATE GUEST WALLET & M-PESA DEPOSIT + WALLET-ONLY ADVERTS */}
       {activeTab === 'wallet' && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="space-y-4">
+          {realtimeApprovedDeposit && (
+            <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-300 dark:border-emerald-700 text-emerald-900 dark:text-emerald-100 flex items-start justify-between gap-3 text-xs shadow-sm">
+              <div className="flex items-start gap-2.5">
+                <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                <div>
+                  <div className="font-extrabold text-sm">
+                    M-Pesa Deposit Approved · +KES {realtimeApprovedDeposit.amount.toLocaleString()} Credited Automatically
+                  </div>
+                  <p className="text-[11px] text-emerald-800 dark:text-emerald-200 mt-0.5">
+                    Code <strong className="font-mono">{realtimeApprovedDeposit.mpesaCode}</strong> was approved by Admin and credited to your Guest Wallet in real time.
+                    {typeof realtimeApprovedDeposit.balance === 'number' && (
+                      <span> New balance: <strong className="font-mono">KES {realtimeApprovedDeposit.balance.toLocaleString()}</strong>.</span>
+                    )}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setRealtimeApprovedDeposit(null)}
+                className="px-2 py-1 rounded-full hover:bg-emerald-200/50 dark:hover:bg-emerald-800/50 text-emerald-700 dark:text-emerald-300 font-bold cursor-pointer"
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Left: Balance Card & Advertise CTA */}
           <div className="space-y-4">
             <div className="p-6 rounded-3xl bg-gradient-to-br from-emerald-950 via-stone-900 to-stone-950 text-white border border-emerald-500/30 shadow-xl space-y-4">
@@ -802,6 +884,7 @@ export const GuestDashboard: React.FC<GuestDashboardProps> = ({
                 {depositing ? 'Submitting Deposit...' : 'Deposit (M-Pesa) — Submit for Approval'}
               </button>
             </form>
+          </div>
           </div>
         </div>
       )}
