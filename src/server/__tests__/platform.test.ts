@@ -1882,6 +1882,113 @@ describe('AirBus Platform End-to-End Integrity Suite', () => {
     db.runStartupMigrations();
     db.runStartupMigrations();
   });
+
+  it('23. Restore Admin to Factory Settings (401/403 guards, password re-auth, admin_only & full_factory restore, and reversible v5 migration)', async () => {
+    // 1. Auth guards on /api/admin/factory-reset
+    const noAuth = await apiJson('/api/admin/factory-reset', {
+      method: 'POST',
+      body: { adminPassword: '2019xyz//', scope: 'admin_only' },
+    });
+    assert.equal(noAuth.status, 401);
+
+    const asGuest = await apiJson('/api/admin/factory-reset', {
+      method: 'POST',
+      token: guestToken,
+      body: { adminPassword: '2019xyz//', scope: 'admin_only' },
+    });
+    assert.equal(asGuest.status, 403);
+
+    const asHost = await apiJson('/api/admin/factory-reset', {
+      method: 'POST',
+      token: hostToken,
+      body: { adminPassword: '2019xyz//', scope: 'admin_only' },
+    });
+    assert.equal(asHost.status, 403);
+
+    // 2. Wrong password rejected with 400
+    const badPw = await apiJson('/api/admin/factory-reset', {
+      method: 'POST',
+      token: adminToken,
+      body: { adminPassword: 'wrong-password', scope: 'admin_only' },
+    });
+    assert.equal(badPw.status, 400);
+
+    // 3. Mutate admin credentials + platform settings, then restore via scope='admin_only'
+    const credChange = await apiJson<{ token: string; user: any }>('/api/admin/change-credentials', {
+      method: 'POST',
+      token: adminToken,
+      body: {
+        currentPassword: '2019xyz//',
+        newName: 'Modified Temp Admin',
+        newPassword: 'TempReset#2026!',
+      },
+    });
+    assert.equal(credChange.status, 200);
+    let currentAdminToken = credChange.data.token;
+
+    const settingsUpdate = await apiJson<{ settings: any }>('/api/settings', {
+      method: 'PATCH',
+      token: currentAdminToken,
+      body: { adPricePerDay: 999, referralCommissionPercent: 25 },
+    });
+    assert.equal(settingsUpdate.status, 200);
+    assert.equal(settingsUpdate.data.settings.adPricePerDay, 999);
+
+    const adminOnlyReset = await apiJson<{
+      user: any;
+      token: string;
+      settings: any;
+      adminWalletBalance: number;
+      reconciliation: { totalAnomalies: number };
+    }>('/api/admin/factory-reset', {
+      method: 'POST',
+      token: currentAdminToken,
+      body: { adminPassword: 'TempReset#2026!', scope: 'admin_only' },
+    });
+    assert.equal(adminOnlyReset.status, 200);
+    assert.equal(adminOnlyReset.data.user.name, 'Kamala Hari');
+    assert.equal(adminOnlyReset.data.user.email, 'kamalahari93@gmail.com');
+    assert.equal(adminOnlyReset.data.settings.adPricePerDay, 100);
+    assert.equal(adminOnlyReset.data.settings.referralCommissionPercent, 10);
+    assert.equal(adminOnlyReset.data.adminWalletBalance, 2800);
+    assert.equal(adminOnlyReset.data.reconciliation.totalAnomalies, 0);
+    assert.ok(adminOnlyReset.data.token);
+    currentAdminToken = adminOnlyReset.data.token;
+
+    // Original factory password '2019xyz//' must work again for admin login
+    const relogin = await apiJson<{ user: any; token: string }>('/api/auth/login', {
+      method: 'POST',
+      body: { email: 'kamalahari93@gmail.com', password: '2019xyz//' },
+    });
+    assert.equal(relogin.status, 200);
+    assert.equal(relogin.data.user.role, 'admin');
+    currentAdminToken = relogin.data.token;
+
+    // 4. Full factory reset restores clean seeded payments, wallets, and 0 reconciliation anomalies
+    const fullReset = await apiJson<{
+      user: any;
+      token: string;
+      adminWalletBalance: number;
+      counts: { pending: number; approved: number; total: number };
+      reconciliation: { totalAnomalies: number; mismatches: number };
+    }>('/api/admin/factory-reset', {
+      method: 'POST',
+      token: currentAdminToken,
+      body: { adminPassword: '2019xyz//', scope: 'full_factory' },
+    });
+    assert.equal(fullReset.status, 200);
+    assert.equal(fullReset.data.adminWalletBalance, 2800);
+    assert.equal(fullReset.data.counts.pending, 0);
+    assert.equal(fullReset.data.reconciliation.mismatches, 0);
+    assert.equal(fullReset.data.reconciliation.totalAnomalies, 0);
+    adminToken = fullReset.data.token;
+
+    // 5. Reversible v5 migration rollback + idempotent re-run
+    const v5RolledBack = db.rollbackMigration('v5_restore_admin_factory_status');
+    assert.equal(typeof v5RolledBack, 'boolean');
+    db.runStartupMigrations();
+    db.runStartupMigrations();
+  });
 });
 
 

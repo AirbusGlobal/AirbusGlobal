@@ -409,6 +409,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [securitySuccess, setSecuritySuccess] = useState<string | null>(null);
   const [securityError, setSecurityError] = useState<string | null>(null);
 
+  // Admin Factory Reset State
+  const [factoryResetScope, setFactoryResetScope] = useState<'admin_only' | 'full_factory'>('full_factory');
+  const [factoryResetPassword, setFactoryResetPassword] = useState('');
+  const [factoryResetConfirmed, setFactoryResetConfirmed] = useState(false);
+  const [factoryResetLoading, setFactoryResetLoading] = useState(false);
+  const [factoryResetSuccess, setFactoryResetSuccess] = useState<string | null>(null);
+  const [factoryResetError, setFactoryResetError] = useState<string | null>(null);
+
   // Keep state updated if adminUser prop updates
   useEffect(() => {
     if (adminUser) {
@@ -483,6 +491,55 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       setSecurityError(err.message || 'Failed to update credentials.');
     } finally {
       setSecurityLoading(false);
+    }
+  };
+
+  const handleRestoreAdminFactorySettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setFactoryResetError(null);
+    setFactoryResetSuccess(null);
+
+    if (!factoryResetConfirmed) {
+      setFactoryResetError('Please tick the confirmation box before restoring factory settings.');
+      return;
+    }
+    if (!factoryResetPassword.trim()) {
+      setFactoryResetError('Current administrator password is required.');
+      return;
+    }
+
+    setFactoryResetLoading(true);
+    try {
+      const res = await api.restoreAdminFactorySettings({
+        adminPassword: factoryResetPassword,
+        scope: factoryResetScope,
+      });
+      if (res.user) {
+        onUpdateAdminUser?.(res.user);
+        setAdminUsername(res.user.name || '');
+        setAdminEmailInput(res.user.email || '');
+      }
+      if (res.settings) {
+        setSettings(res.settings);
+      }
+      if (res.counts) {
+        setPaymentCounts(res.counts);
+      }
+      if (res.reconciliation) {
+        setReconciliation(res.reconciliation);
+      }
+      setFactoryResetPassword('');
+      setFactoryResetConfirmed(false);
+      setFactoryResetSuccess(res.message || 'Admin restored to factory settings.');
+      showToast?.(res.message || 'Admin restored to factory settings.');
+      loadAdminData();
+      if (onPaymentModerated) {
+        await Promise.resolve(onPaymentModerated()).catch(() => {});
+      }
+    } catch (err: any) {
+      setFactoryResetError(err?.message || 'Failed to restore admin factory settings.');
+    } finally {
+      setFactoryResetLoading(false);
     }
   };
 
@@ -3483,6 +3540,118 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </div>
         </div>
       )}
+
+          {/* SECTION 3: RESTORE ADMIN TO FACTORY SETTINGS */}
+          <div className="space-y-3 pt-4 border-t border-stone-200 dark:border-stone-800">
+            <div>
+              <h3 className="text-base font-bold text-rose-700 dark:text-rose-400 flex items-center gap-2">
+                <RefreshCw className="w-4 h-4" />
+                <span>Restore Admin to Factory Settings</span>
+              </h3>
+              <p className="text-xs text-stone-500">
+                Reset Administrator account credentials, Platform Settings, and Admin Wallet (or full seeded baseline) back to original factory status.
+              </p>
+            </div>
+
+            <form
+              onSubmit={handleRestoreAdminFactorySettings}
+              className="p-5 sm:p-6 bg-rose-50/40 dark:bg-rose-950/15 rounded-3xl border border-rose-200 dark:border-rose-900/50 shadow-sm space-y-4 text-xs"
+            >
+              {factoryResetSuccess && (
+                <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-700 rounded-2xl text-emerald-800 dark:text-emerald-200 flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                  <span>{factoryResetSuccess}</span>
+                </div>
+              )}
+              {factoryResetError && (
+                <div className="p-3 bg-rose-100 dark:bg-rose-950/50 border border-rose-300 dark:border-rose-700 rounded-2xl text-rose-800 dark:text-rose-200 flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0" />
+                  <span>{factoryResetError}</span>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <label
+                  className={`p-3.5 rounded-2xl border cursor-pointer transition-all flex items-start gap-2.5 ${
+                    factoryResetScope === 'full_factory'
+                      ? 'bg-white dark:bg-stone-900 border-rose-500 shadow-sm'
+                      : 'bg-white/60 dark:bg-stone-900/40 border-stone-200 dark:border-stone-800'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="factoryScope"
+                    checked={factoryResetScope === 'full_factory'}
+                    onChange={() => setFactoryResetScope('full_factory')}
+                    className="mt-0.5 accent-rose-600"
+                  />
+                  <div>
+                    <div className="font-extrabold text-stone-900 dark:text-white">Full Factory Baseline</div>
+                    <div className="text-[11px] text-stone-500 mt-0.5">
+                      Restores Admin credentials, Platform Settings, Admin Wallet (KES 2,800), and resets all queues/ledgers to original seed data.
+                    </div>
+                  </div>
+                </label>
+
+                <label
+                  className={`p-3.5 rounded-2xl border cursor-pointer transition-all flex items-start gap-2.5 ${
+                    factoryResetScope === 'admin_only'
+                      ? 'bg-white dark:bg-stone-900 border-rose-500 shadow-sm'
+                      : 'bg-white/60 dark:bg-stone-900/40 border-stone-200 dark:border-stone-800'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="factoryScope"
+                    checked={factoryResetScope === 'admin_only'}
+                    onChange={() => setFactoryResetScope('admin_only')}
+                    className="mt-0.5 accent-rose-600"
+                  />
+                  <div>
+                    <div className="font-extrabold text-stone-900 dark:text-white">Admin Only (Keep Listings &amp; Users)</div>
+                    <div className="text-[11px] text-stone-500 mt-0.5">
+                      Restores master Admin account, Platform Settings, and Admin Wallet (KES 2,800) while preserving existing hosts, guests, and stays.
+                    </div>
+                  </div>
+                </label>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-end">
+                <div>
+                  <label className="font-bold text-stone-700 dark:text-stone-300 block mb-1">
+                    Confirm Current Administrator Password
+                  </label>
+                  <input
+                    type="password"
+                    value={factoryResetPassword}
+                    onChange={e => setFactoryResetPassword(e.target.value)}
+                    placeholder="Enter current admin password"
+                    className="w-full px-3 py-2 bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-xl font-medium text-xs text-stone-900 dark:text-white"
+                    required
+                  />
+                </div>
+
+                <label className="flex items-center gap-2 text-stone-700 dark:text-stone-300 font-semibold cursor-pointer py-2">
+                  <input
+                    type="checkbox"
+                    checked={factoryResetConfirmed}
+                    onChange={e => setFactoryResetConfirmed(e.target.checked)}
+                    className="rounded accent-rose-600"
+                  />
+                  <span>I confirm restoring Admin to original factory settings</span>
+                </label>
+              </div>
+
+              <button
+                type="submit"
+                disabled={factoryResetLoading}
+                className="px-6 py-2.5 rounded-full bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs cursor-pointer shadow-md transition-all disabled:opacity-50 flex items-center gap-2"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${factoryResetLoading ? 'animate-spin' : ''}`} />
+                <span>{factoryResetLoading ? 'Restoring Factory Settings...' : 'Restore Admin to Factory Settings'}</span>
+              </button>
+            </form>
+          </div>
     </div>
   )}
 

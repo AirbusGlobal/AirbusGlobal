@@ -740,6 +740,39 @@ export const api = {
     return res;
   },
 
+  async restoreAdminFactorySettings(data: {
+    adminPassword: string;
+    scope?: 'admin_only' | 'full_factory';
+  }): Promise<{
+    message: string;
+    user: User;
+    token?: string;
+    scope: 'admin_only' | 'full_factory';
+    settings: PlatformSettings;
+    adminWalletBalance: number;
+    counts: any;
+    reconciliation: any;
+  }> {
+    const res = await this.request<{
+      message: string;
+      user: User;
+      token?: string;
+      scope: 'admin_only' | 'full_factory';
+      settings: PlatformSettings;
+      adminWalletBalance: number;
+      counts: any;
+      reconciliation: any;
+    }>('/api/admin/factory-reset', {
+      method: 'POST',
+      portalSlot: 'admin',
+      body: JSON.stringify(data),
+    });
+    if (res.token) {
+      this.setToken(res.token, 'admin');
+    }
+    return res;
+  },
+
   async resetAdminPassword(data: {
     email: string;
     setupKey: string;

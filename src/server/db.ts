@@ -2302,6 +2302,34 @@ class DatabaseStore {
         ledgerLinkedCount,
       });
     }
+
+    // Migration v5: Restore Admin account, settings, Admin Wallet, and clean synthetic test clutter back to original factory baseline
+    const migrationV5 = 'v5_restore_admin_factory_status';
+    if (!this.data.appliedMigrations.some(m => m.id === migrationV5)) {
+      const prevDataSnapshotV5: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(this.data as any)) {
+        if (k === 'appliedMigrations') continue;
+        prevDataSnapshotV5[k] = JSON.parse(JSON.stringify(v));
+      }
+
+      // Mark migration applied before invoking restore so v1..v4 re-run never recurses into v5
+      this.data.appliedMigrations.push({
+        id: migrationV5,
+        appliedAt: Date.now(),
+        snapshot: { prevDataSnapshotV5 },
+      });
+
+      this.restoreAdminToFactorySettings({
+        adminEmail: 'kamalahari93@gmail.com',
+        skipPasswordCheck: true,
+        scope: 'full_factory',
+      });
+
+      logger.info('migration_applied', {
+        migrationId: migrationV5,
+        adminWalletBalance: this.getWallet(MPESA_CONFIG.ADMIN_WALLET_ID),
+      });
+    }
   }
 
   public rollbackMigration(migrationId: string): boolean {
@@ -2358,6 +2386,14 @@ class DatabaseStore {
       this.data.payments = snap.prevPaymentsV4 || [];
       this.data.ledgerEntries = snap.prevLedgerV4 || [];
       this.data.admin_wallet_entries = snap.prevAdminEntriesV4 || [];
+      this.rebuildAdminWalletRollups();
+      this.rebuildPaymentIndexes();
+    }
+    if (snap?.prevDataSnapshotV5 && typeof snap.prevDataSnapshotV5 === 'object') {
+      const restoredSnap = JSON.parse(JSON.stringify(snap.prevDataSnapshotV5));
+      for (const [k, v] of Object.entries(restoredSnap)) {
+        (this.data as any)[k] = v;
+      }
       this.rebuildAdminWalletRollups();
       this.rebuildPaymentIndexes();
     }
@@ -2890,12 +2926,19 @@ class DatabaseStore {
       console.warn('Could not read existing DB file, creating fresh seeds.', e);
     }
 
+    const initialData = this.buildFactorySeedData();
+    this.saveDirect(initialData);
+    return initialData;
+  }
+
+  private buildFactorySeedData(): DatabaseSchema {
+    const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v));
     const initialData: DatabaseSchema = {
-      users: SEED_USERS,
-      stays: SEED_STAYS,
-      bookings: SEED_BOOKINGS,
-      reviews: SEED_REVIEWS,
-      threads: SEED_THREADS,
+      users: clone(SEED_USERS),
+      stays: clone(SEED_STAYS),
+      bookings: clone(SEED_BOOKINGS),
+      reviews: clone(SEED_REVIEWS),
+      threads: clone(SEED_THREADS),
       payments: [
         {
           id: 'pay_demo_dep_owner',
@@ -3238,15 +3281,15 @@ class DatabaseStore {
         'guest@airbus.ke': 4700,
         'admin@airbus.ke': 2800,
       },
-      walletRecords: SEED_WALLET_RECORDS,
-      ledgerEntries: SEED_LEDGER_ENTRIES,
-      posts: SEED_POSTS,
-      adRequests: SEED_AD_REQUESTS,
-      promotions: SEED_PROMOTIONS,
-      referrals: SEED_REFERRALS,
-      referralCodes: SEED_REFERRAL_CODES,
+      walletRecords: clone(SEED_WALLET_RECORDS),
+      ledgerEntries: clone(SEED_LEDGER_ENTRIES),
+      posts: clone(SEED_POSTS),
+      adRequests: clone(SEED_AD_REQUESTS),
+      promotions: clone(SEED_PROMOTIONS),
+      referrals: clone(SEED_REFERRALS),
+      referralCodes: clone(SEED_REFERRAL_CODES),
       referralCommissions: [],
-      settings: DEFAULT_SETTINGS,
+      settings: clone(DEFAULT_SETTINGS),
       viewEvents: [],
       withdrawals: [],
       audio_licenses: audioLibraryService.getSeededLicenses(),
@@ -3304,17 +3347,17 @@ class DatabaseStore {
           createdAt: Date.now() - 10 * 864e5,
         },
       ],
-      tripDatingProfiles: SEED_TRIP_DATING_PROFILES,
+      tripDatingProfiles: clone(SEED_TRIP_DATING_PROFILES),
       tripDatingPaymentRequests: [],
       tripDatingContactUnlocks: [],
       media_assets: [],
-      localGuides: SEED_LOCAL_GUIDES,
-      neighborhoodArticles: SEED_NEIGHBORHOOD_ARTICLES,
+      localGuides: clone(SEED_LOCAL_GUIDES),
+      neighborhoodArticles: clone(SEED_NEIGHBORHOOD_ARTICLES),
       blackFridaySubscribers: [],
       guideRequests: [],
+      isSingleAdminRegistered: true,
     };
 
-    this.saveDirect(initialData);
     return initialData;
   }
 
@@ -4257,6 +4300,131 @@ class DatabaseStore {
     admin.passwordHash = newPasswordHash;
     this.save();
     return admin;
+  }
+
+  public restoreAdminToFactorySettings(opts: {
+    adminEmail: string;
+    adminPassword?: string;
+    skipPasswordCheck?: boolean;
+    scope?: 'admin_only' | 'full_factory';
+    issueSession?: boolean;
+  }): {
+    adminUser: User;
+    token?: string;
+    scope: 'admin_only' | 'full_factory';
+    settings: PlatformSettings;
+    adminWalletBalance: number;
+    counts: ReturnType<DatabaseStore['getAdminPaymentCounts']>;
+    reconciliation: ReturnType<DatabaseStore['getPaymentLedgerReconciliation']>;
+  } {
+    const scope: 'admin_only' | 'full_factory' = opts.scope === 'admin_only' ? 'admin_only' : 'full_factory';
+
+    if (!opts.skipPasswordCheck) {
+      const caller = this.findUserByEmail(opts.adminEmail);
+      if (!caller || caller.role !== 'admin') {
+        throw new Error('Administrator access required.');
+      }
+      if (!opts.adminPassword || caller.passwordHash !== hashPassword(String(opts.adminPassword))) {
+        throw new Error('Current administrator password is incorrect.');
+      }
+    }
+
+    return this.runAtomicWalletTransaction(() => {
+      const now = Date.now();
+      const seed = this.buildFactorySeedData();
+      const factoryMasterAdmin = JSON.parse(
+        JSON.stringify(seed.users.find(u => u.id === 'u_admin_master' || u.role === 'admin')!)
+      ) as User;
+
+      if (scope === 'full_factory') {
+        const preservedMigrations = (this.data.appliedMigrations || []).filter(m => m.id === 'v5_restore_admin_factory_status');
+        const preservedMediaAssets = JSON.parse(JSON.stringify(this.data.media_assets || []));
+
+        // Reset full platform datasets back to factory seed while preserving schema migration track
+        for (const [k, v] of Object.entries(seed)) {
+          (this.data as any)[k] = v;
+        }
+        this.data.media_assets = preservedMediaAssets;
+        this.data.admin_wallet_entries = [];
+        this.data.admin_wallet_rollups = { hour: {}, day: {}, month: {}, year: {} };
+        this.data.transactional_outbox = [];
+        this.data.idempotencyCache = {};
+        this.data.listing_collections = [];
+        this.data.appliedMigrations = preservedMigrations;
+        this.data.authSessions = {};
+        this.recentApprovedEvents = [];
+
+        // Re-apply v1..v4 normalization onto clean factory seed so collections, creditLedgerId & admin_wallet_entries reconcile to 0 anomalies
+        this.runStartupMigrations();
+      } else {
+        // 'admin_only': restore Admin user credentials, Platform Settings, and Admin Wallet (admin@airbus.ke) without wiping user/listing collections
+        this.data.users = (this.data.users || []).filter(u => u.role !== 'admin');
+        this.data.users.push(factoryMasterAdmin);
+        this.data.isSingleAdminRegistered = true;
+        this.data.settings = JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
+
+        // Restore Admin Wallet & admin ledger baseline
+        const factoryAdminBal = seed.wallets[MPESA_CONFIG.ADMIN_WALLET_ID] ?? 2800;
+        this.data.wallets[MPESA_CONFIG.ADMIN_WALLET_ID] = factoryAdminBal;
+        this.data.walletRecords[MPESA_CONFIG.ADMIN_WALLET_ID] = JSON.parse(
+          JSON.stringify(seed.walletRecords[MPESA_CONFIG.ADMIN_WALLET_ID])
+        );
+        this.data.walletTransactions = [
+          ...(this.data.walletTransactions || []).filter(
+            t => (t.walletId || t.wallet_id || '').toLowerCase() !== MPESA_CONFIG.ADMIN_WALLET_ID
+          ),
+          ...(seed.walletTransactions || []).filter(
+            t => (t.walletId || t.wallet_id || '').toLowerCase() === MPESA_CONFIG.ADMIN_WALLET_ID
+          ),
+        ];
+        this.data.admin_wallet_entries = [];
+        this.data.admin_wallet_rollups = { hour: {}, day: {}, month: {}, year: {} };
+        this.backfillAdminWalletEntries();
+        this.rebuildAdminWalletRollups();
+
+        // Clear stale admin sessions
+        if (this.data.authSessions) {
+          for (const [tok, sess] of Object.entries(this.data.authSessions)) {
+            if (sess.portal === 'admin' || sess.role === 'admin') {
+              delete this.data.authSessions[tok];
+            }
+          }
+        }
+      }
+
+      this.data.isSingleAdminRegistered = true;
+      this.ensurePortalCredentialSeeds();
+      this.rebuildPaymentIndexes();
+      this.invalidateFeedCache();
+
+      if (!this.data.auditLogs) this.data.auditLogs = [];
+      this.data.auditLogs.unshift({
+        id: `aud_factory_${now}_${crypto.randomBytes(2).toString('hex')}`,
+        action: 'admin_factory_reset',
+        actorEmail: factoryMasterAdmin.email,
+        details: `Restored Admin to factory settings (${scope === 'full_factory' ? 'Full Factory Seed Baseline' : 'Admin Account, Settings & Admin Wallet Only'}).`,
+        createdAt: now,
+      });
+
+      let newToken: string | undefined;
+      if (opts.issueSession) {
+        const session = this.createAuthSession(factoryMasterAdmin, 'admin');
+        newToken = session.token;
+      }
+
+      this.save();
+      this.emitWalletUpdate(MPESA_CONFIG.ADMIN_WALLET_ID);
+
+      return {
+        adminUser: factoryMasterAdmin,
+        token: newToken,
+        scope,
+        settings: this.data.settings,
+        adminWalletBalance: this.getWalletBalance(MPESA_CONFIG.ADMIN_WALLET_ID),
+        counts: this.getAdminPaymentCounts(),
+        reconciliation: this.getPaymentLedgerReconciliation(),
+      };
+    });
   }
 
   // --- Stays & Powerful Search ---

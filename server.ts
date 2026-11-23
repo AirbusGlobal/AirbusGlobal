@@ -797,6 +797,47 @@ app.post('/api/admin-portal/reset-password', (req, res) => {
   }
 });
 
+// Restore Admin (account, settings, Admin Wallet, or full factory baseline) to original factory status
+app.post('/api/admin/factory-reset', async (req, res) => {
+  const user = requireAdminUser(req, res);
+  if (!user) return;
+  try {
+    const { adminPassword, scope } = req.body || {};
+    if (!adminPassword || !String(adminPassword).trim()) {
+      return res.status(400).json({ error: 'Current administrator password is required to restore factory settings.' });
+    }
+    const cleanScope: 'admin_only' | 'full_factory' =
+      scope === 'admin_only' ? 'admin_only' : 'full_factory';
+
+    const lockKeys = [MPESA_CONFIG.ADMIN_WALLET_ID, user.email, 'owner@airbus.ke', 'guest@airbus.ke'];
+    const result = await walletMutex.withWalletLock(lockKeys, () =>
+      db.restoreAdminToFactorySettings({
+        adminEmail: user.email,
+        adminPassword: String(adminPassword),
+        scope: cleanScope,
+        issueSession: true,
+      })
+    );
+
+    const { passwordHash: _ph, ...safeUser } = result.adminUser as any;
+    return res.json({
+      message:
+        cleanScope === 'full_factory'
+          ? 'Admin & platform baseline restored to original factory settings.'
+          : 'Admin account, settings, and Admin Wallet restored to original factory settings.',
+      user: safeUser,
+      token: result.token,
+      scope: result.scope,
+      settings: result.settings,
+      adminWalletBalance: result.adminWalletBalance,
+      counts: result.counts,
+      reconciliation: result.reconciliation,
+    });
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'Failed to restore admin factory settings.' });
+  }
+});
+
 // Public Authentication (Isolated Guest & Host Portals; Never allows admin registration)
 app.post('/api/auth/register', (req, res) => {
   try {
