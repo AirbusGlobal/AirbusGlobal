@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
+import bcrypt from 'bcryptjs';
 import {
   DatabaseSchema,
   User,
@@ -142,8 +143,36 @@ export const SESSION_IDLE_TIMEOUT_MS = Math.max(
 
 export { PLANS, AMENITY_GROUPS };
 
-export function hashPassword(password: string): string {
+function legacySha256Password(password: string): string {
   return crypto.createHash('sha256').update(password + 'airbus_salt_2026').digest('hex');
+}
+
+export function isBcryptHash(hash?: string | null): boolean {
+  return typeof hash === 'string' && /^\$2[aby]\$\d{2}\$/.test(hash);
+}
+
+export function hashPassword(password: string): string {
+  return bcrypt.hashSync(String(password), 10);
+}
+
+export function wrapLegacySha256WithBcrypt(sha256Hex: string): string {
+  return `legacy256$${bcrypt.hashSync(sha256Hex, 10)}`;
+}
+
+export function verifyPassword(password: string, storedHash?: string | null): boolean {
+  const raw = String(password || '');
+  const stored = String(storedHash || '');
+  if (!raw || !stored) return false;
+  if (isBcryptHash(stored)) {
+    return bcrypt.compareSync(raw, stored);
+  }
+  if (stored.startsWith('legacy256$')) {
+    return bcrypt.compareSync(legacySha256Password(raw), stored.slice('legacy256$'.length));
+  }
+  if (/^[a-f0-9]{64}$/i.test(stored)) {
+    return legacySha256Password(raw) === stored;
+  }
+  return false;
 }
 
 export function validatePasswordStrength(password: string): string | null {
@@ -214,7 +243,7 @@ function buildPasswordFingerprint(password: string): PasswordFingerprint {
   }
 
   return {
-    exactHash: hashPassword(raw),
+    exactHash: crypto.createHmac('sha256', 'airbus_fp_key_2026').update(raw).digest('hex'),
     lowerHash: crypto.createHash('sha256').update(lower + '_lower_2026').digest('hex'),
     strippedHash: crypto.createHash('sha256').update(stripped + '_strip_2026').digest('hex'),
     normalizedLength: stripped.length,
@@ -1822,6 +1851,9 @@ class DatabaseStore {
   }) => void>();
   private paymentIndexById = new Map<string, PaymentRecord>();
   private paymentIndexByCode = new Map<string, PaymentRecord>();
+  private userByEmailIndex = new Map<string, User>();
+  private userByLowerUsernameIndex = new Map<string, User>();
+  private credByPortalKeyIndex = new Map<string, CredentialRecord>();
   private outboxTestHook: ((eventKind: string, paymentId?: string) => void) | null = null;
   private feedListeners = new Set<(event: {
     id: string;
@@ -1847,6 +1879,7 @@ class DatabaseStore {
     this.rebuildPaymentIndexes();
     this.checkAndRunAutoYearEndArchive();
     this.ensurePortalCredentialSeeds();
+    this.rebuildAuthIndexes();
     this.checkAllExpirations();
     this.checkUpcomingCheckinReminders();
     this.initShortServices();
@@ -2330,6 +2363,48 @@ class DatabaseStore {
         adminWalletBalance: this.getWallet(MPESA_CONFIG.ADMIN_WALLET_ID),
       });
     }
+
+    // Migration v6: Safely upgrade legacy SHA-256 credentials to bcrypt & build lookup indexes
+    const migrationV6 = 'v6_bcrypt_credentials';
+    if (!this.data.appliedMigrations.some(m => m.id === migrationV6)) {
+      const prevUserHashes = (this.data.users || []).map(u => ({ id: u.id, passwordHash: u.passwordHash }));
+      const prevGuestCredHashes = (this.data.guestCredentials || []).map(c => ({ id: c.id, passwordHash: c.passwordHash }));
+      const prevHostCredHashes = (this.data.hostCredentials || []).map(c => ({ id: c.id, passwordHash: c.passwordHash }));
+
+      const migrateHashValue = (raw?: string): string | undefined => {
+        if (!raw) return raw;
+        if (isBcryptHash(raw) || raw.startsWith('legacy256$')) return raw;
+        if (/^[a-f0-9]{64}$/i.test(raw)) {
+          return wrapLegacySha256WithBcrypt(raw);
+        }
+        return hashPassword(raw);
+      };
+
+      (this.data.users || []).forEach(u => {
+        if (u.passwordHash) {
+          u.passwordHash = migrateHashValue(u.passwordHash);
+        }
+      });
+      (this.data.guestCredentials || []).forEach(c => {
+        if (c.passwordHash) {
+          c.passwordHash = migrateHashValue(c.passwordHash) || c.passwordHash;
+        }
+      });
+      (this.data.hostCredentials || []).forEach(c => {
+        if (c.passwordHash) {
+          c.passwordHash = migrateHashValue(c.passwordHash) || c.passwordHash;
+        }
+      });
+
+      this.data.appliedMigrations.push({
+        id: migrationV6,
+        appliedAt: Date.now(),
+        snapshot: { prevUserHashes, prevGuestCredHashes, prevHostCredHashes },
+      });
+      this.rebuildAuthIndexes();
+      this.save();
+      logger.info('migration_applied', { migrationId: migrationV6, migratedUsers: prevUserHashes.length });
+    }
   }
 
   public rollbackMigration(migrationId: string): boolean {
@@ -2397,7 +2472,22 @@ class DatabaseStore {
       this.rebuildAdminWalletRollups();
       this.rebuildPaymentIndexes();
     }
+    if (Array.isArray(snap?.prevUserHashes)) {
+      snap.prevUserHashes.forEach((orig: { id: string; passwordHash?: string }) => {
+        const u = (this.data.users || []).find(x => x.id === orig.id);
+        if (u) u.passwordHash = orig.passwordHash;
+      });
+      snap.prevGuestCredHashes?.forEach((orig: { id: string; passwordHash: string }) => {
+        const c = (this.data.guestCredentials || []).find(x => x.id === orig.id);
+        if (c) c.passwordHash = orig.passwordHash;
+      });
+      snap.prevHostCredHashes?.forEach((orig: { id: string; passwordHash: string }) => {
+        const c = (this.data.hostCredentials || []).find(x => x.id === orig.id);
+        if (c) c.passwordHash = orig.passwordHash;
+      });
+    }
     this.data.appliedMigrations.splice(idx, 1);
+    this.rebuildAuthIndexes();
     this.invalidateFeedCache();
     this.save();
     logger.info('migration_rolled_back', { migrationId });
@@ -3485,24 +3575,54 @@ class DatabaseStore {
     this.checkSubscriptionExpirations();
     const now = Date.now();
     let changed = false;
+    let stayFeedChanged = false;
 
     // 1. Expire boosts
     if (this.data.boosts) {
       for (const boost of this.data.boosts) {
-        if (boost.status === 'active' && boost.ends_at && boost.ends_at < now) {
+        const boostEnd = boost.boost_end ?? boost.ends_at ?? boost.endsAt;
+        if (boost.status === 'active' && boostEnd && boostEnd <= now) {
           boost.status = 'expired';
           changed = true;
+          stayFeedChanged = true;
           const stayId = boost.listing_id || boost.listingId;
-          const otherActive = this.data.boosts.some(
-            b => (b.listing_id === stayId || b.listingId === stayId) && b.status === 'active' && b.ends_at && b.ends_at >= now
-          );
+          const otherActive = this.data.boosts.some(b => {
+            const bEnd = b.boost_end ?? b.ends_at ?? b.endsAt ?? 0;
+            return (b.listing_id === stayId || b.listingId === stayId) && b.status === 'active' && bEnd > now;
+          });
           if (!otherActive && stayId) {
             const stay = this.data.stays.find(s => s.id === stayId);
             if (stay) {
               stay.isPromoted = false;
               stay.promotedUntil = undefined;
+              stay.boost_start = undefined;
+              stay.boost_end = undefined;
             }
           }
+        }
+      }
+    }
+
+    // Also reconcile any stay whose boost_end / promotedUntil has passed directly
+    if (this.data.stays) {
+      for (const stay of this.data.stays) {
+        const effectiveEnd = stay.boost_end ?? stay.promotedUntil;
+        if (stay.isPromoted && (!effectiveEnd || effectiveEnd <= now)) {
+          stay.isPromoted = false;
+          stay.promotedUntil = undefined;
+          stay.boost_start = undefined;
+          stay.boost_end = undefined;
+          changed = true;
+          stayFeedChanged = true;
+        }
+      }
+    }
+
+    if (this.data.promotions) {
+      for (const promo of this.data.promotions) {
+        if (promo.status === 'active' && promo.expiresAt && promo.expiresAt <= now) {
+          promo.status = 'expired';
+          changed = true;
         }
       }
     }
@@ -3510,7 +3630,7 @@ class DatabaseStore {
     // 2. Expire sponsor slots
     if (this.data.sponsorSlots) {
       for (const slot of this.data.sponsorSlots) {
-        if (slot.status === 'active' && slot.ends_at && slot.ends_at < now) {
+        if (slot.status === 'active' && slot.ends_at && slot.ends_at <= now) {
           slot.status = 'expired';
           changed = true;
         }
@@ -3520,7 +3640,7 @@ class DatabaseStore {
     // 3. Expire adSlots
     if (this.data.adSlots) {
       for (const slot of this.data.adSlots) {
-        if (slot.status === 'active' && slot.endsAt && slot.endsAt < now) {
+        if (slot.status === 'active' && slot.endsAt && slot.endsAt <= now) {
           slot.status = 'expired';
           changed = true;
         }
@@ -3538,9 +3658,51 @@ class DatabaseStore {
       }
     }
 
+    if (stayFeedChanged) {
+      this.invalidateFeedCache('stay');
+    }
     if (changed) {
       this.save();
     }
+  }
+
+  private rebuildAuthIndexes() {
+    this.userByEmailIndex.clear();
+    this.userByLowerUsernameIndex.clear();
+    this.credByPortalKeyIndex.clear();
+
+    for (const u of this.data.users || []) {
+      const emailKey = (u.email || '').trim().toLowerCase();
+      if (emailKey) this.userByEmailIndex.set(emailKey, u);
+      const uNameKey = (u.username || u.name || '').trim().toLowerCase();
+      if (uNameKey) this.userByLowerUsernameIndex.set(uNameKey, u);
+    }
+
+    const indexCreds = (list?: CredentialRecord[]) => {
+      for (const c of list || []) {
+        const uKey = `${c.portal}:u:${(c.username || '').trim().toLowerCase()}`;
+        const eKey = `${c.portal}:e:${(c.userEmail || '').trim().toLowerCase()}`;
+        this.credByPortalKeyIndex.set(uKey, c);
+        this.credByPortalKeyIndex.set(eKey, c);
+      }
+    };
+    indexCreds(this.data.guestCredentials);
+    indexCreds(this.data.hostCredentials);
+  }
+
+  public upgradeLegacyPasswordHashIfNeeded(user: User, plaintextPassword: string) {
+    if (!user || !plaintextPassword) return;
+    if (user.passwordHash && isBcryptHash(user.passwordHash)) return;
+    const upgraded = hashPassword(plaintextPassword);
+    user.passwordHash = upgraded;
+    for (const list of [this.data.guestCredentials || [], this.data.hostCredentials || []]) {
+      const cred = list.find(c => c.userId === user.id || c.userEmail.toLowerCase() === user.email.toLowerCase());
+      if (cred) {
+        cred.passwordHash = upgraded;
+        cred.updatedAt = Date.now();
+      }
+    }
+    this.save();
   }
 
   // --- Users, Isolated Portal Credentials & Auth ---
@@ -3550,7 +3712,6 @@ class DatabaseStore {
     if (!this.data.authSessions) this.data.authSessions = {};
     if (!this.data.failedLoginAttempts) this.data.failedLoginAttempts = {};
 
-    const oldWeakHash = hashPassword('password123');
     let changed = false;
 
     for (const user of this.data.users) {
@@ -3567,12 +3728,12 @@ class DatabaseStore {
       const store = portal === 'owner' ? this.data.hostCredentials : this.data.guestCredentials;
 
       // Migrate legacy identical demo passwords on seed users so uniqueness holds
-      if (user.email === 'guest@airbus.ke' && (!user.passwordHash || user.passwordHash === oldWeakHash)) {
+      if (user.email === 'guest@airbus.ke' && (!user.passwordHash || verifyPassword('password123', user.passwordHash))) {
         user.passwordHash = hashPassword('Sarah$Nairobi88!');
         user.username = 'SarahWanjiku';
         user.name = 'SarahWanjiku';
         changed = true;
-      } else if (user.email === 'owner@airbus.ke' && (!user.passwordHash || user.passwordHash === oldWeakHash)) {
+      } else if (user.email === 'owner@airbus.ke' && (!user.passwordHash || verifyPassword('password123', user.passwordHash))) {
         user.passwordHash = hashPassword('Mutua@Westlands91#');
         user.username = 'DavidMutua';
         user.name = 'DavidMutua';
@@ -3632,6 +3793,7 @@ class DatabaseStore {
     this.ensureWallet('owner@airbus.ke');
 
     if (changed) {
+      this.rebuildAuthIndexes();
       this.save();
     }
   }
@@ -3688,14 +3850,14 @@ class DatabaseStore {
 
     for (const c of allCreds) {
       if (excludeUserId && (c.userId === excludeUserId || c.id === excludeUserId)) continue;
-      if (c.passwordHash === candidateFp.exactHash || passwordsTooSimilar(candidateFp, c.passwordFingerprint)) {
+      if (verifyPassword(raw, c.passwordHash) || passwordsTooSimilar(candidateFp, c.passwordFingerprint)) {
         throw new Error('Password Rejected choose a stronger password.');
       }
     }
 
     for (const u of this.data.users) {
       if (excludeUserId && u.id === excludeUserId) continue;
-      if (u.passwordHash && u.passwordHash === candidateFp.exactHash) {
+      if (u.passwordHash && verifyPassword(raw, u.passwordHash)) {
         throw new Error('Password Rejected choose a stronger password.');
       }
     }
@@ -3851,6 +4013,7 @@ class DatabaseStore {
     }
 
     this.createUser(newUser);
+    this.rebuildAuthIndexes();
     this.ensureWallet(internalEmail);
 
     if (opts.referredByCode) {
@@ -3861,6 +4024,20 @@ class DatabaseStore {
     return { user: newUser, token: session.token };
   }
 
+  private findPortalCredentialByIdentifier(portal: AuthPortal, identifier: string): CredentialRecord | undefined {
+    const cleanLower = String(identifier || '').trim().toLowerCase();
+    if (!cleanLower) return undefined;
+    const indexed =
+      this.credByPortalKeyIndex.get(`${portal}:u:${cleanLower}`) ||
+      this.credByPortalKeyIndex.get(`${portal}:e:${cleanLower}`);
+    if (indexed) return indexed;
+
+    const store = portal === 'owner' ? this.data.hostCredentials || [] : this.data.guestCredentials || [];
+    return store.find(
+      c => c.username.trim().toLowerCase() === cleanLower || c.userEmail.trim().toLowerCase() === cleanLower
+    );
+  }
+
   public loginPortalUser(opts: {
     portal: AuthPortal;
     username: string;
@@ -3868,30 +4045,32 @@ class DatabaseStore {
   }): { user: User; token: string } {
     const portal: AuthPortal = opts.portal === 'owner' ? 'owner' : 'guest';
     const expectedRole = portal === 'owner' ? 'owner' : 'guest';
-    const cleanUsername = String(opts.username || '').trim();
+    const cleanIdentifier = String(opts.username || '').trim();
+    const cleanLower = cleanIdentifier.toLowerCase();
     const rawPassword = String(opts.password || '');
 
     if (!this.data.failedLoginAttempts) this.data.failedLoginAttempts = {};
-    const attemptKey = `${portal}:${normalizeUsername(cleanUsername) || '_blank'}`;
+    const attemptKey = `${portal}:${normalizeUsername(cleanIdentifier) || '_blank'}`;
 
-    const store =
-      portal === 'owner' ? this.data.hostCredentials || [] : this.data.guestCredentials || [];
-    const passHash = hashPassword(rawPassword);
+    // Indexed trimmed case-insensitive identifier lookup (username OR email) + bcrypt password verify
+    let matchedCred = this.findPortalCredentialByIdentifier(portal, cleanIdentifier);
 
-    // Strictly exact case- and punctuation-sensitive match in the chosen portal store (ignoring accidental outer whitespace on username)
-    let matchedCred = store.find(
-      c => c.username.trim() === cleanUsername && c.passwordHash === passHash
-    );
+    if (matchedCred && !verifyPassword(rawPassword, matchedCred.passwordHash)) {
+      matchedCred = undefined;
+    }
 
-    // Fallback: check canonical users list for matching role + exact username + exact password hash and sync credential store
-    if (!matchedCred && cleanUsername && rawPassword) {
+    // Fallback: check canonical users list for matching role + trimmed case-insensitive identifier + password verify and sync credential store
+    if (!matchedCred && cleanLower && rawPassword) {
       const directUser = this.data.users.find(
         u =>
           u.role === expectedRole &&
-          ((u.username || '').trim() === cleanUsername || (u.name || '').trim() === cleanUsername) &&
-          u.passwordHash === passHash
+          ((u.username || '').trim().toLowerCase() === cleanLower ||
+            (u.name || '').trim().toLowerCase() === cleanLower ||
+            (u.email || '').trim().toLowerCase() === cleanLower) &&
+          verifyPassword(rawPassword, u.passwordHash)
       );
       if (directUser) {
+        const freshHash = isBcryptHash(directUser.passwordHash) ? directUser.passwordHash! : hashPassword(rawPassword);
         const syncedCred: CredentialRecord = {
           id: `cred_${portal}_${directUser.id}`,
           portal,
@@ -3899,7 +4078,7 @@ class DatabaseStore {
           normalizedUsername: normalizeUsername(directUser.username || directUser.name),
           userEmail: directUser.email.toLowerCase(),
           userId: directUser.id,
-          passwordHash: passHash,
+          passwordHash: freshHash,
           passwordFingerprint: buildPasswordFingerprint(rawPassword),
           createdAt: directUser.createdAt || Date.now(),
           updatedAt: Date.now(),
@@ -3912,6 +4091,7 @@ class DatabaseStore {
           this.data.guestCredentials.push(syncedCred);
         }
         matchedCred = syncedCred;
+        this.rebuildAuthIndexes();
         this.save();
       }
     }
@@ -3920,15 +4100,16 @@ class DatabaseStore {
       // Check opposite portal so a Host accidentally logging in on Guest Entrance (or vice versa) gets a clear message
       const otherPortal: AuthPortal = portal === 'owner' ? 'guest' : 'owner';
       const otherRole = otherPortal === 'owner' ? 'owner' : 'guest';
-      const otherStore =
-        otherPortal === 'owner' ? this.data.hostCredentials || [] : this.data.guestCredentials || [];
+      const otherCred = this.findPortalCredentialByIdentifier(otherPortal, cleanIdentifier);
       const matchedOtherCred =
-        otherStore.find(c => c.username.trim() === cleanUsername && c.passwordHash === passHash) ||
+        (otherCred && verifyPassword(rawPassword, otherCred.passwordHash) ? otherCred : undefined) ||
         this.data.users.find(
           u =>
             u.role === otherRole &&
-            ((u.username || '').trim() === cleanUsername || (u.name || '').trim() === cleanUsername) &&
-            u.passwordHash === passHash
+            ((u.username || '').trim().toLowerCase() === cleanLower ||
+              (u.name || '').trim().toLowerCase() === cleanLower ||
+              (u.email || '').trim().toLowerCase() === cleanLower) &&
+            verifyPassword(rawPassword, u.passwordHash)
         );
 
       const prev = this.data.failedLoginAttempts[attemptKey]?.count || 0;
@@ -3949,7 +4130,7 @@ class DatabaseStore {
       const err: any = new Error(
         next >= 3
           ? `Invalid ${portal === 'owner' ? 'Host' : 'Guest'} username or password (Attempt ${next}). Please use Forgot Password / Forgot Username below.`
-          : 'Username and password did not match exactly (check capitalization and punctuation).'
+          : 'Username and password did not match.'
       );
       err.failedAttempts = next;
       err.showRecovery = next >= 3;
@@ -3970,6 +4151,9 @@ class DatabaseStore {
       throw err;
     }
 
+    // Transparently upgrade legacy256$ / sha256 hashes to pure bcrypt upon successful login
+    this.upgradeLegacyPasswordHashIfNeeded(user, rawPassword);
+
     delete this.data.failedLoginAttempts[attemptKey];
     const session = this.createAuthSession(user, portal);
     return { user, token: session.token };
@@ -3988,12 +4172,14 @@ class DatabaseStore {
       portal === 'owner' ? this.data.hostCredentials || [] : this.data.guestCredentials || [];
 
     if (opts.mode === 'password') {
-      const exactUser = String(opts.currentUsername || '').trim();
+      const cleanId = String(opts.currentUsername || '').trim().toLowerCase();
       const nextPass = String(opts.newPassword || '');
-      const cred = store.find(c => c.username.trim() === exactUser);
+      const cred = store.find(
+        c => c.username.trim().toLowerCase() === cleanId || c.userEmail.trim().toLowerCase() === cleanId
+      );
       if (!cred) {
         throw new Error(
-          `No ${portal === 'owner' ? 'Host' : 'Guest'} account matched that exact username (case-sensitive). Try "Forgot Username" instead.`
+          `No ${portal === 'owner' ? 'Host' : 'Guest'} account matched that username or email. Try "Forgot Username" instead.`
         );
       }
       this.assertPasswordUnique(nextPass, cred.userId);
@@ -4005,6 +4191,7 @@ class DatabaseStore {
       const user = this.findUserByEmail(cred.userEmail);
       if (!user) throw new Error('Linked account record not found.');
       user.passwordHash = nextHash;
+      this.rebuildAuthIndexes();
 
       if (this.data.failedLoginAttempts) {
         delete this.data.failedLoginAttempts[`${portal}:${cred.normalizedUsername}`];
@@ -4020,8 +4207,7 @@ class DatabaseStore {
     // mode === 'username'
     const curPass = String(opts.currentPassword || '');
     const nextUsername = String(opts.newUsername || '').trim();
-    const curHash = hashPassword(curPass);
-    const cred = store.find(c => c.passwordHash === curHash);
+    const cred = store.find(c => verifyPassword(curPass, c.passwordHash));
     if (!cred) {
       throw new Error(
         `No ${portal === 'owner' ? 'Host' : 'Guest'} account matched that password in this portal.`
@@ -4037,6 +4223,7 @@ class DatabaseStore {
     if (!user) throw new Error('Linked account record not found.');
     user.username = nextUsername;
     user.name = nextUsername;
+    this.rebuildAuthIndexes();
 
     if (this.data.failedLoginAttempts) {
       delete this.data.failedLoginAttempts[`${portal}:${oldNorm}`];
@@ -4065,6 +4252,7 @@ class DatabaseStore {
         cred.updatedAt = Date.now();
       }
     }
+    this.rebuildAuthIndexes();
     this.save();
   }
 
@@ -4144,13 +4332,16 @@ class DatabaseStore {
   }
 
   public findUserByEmail(email: string): User | undefined {
-    return this.data.users.find(u => u.email.toLowerCase() === email.toLowerCase());
+    const clean = (email || '').trim().toLowerCase();
+    if (!clean) return undefined;
+    return this.userByEmailIndex.get(clean) || this.data.users.find(u => u.email.toLowerCase() === clean);
   }
 
   public createUser(user: User): User {
     const cleanEmail = user.email.toLowerCase().trim();
     user.email = cleanEmail;
     this.data.users.push(user);
+    this.rebuildAuthIndexes();
     // Ensure wallet without overwriting existing persisted balance
     this.ensureWallet(cleanEmail);
     if (user.role === 'owner' && !this.data.hostPlans[cleanEmail]) {
@@ -4181,12 +4372,71 @@ class DatabaseStore {
     const user = this.findUserByEmail(email);
     if (!user) return null;
     Object.assign(user, updates);
+    this.rebuildAuthIndexes();
     this.save();
     return user;
   }
 
   public getAllUsers(): User[] {
     return this.data.users;
+  }
+
+  public getAdminRegisteredUsers(opts?: {
+    role?: 'all' | 'guests' | 'guest' | 'hosts' | 'owner' | 'suspended';
+    q?: string;
+    page?: number;
+    limit?: number;
+  }): {
+    users: Array<Omit<User, 'passwordHash'>>;
+    counts: { total: number; guests: number; hosts: number; suspended: number };
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  } {
+    const allUsers = (this.data.users || [])
+      .map(({ passwordHash: _ph, ...safe }) => safe)
+      .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+
+    const counts = {
+      total: allUsers.length,
+      guests: allUsers.filter(u => u.role === 'guest').length,
+      hosts: allUsers.filter(u => u.role === 'owner').length,
+      suspended: allUsers.filter(u => Boolean(u.isSuspended)).length,
+    };
+
+    let filtered = allUsers;
+    const roleFilter = (opts?.role || 'all').toLowerCase();
+    if (roleFilter === 'guests' || roleFilter === 'guest') {
+      filtered = filtered.filter(u => u.role === 'guest');
+    } else if (roleFilter === 'hosts' || roleFilter === 'owner') {
+      filtered = filtered.filter(u => u.role === 'owner');
+    } else if (roleFilter === 'suspended') {
+      filtered = filtered.filter(u => Boolean(u.isSuspended));
+    }
+
+    const q = (opts?.q || '').trim().toLowerCase();
+    if (q) {
+      filtered = filtered.filter(u => {
+        const hay = `${u.name || ''} ${u.username || ''} ${u.email || ''} ${u.phone || ''} ${u.location || ''} ${u.role || ''}`.toLowerCase();
+        return hay.includes(q);
+      });
+    }
+
+    const limit = Math.min(100, Math.max(1, Number(opts?.limit) || 20));
+    const total = filtered.length;
+    const totalPages = Math.max(1, Math.ceil(total / limit));
+    const page = Math.min(totalPages, Math.max(1, Number(opts?.page) || 1));
+    const offset = (page - 1) * limit;
+
+    return {
+      users: filtered.slice(offset, offset + limit),
+      counts,
+      page,
+      limit,
+      total,
+      totalPages,
+    };
   }
 
   // --- Single Admin Management ---
@@ -4235,6 +4485,7 @@ class DatabaseStore {
 
     this.data.users.push(newAdmin);
     this.data.isSingleAdminRegistered = true;
+    this.rebuildAuthIndexes();
     this.ensureWallet(cleanEmail);
     this.save();
     return newAdmin;
@@ -4242,7 +4493,7 @@ class DatabaseStore {
 
   public updateAdminCredentials(
     currentEmail: string,
-    currentPasswordHash: string,
+    currentPlainPassword: string,
     updates: {
       newName?: string;
       newEmail?: string;
@@ -4253,7 +4504,7 @@ class DatabaseStore {
     if (!admin || admin.role !== 'admin') {
       throw new Error('Admin user not found.');
     }
-    if (admin.passwordHash !== currentPasswordHash) {
+    if (!verifyPassword(currentPlainPassword, admin.passwordHash)) {
       throw new Error('Incorrect current password.');
     }
 
@@ -4288,6 +4539,7 @@ class DatabaseStore {
       }
     }
 
+    this.rebuildAuthIndexes();
     this.save();
     return admin;
   }
@@ -4298,6 +4550,7 @@ class DatabaseStore {
       throw new Error('No administrator account found with this email.');
     }
     admin.passwordHash = newPasswordHash;
+    this.rebuildAuthIndexes();
     this.save();
     return admin;
   }
@@ -4324,7 +4577,7 @@ class DatabaseStore {
       if (!caller || caller.role !== 'admin') {
         throw new Error('Administrator access required.');
       }
-      if (!opts.adminPassword || caller.passwordHash !== hashPassword(String(opts.adminPassword))) {
+      if (!opts.adminPassword || !verifyPassword(String(opts.adminPassword), caller.passwordHash)) {
         throw new Error('Current administrator password is incorrect.');
       }
     }
@@ -4394,6 +4647,7 @@ class DatabaseStore {
 
       this.data.isSingleAdminRegistered = true;
       this.ensurePortalCredentialSeeds();
+      this.rebuildAuthIndexes();
       this.rebuildPaymentIndexes();
       this.invalidateFeedCache();
 
@@ -4597,15 +4851,18 @@ class DatabaseStore {
     }
 
     const now = Date.now();
-    const useFeaturedSort = filter?.sort === 'featured';
     return list
       .map(s => this.hydrateStayAudio({ ...s, isVerified: s.isVerified !== false }, filter?.viewerUser))
       .sort((a, b) => {
-        if (useFeaturedSort) {
-          const aBoosted = Boolean(a.isPromoted && a.promotedUntil && a.promotedUntil > now);
-          const bBoosted = Boolean(b.isPromoted && b.promotedUntil && b.promotedUntil > now);
-          if (aBoosted && !bBoosted) return -1;
-          if (!aBoosted && bBoosted) return 1;
+        const aBoostEnd = a.boost_end ?? 0;
+        const bBoostEnd = b.boost_end ?? 0;
+        const aBoosted = Boolean(a.isPromoted && aBoostEnd > now);
+        const bBoosted = Boolean(b.isPromoted && bBoostEnd > now);
+        if (aBoosted && !bBoosted) return -1;
+        if (!aBoosted && bBoosted) return 1;
+        if (aBoosted && bBoosted) {
+          const boostStartDiff = (b.boost_start ?? b.createdAt ?? 0) - (a.boost_start ?? a.createdAt ?? 0);
+          if (boostStartDiff !== 0) return boostStartDiff;
         }
         const diff = this.getStayPublishTimestamp(b) - this.getStayPublishTimestamp(a);
         if (diff !== 0) return diff;
@@ -4652,16 +4909,23 @@ class DatabaseStore {
       !filter.beds &&
       !filter.includePendingForAdmin;
 
+    const now = Date.now();
     const cacheKey = `${canSeePlus ? 'plus' : 'std'}_${filter.sort || 'new'}`;
     let fullList: Stay[];
 
+    const cachedEntry = this.publicFeedCache.stays;
+    const cachedHasExpiredBoost = Boolean(
+      cachedEntry?.data?.some((s: Stay) => s.isPromoted && (s.boost_end ?? s.promotedUntil ?? 0) <= now)
+    );
+
     if (
       isCacheable &&
-      this.publicFeedCache.stays &&
-      this.publicFeedCache.stays.key === cacheKey &&
-      Date.now() - this.publicFeedCache.stays.ts < 15_000
+      cachedEntry &&
+      cachedEntry.key === cacheKey &&
+      now - cachedEntry.ts < 15_000 &&
+      !cachedHasExpiredBoost
     ) {
-      fullList = this.publicFeedCache.stays.data;
+      fullList = cachedEntry.data;
     } else {
       fullList = this.getStays(filter);
       if (isCacheable) {
@@ -4670,14 +4934,20 @@ class DatabaseStore {
     }
 
     let filtered = fullList;
-    if (filter.cursor && filter.cursor.includes('|')) {
-      const [tsStr, cursorId] = filter.cursor.split('|');
-      const cursorTs = Number(tsStr);
-      if (Number.isFinite(cursorTs)) {
-        filtered = fullList.filter(s => {
-          const ts = this.getStayPublishTimestamp(s);
-          return ts < cursorTs || (ts === cursorTs && s.id.localeCompare(cursorId) < 0);
-        });
+    if (filter.cursor) {
+      const hasPipe = filter.cursor.includes('|');
+      const [tsStr, rawCursorId] = hasPipe ? filter.cursor.split('|') : ['', filter.cursor];
+      const idx = rawCursorId ? fullList.findIndex(s => s.id === rawCursorId) : -1;
+      if (idx >= 0) {
+        filtered = fullList.slice(idx + 1);
+      } else if (hasPipe) {
+        const cursorTs = Number(tsStr);
+        if (Number.isFinite(cursorTs)) {
+          filtered = fullList.filter(s => {
+            const ts = this.getStayPublishTimestamp(s);
+            return ts < cursorTs || (ts === cursorTs && s.id.localeCompare(rawCursorId) < 0);
+          });
+        }
       }
     }
 
@@ -6113,6 +6383,9 @@ class DatabaseStore {
     durationDays?: number;
     period?: 'monthly' | 'annual';
     note?: string;
+    listingId?: string;
+    boostStart?: number;
+    boostEnd?: number;
   }): { payment: PaymentRecord; userTx: WalletTransaction; adminTx: WalletTransaction } {
     return this.runAtomicWalletTransaction(() => {
       const cleanUserId = opts.userId.toLowerCase().trim();
@@ -6249,20 +6522,23 @@ class DatabaseStore {
           ? 'vvvip'
           : 'subscription';
       const fiscalYear = getEATParts(now).year;
+      const boostMetaNote = opts.listingId && opts.boostStart && opts.boostEnd
+        ? ` | listing=${opts.listingId} host=${cleanUserId} period=${new Date(opts.boostStart).toISOString()}..${new Date(opts.boostEnd).toISOString()}`
+        : '';
       this.data.ledgerEntries.unshift({
         id: 'ledg_' + now + '_' + Math.random().toString(36).slice(2, 6),
         fromWallet: cleanUserId,
         toWallet: 'admin@airbus.ke',
         amount: intAmount,
         type: mappedLedgerType,
-        referenceId: opts.referenceId,
+        referenceId: opts.listingId || opts.referenceId,
         paymentCode: uniquePaymentCode,
         purpose: walletPurpose,
         fiscalYear,
         depositorName: payer?.name || payer?.username || cleanUserId,
         depositorRole: payer?.role || 'guest',
         approvingAdmin: 'admin@airbus.ke',
-        description: opts.note || `Wallet payment of KES ${intAmount} for ${opts.type}`,
+        description: `${opts.note || `Wallet payment of KES ${intAmount} for ${opts.type}`}${boostMetaNote}`,
         createdAt: now,
       });
 
@@ -6279,7 +6555,7 @@ class DatabaseStore {
         purpose: walletPurpose,
         subPurpose: opts.type,
         approvingAdmin: 'admin@airbus.ke',
-        description: opts.note || `${walletPurpose} payment from ${cleanUserId}`,
+        description: `${opts.note || `${walletPurpose} payment from ${cleanUserId}`}${boostMetaNote}`,
         relatedPaymentId: paymentId,
       });
 
@@ -6287,7 +6563,7 @@ class DatabaseStore {
         id: 'aud_' + now,
         action: `wallet_payment_${opts.type}`,
         actorEmail: cleanUserId,
-        details: `Paid KES ${intAmount} for ${opts.type} (ref: ${opts.referenceId}) via Wallet`,
+        details: `Paid KES ${intAmount} for ${opts.type} (ref: ${opts.referenceId}) via Wallet${boostMetaNote}`,
         createdAt: now,
       });
 
@@ -6864,7 +7140,7 @@ class DatabaseStore {
     if (!admin || admin.role !== 'admin') {
       throw new Error('Administrator account required.');
     }
-    if (!opts.adminPassword || admin.passwordHash !== hashPassword(String(opts.adminPassword))) {
+    if (!opts.adminPassword || !verifyPassword(String(opts.adminPassword), admin.passwordHash)) {
       throw new Error('Admin password re-authentication failed.');
     }
 
@@ -8558,13 +8834,21 @@ class DatabaseStore {
       throw new Error('Only the listing owner can activate a boost on this listing');
     }
 
-    const days = Math.max(1, Math.min(60, Math.floor(opts.days || 7)));
+    const rawDays = Number(opts.days);
+    if (!Number.isInteger(rawDays) || rawDays < 1 || rawDays > 365) {
+      throw new Error('Boost duration must be a whole number of days between 1 and 365.');
+    }
+    const days = rawDays;
     const ratePerDay = Math.floor(this.getSettings().adPricePerDay || 100);
     const costKes = days * ratePerDay;
 
     return this.runAtomicWalletTransaction(() => {
       const now = Date.now();
       const boostId = 'boost_' + now + '_' + Math.random().toString(36).slice(2, 6);
+      const hasActiveBoost = Boolean(stay.isPromoted && ((stay.boost_end ?? stay.promotedUntil ?? 0) > now));
+      const boostStart = hasActiveBoost ? (stay.boost_start || now) : now;
+      const baseExpiry = hasActiveBoost ? (stay.boost_end ?? stay.promotedUntil ?? now) : now;
+      const newExpiry = baseExpiry + days * 864e5;
 
       const payRes = this.payWithWallet({
         userId: cleanEmail,
@@ -8572,13 +8856,18 @@ class DatabaseStore {
         amountSc: costKes,
         referenceId: boostId,
         durationDays: days,
+        listingId: stay.id,
+        boostStart,
+        boostEnd: newExpiry,
         note: `Listing boost for "${stay.title}" (${days} days @ KES ${ratePerDay}/day)`,
       });
 
-      const currentExpiry = (stay.promotedUntil && stay.promotedUntil > now) ? stay.promotedUntil : now;
-      const newExpiry = currentExpiry + days * 864e5;
+      // Never overwrite stay.createdAt so listing returns to original feed position upon expiry
       stay.isPromoted = true;
       stay.promotedUntil = newExpiry;
+      stay.boost_start = boostStart;
+      stay.boost_end = newExpiry;
+      stay.boost_amount_paid = (hasActiveBoost ? (stay.boost_amount_paid || 0) : 0) + costKes;
       stay.promotionImpressions = stay.promotionImpressions || 0;
       stay.promotionClicks = stay.promotionClicks || 0;
 
@@ -8591,11 +8880,14 @@ class DatabaseStore {
         days,
         cost_sc: costKes,
         costSc: costKes,
+        amount_paid: costKes,
         status: 'active',
-        starts_at: now,
-        startsAt: now,
+        starts_at: boostStart,
+        startsAt: boostStart,
+        boost_start: boostStart,
         ends_at: newExpiry,
         endsAt: newExpiry,
+        boost_end: newExpiry,
         payment_id: payRes.payment.id,
         paymentId: payRes.payment.id,
         created_at: now,
@@ -8612,7 +8904,7 @@ class DatabaseStore {
         ownerEmail: cleanEmail,
         days,
         cost: costKes,
-        startsAt: now,
+        startsAt: boostStart,
         expiresAt: newExpiry,
         status: 'active',
         impressions: 0,
@@ -8624,13 +8916,14 @@ class DatabaseStore {
         id: 'notif_' + now,
         userEmail: cleanEmail,
         title: 'Listing Boost Activated!',
-        message: `KES ${costKes.toLocaleString()} paid from your Host wallet. "${stay.title}" is now boosted for ${days} days.`,
+        message: `KES ${costKes.toLocaleString()} paid from your Host wallet. "${stay.title}" is now pinned at the top of the feed for ${days} days.`,
         read: false,
         link: '/#owner',
         type: 'payment',
         createdAt: now,
       });
 
+      this.invalidateFeedCache('stay');
       this.save();
       return {
         boost,
@@ -10301,6 +10594,22 @@ class DatabaseStore {
     return this.declineTripDatingSubmission(profileId, cleanAdmin, effectiveReason).profile;
   }
 
+  public isStayPendingReview(s: Stay): boolean {
+    const modState = String(s.moderationState || '').toUpperCase().trim();
+    const modStatus = String(s.moderationStatus || '').toLowerCase().trim();
+    const status = String(s.status || '').toLowerCase().trim();
+    const pubState = String(s.publishState || '').toUpperCase().trim();
+    if (modState === 'APPROVED' || modState === 'DECLINED') return false;
+    return (
+      modState === 'PENDING' ||
+      modState === 'PENDING_REVIEW' ||
+      status === 'review' ||
+      status === 'pending' ||
+      modStatus === 'pending' ||
+      pubState === 'PENDING_REVIEW'
+    );
+  }
+
   public getAdminReviewQueue(): {
     stays: Stay[];
     listings: Stay[];
@@ -10308,8 +10617,8 @@ class DatabaseStore {
     counts: { stays: number; tripDating: number; total: number };
   } {
     const listings = (this.data.stays || [])
-      .filter(s => s.moderationState === 'PENDING' || (!s.moderationState && (s.status === 'review' || s.moderationStatus === 'pending')))
-      .map(s => this.hydrateStayAudio({ ...s, isVerified: s.isVerified !== false }))
+      .filter(s => this.isStayPendingReview(s))
+      .map(s => this.normalizeStayMedia(this.hydrateStayAudio({ ...s, isVerified: s.isVerified !== false })))
       .sort((a, b) => {
         const diff = (a.createdAt || 0) - (b.createdAt || 0);
         return diff !== 0 ? diff : a.id.localeCompare(b.id);
@@ -11576,13 +11885,15 @@ class DatabaseStore {
   }
 
   // --- Kenyan County & City Geocoding Engine ---
-  public geocodeKenyanLocation(query: string): {
+  private findLocalKenyanLocation(query: string): {
     lat: number;
     lng: number;
     formattedAddress: string;
     county?: string;
-  } {
+    source?: string;
+  } | null {
     const q = (query || '').toLowerCase().trim();
+    if (!q) return null;
     const KENYAN_LOCATIONS: Array<{
       name: string;
       keywords: string[];
@@ -11591,56 +11902,143 @@ class DatabaseStore {
       county: string;
       formattedAddress: string;
     }> = [
-      { name: 'Nairobi', keywords: ['nairobi', 'westlands', 'kilimani', 'karen', 'lavington', 'kileleshwa', 'cbd', 'runda', 'parklands', 'gigiri', 'muthaiga', 'langata', 'south b', 'south c', 'kasarani', 'roysambu'], lat: -1.286389, lng: 36.817223, county: 'Nairobi', formattedAddress: 'Nairobi, Kenya' },
+      { name: 'Nairobi', keywords: ['nairobi', 'cbd', 'runda', 'parklands', 'gigiri', 'muthaiga', 'langata', 'south b', 'south c', 'kasarani', 'roysambu', 'kileleshwa'], lat: -1.286389, lng: 36.817223, county: 'Nairobi', formattedAddress: 'Nairobi, Kenya' },
       { name: 'Westlands', keywords: ['westlands', 'sarit', 'mpesa foundation', 'rhapta'], lat: -1.2676, lng: 36.8108, county: 'Nairobi', formattedAddress: 'Westlands, Nairobi, Kenya' },
       { name: 'Kilimani', keywords: ['kilimani', 'yaya', 'argwings', 'dennis pritt', 'hurlingham'], lat: -1.2921, lng: 36.7872, county: 'Nairobi', formattedAddress: 'Kilimani, Nairobi, Kenya' },
       { name: 'Karen', keywords: ['karen', 'hardy', 'bogani', 'hub karen'], lat: -1.3167, lng: 36.7000, county: 'Nairobi', formattedAddress: 'Karen, Nairobi, Kenya' },
       { name: 'Lavington', keywords: ['lavington', 'james gichuru', 'lavington mall'], lat: -1.2833, lng: 36.7667, county: 'Nairobi', formattedAddress: 'Lavington, Nairobi, Kenya' },
-      { name: 'Mombasa', keywords: ['mombasa', 'nyali', 'bamburi', 'shanzu', 'likoni', 'changamwe', 'tudor', 'kizingo'], lat: -4.043477, lng: 39.668206, county: 'Mombasa', formattedAddress: 'Mombasa, Kenya' },
+      { name: 'Mombasa', keywords: ['mombasa', 'bamburi', 'shanzu', 'likoni', 'changamwe', 'tudor', 'kizingo', 'mtwapa'], lat: -4.043477, lng: 39.668206, county: 'Mombasa', formattedAddress: 'Mombasa, Kenya' },
       { name: 'Nyali', keywords: ['nyali', 'cinemax', 'links road', 'nyali beach'], lat: -4.0283, lng: 39.7167, county: 'Mombasa', formattedAddress: 'Nyali, Mombasa, Kenya' },
       { name: 'Diani Beach', keywords: ['diani', 'kwale', 'ukunda', 'galu', 'tiwi'], lat: -4.316667, lng: 39.583333, county: 'Kwale', formattedAddress: 'Diani Beach, Kwale, Kenya' },
-      { name: 'Malindi', keywords: ['malindi', 'watamu', 'casuarina', 'silversands'], lat: -3.216667, lng: 40.116667, county: 'Kilifi', formattedAddress: 'Malindi, Kilifi, Kenya' },
+      { name: 'Malindi', keywords: ['malindi', 'casuarina', 'silversands'], lat: -3.216667, lng: 40.116667, county: 'Kilifi', formattedAddress: 'Malindi, Kilifi, Kenya' },
       { name: 'Kilifi', keywords: ['kilifi', 'bofa', 'mnarani', 'creek'], lat: -3.630450, lng: 39.849920, county: 'Kilifi', formattedAddress: 'Kilifi, Kenya' },
       { name: 'Lamu', keywords: ['lamu', 'shela', 'manda', 'kiwayu'], lat: -2.271667, lng: 40.902222, county: 'Lamu', formattedAddress: 'Lamu Island, Kenya' },
       { name: 'Nakuru', keywords: ['nakuru', 'milimani', 'lanet', 'njoro', 'kiamunyi'], lat: -0.303099, lng: 36.080026, county: 'Nakuru', formattedAddress: 'Nakuru, Kenya' },
-      { name: 'Naivasha', keywords: ['naivasha', 'lake naivasha', 'south lake', 'moiwnd', 'hells gate'], lat: -0.716667, lng: 36.433333, county: 'Nakuru', formattedAddress: 'Naivasha, Nakuru, Kenya' },
+      { name: 'Naivasha', keywords: ['naivasha', 'lake naivasha', 'south lake', 'hells gate'], lat: -0.716667, lng: 36.433333, county: 'Nakuru', formattedAddress: 'Naivasha, Nakuru, Kenya' },
+      { name: 'Gilgil', keywords: ['gilgil'], lat: -0.4932, lng: 36.3175, county: 'Nakuru', formattedAddress: 'Gilgil, Nakuru, Kenya' },
       { name: 'Kisumu', keywords: ['kisumu', 'milimani kisumu', 'tom mboya', 'dunga', 'riat'], lat: -0.091702, lng: 34.767956, county: 'Kisumu', formattedAddress: 'Kisumu, Kenya' },
       { name: 'Eldoret', keywords: ['eldoret', 'uasin gishu', 'elgon view', 'pioneer'], lat: 0.514277, lng: 35.269780, county: 'Uasin Gishu', formattedAddress: 'Eldoret, Kenya' },
       { name: 'Nanyuki', keywords: ['nanyuki', 'laikipia', 'mt kenya', 'sweetwaters'], lat: 0.016667, lng: 37.072222, county: 'Laikipia', formattedAddress: 'Nanyuki, Laikipia, Kenya' },
       { name: 'Machakos', keywords: ['machakos', 'syokimau', 'mlolongo', 'athi river'], lat: -1.517684, lng: 37.263415, county: 'Machakos', formattedAddress: 'Machakos, Kenya' },
       { name: 'Meru', keywords: ['meru', 'makutano', 'nkubu'], lat: 0.046263, lng: 37.655872, county: 'Meru', formattedAddress: 'Meru, Kenya' },
+      { name: 'Embu', keywords: ['embu'], lat: -0.5389, lng: 37.4583, county: 'Embu', formattedAddress: 'Embu, Kenya' },
       { name: 'Nyeri', keywords: ['nyeri', 'kingongo', 'tetu'], lat: -0.420130, lng: 36.947590, county: 'Nyeri', formattedAddress: 'Nyeri, Kenya' },
+      { name: 'Nyahururu', keywords: ['nyahururu', 'thompsons falls'], lat: 0.0381, lng: 36.3634, county: 'Laikipia', formattedAddress: 'Nyahururu, Kenya' },
       { name: 'Kericho', keywords: ['kericho', 'tea estates'], lat: -0.368889, lng: 35.286389, county: 'Kericho', formattedAddress: 'Kericho, Kenya' },
       { name: 'Kakamega', keywords: ['kakamega', 'amalemba', 'shinyalu'], lat: 0.282730, lng: 34.751860, county: 'Kakamega', formattedAddress: 'Kakamega, Kenya' },
+      { name: 'Kisii', keywords: ['kisii'], lat: -0.6817, lng: 34.7667, county: 'Kisii', formattedAddress: 'Kisii, Kenya' },
       { name: 'Kitale', keywords: ['kitale', 'trans-nzoia', 'cherangany'], lat: 1.016667, lng: 35.000000, county: 'Trans-Nzoia', formattedAddress: 'Kitale, Kenya' },
-      { name: 'Kiambu', keywords: ['kiambu', 'thika', 'ruiru', 'juja', 'kikuyu', 'banana'], lat: -1.171389, lng: 36.835556, county: 'Kiambu', formattedAddress: 'Kiambu, Kenya' },
+      { name: 'Kiambu', keywords: ['kiambu', 'ruiru', 'juja', 'kikuyu', 'banana', 'limuru'], lat: -1.171389, lng: 36.835556, county: 'Kiambu', formattedAddress: 'Kiambu, Kenya' },
+      { name: 'Thika', keywords: ['thika'], lat: -1.0332, lng: 37.0693, county: 'Kiambu', formattedAddress: 'Thika, Kiambu, Kenya' },
       { name: 'Kajiado', keywords: ['kajiado', 'kitengela', 'ongata rongai', 'ngong', 'amboseli'], lat: -1.850000, lng: 36.783333, county: 'Kajiado', formattedAddress: 'Kajiado, Kenya' },
       { name: 'Narok', keywords: ['narok', 'maasai mara', 'mara', 'talek'], lat: -1.083333, lng: 35.866667, county: 'Narok', formattedAddress: 'Narok / Maasai Mara, Kenya' },
       { name: 'Watamu', keywords: ['watamu', 'jacaranda', 'turtle bay'], lat: -3.350000, lng: 40.016667, county: 'Kilifi', formattedAddress: 'Watamu, Kilifi, Kenya' },
+      { name: 'Isiolo', keywords: ['isiolo'], lat: 0.3556, lng: 37.5833, county: 'Isiolo', formattedAddress: 'Isiolo, Kenya' },
+      { name: 'Voi', keywords: ['voi', 'tsavo'], lat: -3.3961, lng: 38.5561, county: 'Taita-Taveta', formattedAddress: 'Voi, Taita-Taveta, Kenya' },
       { name: 'Garissa', keywords: ['garissa'], lat: -0.453229, lng: 39.646014, county: 'Garissa', formattedAddress: 'Garissa, Kenya' },
     ];
 
-    if (!q) {
-      return { lat: -1.286389, lng: 36.817223, formattedAddress: 'Nairobi, Kenya', county: 'Nairobi' };
-    }
-
-    const match = KENYAN_LOCATIONS.find(loc => 
-      loc.keywords.some(k => q.includes(k)) || q.includes(loc.name.toLowerCase())
+    const match = KENYAN_LOCATIONS.find(
+      loc => loc.name.toLowerCase() === q || loc.keywords.some(k => q === k || new RegExp(`\\b${k}\\b`, 'i').test(q))
     );
-
     if (match) {
       return {
         lat: match.lat,
         lng: match.lng,
         formattedAddress: match.formattedAddress,
         county: match.county,
+        source: 'kenya_directory',
       };
+    }
+    return null;
+  }
+
+  public geocodeKenyanLocation(query: string): {
+    lat: number;
+    lng: number;
+    formattedAddress: string;
+    county?: string;
+  } {
+    const local = this.findLocalKenyanLocation(query);
+    if (local) return local;
+    return {
+      lat: -1.286389,
+      lng: 36.817223,
+      formattedAddress: query ? `${query}, Kenya` : 'Nairobi, Kenya',
+      county: 'Nairobi',
+    };
+  }
+
+  public async geocodeKenyanLocationAsync(
+    query: string,
+    strict = false
+  ): Promise<{
+    lat: number;
+    lng: number;
+    formattedAddress: string;
+    county?: string;
+    source?: string;
+  }> {
+    const clean = (query || '').trim();
+    if (!clean) {
+      if (strict) {
+        throw new Error('Please enter a city or town name in Kenya.');
+      }
+      return { lat: -1.286389, lng: 36.817223, formattedAddress: 'Nairobi, Kenya', county: 'Nairobi' };
+    }
+
+    const local = this.findLocalKenyanLocation(clean);
+    if (local) {
+      return local;
+    }
+
+    // Query OpenStreetMap Nominatim biased to Kenya (countrycodes=ke)
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
+      const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&countrycodes=ke&limit=1&addressdetails=1&q=${encodeURIComponent(clean)}`;
+      const resp = await fetch(url, {
+        headers: {
+          'User-Agent': 'AirBusKenya/1.0',
+          'Accept-Language': 'en',
+        },
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+      if (resp.ok) {
+        const items = (await resp.json()) as Array<{
+          lat: string;
+          lon: string;
+          display_name: string;
+          address?: { county?: string; state?: string; city?: string; town?: string };
+        }>;
+        if (Array.isArray(items) && items.length > 0) {
+          const first = items[0];
+          const parsedLat = parseFloat(first.lat);
+          const parsedLng = parseFloat(first.lon);
+          if (Number.isFinite(parsedLat) && Number.isFinite(parsedLng)) {
+            return {
+              lat: Number(parsedLat.toFixed(6)),
+              lng: Number(parsedLng.toFixed(6)),
+              formattedAddress: first.display_name || `${clean}, Kenya`,
+              county: first.address?.county || first.address?.state || 'Kenya',
+              source: 'nominatim',
+            };
+          }
+        }
+      }
+    } catch {
+      // Network or timeout fallback below
+    }
+
+    if (strict) {
+      throw new Error(`No matching location found in Kenya for "${clean}". Please refine the city name or adjust Latitude/Longitude manually.`);
     }
 
     return {
       lat: -1.286389,
       lng: 36.817223,
-      formattedAddress: `${query}, Kenya`,
+      formattedAddress: `${clean}, Kenya`,
       county: 'Nairobi',
     };
   }
@@ -13534,7 +13932,7 @@ class DatabaseStore {
     if (!admin || admin.role !== 'admin') {
       throw new Error('Administrator account required.');
     }
-    if (!opts.adminPassword || admin.passwordHash !== hashPassword(String(opts.adminPassword))) {
+    if (!opts.adminPassword || !verifyPassword(String(opts.adminPassword), admin.passwordHash)) {
       throw new Error('Admin password re-authentication failed.');
     }
 
@@ -13665,6 +14063,47 @@ class DatabaseStore {
         reconciledNet: summary.lifetime.reconciledNet,
       };
     });
+  }
+
+  // --- Listing Translation Persistent Cache (per stayId, field, normalizedLanguage + sourceHash) ---
+  public getStayTranslationField(
+    stayId: string,
+    language: string,
+    field: string,
+    sourceHash: string
+  ): string | string[] | null {
+    const store = this.data.listingTranslations;
+    if (!store) return null;
+    const key = `${stayId}::${language.trim().toLowerCase()}::${field}`;
+    const hit = store[key];
+    if (hit && hit.sourceHash === sourceHash) {
+      return hit.value;
+    }
+    return null;
+  }
+
+  public setStayTranslationFields(
+    stayId: string,
+    language: string,
+    sourceHash: string,
+    fields: Record<string, string | string[]>
+  ) {
+    if (!this.data.listingTranslations) this.data.listingTranslations = {};
+    const normLang = language.trim().toLowerCase();
+    const now = Date.now();
+    for (const [field, value] of Object.entries(fields)) {
+      if (value === undefined) continue;
+      const key = `${stayId}::${normLang}::${field}`;
+      this.data.listingTranslations[key] = {
+        value,
+        sourceHash,
+        language: normLang,
+        stayId,
+        field,
+        updatedAt: now,
+      };
+    }
+    this.save();
   }
 }
 

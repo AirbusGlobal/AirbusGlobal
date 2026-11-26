@@ -242,7 +242,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       if (nextCount >= 3 || err.showRecovery) {
         setShowRecoveryPrompt(true);
       }
-      setError(err.message || 'Invalid username or password (check exact capitalization and punctuation).');
+      setError(err.message || 'Username and password did not match.');
     } finally {
       setLoading(false);
     }
@@ -840,13 +840,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 <form onSubmit={handleLoginSubmit} className="space-y-3.5">
                   <div>
                     <label className="text-[11px] font-bold uppercase tracking-wider text-stone-300 block mb-1">
-                      Username (Exact Case &amp; Punctuation)
+                      Username or Email
                     </label>
                     <input
                       type="text"
                       value={loginUsername}
                       onChange={e => setLoginUsername(e.target.value)}
-                      placeholder={selectedPortal === 'owner' ? 'e.g. DavidMutua' : 'e.g. SarahWanjiku'}
+                      placeholder={selectedPortal === 'owner' ? 'e.g. DavidMutua or owner@airbus.ke' : 'e.g. SarahWanjiku or guest@airbus.ke'}
                       className="neon-input"
                       autoComplete="username"
                       required
@@ -974,7 +974,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               <p className="text-xs text-white/90 leading-relaxed font-medium">
                 {adminPortalMode
                   ? 'Create the sole administrator account with your secret setup key. Once registered, setup closes permanently.'
-                  : 'Create a Guest or Host account with a unique username and unique password. Your username and password are case- and punctuation-sensitive.'}
+                  : 'Create a Guest or Host account with a unique username and unique password. Your password is case- and punctuation-sensitive.'}
               </p>
             </div>
           </div>

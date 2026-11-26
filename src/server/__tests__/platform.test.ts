@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
@@ -1989,7 +1990,382 @@ describe('AirBus Platform End-to-End Integrity Suite', () => {
     db.runStartupMigrations();
     db.runStartupMigrations();
   });
+
+  it('24. Task 1: Signup hashes passwords with bcrypt, trimmed case-insensitive username/email login works, and legacy SHA-256 credentials migrate safely', async () => {
+    const uniq = Date.now().toString(36).toUpperCase();
+    const guestUser = `BcryptGuest_${uniq}`;
+    const guestPass = `Nairobi@Guest${uniq}!7`;
+    const hostUser = `BcryptHost_${uniq}`;
+    const hostPass = `Diani#Host${uniq}$9`;
+
+    const sg = await apiJson<{ user: any; token: string }>('/api/auth/register', {
+      method: 'POST',
+      body: { portal: 'guest', username: guestUser, password: guestPass },
+    });
+    assert.equal(sg.status, 201);
+    assert.equal(sg.data.user.passwordHash, undefined, 'Signup response must never expose passwordHash');
+    const actualGuestEmail = sg.data.user.email;
+
+    const sh = await apiJson<{ user: any; token: string }>('/api/auth/register', {
+      method: 'POST',
+      body: { portal: 'owner', username: hostUser, password: hostPass },
+    });
+    assert.equal(sh.status, 201);
+    assert.equal(sh.data.user.passwordHash, undefined, 'Signup response must never expose passwordHash');
+    const actualHostEmail = sh.data.user.email;
+
+    // Verify bcrypt hash at rest in database
+    const storedGuest = db.findUserByEmail(actualGuestEmail);
+    const storedHost = db.findUserByEmail(actualHostEmail);
+    assert.ok(storedGuest && /^\$2[aby]\$/.test(storedGuest.passwordHash || ''));
+    assert.ok(storedHost && /^\$2[aby]\$/.test(storedHost.passwordHash || ''));
+
+    // Trimmed case-insensitive login via username AND email for both Guest and Host
+    for (const [portal, identifiers, password] of [
+      ['guest', [`  ${guestUser.toLowerCase()}  `, `  ${actualGuestEmail.toUpperCase()}  `], guestPass],
+      ['owner', [`  ${hostUser.toUpperCase()}  `, `  ${actualHostEmail.toLowerCase()}  `], hostPass],
+    ] as const) {
+      for (const id of identifiers) {
+        const res = await apiJson<{ user: any; token: string }>('/api/auth/login', {
+          method: 'POST',
+          body: { portal, username: id, password },
+        });
+        assert.equal(res.status, 200, `Login for ${portal} with "${id}" must succeed`);
+        assert.equal(res.data.user.passwordHash, undefined);
+      }
+      const bad = await apiJson('/api/auth/login', {
+        method: 'POST',
+        body: { portal, username: identifiers[0], password: 'WrongPassword#999!' },
+      });
+      assert.equal(bad.status, 401);
+    }
+
+    // Legacy SHA-256 credential transparently authenticates and upgrades to bcrypt at rest
+    const legacyPass = 'LegacySha#2026!';
+    const legacySha256 = crypto
+      .createHash('sha256')
+      .update(legacyPass + 'airbus_salt_2026')
+      .digest('hex');
+    const legacyEmail = `legacy_${uniq.toLowerCase()}@airbus.ke`;
+    const legacyUsername = `LegacyUser_${uniq}`;
+    db.createUser({
+      id: `u_legacy_${uniq.toLowerCase()}`,
+      name: legacyUsername,
+      username: legacyUsername,
+      portal: 'guest',
+      email: legacyEmail,
+      role: 'guest',
+      passwordHash: legacySha256,
+      idVerified: true,
+      createdAt: Date.now() - 10 * 864e5,
+    });
+    // Running v6_bcrypt_credentials wraps raw SHA-256 with legacy256$bcrypt(...) cleanly
+    db.rollbackMigration('v6_bcrypt_credentials');
+    db.runStartupMigrations();
+    const migratedBeforeLogin = db.findUserByEmail(legacyEmail);
+    assert.ok(migratedBeforeLogin && migratedBeforeLogin.passwordHash?.startsWith('legacy256$'));
+
+    const legacyLogin = await apiJson<{ user: any; token: string }>('/api/auth/login', {
+      method: 'POST',
+      body: { portal: 'guest', username: `  ${legacyUsername.toLowerCase()} `, password: legacyPass },
+    });
+    assert.equal(legacyLogin.status, 200, 'Legacy SHA-256 user must still log in with original password');
+    const upgradedUser = db.findUserByEmail(legacyEmail);
+    assert.ok(upgradedUser && /^\$2[aby]\$/.test(upgradedUser.passwordHash || ''), 'Successful login must upgrade legacy256$ to pure bcrypt');
+  });
+
+  it('25. Task 2: Admin "Registered Users & Hosts" endpoint enforces guards, hides hashes, and supports role/search/pagination', async () => {
+    // Re-issue Guest & Host tokens after Test 23 full_factory reset cleared authSessions
+    const gRe = await apiJson<{ token: string }>('/api/auth/login', {
+      method: 'POST',
+      body: { portal: 'guest', username: 'SarahWanjiku', password: 'Sarah$Nairobi88!' },
+    });
+    assert.equal(gRe.status, 200);
+    guestToken = gRe.data.token;
+    const hRe = await apiJson<{ token: string }>('/api/auth/login', {
+      method: 'POST',
+      body: { portal: 'owner', username: 'DavidMutua', password: 'Mutua@Westlands91#' },
+    });
+    assert.equal(hRe.status, 200);
+    hostToken = hRe.data.token;
+    const aRe = await apiJson<{ token: string }>('/api/auth/login', {
+      method: 'POST',
+      body: { email: 'kamalahari93@gmail.com', password: '2019xyz//' },
+    });
+    assert.equal(aRe.status, 200);
+    adminToken = aRe.data.token;
+
+    const unauth = await apiJson('/api/admin/users');
+    assert.equal(unauth.status, 401);
+    const asGuest = await apiJson('/api/admin/users', { token: guestToken });
+    assert.equal(asGuest.status, 403);
+    const asHost = await apiJson('/api/admin/users', { token: hostToken });
+    assert.equal(asHost.status, 403);
+
+    const allRes = await apiJson<{
+      users: any[];
+      total: number;
+      counts: { total: number; guests: number; hosts: number; suspended: number };
+    }>('/api/admin/users?role=all&limit=50', { token: adminToken });
+    assert.equal(allRes.status, 200);
+    assert.ok(allRes.data.users.length >= 2);
+    assert.ok(allRes.data.users.some(u => u.email === 'guest@airbus.ke' && u.role === 'guest'));
+    assert.ok(allRes.data.users.some(u => u.email === 'owner@airbus.ke' && u.role === 'owner'));
+    for (const u of allRes.data.users) {
+      assert.equal(u.passwordHash, undefined, 'Admin users list must never return passwordHash');
+      assert.ok(u.createdAt, 'Every listed account must include signup date createdAt');
+    }
+
+    const hostFilter = await apiJson<{ users: any[] }>('/api/admin/users?role=hosts&q=DavidMutua', { token: adminToken });
+    assert.equal(hostFilter.status, 200);
+    assert.ok(hostFilter.data.users.every(u => u.role === 'owner'));
+    assert.ok(hostFilter.data.users.some(u => u.email === 'owner@airbus.ke'));
+  });
+
+  it('26. Task 3: Kenya geocoding endpoint resolves Kenyan cities and returns 404 on unmatched strict lookup', async () => {
+    const hit = await apiJson<{ lat: number; lng: number; formattedAddress: string }>(
+      '/api/geocode?q=Westlands&strict=1'
+    );
+    assert.equal(hit.status, 200);
+    assert.ok(hit.data.lat < 5 && hit.data.lat > -5);
+    assert.ok(hit.data.lng > 33 && hit.data.lng < 42);
+    assert.ok(hit.data.formattedAddress.toLowerCase().includes('westlands'));
+
+    const miss = await apiJson<{ error: string }>(
+      '/api/geocode?q=NonExistentKenyanTownXyz99999&strict=1'
+    );
+    assert.equal(miss.status, 404);
+    assert.ok(miss.data.error);
+  });
+
+  it('27. Task 4: airbus.ai translation validates inputs, returns exact English source, and serves cached per-field translations', async () => {
+    const stay = db.getStays()[0];
+    assert.ok(stay);
+
+    const bad = await apiJson(`/api/stays/${stay.id}/translate`, {
+      method: 'POST',
+      body: { targetLanguage: '   ' },
+    });
+    assert.equal(bad.status, 400);
+
+    const orig = await apiJson<{ language: string; isOriginal: boolean; translated: any }>(
+      `/api/stays/${stay.id}/translate`,
+      {
+        method: 'POST',
+        body: { targetLanguage: 'English' },
+      }
+    );
+    assert.equal(orig.status, 200);
+    assert.equal(orig.data.isOriginal, true);
+    assert.equal(orig.data.translated.title, stay.title);
+    assert.ok(orig.data.translated.priceText.includes('KES'));
+
+    const defaultBookingHours =
+      'Check-in after 14:00, checkout before 10:00. No unauthorized parties. Respect neighborhood quiet hours.';
+    const defaultSettlement =
+      'Free cancellation before check-in. Guests pay hosts directly after property tour and key handover.';
+    const defaultPriceText = `KES ${Number(stay.price || 0).toLocaleString()} for ${stay.nights || 1} ${
+      (stay.nights || 1) === 1 ? 'night' : 'nights'
+    }`;
+    const sourceFields = {
+      title: String(stay.title || ''),
+      location: String(stay.location || ''),
+      type: String(stay.type || ''),
+      description: String(stay.description || ''),
+      hostMessage: String(stay.hostMessage || ''),
+      welcomeGifts: Array.isArray(stay.welcomeGifts) ? stay.welcomeGifts.map(String) : [],
+      features: Array.isArray(stay.features) ? stay.features.map(String) : [],
+      highlights: Array.isArray(stay.highlights) ? stay.highlights.map(String) : [],
+      bookingHoursText: defaultBookingHours,
+      directSettlementText: defaultSettlement,
+      priceText: defaultPriceText,
+      instantBookLabel: stay.instantBook ? 'Instant Confirmation' : 'Host approval',
+    };
+    const sourceHash = crypto
+      .createHash('sha256')
+      .update(JSON.stringify(sourceFields))
+      .digest('hex')
+      .slice(0, 16);
+
+    db.setStayTranslationFields(stay.id, 'Swahili', sourceHash, {
+      ...sourceFields,
+      title: `${stay.title} (Kiswahili)`,
+      description: 'Nyumba ya kifahari yenye mandhari mazuri.',
+      bookingHoursText: 'Kuingia baada ya 14:00, kutoka kabla ya 10:00.',
+      priceText: `KES ${Number(stay.price || 0).toLocaleString()} kwa usiku ${stay.nights || 1}`,
+    });
+
+    const sw = await apiJson<{ language: string; cached: boolean; isOriginal: boolean; translated: any }>(
+      `/api/stays/${stay.id}/translate`,
+      {
+        method: 'POST',
+        body: { targetLanguage: 'Swahili' },
+      }
+    );
+    assert.equal(sw.status, 200);
+    assert.equal(sw.data.cached, true);
+    assert.equal(sw.data.isOriginal, false);
+    assert.ok(sw.data.translated.title.includes('(Kiswahili)'));
+    assert.ok(sw.data.translated.bookingHoursText.includes('14:00'));
+    assert.ok(sw.data.translated.priceText.includes('KES'));
+  });
+
+  it('28. Task 5: Atomic boosting validates balance, pins old listing at top of "new" feed during boost_start..boost_end, logs admin ledger, and reverts on expiry', async () => {
+    // Re-ensure active Gold plan on owner@airbus.ke after factory reset
+    await apiJson('/api/admin/plan', {
+      method: 'POST',
+      token: adminToken,
+      body: { hostEmail: 'owner@airbus.ke', tier: 'Gold', durationDays: 30 },
+    });
+
+    const staysChrono = db.getStays().filter(s => (s.ownerEmail || '').toLowerCase() === 'owner@airbus.ke');
+    const oldestHostStay = staysChrono[staysChrono.length - 1];
+    assert.ok(oldestHostStay);
+    const originalCreatedAt = oldestHostStay.createdAt;
+
+    const hostBalBefore = db.getWalletBalance('owner@airbus.ke');
+    const adminBalBefore = db.getWalletBalance('admin@airbus.ke');
+
+    // Insufficient balance must fail atomically with zero balance change
+    const overDays = Math.ceil((hostBalBefore + 5000) / 100);
+    const failBoost = await apiJson<{ error: string }>('/api/promotions/purchase', {
+      method: 'POST',
+      token: hostToken,
+      body: { listingId: oldestHostStay.id, days: overDays, paymentMethod: 'wallet' },
+    });
+    assert.equal(failBoost.status, 400);
+    assert.equal(db.getWalletBalance('owner@airbus.ke'), hostBalBefore);
+    assert.equal(db.getWalletBalance('admin@airbus.ke'), adminBalBefore);
+
+    // Valid atomic boost (3 days = KES 300) with idempotency key
+    const idem = `boost_idem_${Date.now()}`;
+    const okBoost = await apiJson<{ boost: any; payment: any }>('/api/promotions/purchase', {
+      method: 'POST',
+      token: hostToken,
+      headers: { 'Idempotency-Key': idem },
+      body: { listingId: oldestHostStay.id, days: 3, paymentMethod: 'wallet' },
+    });
+    assert.equal(okBoost.status, 201);
+    assert.equal(okBoost.data.boost.amount_paid, 300);
+    assert.ok(okBoost.data.boost.boost_start);
+    assert.ok(okBoost.data.boost.boost_end > okBoost.data.boost.boost_start);
+
+    // Retry with same idempotency key must not double debit
+    const retryBoost = await apiJson<{ boost: any }>('/api/promotions/purchase', {
+      method: 'POST',
+      token: hostToken,
+      headers: { 'Idempotency-Key': idem },
+      body: { listingId: oldestHostStay.id, days: 3, paymentMethod: 'wallet' },
+    });
+    assert.equal(retryBoost.status, 200);
+
+    assert.equal(db.getWalletBalance('owner@airbus.ke'), hostBalBefore - 300);
+    assert.equal(db.getWalletBalance('admin@airbus.ke'), adminBalBefore + 300);
+
+    // Old boosted listing is pinned at #1 topmost on default 'new' feed without altering createdAt
+    const feedActive = await apiJson<{ stays: any[] }>('/api/stays?sort=new&limit=20');
+    assert.equal(feedActive.status, 200);
+    assert.equal(feedActive.data.stays[0].id, oldestHostStay.id);
+    assert.equal(feedActive.data.stays[0].createdAt, originalCreatedAt);
+
+    // Simulate boost expiry and run scheduled expiration check
+    const targetStayRef = (db as any).data.stays.find((s: any) => s.id === oldestHostStay.id)!;
+    targetStayRef.boost_end = Date.now() - 5000;
+    targetStayRef.promotedUntil = targetStayRef.boost_end;
+    db.checkAllExpirations();
+
+    const feedAfterExpiry = await apiJson<{ stays: any[] }>('/api/stays?sort=new&limit=20');
+    assert.equal(feedAfterExpiry.status, 200);
+    assert.notEqual(
+      feedAfterExpiry.data.stays[0].id,
+      oldestHostStay.id,
+      'Expired boost must revert back to original chronological createdAt order'
+    );
+    assert.equal(targetStayRef.createdAt, originalCreatedAt);
+  });
+
+  it('29. Task 6: Admin Review Queue lists oldest pending first with counts & full media, requires decline feedback, and publishes approved posts', async () => {
+    const tinyPngDataUrl =
+      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+    const up = await apiJson<{ url: string }>('/api/uploads/media', {
+      method: 'POST',
+      token: hostToken,
+      body: { dataUrl: tinyPngDataUrl, filename: 'rq_photo.png', kind: 'photo' },
+    });
+    assert.equal(up.status, 201);
+    createdUploadFiles.push(up.data.url);
+
+    const stayOneRes = await apiJson<{ stay: any }>('/api/stays', {
+      method: 'POST',
+      token: hostToken,
+      body: {
+        title: 'Review Queue Oldest Listing',
+        location: 'Westlands, Nairobi',
+        lat: -1.267,
+        lng: 36.811,
+        price: 7500,
+        images: [up.data.url],
+        thumbnailUrl: up.data.url,
+      },
+    });
+    assert.equal(stayOneRes.status, 201);
+    await new Promise(r => setTimeout(r, 8));
+    const stayTwoRes = await apiJson<{ stay: any }>('/api/stays', {
+      method: 'POST',
+      token: hostToken,
+      body: {
+        title: 'Review Queue Newer Listing',
+        location: 'Kilimani, Nairobi',
+        lat: -1.292,
+        lng: 36.783,
+        price: 8200,
+        images: [up.data.url],
+        thumbnailUrl: up.data.url,
+      },
+    });
+    assert.equal(stayTwoRes.status, 201);
+
+    const queue = await apiJson<{
+      stays: any[];
+      tripDating: any[];
+      counts: { stays: number; tripDating: number; total: number };
+    }>('/api/admin/review-queue', { token: adminToken });
+    assert.equal(queue.status, 200);
+    assert.equal(queue.data.counts.stays + queue.data.counts.tripDating, queue.data.counts.total);
+    assert.ok(queue.data.counts.stays >= 2);
+    const idx1 = queue.data.stays.findIndex(s => s.id === stayOneRes.data.stay.id);
+    const idx2 = queue.data.stays.findIndex(s => s.id === stayTwoRes.data.stay.id);
+    assert.ok(idx1 !== -1 && idx2 !== -1 && idx1 < idx2, 'Queue must list oldest pending first');
+    assert.ok(Array.isArray(queue.data.stays[idx1].media?.photos));
+
+    // Decline without feedback fails 400
+    const badDecline = await apiJson(`/api/admin/review-queue/stays/${stayOneRes.data.stay.id}`, {
+      method: 'POST',
+      token: adminToken,
+      body: { action: 'decline', admin_feedback: '   ' },
+    });
+    assert.equal(badDecline.status, 400);
+
+    // Decline with feedback removes from queue & preserves feedback for host
+    const goodDecline = await apiJson<{ stay: any }>(`/api/admin/review-queue/stays/${stayOneRes.data.stay.id}`, {
+      method: 'POST',
+      token: adminToken,
+      body: { action: 'decline', admin_feedback: 'Please upload clearer daylight photos of the balcony.' },
+    });
+    assert.equal(goodDecline.status, 200);
+    assert.equal(goodDecline.data.stay.admin_feedback, 'Please upload clearer daylight photos of the balcony.');
+
+    // Approve second listing publishes to live feed
+    const approveTwo = await apiJson<{ stay: any }>(`/api/admin/review-queue/stays/${stayTwoRes.data.stay.id}`, {
+      method: 'POST',
+      token: adminToken,
+      body: { action: 'approve' },
+    });
+    assert.equal(approveTwo.status, 200);
+    assert.equal(approveTwo.data.stay.status, 'live');
+  });
 });
+
 
 
 

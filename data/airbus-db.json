@@ -7,7 +7,7 @@
       "portal": "guest",
       "email": "guest@airbus.ke",
       "role": "guest",
-      "passwordHash": "f12162b6bec71b6d68312e6cfddb5521c2827ed19c41559c5ccffa5863a1357d",
+      "passwordHash": "legacy256$$2b$10$cGyePbkFIirHS3PEk3rLIOULTLvak4Wc/cqeA3C9olMl9d5LsRb9K",
       "phone": "+254 712 345 678",
       "location": "Nairobi, Kenya",
       "bio": "Passionate traveller, remote software engineer & video stay enthusiast.",
@@ -23,7 +23,7 @@
       "portal": "owner",
       "email": "owner@airbus.ke",
       "role": "owner",
-      "passwordHash": "838c46a74cd059704247831e510f744f54a89234b236c3e49f9e5ffd333c2b46",
+      "passwordHash": "legacy256$$2b$10$rGFmBCpTmNALhKXOA879SejixDWAd0Ge.9yN0jAs0dtWArdAtkmMW",
       "phone": "+254 722 987 654",
       "location": "Westlands, Nairobi",
       "bio": "Superhost managing luxury villas in Westlands and beachfront retreats in Diani & Nyali.",
@@ -39,7 +39,7 @@
       "portal": "admin",
       "email": "kamalahari93@gmail.com",
       "role": "admin",
-      "passwordHash": "bf9cf609604a058893544342849665e80dfe1ef536e238ab87dd21b65488aa73",
+      "passwordHash": "legacy256$$2b$10$nsrGLa/MQpXWsSK6/fQva.ivu.1mv/Me5EZ9l5x3NYkrHNye3B.DC",
       "phone": "+254 700 000 001",
       "location": "Headquarters, Nairobi",
       "bio": "Lead Platform Administrator at AirBus Global.",
@@ -169,7 +169,25 @@
       "isLocalGuideExperience": false,
       "isWorldWide": false,
       "isEscapeOffer": false,
-      "isPlusVVVIP": false
+      "isPlusVVVIP": false,
+      "media": {
+        "video": {
+          "url": "https://assets.mixkit.co/videos/preview/mixkit-modern-apartment-with-living-room-and-terrace-43405-large.mp4",
+          "thumbnail": "https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?auto=format&fit=crop&w=800&q=80",
+          "duration": 60,
+          "size": 15000000
+        },
+        "photos": [
+          {
+            "url": "https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?auto=format&fit=crop&w=800&q=80",
+            "order": 0,
+            "isCover": true
+          }
+        ]
+      },
+      "hasVideo": true,
+      "hasPhotos": true,
+      "mediaModerationStatus": "clean"
     },
     {
       "id": "s2",
@@ -257,7 +275,25 @@
       "blackFridayOptIn": false,
       "isLocalGuideExperience": false,
       "isWorldWide": false,
-      "isPlusVVVIP": false
+      "isPlusVVVIP": false,
+      "media": {
+        "video": {
+          "url": "https://assets.mixkit.co/videos/preview/mixkit-luxurious-living-room-with-a-modern-interior-design-43409-large.mp4",
+          "thumbnail": "https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?auto=format&fit=crop&w=800&q=80",
+          "duration": 60,
+          "size": 15000000
+        },
+        "photos": [
+          {
+            "url": "https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?auto=format&fit=crop&w=800&q=80",
+            "order": 0,
+            "isCover": true
+          }
+        ]
+      },
+      "hasVideo": true,
+      "hasPhotos": true,
+      "mediaModerationStatus": "clean"
     },
     {
       "id": "s3",
@@ -331,7 +367,26 @@
       "isLocalGuideExperience": false,
       "isWorldWide": false,
       "isEscapeOffer": false,
-      "isPlusVVVIP": false
+      "isPlusVVVIP": false,
+      "media": {
+        "video": {
+          "url": "https://assets.mixkit.co/videos/preview/mixkit-wooden-house-in-the-middle-of-a-forest-43410-large.mp4",
+          "thumbnail": "https://images.unsplash.com/photo-1580587771525-78b9dba3b914?auto=format&fit=crop&w=800&q=80",
+          "duration": 60,
+          "size": 15000000
+        },
+        "photos": [
+          {
+            "url": "https://images.unsplash.com/photo-1580587771525-78b9dba3b914?auto=format&fit=crop&w=800&q=80",
+            "order": 0,
+            "isCover": true
+          }
+        ]
+      },
+      "hasVideo": true,
+      "hasPhotos": true,
+      "mediaModerationStatus": "clean",
+      "isVerified": true
     },
     {
       "id": "s4",
@@ -433,7 +488,26 @@
       "isLocalGuideExperience": false,
       "isWorldWide": false,
       "isEscapeOffer": false,
-      "isPlusVVVIP": false
+      "isPlusVVVIP": false,
+      "media": {
+        "video": {
+          "url": "https://assets.mixkit.co/videos/preview/mixkit-villa-with-pool-and-terrace-in-front-of-the-sea-43406-large.mp4",
+          "thumbnail": "https://images.unsplash.com/photo-1512917774080-9991f1c4c750?auto=format&fit=crop&w=800&q=80",
+          "duration": 60,
+          "size": 15000000
+        },
+        "photos": [
+          {
+            "url": "https://images.unsplash.com/photo-1512917774080-9991f1c4c750?auto=format&fit=crop&w=800&q=80",
+            "order": 0,
+            "isCover": true
+          }
+        ]
+      },
+      "hasVideo": true,
+      "hasPhotos": true,
+      "mediaModerationStatus": "clean",
+      "isVerified": true
     },
     {
       "id": "s5",
@@ -517,7 +591,25 @@
       "isAirbusWork": false,
       "isLocalGuideExperience": false,
       "isWorldWide": false,
-      "isPlusVVVIP": false
+      "isPlusVVVIP": false,
+      "media": {
+        "video": {
+          "url": "https://assets.mixkit.co/videos/preview/mixkit-swimming-pool-surrounded-by-palm-trees-at-sunset-42028-large.mp4",
+          "thumbnail": "https://images.unsplash.com/photo-1499793983690-e29da59ef1c2?auto=format&fit=crop&w=800&q=80",
+          "duration": 60,
+          "size": 15000000
+        },
+        "photos": [
+          {
+            "url": "https://images.unsplash.com/photo-1499793983690-e29da59ef1c2?auto=format&fit=crop&w=800&q=80",
+            "order": 0,
+            "isCover": true
+          }
+        ]
+      },
+      "hasVideo": true,
+      "hasPhotos": true,
+      "mediaModerationStatus": "clean"
     },
     {
       "id": "s6",
@@ -590,7 +682,26 @@
       "isLocalGuideExperience": false,
       "isWorldWide": false,
       "isEscapeOffer": false,
-      "isPlusVVVIP": false
+      "isPlusVVVIP": false,
+      "media": {
+        "video": {
+          "url": "https://assets.mixkit.co/videos/preview/mixkit-cozy-living-room-in-a-cabin-43407-large.mp4",
+          "thumbnail": "https://images.unsplash.com/photo-1518780664697-55e3ad937233?auto=format&fit=crop&w=800&q=80",
+          "duration": 60,
+          "size": 15000000
+        },
+        "photos": [
+          {
+            "url": "https://images.unsplash.com/photo-1518780664697-55e3ad937233?auto=format&fit=crop&w=800&q=80",
+            "order": 0,
+            "isCover": true
+          }
+        ]
+      },
+      "hasVideo": true,
+      "hasPhotos": true,
+      "mediaModerationStatus": "clean",
+      "isVerified": true
     },
     {
       "id": "s7",
@@ -664,7 +775,26 @@
       "isLocalGuideExperience": false,
       "isWorldWide": false,
       "isEscapeOffer": false,
-      "isPlusVVVIP": false
+      "isPlusVVVIP": false,
+      "media": {
+        "video": {
+          "url": "https://assets.mixkit.co/videos/preview/mixkit-large-house-with-modern-interior-and-floor-to-ceiling-windows-43411-large.mp4",
+          "thumbnail": "https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?auto=format&fit=crop&w=800&q=80",
+          "duration": 60,
+          "size": 15000000
+        },
+        "photos": [
+          {
+            "url": "https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?auto=format&fit=crop&w=800&q=80",
+            "order": 0,
+            "isCover": true
+          }
+        ]
+      },
+      "hasVideo": true,
+      "hasPhotos": true,
+      "mediaModerationStatus": "clean",
+      "isVerified": true
     },
     {
       "id": "s8",
@@ -747,7 +877,25 @@
       "isAirbusWork": false,
       "isLocalGuideExperience": false,
       "isWorldWide": false,
-      "isPlusVVVIP": false
+      "isPlusVVVIP": false,
+      "media": {
+        "video": {
+          "url": "https://assets.mixkit.co/videos/preview/mixkit-kitchen-island-in-a-luxurious-modern-house-43412-large.mp4",
+          "thumbnail": "https://images.unsplash.com/photo-1542314831-068cd1dbfeeb?auto=format&fit=crop&w=800&q=80",
+          "duration": 60,
+          "size": 15000000
+        },
+        "photos": [
+          {
+            "url": "https://images.unsplash.com/photo-1542314831-068cd1dbfeeb?auto=format&fit=crop&w=800&q=80",
+            "order": 0,
+            "isCover": true
+          }
+        ]
+      },
+      "hasVideo": true,
+      "hasPhotos": true,
+      "mediaModerationStatus": "clean"
     },
     {
       "id": "s_plus_1",
@@ -832,7 +980,25 @@
       "isAirbusWork": false,
       "isLocalGuideExperience": false,
       "isWorldWide": false,
-      "isEscapeOffer": false
+      "isEscapeOffer": false,
+      "media": {
+        "video": {
+          "url": "https://assets.mixkit.co/videos/preview/mixkit-villa-with-pool-and-terrace-in-front-of-the-sea-43406-large.mp4",
+          "thumbnail": "https://images.unsplash.com/photo-1613490493576-7fde63acd811?auto=format&fit=crop&w=800&q=80",
+          "duration": 60,
+          "size": 15000000
+        },
+        "photos": [
+          {
+            "url": "https://images.unsplash.com/photo-1613490493576-7fde63acd811?auto=format&fit=crop&w=800&q=80",
+            "order": 0,
+            "isCover": true
+          }
+        ]
+      },
+      "hasVideo": true,
+      "hasPhotos": true,
+      "mediaModerationStatus": "clean"
     },
     {
       "id": "s_plus_2",
@@ -916,7 +1082,25 @@
       "isAirbusWork": false,
       "isLocalGuideExperience": false,
       "isWorldWide": false,
-      "isEscapeOffer": false
+      "isEscapeOffer": false,
+      "media": {
+        "video": {
+          "url": "https://assets.mixkit.co/videos/preview/mixkit-luxury-home-with-pool-and-sea-view-43410-large.mp4",
+          "thumbnail": "https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?auto=format&fit=crop&w=800&q=80",
+          "duration": 60,
+          "size": 15000000
+        },
+        "photos": [
+          {
+            "url": "https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?auto=format&fit=crop&w=800&q=80",
+            "order": 0,
+            "isCover": true
+          }
+        ]
+      },
+      "hasVideo": true,
+      "hasPhotos": true,
+      "mediaModerationStatus": "clean"
     },
     {
       "id": "s_local_1",
@@ -991,7 +1175,25 @@
       "isAirbusWork": false,
       "isWorldWide": false,
       "isEscapeOffer": false,
-      "isPlusVVVIP": false
+      "isPlusVVVIP": false,
+      "media": {
+        "video": {
+          "url": "https://assets.mixkit.co/videos/preview/mixkit-modern-apartment-with-living-room-and-terrace-43405-large.mp4",
+          "thumbnail": "https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?auto=format&fit=crop&w=800&q=80",
+          "duration": 60,
+          "size": 15000000
+        },
+        "photos": [
+          {
+            "url": "https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?auto=format&fit=crop&w=800&q=80",
+            "order": 0,
+            "isCover": true
+          }
+        ]
+      },
+      "hasVideo": true,
+      "hasPhotos": true,
+      "mediaModerationStatus": "clean"
     },
     {
       "id": "s_local_2",
@@ -1066,7 +1268,25 @@
       "isAirbusWork": false,
       "isWorldWide": false,
       "isEscapeOffer": false,
-      "isPlusVVVIP": false
+      "isPlusVVVIP": false,
+      "media": {
+        "video": {
+          "url": "https://assets.mixkit.co/videos/preview/mixkit-swimming-pool-surrounded-by-palm-trees-at-sunset-42028-large.mp4",
+          "thumbnail": "https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?auto=format&fit=crop&w=800&q=80",
+          "duration": 60,
+          "size": 15000000
+        },
+        "photos": [
+          {
+            "url": "https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?auto=format&fit=crop&w=800&q=80",
+            "order": 0,
+            "isCover": true
+          }
+        ]
+      },
+      "hasVideo": true,
+      "hasPhotos": true,
+      "mediaModerationStatus": "clean"
     },
     {
       "id": "s_ww_1",
@@ -1151,7 +1371,25 @@
       "blackFridayOptIn": false,
       "isLocalGuideExperience": false,
       "isEscapeOffer": false,
-      "isPlusVVVIP": false
+      "isPlusVVVIP": false,
+      "media": {
+        "video": {
+          "url": "https://assets.mixkit.co/videos/preview/mixkit-villa-with-pool-and-terrace-in-front-of-the-sea-43406-large.mp4",
+          "thumbnail": "https://images.unsplash.com/photo-1512917774080-9991f1c4c750?auto=format&fit=crop&w=800&q=80",
+          "duration": 60,
+          "size": 15000000
+        },
+        "photos": [
+          {
+            "url": "https://images.unsplash.com/photo-1512917774080-9991f1c4c750?auto=format&fit=crop&w=800&q=80",
+            "order": 0,
+            "isCover": true
+          }
+        ]
+      },
+      "hasVideo": true,
+      "hasPhotos": true,
+      "mediaModerationStatus": "clean"
     },
     {
       "id": "s_ww_2",
@@ -1232,7 +1470,25 @@
       "isAirbusWork": false,
       "isLocalGuideExperience": false,
       "isEscapeOffer": false,
-      "isPlusVVVIP": false
+      "isPlusVVVIP": false,
+      "media": {
+        "video": {
+          "url": "https://assets.mixkit.co/videos/preview/mixkit-swimming-pool-surrounded-by-palm-trees-at-sunset-42028-large.mp4",
+          "thumbnail": "https://images.unsplash.com/photo-1540541338287-41700207dee6?auto=format&fit=crop&w=800&q=80",
+          "duration": 60,
+          "size": 15000000
+        },
+        "photos": [
+          {
+            "url": "https://images.unsplash.com/photo-1540541338287-41700207dee6?auto=format&fit=crop&w=800&q=80",
+            "order": 0,
+            "isCover": true
+          }
+        ]
+      },
+      "hasVideo": true,
+      "hasPhotos": true,
+      "mediaModerationStatus": "clean"
     },
     {
       "id": "s_ww_3",
@@ -1318,7 +1574,25 @@
       "blackFridayOptIn": false,
       "isLocalGuideExperience": false,
       "isEscapeOffer": false,
-      "isPlusVVVIP": false
+      "isPlusVVVIP": false,
+      "media": {
+        "video": {
+          "url": "https://assets.mixkit.co/videos/preview/mixkit-modern-apartment-with-living-room-and-terrace-43405-large.mp4",
+          "thumbnail": "https://images.unsplash.com/photo-1512453979798-5ea266f8880c?auto=format&fit=crop&w=800&q=80",
+          "duration": 60,
+          "size": 15000000
+        },
+        "photos": [
+          {
+            "url": "https://images.unsplash.com/photo-1512453979798-5ea266f8880c?auto=format&fit=crop&w=800&q=80",
+            "order": 0,
+            "isCover": true
+          }
+        ]
+      },
+      "hasVideo": true,
+      "hasPhotos": true,
+      "mediaModerationStatus": "clean"
     },
     {
       "id": "s_ww_4",
@@ -1404,7 +1678,25 @@
       "blackFridayOptIn": false,
       "isAirbusWork": false,
       "isLocalGuideExperience": false,
-      "isPlusVVVIP": false
+      "isPlusVVVIP": false,
+      "media": {
+        "video": {
+          "url": "https://assets.mixkit.co/videos/preview/mixkit-wooden-house-in-the-middle-of-a-forest-43410-large.mp4",
+          "thumbnail": "https://images.unsplash.com/photo-1537996194471-e657df975ab4?auto=format&fit=crop&w=800&q=80",
+          "duration": 60,
+          "size": 15000000
+        },
+        "photos": [
+          {
+            "url": "https://images.unsplash.com/photo-1537996194471-e657df975ab4?auto=format&fit=crop&w=800&q=80",
+            "order": 0,
+            "isCover": true
+          }
+        ]
+      },
+      "hasVideo": true,
+      "hasPhotos": true,
+      "mediaModerationStatus": "clean"
     }
   ],
   "bookings": [
@@ -1747,6 +2039,26 @@
   ],
   "notifications": [
     {
+      "id": "notif_host_remind_24h_b_demo_1",
+      "userEmail": "owner@airbus.ke",
+      "title": "🛎️ Guest Check-in within 24 Hours: Sarah Wanjiku",
+      "message": "Guest Sarah Wanjiku is arriving on 2026-11-26 for \"Modern Westlands Penthouse with Panoramic City Views\". Check-in ready!",
+      "read": false,
+      "link": "/#owner",
+      "type": "booking",
+      "createdAt": 1795669207799
+    },
+    {
+      "id": "notif_remind_24h_b_demo_1",
+      "userEmail": "guest@airbus.ke",
+      "title": "🛎️ 24h Check-in Reminder: Modern Westlands Penthouse with Panoramic City Views",
+      "message": "Your stay at \"Modern Westlands Penthouse with Panoramic City Views\" (Westlands, Nairobi) starts in ~9 hours! Check-in: 2026-11-26. Host contact: 254722987654. Have a wonderful trip!",
+      "read": false,
+      "link": "/#guest",
+      "type": "booking",
+      "createdAt": 1795669207799
+    },
+    {
       "id": "notif_1",
       "userEmail": "guest@airbus.ke",
       "title": "Booking Confirmed!",
@@ -1896,7 +2208,9 @@
       "shares": 145,
       "viralityScore": 92,
       "createdAt": 1794544245748,
-      "updatedAt": 1794544245748
+      "updatedAt": 1794544245748,
+      "listing_id": "s1",
+      "host_id": "owner@airbus.ke"
     },
     {
       "id": "post_video_2",
@@ -1913,7 +2227,15 @@
       "shares": 230,
       "viralityScore": 96,
       "createdAt": 1794198645748,
-      "updatedAt": 1794198645748
+      "updatedAt": 1794198645748,
+      "creatorName": "DavidMutua",
+      "listing_id": "s4",
+      "host_id": "owner@airbus.ke",
+      "comments": [],
+      "hashtags": [
+        "#AirBusStays",
+        "#TravelKenya"
+      ]
     },
     {
       "id": "post_photo_3",
@@ -1933,7 +2255,15 @@
       "shares": 88,
       "viralityScore": 84,
       "createdAt": 1793680245748,
-      "updatedAt": 1793680245748
+      "updatedAt": 1793680245748,
+      "creatorName": "DavidMutua",
+      "listing_id": "s3",
+      "host_id": "owner@airbus.ke",
+      "comments": [],
+      "hashtags": [
+        "#AirBusStays",
+        "#TravelKenya"
+      ]
     },
     {
       "id": "post_pending_4",
@@ -1950,7 +2280,24 @@
       "shares": 0,
       "viralityScore": 0,
       "createdAt": 1795401045748,
-      "updatedAt": 1795401045748
+      "updatedAt": 1795401045748,
+      "creatorName": "DavidMutua",
+      "listing_id": "s2",
+      "host_id": "owner@airbus.ke",
+      "shortAudio": {
+        "mode": "none",
+        "originalVolume": 100,
+        "musicVolume": 0,
+        "voiceOverVolume": 0,
+        "autoDuckMusic": false,
+        "requiresAttribution": false,
+        "isDefaultAssigned": false
+      },
+      "comments": [],
+      "hashtags": [
+        "#AirBusStays",
+        "#TravelKenya"
+      ]
     }
   ],
   "adRequests": [
@@ -3241,7 +3588,7 @@
       "normalizedUsername": "sarahwanjiku",
       "userEmail": "guest@airbus.ke",
       "userId": "u_guest",
-      "passwordHash": "f12162b6bec71b6d68312e6cfddb5521c2827ed19c41559c5ccffa5863a1357d",
+      "passwordHash": "legacy256$$2b$10$kpnaYNRfWt0A5oHJtZ9LSeF90YHLS/KMELKcR9Fv0jXATYSTkdby2",
       "passwordFingerprint": {
         "exactHash": "f12162b6bec71b6d68312e6cfddb5521c2827ed19c41559c5ccffa5863a1357d",
         "lowerHash": "2b1d67ff05fb647766bf0a039111690234bf576842f27eee674140e0cd15ef20",
@@ -3277,7 +3624,7 @@
       "normalizedUsername": "johndoe76180",
       "userEmail": "johndoe76180_mwhlbggzpyi@guest.airbus.ke",
       "userId": "u_1794732376355_cdl",
-      "passwordHash": "59e8c1d642d2f05246a15bab55cef3a35d86436874b7a1278f3ecbe71030963d",
+      "passwordHash": "legacy256$$2b$10$YdSkK6ASDMogRHlgQw.67.z3igqTJ2TRohL5cFWrf5uy1wwVlYeSa",
       "passwordFingerprint": {
         "exactHash": "59e8c1d642d2f05246a15bab55cef3a35d86436874b7a1278f3ecbe71030963d",
         "lowerHash": "87666950530f1502faf906fe69cb7b63b6d9b9c938c1cc97217f7dda4f6ab2e2",
@@ -3305,7 +3652,7 @@
       "normalizedUsername": "johnrecov17962",
       "userEmail": "johndoe17962_mwhlccoexcv@guest.airbus.ke",
       "userId": "u_1794732418094_xn2",
-      "passwordHash": "eba285fca12e74236c3e80284ec891ff6f5ffe1548f676e7a0f4a2c7ae662106",
+      "passwordHash": "legacy256$$2b$10$8YcDuXeHcBImoy04HTK8G.J2P58H9Iqf80Q8pqAigEVuHFDWG/eKm",
       "passwordFingerprint": {
         "exactHash": "eba285fca12e74236c3e80284ec891ff6f5ffe1548f676e7a0f4a2c7ae662106",
         "lowerHash": "350f0577cc294fa643679aa996de078cd29cad075409c5cab85ff83c1715a97b",
@@ -3345,7 +3692,7 @@
       "normalizedUsername": "johnrecov31896",
       "userEmail": "johndoe31896_mwhlcnff2eu@guest.airbus.ke",
       "userId": "u_1794732432027_r8t",
-      "passwordHash": "a546401ecfff3a9961359e5ba83d912f83a4390717c993ef916eac380fdf9e84",
+      "passwordHash": "legacy256$$2b$10$gSscPuSEezdW04.FVIELBuIW8fh8o/vKn7CUz8eYDHUMH4f.kT8T.",
       "passwordFingerprint": {
         "exactHash": "a546401ecfff3a9961359e5ba83d912f83a4390717c993ef916eac380fdf9e84",
         "lowerHash": "f9a64b65a278ca76bf4343b62efd1e9b90d34934283d17a5397ffd8454a8e789",
@@ -3385,7 +3732,7 @@
       "normalizedUsername": "johnrecov52291",
       "userEmail": "johndoe52291_mwhld367nox@guest.airbus.ke",
       "userId": "u_1794732452431_a0i",
-      "passwordHash": "b1f2cb88fe1e1dea914d1793fef9b910e5439286e0bc2373c232cd9314d45ad6",
+      "passwordHash": "legacy256$$2b$10$siyXFuTm5z2mrUpRVz/wDOUYzOZiQ2nafUW5Ye6P2sz4CqA2W2fXO",
       "passwordFingerprint": {
         "exactHash": "b1f2cb88fe1e1dea914d1793fef9b910e5439286e0bc2373c232cd9314d45ad6",
         "lowerHash": "b37672b674dfcbeb66c2df5990a37a16bfd3fc1fecf709199c54377446bd079c",
@@ -3425,7 +3772,7 @@
       "normalizedUsername": "johnrecov80230",
       "userEmail": "johndoe80230_mwhldoq0rxu@guest.airbus.ke",
       "userId": "u_1794732480360_aw1",
-      "passwordHash": "4c387a3d539f262969f3b974f9e1a49406818411fc33d9fa9bd69e17c4462766",
+      "passwordHash": "legacy256$$2b$10$UYX/OAPiG.EN8VIHjTKiRe9sKEtr4p51OMznkoLbpNKntWKcWr6OG",
       "passwordFingerprint": {
         "exactHash": "4c387a3d539f262969f3b974f9e1a49406818411fc33d9fa9bd69e17c4462766",
         "lowerHash": "ae215aa259479314bcdd0bbae5a56a415ff59f78394dc5934c094862a537c9d0",
@@ -3465,7 +3812,7 @@
       "normalizedUsername": "johndoe98247",
       "userEmail": "johndoe98247_mwhle2m6t52@guest.airbus.ke",
       "userId": "u_1794732498366_psx",
-      "passwordHash": "8d82b9a6af77f1a555e11a47f1626038adc32e773bc9d36ad31940c0f008fcb7",
+      "passwordHash": "legacy256$$2b$10$PdPVYHrouD957kfONkNQ0e2axOO5/Yh3dcrwLxQdUc7fYdkuV0Pfa",
       "passwordFingerprint": {
         "exactHash": "8d82b9a6af77f1a555e11a47f1626038adc32e773bc9d36ad31940c0f008fcb7",
         "lowerHash": "e43cd09741727512630975442014ccd0c82fbc204190a9e5e335ea43810ec5ee",
@@ -3501,7 +3848,7 @@
       "normalizedUsername": "johnrecovf2c5ae",
       "userEmail": "johndoef2c5ae_mwhleea5o4w@guest.airbus.ke",
       "userId": "u_1794732513485_avs",
-      "passwordHash": "0dd6a88ed42de79850b62dd873716751cde85c252a472d41d24d20d0c07bd563",
+      "passwordHash": "legacy256$$2b$10$OjVnMk7DNGnPyVY5KWYYYeGEyK.O1w0O0X.KzM0T.lHAPyhSuh1JC",
       "passwordFingerprint": {
         "exactHash": "0dd6a88ed42de79850b62dd873716751cde85c252a472d41d24d20d0c07bd563",
         "lowerHash": "de956374fa4046b39b79ee6123b49c31f7be9ea1ced0dbb31e2bba8bc0e33abf",
@@ -3544,7 +3891,7 @@
       "normalizedUsername": "davidmutua",
       "userEmail": "owner@airbus.ke",
       "userId": "u_owner",
-      "passwordHash": "838c46a74cd059704247831e510f744f54a89234b236c3e49f9e5ffd333c2b46",
+      "passwordHash": "legacy256$$2b$10$hGXqFAmHQdkWB1MtQ4CFVOvqMRvceqOAe.d2/n3gl0fy2FA0ajPge",
       "passwordFingerprint": {
         "exactHash": "838c46a74cd059704247831e510f744f54a89234b236c3e49f9e5ffd333c2b46",
         "lowerHash": "fd3948894b4b050d87e4a1e3b797d922e840273d99091a01ea5aeba1ef9ad747",
@@ -3582,7 +3929,7 @@
       "normalizedUsername": "e2ehost",
       "userEmail": "e2e_host_1794630146329@airbus.ke",
       "userId": "u_1794630146335",
-      "passwordHash": "250691ff34f91b987ac9b9d386f5070969c714aa00f08ad209c7ae6ba117dbc8",
+      "passwordHash": "legacy256$$2b$10$kO/kSWyeWjEAnsTKFdRhkObzdqZt.qNbTyJ0Y/wCZajTNEP2BFLEO",
       "passwordFingerprint": {
         "exactHash": "250691ff34f91b987ac9b9d386f5070969c714aa00f08ad209c7ae6ba117dbc8",
         "lowerHash": "250691ff34f91b987ac9b9d386f5070969c714aa00f08ad209c7ae6ba117dbc8",
@@ -3601,7 +3948,7 @@
       "normalizedUsername": "e2ehost",
       "userEmail": "e2e_host_1794630164577@airbus.ke",
       "userId": "u_1794630164581",
-      "passwordHash": "250691ff34f91b987ac9b9d386f5070969c714aa00f08ad209c7ae6ba117dbc8",
+      "passwordHash": "legacy256$$2b$10$iYAHl2..d1cRKLlfPvWU9upPSVZXkqSADRt9P8WG8IyeHLj8Buc5K",
       "passwordFingerprint": {
         "exactHash": "250691ff34f91b987ac9b9d386f5070969c714aa00f08ad209c7ae6ba117dbc8",
         "lowerHash": "250691ff34f91b987ac9b9d386f5070969c714aa00f08ad209c7ae6ba117dbc8",
@@ -3620,7 +3967,7 @@
       "normalizedUsername": "hostalpha76180",
       "userEmail": "hostalpha76180_mwhlbgijz0i@owner.airbus.ke",
       "userId": "u_1794732376412_j8y",
-      "passwordHash": "914bf90d23e7a04a37f0aec5e1b2098c8e85f5dc35b90ec2a787368079d402b4",
+      "passwordHash": "legacy256$$2b$10$okjQIHdd7JbtP7PCWfjYQO4eDe/T486gk8JenXSF/hhHv6qh1Bu8G",
       "passwordFingerprint": {
         "exactHash": "914bf90d23e7a04a37f0aec5e1b2098c8e85f5dc35b90ec2a787368079d402b4",
         "lowerHash": "4417bf8e27252d069c427aeabc7809b30bdf48980b7350b0721c60b8828ea9bd",
@@ -3653,7 +4000,7 @@
       "normalizedUsername": "hostalpha17962",
       "userEmail": "hostalpha17962_mwhlccpkoyz@owner.airbus.ke",
       "userId": "u_1794732418136_4uk",
-      "passwordHash": "e897f1ea0b6cb89c84a7e7791450b4138735680009a550bd3684a413dc979bfc",
+      "passwordHash": "legacy256$$2b$10$C0iZzTbard3jp82KX0BJ9uxct1nUboFX6p14/LuHAXeWiTElB/Rkm",
       "passwordFingerprint": {
         "exactHash": "e897f1ea0b6cb89c84a7e7791450b4138735680009a550bd3684a413dc979bfc",
         "lowerHash": "ccaaa9e9ef06d9414662cba8535ef9e7547ee3342dbaa6416ac5268fcabfbbe7",
@@ -3689,7 +4036,7 @@
       "normalizedUsername": "hostalpha31896",
       "userEmail": "hostalpha31896_mwhlcngirxf@owner.airbus.ke",
       "userId": "u_1794732432066_k8m",
-      "passwordHash": "b28b1704c2b07623c1481323f7596e27f7e3a64b5bb93febc564117d7daa1a90",
+      "passwordHash": "legacy256$$2b$10$lQUBFSra.dWS/oZ6rAB37uScmMTrM0oiZUFFAPFwOteoSxIH4pFNm",
       "passwordFingerprint": {
         "exactHash": "b28b1704c2b07623c1481323f7596e27f7e3a64b5bb93febc564117d7daa1a90",
         "lowerHash": "56d9e1386b4df816bde675c78abecc44ab0acdb2856c0fa7a52263ef09fcb4e4",
@@ -3725,7 +4072,7 @@
       "normalizedUsername": "hostalpha52291",
       "userEmail": "hostalpha52291_mwhld37j1wq@owner.airbus.ke",
       "userId": "u_1794732452479_cuj",
-      "passwordHash": "56c299a3e6cb1050a71b20a84ad983593b07d66e3832852faebf03d0271f4e7f",
+      "passwordHash": "legacy256$$2b$10$1d0flwvgfZshZnTTzPgKyOLl7z8wszzQY0zfLnMkkSNLTSLYYZhBm",
       "passwordFingerprint": {
         "exactHash": "56c299a3e6cb1050a71b20a84ad983593b07d66e3832852faebf03d0271f4e7f",
         "lowerHash": "c3295c159e78461cb64929b8d79801ab3501647686b80e484412e7ba4750cbbf",
@@ -3761,7 +4108,7 @@
       "normalizedUsername": "hostalpha80230",
       "userEmail": "hostalpha80230_mwhldorr22a@owner.airbus.ke",
       "userId": "u_1794732480424_rt0",
-      "passwordHash": "f3e98320c725b31f93a4c26b32d9055d73e358c20924f0d3de4a0a428112282d",
+      "passwordHash": "legacy256$$2b$10$.Q/5Z38nVtLnkxb2Vnhsre8KFii.aTN29t1WihXDGR3oomBA4Plui",
       "passwordFingerprint": {
         "exactHash": "f3e98320c725b31f93a4c26b32d9055d73e358c20924f0d3de4a0a428112282d",
         "lowerHash": "9699e5b78a7a1021d29303de813e21b67786380427355dd7f2dedb735a30c10c",
@@ -3797,7 +4144,7 @@
       "normalizedUsername": "hostalphaf2c5ae",
       "userEmail": "hostalphaf2c5ae_mwhleebc53k@owner.airbus.ke",
       "userId": "u_1794732513528_0jr",
-      "passwordHash": "6ff2a40844da7b0bfad00c852688372b93e19e81e20befceb98977bdceebb1db",
+      "passwordHash": "legacy256$$2b$10$zHgLDJ02OKm10ep.nVhnpeYvZkMLuUNbVrbmQYR.FhiukaDhKjOeW",
       "passwordFingerprint": {
         "exactHash": "6ff2a40844da7b0bfad00c852688372b93e19e81e20befceb98977bdceebb1db",
         "lowerHash": "de35bc882e3e11a8796217c1cd81b81b3010780ec422745b9604cc49e948de96",
@@ -14472,6 +14819,98 @@
           "normalizedCount": 4,
           "ledgerLinkedCount": 2
         }
+      }
+    },
+    {
+      "id": "v6_bcrypt_credentials",
+      "appliedAt": 1795670197967,
+      "snapshot": {
+        "prevUserHashes": [
+          {
+            "id": "u_guest",
+            "passwordHash": "f12162b6bec71b6d68312e6cfddb5521c2827ed19c41559c5ccffa5863a1357d"
+          },
+          {
+            "id": "u_owner",
+            "passwordHash": "838c46a74cd059704247831e510f744f54a89234b236c3e49f9e5ffd333c2b46"
+          },
+          {
+            "id": "u_admin_master",
+            "passwordHash": "bf9cf609604a058893544342849665e80dfe1ef536e238ab87dd21b65488aa73"
+          }
+        ],
+        "prevGuestCredHashes": [
+          {
+            "id": "cred_guest_u_guest",
+            "passwordHash": "f12162b6bec71b6d68312e6cfddb5521c2827ed19c41559c5ccffa5863a1357d"
+          },
+          {
+            "id": "cred_guest_u_1794732376355_cdl",
+            "passwordHash": "59e8c1d642d2f05246a15bab55cef3a35d86436874b7a1278f3ecbe71030963d"
+          },
+          {
+            "id": "cred_guest_u_1794732418094_xn2",
+            "passwordHash": "eba285fca12e74236c3e80284ec891ff6f5ffe1548f676e7a0f4a2c7ae662106"
+          },
+          {
+            "id": "cred_guest_u_1794732432027_r8t",
+            "passwordHash": "a546401ecfff3a9961359e5ba83d912f83a4390717c993ef916eac380fdf9e84"
+          },
+          {
+            "id": "cred_guest_u_1794732452431_a0i",
+            "passwordHash": "b1f2cb88fe1e1dea914d1793fef9b910e5439286e0bc2373c232cd9314d45ad6"
+          },
+          {
+            "id": "cred_guest_u_1794732480360_aw1",
+            "passwordHash": "4c387a3d539f262969f3b974f9e1a49406818411fc33d9fa9bd69e17c4462766"
+          },
+          {
+            "id": "cred_guest_u_1794732498366_psx",
+            "passwordHash": "8d82b9a6af77f1a555e11a47f1626038adc32e773bc9d36ad31940c0f008fcb7"
+          },
+          {
+            "id": "cred_guest_u_1794732513485_avs",
+            "passwordHash": "0dd6a88ed42de79850b62dd873716751cde85c252a472d41d24d20d0c07bd563"
+          }
+        ],
+        "prevHostCredHashes": [
+          {
+            "id": "cred_owner_u_owner",
+            "passwordHash": "838c46a74cd059704247831e510f744f54a89234b236c3e49f9e5ffd333c2b46"
+          },
+          {
+            "id": "cred_owner_u_1794630146335",
+            "passwordHash": "250691ff34f91b987ac9b9d386f5070969c714aa00f08ad209c7ae6ba117dbc8"
+          },
+          {
+            "id": "cred_owner_u_1794630164581",
+            "passwordHash": "250691ff34f91b987ac9b9d386f5070969c714aa00f08ad209c7ae6ba117dbc8"
+          },
+          {
+            "id": "cred_owner_u_1794732376412_j8y",
+            "passwordHash": "914bf90d23e7a04a37f0aec5e1b2098c8e85f5dc35b90ec2a787368079d402b4"
+          },
+          {
+            "id": "cred_owner_u_1794732418136_4uk",
+            "passwordHash": "e897f1ea0b6cb89c84a7e7791450b4138735680009a550bd3684a413dc979bfc"
+          },
+          {
+            "id": "cred_owner_u_1794732432066_k8m",
+            "passwordHash": "b28b1704c2b07623c1481323f7596e27f7e3a64b5bb93febc564117d7daa1a90"
+          },
+          {
+            "id": "cred_owner_u_1794732452479_cuj",
+            "passwordHash": "56c299a3e6cb1050a71b20a84ad983593b07d66e3832852faebf03d0271f4e7f"
+          },
+          {
+            "id": "cred_owner_u_1794732480424_rt0",
+            "passwordHash": "f3e98320c725b31f93a4c26b32d9055d73e358c20924f0d3de4a0a428112282d"
+          },
+          {
+            "id": "cred_owner_u_1794732513528_0jr",
+            "passwordHash": "6ff2a40844da7b0bfad00c852688372b93e19e81e20befceb98977bdceebb1db"
+          }
+        ]
       }
     }
   ],

@@ -116,4 +116,12 @@ export interface DatabaseSchema {
   last_archived_fiscal_year?: number;
   appliedMigrations?: Array<{ id: string; appliedAt: number; snapshot?: unknown }>;
   idempotencyCache?: Record<string, { status: number; response: unknown; createdAt: number }>;
+  listingTranslations?: Record<string, {
+    value: string | string[];
+    sourceHash: string;
+    language: string;
+    stayId: string;
+    field: string;
+    updatedAt: number;
+  }>;
 }

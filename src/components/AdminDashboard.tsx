@@ -73,6 +73,9 @@ import {
   Download,
   BarChart3,
   Archive,
+  Video,
+  Maximize2,
+  Loader2,
 } from 'lucide-react';
 import { api } from '../api';
 import { ListingMediaViewer } from './ListingMediaViewer';
@@ -196,6 +199,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [reviewFeedback, setReviewFeedback] = useState('');
   const [reviewFeedbackError, setReviewFeedbackError] = useState<string | null>(null);
   const [reviewActionBusy, setReviewActionBusy] = useState(false);
+  const [reviewQueueLoading, setReviewQueueLoading] = useState(false);
+  const [reviewQueueError, setReviewQueueError] = useState<string | null>(null);
+  const [reviewVideoModal, setReviewVideoModal] = useState<{
+    title: string;
+    videoUrl: string;
+    poster?: string;
+  } | null>(null);
   const [reviewPhotoLightbox, setReviewPhotoLightbox] = useState<{
     title: string;
     photos: string[];
@@ -215,7 +225,24 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // Queue View Filters
   const [reportFilter, setReportFilter] = useState<'all' | 'pending' | 'resolved' | 'dismissed'>('all');
   const [reviewFilter, setReviewFilter] = useState<'all' | 'approved' | 'hidden' | 'flagged'>('all');
-  const [userFilter, setUserFilter] = useState<'all' | 'hosts' | 'suspended'>('all');
+  const [userFilter, setUserFilter] = useState<'all' | 'guests' | 'hosts' | 'suspended'>('all');
+  const [adminUsersList, setAdminUsersList] = useState<User[]>(users);
+  const [adminUsersCounts, setAdminUsersCounts] = useState<{
+    total: number;
+    guests: number;
+    hosts: number;
+    suspended: number;
+  }>({
+    total: users.length,
+    guests: users.filter(u => u.role === 'guest').length,
+    hosts: users.filter(u => u.role === 'owner').length,
+    suspended: users.filter(u => Boolean(u.isSuspended)).length,
+  });
+  const [userSearch, setUserSearch] = useState('');
+  const [userPage, setUserPage] = useState(1);
+  const [userTotalPages, setUserTotalPages] = useState(1);
+  const [userTotalMatched, setUserTotalMatched] = useState(users.length);
+  const [usersLoading, setUsersLoading] = useState(false);
 
   // Live Sync Stats
   const [liveCounts, setLiveCounts] = useState<{
@@ -561,6 +588,43 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     };
   };
 
+  const refreshReviewQueue = async () => {
+    if (!adminUser || adminUser.role !== 'admin' || !api.getToken('admin')) return;
+    setReviewQueueLoading(true);
+    setReviewQueueError(null);
+    try {
+      const res = await api.getAdminReviewQueue();
+      if (res) {
+        setReviewQueue(normalizeReviewQueue(res));
+      }
+    } catch (err: any) {
+      setReviewQueueError(err?.message || 'Failed to refresh review queue.');
+    } finally {
+      setReviewQueueLoading(false);
+    }
+  };
+
+  const loadAdminUsers = async (overridePage?: number) => {
+    if (!adminUser || adminUser.role !== 'admin' || !api.getToken('admin')) return;
+    setUsersLoading(true);
+    try {
+      const res = await api.getAdminUsers({
+        role: userFilter,
+        q: userSearch.trim() || undefined,
+        page: overridePage ?? userPage,
+        limit: 20,
+      });
+      if (Array.isArray(res?.users)) setAdminUsersList(res.users);
+      if (res?.counts) setAdminUsersCounts(res.counts);
+      if (typeof res?.totalPages === 'number') setUserTotalPages(Math.max(1, res.totalPages));
+      if (typeof res?.total === 'number') setUserTotalMatched(res.total);
+    } catch {
+      // keep prior state on transient error
+    } finally {
+      setUsersLoading(false);
+    }
+  };
+
   const loadTripDatingSubmissions = (
     status: 'PENDING_REVIEW' | 'APPROVED' | 'DECLINED' | 'ALL' = tdStatusTab,
     page = tdPage
@@ -779,8 +843,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       if (Array.isArray(res?.providers)) setLocalProvidersAdmin(res.providers);
     }).catch(() => {});
     api.getAdminReviewQueue().then(res => {
-      if (res) setReviewQueue(normalizeReviewQueue(res));
+      if (res) {
+        setReviewQueue(normalizeReviewQueue(res));
+        setReviewQueueError(null);
+      }
     }).catch(() => {});
+    loadAdminUsers();
   };
 
   const handleDelistOwner = async (email: string) => {
@@ -886,7 +954,29 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         }
       }).catch(() => {});
     }
+    if (tab === 'review-queue') {
+      refreshReviewQueue();
+    }
+    if (tab === 'users') {
+      loadAdminUsers();
+    }
   }, [tab, adminUser?.role]);
+
+  useEffect(() => {
+    if (!adminUser || adminUser.role !== 'admin' || !api.getToken('admin')) return;
+    if (tab === 'users') {
+      loadAdminUsers();
+    }
+  }, [userFilter, userSearch, userPage]);
+
+  useEffect(() => {
+    if (!adminUser || adminUser.role !== 'admin' || !api.getToken('admin')) return;
+    if (tab !== 'users') return;
+    const timer = window.setInterval(() => {
+      loadAdminUsers();
+    }, 10_000);
+    return () => window.clearInterval(timer);
+  }, [tab, userFilter, userSearch, userPage, adminUser?.role]);
 
   useEffect(() => {
     if (!adminUser || adminUser.role !== 'admin' || !api.getToken('admin')) return;
@@ -1429,11 +1519,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         <div className="space-y-5">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-stone-200 dark:border-stone-800">
             <div>
-              <h3 className="text-base font-extrabold text-stone-900 dark:text-white flex items-center gap-2">
+              <h3 className="text-base font-extrabold text-stone-900 dark:text-white flex items-center gap-2 flex-wrap">
                 <ShieldCheck className="w-5 h-5 text-emerald-500" />
                 <span>Admin Review Queue (Oldest Pending First)</span>
                 <span className="px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 text-xs font-bold">
                   {reviewQueue.counts.total} pending
+                </span>
+                <span className="text-[11px] font-semibold text-stone-500">
+                  (AirBus Listings: {reviewQueue.counts.stays} · Trip Dating Posts: {reviewQueue.counts.tripDating})
                 </span>
               </h3>
               <p className="text-xs text-stone-500 mt-0.5">
@@ -1442,13 +1535,27 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </div>
             <button
               type="button"
-              onClick={loadAdminData}
-              className="self-start sm:self-auto px-3 py-1.5 rounded-xl border border-stone-200 dark:border-stone-800 text-xs font-bold text-stone-700 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800 flex items-center gap-1.5 cursor-pointer"
+              onClick={refreshReviewQueue}
+              disabled={reviewQueueLoading}
+              className="self-start sm:self-auto px-3 py-1.5 rounded-xl border border-stone-200 dark:border-stone-800 text-xs font-bold text-stone-700 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800 flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
             >
-              <RefreshCw className="w-3.5 h-3.5 text-stone-400" />
-              <span>Refresh Queue</span>
+              <RefreshCw className={`w-3.5 h-3.5 text-stone-400 ${reviewQueueLoading ? 'animate-spin' : ''}`} />
+              <span>{reviewQueueLoading ? 'Refreshing...' : 'Refresh Queue'}</span>
             </button>
           </div>
+
+          {reviewQueueError && (
+            <div className="p-3 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-xs text-rose-700 dark:text-rose-300 font-semibold flex items-center justify-between gap-2">
+              <span>{reviewQueueError}</span>
+              <button
+                type="button"
+                onClick={refreshReviewQueue}
+                className="px-2.5 py-1 rounded-lg bg-rose-600 text-white text-[11px] font-bold cursor-pointer"
+              >
+                Retry
+              </button>
+            </div>
+          )}
 
           {/* Two Sub-Tabs: Airbus Listings & Trip Dating Posts */}
           <div className="flex items-center gap-2 border-b border-stone-200 dark:border-stone-800 pb-3">
@@ -1462,7 +1569,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               }`}
             >
               <Building className="w-4 h-4" />
-              <span>Airbus Listings ({reviewQueue.stays.length})</span>
+              <span>AirBus Listings ({reviewQueue.counts.stays})</span>
             </button>
             <button
               type="button"
@@ -1474,7 +1581,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               }`}
             >
               <Flame className="w-4 h-4" />
-              <span>Trip Dating Posts ({reviewQueue.tripDating.length})</span>
+              <span>Trip Dating Posts ({reviewQueue.counts.tripDating})</span>
             </button>
           </div>
 
@@ -1483,7 +1590,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             <div className="space-y-4">
               {reviewQueue.stays.length === 0 ? (
                 <div className="p-10 text-center bg-white dark:bg-[#15171e] rounded-3xl border border-stone-200 dark:border-stone-800 text-xs text-stone-500">
-                  No Airbus Listings pending review.
+                  No AirBus Listings pending review.
                 </div>
               ) : (
                 reviewQueue.stays.map((stay, idx) => {
@@ -1492,9 +1599,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       [
                         ...(stay.media?.photos?.map(p => p.url) || []),
                         ...(stay.images || []),
+                        stay.thumbnailUrl || '',
                       ].filter(Boolean)
                     )
                   );
+                  const fullStayVideoUrl = stay.media?.video?.url || stay.videoUrl || stay.youtubeUrl || '';
                   return (
                     <div
                       key={stay.id}
@@ -1552,6 +1661,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                               try {
                                 await api.moderateReviewQueueStay(stay.id, 'approve');
                                 showToast?.(`Approved listing "${stay.title}". It is now live at the top of the feed!`);
+                                await refreshReviewQueue();
                                 loadAdminData();
                               } catch (err: any) {
                                 showToast?.(err.message || 'Approval failed');
@@ -1588,8 +1698,26 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         {/* Live Guest Preview (Video Tour + Photo Switcher) */}
                         <div className="space-y-1.5">
-                          <div className="text-[11px] font-bold text-stone-500 uppercase">
-                            Live Guest Preview (Video Tour &amp; Gallery)
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-[11px] font-bold text-stone-500 uppercase">
+                              Full Video Tour &amp; Guest Preview
+                            </span>
+                            {fullStayVideoUrl && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setReviewVideoModal({
+                                    title: stay.title,
+                                    videoUrl: fullStayVideoUrl,
+                                    poster: stay.thumbnailUrl || stay.media?.video?.thumbnail,
+                                  })
+                                }
+                                className="px-2 py-0.5 rounded-lg bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 text-[10px] font-bold inline-flex items-center gap-1 cursor-pointer"
+                              >
+                                <Maximize2 className="w-3 h-3" />
+                                <span>Inspect Full Video</span>
+                              </button>
+                            )}
                           </div>
                           <ListingMediaViewer
                             media={stay.media}
@@ -1603,8 +1731,26 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
                         {/* Full-Resolution Photo Thumbnails */}
                         <div className="space-y-1.5">
-                          <div className="text-[11px] font-bold text-stone-500 uppercase">
-                            Photos ({stayPhotos.length}) — Click to inspect full resolution
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-[11px] font-bold text-stone-500 uppercase">
+                              Photos ({stayPhotos.length}) — Click to inspect full resolution
+                            </span>
+                            {stayPhotos.length > 0 && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setReviewPhotoLightbox({
+                                    title: stay.title,
+                                    photos: stayPhotos,
+                                    idx: 0,
+                                  })
+                                }
+                                className="px-2 py-0.5 rounded-lg bg-amber-500 text-white text-[10px] font-bold inline-flex items-center gap-1 cursor-pointer"
+                              >
+                                <Maximize2 className="w-3 h-3" />
+                                <span>Full-Res Viewer</span>
+                              </button>
+                            )}
                           </div>
                           {stayPhotos.length > 0 ? (
                             <div className="grid grid-cols-3 gap-2">
@@ -1688,6 +1834,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                               try {
                                 await api.moderateReviewQueueTripDating(profile.id, 'approve');
                                 showToast?.(`Approved ${profile.fullName}. Profile is now live!`);
+                                await refreshReviewQueue();
                                 loadAdminData();
                               } catch (err: any) {
                                 showToast?.(err.message || 'Approval failed');
@@ -1728,7 +1875,25 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="space-y-1.5">
-                          <div className="text-[11px] font-bold text-stone-500 uppercase">9:16 Video</div>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-[11px] font-bold text-stone-500 uppercase">Full 9:16 Video</span>
+                            {profileVideo && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setReviewVideoModal({
+                                    title: profile.fullName,
+                                    videoUrl: profileVideo,
+                                    poster: profile.videoThumbnail || profile.primaryPhoto,
+                                  })
+                                }
+                                className="px-2 py-0.5 rounded-lg bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 text-[10px] font-bold inline-flex items-center gap-1 cursor-pointer"
+                              >
+                                <Maximize2 className="w-3 h-3" />
+                                <span>Inspect Full Video</span>
+                              </button>
+                            )}
+                          </div>
                           {profileVideo ? (
                             <SharedVideoPlayer
                               src={profileVideo}
@@ -5157,120 +5322,209 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {/* TAB 6: USER DIRECTORY & ACCESS CONTROL */}
       {tab === 'users' && (
         <div className="space-y-4">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 bg-white dark:bg-[#15171e] rounded-3xl border border-stone-200 dark:border-stone-800 shadow-sm">
-            <div>
-              <h3 className="text-base font-bold text-stone-900 dark:text-white">Registered Users &amp; Hosts</h3>
-              <p className="text-xs text-stone-500">Audit user roles, manage suspensions, and verify government ID documents.</p>
+          <div className="p-4 bg-white dark:bg-[#15171e] rounded-3xl border border-stone-200 dark:border-stone-800 shadow-sm space-y-3">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              <div>
+                <h3 className="text-base font-bold text-stone-900 dark:text-white flex items-center gap-2">
+                  <span>Registered Users &amp; Hosts</span>
+                  <span className="px-2 py-0.5 rounded-full bg-stone-100 dark:bg-stone-800 text-xs font-bold text-stone-700 dark:text-stone-300">
+                    {adminUsersCounts.total}
+                  </span>
+                </h3>
+                <p className="text-xs text-stone-500">
+                  Every registered Guest and Host account with signup dates, roles, search, and verification controls.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-1.5">
+                {[
+                  { id: 'all', label: `All (${adminUsersCounts.total})` },
+                  { id: 'guests', label: `Guests (${adminUsersCounts.guests})` },
+                  { id: 'hosts', label: `Hosts (${adminUsersCounts.hosts})` },
+                  { id: 'suspended', label: `Suspended (${adminUsersCounts.suspended})` },
+                ].map(f => (
+                  <button
+                    key={f.id}
+                    type="button"
+                    onClick={() => {
+                      setUserFilter(f.id as any);
+                      setUserPage(1);
+                    }}
+                    className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer ${
+                      userFilter === f.id
+                        ? 'bg-stone-900 text-white dark:bg-stone-100 dark:text-stone-900 shadow-sm'
+                        : 'bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-400 hover:bg-stone-200'
+                    }`}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
             </div>
 
-            <div className="flex items-center gap-2">
-              {[
-                { id: 'all', label: `All Users (${users.length})` },
-                { id: 'hosts', label: `Hosts (${users.filter(u => u.role === 'owner').length})` },
-                { id: 'suspended', label: `Suspended (${users.filter(u => u.isSuspended).length})` },
-              ].map(f => (
-                <button
-                  key={f.id}
-                  onClick={() => setUserFilter(f.id as any)}
-                  className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer ${
-                    userFilter === f.id
-                      ? 'bg-stone-900 text-white dark:bg-stone-100 dark:text-stone-900 shadow-sm'
-                      : 'bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-400 hover:bg-stone-200'
-                  }`}
-                >
-                  {f.label}
-                </button>
-              ))}
+            {/* Live Search & Refresh */}
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+              <div className="relative flex-1">
+                <Search className="w-3.5 h-3.5 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={userSearch}
+                  onChange={e => {
+                    setUserSearch(e.target.value);
+                    setUserPage(1);
+                  }}
+                  placeholder="Search by name, username, email, phone, or location..."
+                  className="w-full pl-9 pr-3 py-2 rounded-xl bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 text-xs outline-none focus:border-stone-400"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => loadAdminUsers()}
+                disabled={usersLoading}
+                className="px-3 py-2 rounded-xl border border-stone-200 dark:border-stone-700 text-xs font-bold text-stone-700 dark:text-stone-200 hover:bg-stone-100 dark:hover:bg-stone-800 flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${usersLoading ? 'animate-spin' : ''}`} />
+                <span>{usersLoading ? 'Refreshing...' : 'Refresh'}</span>
+              </button>
             </div>
           </div>
 
           <div className="space-y-3">
-            {users
-              .filter(u => {
-                if (userFilter === 'hosts') return u.role === 'owner';
-                if (userFilter === 'suspended') return u.isSuspended;
-                return true;
-              })
-              .map(u => (
-              <div
-                key={u.id}
-                className={`p-4 bg-white dark:bg-[#15171e] rounded-2xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 text-xs ${
-                  u.isSuspended
-                    ? 'border-rose-300 dark:border-rose-900/60 bg-rose-50/20'
-                    : 'border-stone-200 dark:border-stone-800'
-                }`}
-              >
-                <div>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-bold text-stone-900 dark:text-white text-sm">{u.name}</span>
-                    <span className="bg-stone-100 dark:bg-stone-800 px-2 py-0.5 rounded font-mono uppercase text-[10px] font-bold">
-                      {u.role}
-                    </span>
-                    {u.idVerified ? (
-                      <span className="text-emerald-600 dark:text-emerald-400 font-bold flex items-center gap-0.5 text-[11px]">
-                        <CheckCircle2 className="w-3.5 h-3.5" /> ID Verified
-                      </span>
-                    ) : (
-                      <span className="text-stone-400 text-[11px]">ID Pending</span>
-                    )}
-
-                    {u.isSuspended && (
-                      <span className="bg-rose-600 text-white font-black px-2 py-0.5 rounded-full text-[10px] uppercase">
-                        Suspended
-                      </span>
-                    )}
-                  </div>
-                  <div className="text-stone-500 mt-0.5">
-                    {u.email} · {u.phone || 'No phone'} · {u.location || 'Kenya'}
-                  </div>
-                  {u.isSuspended && u.suspendedReason && (
-                    <div className="text-rose-600 font-medium text-[11px] mt-1">
-                      Reason: {u.suspendedReason}
-                    </div>
-                  )}
-                </div>
-
-                <div className="flex items-center gap-2 shrink-0">
-                  {u.isSuspended ? (
-                    <button
-                      onClick={async () => {
-                        await api.adminModerateUser(u.email, { action: 'reactivate' });
-                        showToast?.(`Account for ${u.email} reactivated.`);
-                        loadAdminData();
-                      }}
-                      className="px-3 py-1.5 rounded-full text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-500 cursor-pointer"
-                    >
-                      Reactivate
-                    </button>
-                  ) : (
-                    <button
-                      onClick={async () => {
-                        const reason = prompt(`Reason for suspending ${u.name} (${u.email}):`);
-                        if (!reason) return;
-                        await api.adminModerateUser(u.email, { action: 'suspend', reason });
-                        showToast?.(`Account for ${u.email} suspended.`);
-                        loadAdminData();
-                      }}
-                      className="px-3 py-1.5 rounded-full text-xs font-bold bg-stone-100 dark:bg-stone-800 hover:bg-rose-100 text-rose-600 cursor-pointer"
-                    >
-                      Suspend
-                    </button>
-                  )}
-
-                  <button
-                    onClick={() => onVerifyUser(u.email)}
-                    className={`px-3 py-1.5 rounded-full text-xs font-bold transition-colors cursor-pointer ${
-                      u.idVerified
-                        ? 'border border-stone-300 dark:border-stone-700 text-stone-600 hover:bg-stone-100'
-                        : 'bg-emerald-600 text-white hover:bg-emerald-500'
+            {(adminUsersList.length > 0 ? adminUsersList : users).length === 0 ? (
+              <div className="p-8 text-center bg-white dark:bg-[#15171e] rounded-2xl border border-stone-200 dark:border-stone-800 text-xs text-stone-500">
+                No matching Guest or Host accounts found.
+              </div>
+            ) : (
+              (adminUsersList.length > 0 ? adminUsersList : users).map(u => {
+                const roleBadge = u.role === 'owner' ? 'HOST' : u.role === 'admin' ? 'ADMIN' : 'GUEST';
+                return (
+                  <div
+                    key={u.id}
+                    className={`p-4 bg-white dark:bg-[#15171e] rounded-2xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 text-xs ${
+                      u.isSuspended
+                        ? 'border-rose-300 dark:border-rose-900/60 bg-rose-50/20'
+                        : 'border-stone-200 dark:border-stone-800'
                     }`}
                   >
-                    {u.idVerified ? 'Unverify' : 'Verify ID'}
-                  </button>
-                </div>
-              </div>
-            ))}
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-bold text-stone-900 dark:text-white text-sm">{u.name}</span>
+                        <span
+                          className={`px-2 py-0.5 rounded font-mono uppercase text-[10px] font-bold ${
+                            u.role === 'owner'
+                              ? 'bg-pink-100 text-pink-800 dark:bg-pink-950/60 dark:text-pink-300'
+                              : u.role === 'admin'
+                              ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
+                              : 'bg-cyan-100 text-cyan-800 dark:bg-cyan-950/60 dark:text-cyan-300'
+                          }`}
+                        >
+                          {roleBadge}
+                        </span>
+                        {u.idVerified ? (
+                          <span className="text-emerald-600 dark:text-emerald-400 font-bold flex items-center gap-0.5 text-[11px]">
+                            <CheckCircle2 className="w-3.5 h-3.5" /> ID Verified
+                          </span>
+                        ) : (
+                          <span className="text-stone-400 text-[11px]">ID Pending</span>
+                        )}
+
+                        {u.isSuspended && (
+                          <span className="bg-rose-600 text-white font-black px-2 py-0.5 rounded-full text-[10px] uppercase">
+                            Suspended
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-stone-500 mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                        <span className="font-mono text-stone-700 dark:text-stone-300">
+                          {u.username ? `@${u.username} · ` : ''}
+                          {u.email}
+                        </span>
+                        <span>·</span>
+                        <span>Joined: {u.createdAt ? new Date(u.createdAt).toLocaleString() : 'Seeded account'}</span>
+                        <span>·</span>
+                        <span>{u.phone || 'No phone'}</span>
+                      </div>
+                      {u.isSuspended && u.suspendedReason && (
+                        <div className="text-rose-600 font-medium text-[11px] mt-1">
+                          Reason: {u.suspendedReason}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      {u.isSuspended ? (
+                        <button
+                          onClick={async () => {
+                            await api.adminModerateUser(u.email, { action: 'reactivate' });
+                            showToast?.(`Account for ${u.email} reactivated.`);
+                            loadAdminUsers();
+                            loadAdminData();
+                          }}
+                          className="px-3 py-1.5 rounded-full text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-500 cursor-pointer"
+                        >
+                          Reactivate
+                        </button>
+                      ) : (
+                        <button
+                          onClick={async () => {
+                            const reason = prompt(`Reason for suspending ${u.name} (${u.email}):`);
+                            if (!reason) return;
+                            await api.adminModerateUser(u.email, { action: 'suspend', reason });
+                            showToast?.(`Account for ${u.email} suspended.`);
+                            loadAdminUsers();
+                            loadAdminData();
+                          }}
+                          className="px-3 py-1.5 rounded-full text-xs font-bold bg-stone-100 dark:bg-stone-800 hover:bg-rose-100 text-rose-600 cursor-pointer"
+                        >
+                          Suspend
+                        </button>
+                      )}
+
+                      <button
+                        onClick={async () => {
+                          await onVerifyUser(u.email);
+                          loadAdminUsers();
+                        }}
+                        className={`px-3 py-1.5 rounded-full text-xs font-bold transition-colors cursor-pointer ${
+                          u.idVerified
+                            ? 'border border-stone-300 dark:border-stone-700 text-stone-600 hover:bg-stone-100'
+                            : 'bg-emerald-600 text-white hover:bg-emerald-500'
+                        }`}
+                      >
+                        {u.idVerified ? 'Unverify' : 'Verify ID'}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })
+            )}
           </div>
+
+          {userTotalPages > 1 && (
+            <div className="flex items-center justify-between pt-2 text-xs text-stone-500">
+              <span>
+                Showing page {userPage} of {userTotalPages} ({userTotalMatched} accounts)
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={userPage <= 1}
+                  onClick={() => setUserPage(p => Math.max(1, p - 1))}
+                  className="px-3 py-1 rounded-lg border border-stone-200 dark:border-stone-700 font-bold disabled:opacity-40 cursor-pointer"
+                >
+                  Previous
+                </button>
+                <button
+                  type="button"
+                  disabled={userPage >= userTotalPages}
+                  onClick={() => setUserPage(p => Math.min(userTotalPages, p + 1))}
+                  className="px-3 py-1 rounded-lg border border-stone-200 dark:border-stone-700 font-bold disabled:opacity-40 cursor-pointer"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -7025,6 +7279,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     showToast?.(`Declined "${reviewDeclineTarget.title}" with creator feedback.`);
                     setReviewDeclineTarget(null);
                     setReviewFeedback('');
+                    await refreshReviewQueue();
                     loadAdminData();
                   } catch (err: any) {
                     setReviewFeedbackError(err.message || 'Decline failed.');
@@ -7134,24 +7389,35 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {/* REVIEW QUEUE FULL-RES PHOTO LIGHTBOX */}
       {reviewPhotoLightbox && (
         <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="relative max-w-3xl w-full bg-neutral-950 border border-neutral-800 rounded-3xl p-4 space-y-3">
+          <div className="relative max-w-4xl w-full bg-neutral-950 border border-neutral-800 rounded-3xl p-4 space-y-3">
             <div className="flex items-center justify-between text-xs text-white">
               <span className="font-bold">
                 {reviewPhotoLightbox.title} — Photo {reviewPhotoLightbox.idx + 1} / {reviewPhotoLightbox.photos.length}
               </span>
-              <button
-                type="button"
-                onClick={() => setReviewPhotoLightbox(null)}
-                className="p-1.5 rounded-full bg-neutral-800 hover:bg-neutral-700 text-white cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
+              <div className="flex items-center gap-2">
+                <a
+                  href={reviewPhotoLightbox.photos[reviewPhotoLightbox.idx]}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-2.5 py-1 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-white text-[11px] font-bold inline-flex items-center gap-1"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  <span>Open Original</span>
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setReviewPhotoLightbox(null)}
+                  className="p-1.5 rounded-full bg-neutral-800 hover:bg-neutral-700 text-white cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
             </div>
-            <div className="relative flex items-center justify-center bg-black rounded-2xl overflow-hidden max-h-[75vh]">
+            <div className="relative flex items-center justify-center bg-black rounded-2xl overflow-hidden max-h-[78vh]">
               <img
                 src={reviewPhotoLightbox.photos[reviewPhotoLightbox.idx]}
                 alt=""
-                className="max-h-[72vh] max-w-full object-contain"
+                className="max-h-[75vh] max-w-full object-contain"
               />
             </div>
             {reviewPhotoLightbox.photos.length > 1 && (
@@ -7190,6 +7456,38 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </button>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* REVIEW QUEUE FULL VIDEO INSPECTION MODAL */}
+      {reviewVideoModal && (
+        <div className="fixed inset-0 z-50 bg-black/92 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="relative max-w-4xl w-full bg-neutral-950 border border-neutral-800 rounded-3xl p-4 space-y-3">
+            <div className="flex items-center justify-between text-xs text-white">
+              <span className="font-bold flex items-center gap-2">
+                <Video className="w-4 h-4 text-emerald-400" />
+                <span>Full Video Inspection — {reviewVideoModal.title}</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => setReviewVideoModal(null)}
+                className="p-1.5 rounded-full bg-neutral-800 hover:bg-neutral-700 text-white cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="bg-black rounded-2xl overflow-hidden flex items-center justify-center max-h-[78vh]">
+              <SharedVideoPlayer
+                src={reviewVideoModal.videoUrl}
+                poster={reviewVideoModal.poster}
+                controls
+                playsInline
+                preload="auto"
+                className="w-full h-[65vh] rounded-2xl"
+                videoClassName="w-full h-full object-contain"
+              />
+            </div>
           </div>
         </div>
       )}

@@ -225,7 +225,7 @@ export const HomeFeed: React.FC<HomeFeedProps> = ({
     setInstantBookOnly(false);
     setSuperhostOnly(false);
     setMinBeds(0);
-    setSortBy('rec');
+    setSortBy('new');
   };
 
   const resetMapOverlayFilters = () => {
@@ -319,16 +319,25 @@ export const HomeFeed: React.FC<HomeFeedProps> = ({
       return true;
     });
 
+    const nowMs = Date.now();
+    const isBoostActive = (s: Stay) =>
+      Boolean(s.isPromoted && s.boost_end && s.boost_end > nowMs);
+
     // Sorting
     list = [...list].sort((a, b) => {
       if (sortBy === 'price') return a.price - b.price;
       if (sortBy === 'priceD') return b.price - a.price;
       if (sortBy === 'rating') return b.rating - a.rating;
-      if (sortBy === 'new') return b.createdAt - a.createdAt;
-      // 'rec' - prioritize promoted listings (boosted at KES 100/day) at top, then featured, then rating
-      const scoreA = (a.isPromoted ? 4 : 0) + (a.isFeatured ? 2 : 0);
-      const scoreB = (b.isPromoted ? 4 : 0) + (b.isFeatured ? 2 : 0);
-      return scoreB - scoreA || b.rating - a.rating;
+      if (sortBy === 'new') {
+        const boostA = isBoostActive(a) ? 1 : 0;
+        const boostB = isBoostActive(b) ? 1 : 0;
+        if (boostA !== boostB) return boostB - boostA;
+        return (b.createdAt || 0) - (a.createdAt || 0);
+      }
+      // 'rec' - prioritize active boosted listings (KES 100/day) at top, then featured, then rating
+      const scoreA = (isBoostActive(a) ? 4 : 0) + (a.isFeatured ? 2 : 0);
+      const scoreB = (isBoostActive(b) ? 4 : 0) + (b.isFeatured ? 2 : 0);
+      return scoreB - scoreA || b.rating - a.rating || (b.createdAt || 0) - (a.createdAt || 0);
     });
 
     return list;

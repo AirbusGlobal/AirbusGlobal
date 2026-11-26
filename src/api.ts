@@ -1,6 +1,7 @@
 import {
   User,
   Stay,
+  StayTranslationFields,
   Booking,
   ChatThread,
   Review,
@@ -1666,13 +1667,36 @@ export const api = {
     });
   },
 
-  async geocode(query: string): Promise<{
+  async geocode(
+    query: string,
+    strict = true
+  ): Promise<{
     lat: number;
     lng: number;
     formattedAddress: string;
     county?: string;
+    source?: string;
   }> {
-    return this.request(`/api/geocode?q=${encodeURIComponent(query)}`);
+    return this.request(`/api/geocode?q=${encodeURIComponent(query)}${strict ? '&strict=1' : ''}`);
+  },
+
+  async translateStay(
+    stayId: string,
+    payload: {
+      targetLanguage: string;
+      priceText?: string;
+      bookingHoursText?: string;
+    }
+  ): Promise<{
+    language: string;
+    translated: StayTranslationFields;
+    cached: boolean;
+    isOriginal: boolean;
+  }> {
+    return this.request(`/api/stays/${encodeURIComponent(stayId)}/translate`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
   },
 
   async getMusicTracks(params?: { query?: string; genre?: string; page?: number; limit?: number }): Promise<{
@@ -2130,11 +2154,17 @@ export const api = {
   // Listing Promotions (KES 100/day visibility boost - Host Wallet Only)
   async purchasePromotion(
     listingId: string,
-    days: number
+    days: number,
+    idempotencyKey?: string
   ): Promise<{ boost: BoostRecord; payment: PaymentRecord; message: string }> {
+    const headers: Record<string, string> = {};
+    if (idempotencyKey) {
+      headers['Idempotency-Key'] = idempotencyKey;
+    }
     return this.request('/api/promotions/purchase', {
       method: 'POST',
-      body: JSON.stringify({ listingId, days, paymentMethod: 'wallet' }),
+      headers,
+      body: JSON.stringify({ listingId, days, paymentMethod: 'wallet', idempotencyKey }),
     });
   },
 
@@ -2521,13 +2551,36 @@ export const api = {
     });
   },
 
+  // Admin Registered Users & Hosts (paginated & searchable, no password hashes)
+  async getAdminUsers(params?: {
+    role?: 'all' | 'guests' | 'guest' | 'hosts' | 'owner' | 'suspended';
+    q?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<{
+    users: User[];
+    counts: { total: number; guests: number; hosts: number; suspended: number };
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  }> {
+    const sp = new URLSearchParams();
+    if (params?.role) sp.set('role', params.role);
+    if (params?.q) sp.set('q', params.q);
+    if (params?.page) sp.set('page', String(params.page));
+    if (params?.limit) sp.set('limit', String(params.limit));
+    const qs = sp.toString();
+    return this.request(`/api/admin/users${qs ? `?${qs}` : ''}`, { portalSlot: 'admin' });
+  },
+
   // Dedicated Admin Review Queue (oldest pending first)
   async getAdminReviewQueue(): Promise<{
     stays: Stay[];
     tripDating: TripDatingProfile[];
     counts: { stays: number; tripDating: number; total: number };
   }> {
-    return this.request('/api/admin/review-queue', { portalSlot: 'admin' });
+    return this.request(`/api/admin/review-queue?_t=${Date.now()}`, { portalSlot: 'admin' });
   },
 
   async moderateReviewQueueStay(

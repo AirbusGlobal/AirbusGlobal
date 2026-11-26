@@ -66,6 +66,7 @@ import {
   RefreshCw,
   Captions,
   X,
+  Loader2,
 } from 'lucide-react';
 import { AMENITY_GROUPS, PLANS } from '../constants';
 import { extractYouTubeId, getYouTubeThumbnailUrl, isYouTubeUrl } from '../utils/youtube';
@@ -145,6 +146,11 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
   const [promoDays, setPromoDays] = useState<number>(7);
   const [promoLoading, setPromoLoading] = useState<boolean>(false);
   const [promoFeedback, setPromoFeedback] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
+  const boostIdemKeyRef = useRef<string>('');
+
+  useEffect(() => {
+    boostIdemKeyRef.current = '';
+  }, [selectedStayIdForPromo, promoDays]);
 
   const [realtimeApprovedDeposit, setRealtimeApprovedDeposit] = useState<{
     id: string;
@@ -506,14 +512,64 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
 
   // Geocoding & AI Short Prompt State
   const [geocoding, setGeocoding] = useState<boolean>(false);
+  const [customCityQuery, setCustomCityQuery] = useState<string>('');
+  const [customCityLoading, setCustomCityLoading] = useState<boolean>(false);
+  const [customCityError, setCustomCityError] = useState<string | null>(null);
+  const [customCityMatched, setCustomCityMatched] = useState<string | null>(null);
+  const customCityReqSeqRef = useRef<number>(0);
   const [aiShortPromptStay, setAiShortPromptStay] = useState<Stay | null>(null);
   const [generatingAiShort, setGeneratingAiShort] = useState<boolean>(false);
 
+  const runCustomCityGeocode = async (rawQuery: string, fillAreaIfEmpty = true) => {
+    const clean = rawQuery.trim();
+    if (!clean) {
+      setCustomCityError('Please enter a Kenyan city or town name.');
+      setCustomCityMatched(null);
+      return;
+    }
+    const reqId = ++customCityReqSeqRef.current;
+    setCustomCityLoading(true);
+    setCustomCityError(null);
+    setCustomCityMatched(null);
+    try {
+      const res = await api.geocode(clean, true);
+      if (reqId !== customCityReqSeqRef.current) return;
+      setLat(res.lat);
+      setLng(res.lng);
+      if (fillAreaIfEmpty && !area.trim()) {
+        setArea(clean);
+      }
+      setCustomCityMatched(`${res.formattedAddress} (${res.lat.toFixed(4)}, ${res.lng.toFixed(4)})`);
+      setWizardError(null);
+    } catch (err: any) {
+      if (reqId !== customCityReqSeqRef.current) return;
+      setCustomCityError(err?.message || `No location match found in Kenya for "${clean}".`);
+      setCustomCityMatched(null);
+    } finally {
+      if (reqId === customCityReqSeqRef.current) {
+        setCustomCityLoading(false);
+      }
+    }
+  };
+
+  useEffect(() => {
+    const q = customCityQuery.trim();
+    if (q.length < 2) {
+      setCustomCityError(null);
+      setCustomCityMatched(null);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      runCustomCityGeocode(q, false);
+    }, 550);
+    return () => window.clearTimeout(timer);
+  }, [customCityQuery]);
+
   const handleAutoDetectCoordinates = async () => {
-    const query = area || landmark || 'Nairobi';
+    const query = customCityQuery.trim() || area || landmark || 'Nairobi';
     setGeocoding(true);
     try {
-      const res = await api.geocode(query);
+      const res = await api.geocode(query, false);
       if (res && res.lat !== undefined && res.lng !== undefined) {
         setLat(res.lat);
         setLng(res.lng);
@@ -1163,11 +1219,17 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
   };
 
   const handleBoostListing = async () => {
+    if (promoLoading) return;
     if (!selectedStayIdForPromo) {
       setPromoFeedback({ type: 'error', msg: 'Please select a listing to boost.' });
       return;
     }
-    const costKes = promoDays * 100;
+    const cleanDays = Math.floor(Number(promoDays));
+    if (!Number.isInteger(cleanDays) || cleanDays < 1 || cleanDays > 365) {
+      setPromoFeedback({ type: 'error', msg: 'Boost duration must be a whole number between 1 and 365 days.' });
+      return;
+    }
+    const costKes = cleanDays * 100;
 
     if (walletBalance < costKes) {
       setPromoFeedback({
@@ -1177,21 +1239,30 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
       return;
     }
 
+    if (!boostIdemKeyRef.current) {
+      boostIdemKeyRef.current = `boost_${selectedStayIdForPromo}_${cleanDays}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    }
+    const idemKey = boostIdemKeyRef.current;
+
     setPromoLoading(true);
     setPromoFeedback(null);
     try {
       const res = await api.purchasePromotion(
         selectedStayIdForPromo,
-        promoDays
+        cleanDays,
+        idemKey
       );
+      boostIdemKeyRef.current = '';
       setPromoFeedback({
         type: 'success',
-        msg: res.message || `Boost active for ${promoDays} days! Paid KES ${costKes.toLocaleString()} from your Host wallet.`,
+        msg: res.message || `Boost active for ${cleanDays} days! Paid KES ${costKes.toLocaleString()} from your Host wallet.`,
       });
       fetchPromotions();
       fetchHostWallet();
       onRefreshWallet?.();
+      onRefreshMyStays?.();
     } catch (err: any) {
+      boostIdemKeyRef.current = '';
       setPromoFeedback({ type: 'error', msg: err.message || 'Boost submission failed.' });
     } finally {
       setPromoLoading(false);
@@ -2431,6 +2502,25 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                     </button>
                   ))}
                 </div>
+                <div className="mt-2 flex items-center gap-2">
+                  <label className="text-[11px] font-semibold text-stone-500 whitespace-nowrap">
+                    Custom days (1–365):
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={365}
+                    value={promoDays}
+                    onChange={e => {
+                      const val = parseInt(e.target.value, 10);
+                      setPromoDays(Number.isFinite(val) ? Math.max(1, Math.min(365, val)) : 1);
+                    }}
+                    className="w-24 px-2.5 py-1 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-lg text-xs font-mono outline-none focus:border-amber-500"
+                  />
+                  <span className="text-[11px] font-mono text-amber-600 dark:text-amber-400 font-bold">
+                    = KES {(promoDays * 100).toLocaleString()}
+                  </span>
+                </div>
               </div>
             </div>
 
@@ -2523,7 +2613,8 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                     <tr>
                       <th className="py-2.5 px-3">Listing</th>
                       <th className="py-2.5 px-3">Duration</th>
-                      <th className="py-2.5 px-3">Cost</th>
+                      <th className="py-2.5 px-3">Boost Period</th>
+                      <th className="py-2.5 px-3">Amount Paid</th>
                       <th className="py-2.5 px-3">Status</th>
                       <th className="py-2.5 px-3">Days Left</th>
                     </tr>
@@ -2532,9 +2623,11 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                     {boostCampaigns.length > 0
                       ? boostCampaigns.map(b => {
                           const stay = myStays.find(s => s.id === (b.listing_id || b.listingId));
-                          const isStillActive = b.status === 'active' && Boolean(b.ends_at && b.ends_at > Date.now());
-                          const daysLeft = b.ends_at ? Math.max(0, Math.ceil((b.ends_at - Date.now()) / 864e5)) : 0;
-                          const campaignCost = b.cost_sc || b.costSc || (b.days * 100);
+                          const boostStartMs = b.boost_start ?? b.starts_at ?? b.startsAt;
+                          const boostEndMs = b.boost_end ?? b.ends_at ?? b.endsAt;
+                          const isStillActive = b.status === 'active' && Boolean(boostEndMs && boostEndMs > Date.now());
+                          const daysLeft = boostEndMs ? Math.max(0, Math.ceil((boostEndMs - Date.now()) / 864e5)) : 0;
+                          const campaignCost = b.amount_paid ?? b.cost_sc ?? b.costSc ?? (b.days * 100);
                           return (
                             <tr key={b.id} className="hover:bg-stone-50 dark:hover:bg-stone-900/50">
                               <td className="py-3 px-3 font-bold text-stone-900 dark:text-white flex items-center gap-2">
@@ -2542,6 +2635,11 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                                 <span className="truncate max-w-[200px]">{stay?.title || `Stay #${b.listing_id || b.listingId}`}</span>
                               </td>
                               <td className="py-3 px-3">{b.days} Days</td>
+                              <td className="py-3 px-3 text-[11px] text-stone-500">
+                                {boostStartMs && boostEndMs
+                                  ? `${new Date(boostStartMs).toLocaleDateString()} → ${new Date(boostEndMs).toLocaleDateString()}`
+                                  : '—'}
+                              </td>
                               <td className="py-3 px-3 font-mono font-bold">
                                 KES {campaignCost.toLocaleString()}
                               </td>
@@ -3476,9 +3574,9 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                     </div>
                   </div>
 
-                  <div>
-                    <span className="text-[10px] font-bold text-stone-500 block mb-1 uppercase tracking-wider">Quick Kenyan City Presets:</span>
-                    <div className="flex flex-wrap gap-1.5">
+                  <div className="space-y-2">
+                    <span className="text-[10px] font-bold text-stone-500 block uppercase tracking-wider">Quick Kenyan City Presets:</span>
+                    <div className="flex flex-wrap items-center gap-1.5">
                       {[
                         { name: 'Westlands', lat: -1.2683, lng: 36.8044 },
                         { name: 'Kilimani', lat: -1.2982, lng: 36.7907 },
@@ -3496,6 +3594,8 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                           onClick={() => {
                             setLat(preset.lat);
                             setLng(preset.lng);
+                            setCustomCityError(null);
+                            setCustomCityMatched(null);
                             if (!area) setArea(preset.name);
                           }}
                           className={`px-2 py-0.5 rounded-lg text-[10px] font-medium border transition-all cursor-pointer ${
@@ -3507,7 +3607,51 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                           {preset.name}
                         </button>
                       ))}
+
+                      {/* Custom city geocoding input beside presets */}
+                      <div className="flex items-center gap-1.5 ml-auto sm:ml-1">
+                        <input
+                          type="text"
+                          value={customCityQuery}
+                          onChange={e => setCustomCityQuery(e.target.value)}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              runCustomCityGeocode(customCityQuery, true);
+                            }
+                          }}
+                          placeholder="Custom city (e.g. Nanyuki, Eldoret)"
+                          aria-label="Custom city"
+                          className="w-44 sm:w-52 px-2.5 py-1 bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 rounded-lg text-[11px] outline-none focus:border-[#e4002b]"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => runCustomCityGeocode(customCityQuery, true)}
+                          disabled={customCityLoading || !customCityQuery.trim()}
+                          className="px-2.5 py-1 rounded-lg bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 text-[10px] font-bold hover:opacity-90 disabled:opacity-50 cursor-pointer flex items-center gap-1"
+                        >
+                          {customCityLoading ? (
+                            <>
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                              <span>Finding...</span>
+                            </>
+                          ) : (
+                            <span>Set City</span>
+                          )}
+                        </button>
+                      </div>
                     </div>
+
+                    {customCityMatched && !customCityError && (
+                      <div className="text-[11px] text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 rounded-lg px-2.5 py-1.5">
+                        Matched: <span className="font-semibold">{customCityMatched}</span> — Latitude and Longitude filled (you can adjust them manually above).
+                      </div>
+                    )}
+                    {customCityError && (
+                      <div className="text-[11px] text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800 rounded-lg px-2.5 py-1.5">
+                        {customCityError}
+                      </div>
+                    )}
                   </div>
                 </div>
 

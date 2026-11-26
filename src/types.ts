@@ -203,6 +203,9 @@ export interface Stay {
   hostMessage?: string;
   isPromoted?: boolean;
   promotedUntil?: number;
+  boost_start?: number;
+  boost_end?: number;
+  boost_amount_paid?: number;
   promotionImpressions?: number;
   promotionClicks?: number;
   gradientHue: [number, number];
@@ -446,12 +449,33 @@ export interface BoostRecord {
   startsAt?: number;
   ends_at?: number;
   endsAt?: number;
+  boost_start?: number;
+  boost_end?: number;
+  amount_paid?: number;
   payment_id: string;
   paymentId?: string;
   impressions?: number;
   clicks?: number;
   created_at: number;
   createdAt?: number;
+}
+
+export interface StayTranslationFields {
+  title?: string;
+  location?: string;
+  type?: string;
+  description?: string;
+  hostMessage?: string;
+  features?: string[];
+  welcomeGifts?: string[];
+  highlights?: string[];
+  priceText?: string;
+  bookingHoursText?: string;
+  houseRules?: string;
+  directSettlementText?: string;
+  directSettlementNote?: string;
+  instantBookLabel?: string;
+  instantConfirmationLabel?: string;
 }
 
 export interface SponsorSlot {

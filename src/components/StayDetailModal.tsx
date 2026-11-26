@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Stay,
+  StayTranslationFields,
   Booking,
   Review,
   User,
@@ -48,6 +49,9 @@ import {
   ArrowRight,
   Music,
   Mic,
+  Languages,
+  RotateCcw,
+  Loader2,
 } from 'lucide-react';
 import { api } from '../api';
 import { PriceTrendCard } from './PriceTrendCard';
@@ -163,10 +167,15 @@ export const StayDetailModal: React.FC<StayDetailModalProps> = ({
   const [followerCount, setFollowerCount] = useState(stay?.hostFollowerCount || 12);
   const [viewsCount, setViewsCount] = useState(stay?.views || 0);
 
-  // AirBus.AI Concierge State
+  // AirBus.AI Concierge & Translation State
   const [aiQuestion, setAiQuestion] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
   const [aiAnswer, setAiAnswer] = useState<string | null>(null);
+  const [translationLang, setTranslationLang] = useState<string>('English');
+  const [customLangInput, setCustomLangInput] = useState<string>('');
+  const [translatedFields, setTranslatedFields] = useState<StayTranslationFields | null>(null);
+  const [translating, setTranslating] = useState<boolean>(false);
+  const [translateError, setTranslateError] = useState<string | null>(null);
 
   // Comments State
   const [comments, setComments] = useState<VideoComment[]>(stay?.comments || []);
@@ -237,6 +246,10 @@ export const StayDetailModal: React.FC<StayDetailModalProps> = ({
       setViewsCount(stay.views || 0);
       setLiked(user ? (stay.likedByUserEmails || []).includes(user.email) : false);
       setIsFollowing(user && stay.owner ? (stay.hostFollowedByUserEmails || []).includes(user.email) : false);
+      setTranslationLang('English');
+      setCustomLangInput('');
+      setTranslatedFields(null);
+      setTranslateError(null);
     }
   }, [stay?.id, user?.email]);
 
@@ -449,6 +462,39 @@ export const StayDetailModal: React.FC<StayDetailModalProps> = ({
       setAiAnswer('AirBus.AI: ' + (err.message || 'Unable to connect to concierge right now.'));
     } finally {
       setAiLoading(false);
+    }
+  };
+
+  // airbus.ai Translate into ANY language
+  const handleTranslateStay = async (requestedLang: string) => {
+    if (!stay) return;
+    const cleanLang = requestedLang.trim();
+    if (!cleanLang) {
+      setTranslateError('Please select or type any language to translate into.');
+      return;
+    }
+    const lower = cleanLang.toLowerCase();
+    if (lower === 'english' || lower === 'en') {
+      setTranslationLang('English');
+      setTranslatedFields(null);
+      setTranslateError(null);
+      return;
+    }
+    setTranslating(true);
+    setTranslateError(null);
+    try {
+      const stayNights = stay.nights || 1;
+      const res = await api.translateStay(stay.id, {
+        targetLanguage: cleanLang,
+        priceText: `${formatMoney(stay.price)} for ${stayNights} ${stayNights === 1 ? 'night' : 'nights'}`,
+        bookingHoursText: 'Check-in after 14:00, checkout before 10:00. No unauthorized parties. Respect neighborhood quiet hours.',
+      });
+      setTranslationLang(res.language || cleanLang);
+      setTranslatedFields(res.isOriginal ? null : res.translated);
+    } catch (err: any) {
+      setTranslateError(err?.message || 'airbus.ai translation failed. Please try again.');
+    } finally {
+      setTranslating(false);
     }
   };
 
@@ -743,37 +789,121 @@ export const StayDetailModal: React.FC<StayDetailModalProps> = ({
             </div>
           </div>
 
-          {/* Title & Location Header */}
-          <div className="space-y-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="bg-[#fbbf24] text-stone-950 font-black text-[10px] px-2 py-0.5 rounded-full uppercase">
-                {stay.category}
-              </span>
-              <span className="bg-stone-100 dark:bg-stone-800 font-bold text-stone-600 dark:text-stone-300 text-xs px-2.5 py-0.5 rounded-full">
-                {stay.type}
-              </span>
-              <div className="flex items-center gap-1 text-xs font-bold text-amber-500">
-                <Star className="w-3.5 h-3.5 fill-current" />
-                <span>{stay.rating.toFixed(1)}</span>
-                <span className="text-stone-400 font-normal">({stay.reviewsCount} reviews)</span>
+          {/* Title & Location Header + airbus.ai Translation Bar */}
+          {(() => {
+            const displayTitle = translatedFields?.title || stay.title;
+            const displayLocation = translatedFields?.location || stay.location;
+            const displayType = translatedFields?.type || stay.type;
+            return (
+              <div className="space-y-3">
+                <div className="space-y-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="bg-[#fbbf24] text-stone-950 font-black text-[10px] px-2 py-0.5 rounded-full uppercase">
+                      {stay.category}
+                    </span>
+                    <span className="bg-stone-100 dark:bg-stone-800 font-bold text-stone-600 dark:text-stone-300 text-xs px-2.5 py-0.5 rounded-full">
+                      {displayType}
+                    </span>
+                    <div className="flex items-center gap-1 text-xs font-bold text-amber-500">
+                      <Star className="w-3.5 h-3.5 fill-current" />
+                      <span>{stay.rating.toFixed(1)}</span>
+                      <span className="text-stone-400 font-normal">({stay.reviewsCount} reviews)</span>
+                    </div>
+                  </div>
+
+                  <h1 className="text-xl sm:text-2xl font-black font-heading tracking-tight text-stone-900 dark:text-white">
+                    {displayTitle}
+                  </h1>
+
+                  <div className="flex items-center gap-1 text-xs text-stone-500 dark:text-stone-400">
+                    <MapPin className="w-3.5 h-3.5 text-[#e4002b]" />
+                    <span>{displayLocation}</span>
+                    <span>·</span>
+                    <span>{stay.guests} guests max</span>
+                    <span>·</span>
+                    <span>{stay.beds} beds</span>
+                    <span>·</span>
+                    <span>{stay.area} m²</span>
+                  </div>
+                </div>
+
+                {/* airbus.ai Any-Language Translation Selector */}
+                <div className="p-3 rounded-2xl bg-stone-50 dark:bg-stone-900/80 border border-stone-200 dark:border-stone-800 space-y-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-purple-600/15 text-purple-700 dark:text-purple-300 text-[10px] font-black uppercase tracking-wider">
+                        <Languages className="w-3.5 h-3.5" />
+                        airbus.ai Translate
+                      </span>
+                      <span className="text-[11px] text-stone-500 dark:text-stone-400">
+                        Viewing in <strong className="text-stone-800 dark:text-stone-200">{translationLang}</strong>
+                      </span>
+                    </div>
+                    {translatedFields && (
+                      <button
+                        type="button"
+                        onClick={() => handleTranslateStay('English')}
+                        className="px-2.5 py-1 rounded-full bg-stone-200 dark:bg-stone-800 hover:bg-stone-300 dark:hover:bg-stone-700 text-stone-800 dark:text-stone-200 text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
+                      >
+                        <RotateCcw className="w-3 h-3" />
+                        <span>Show Original (English)</span>
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {['English', 'Swahili', 'French', 'Spanish', 'Arabic', 'Chinese', 'German'].map(lang => (
+                      <button
+                        key={lang}
+                        type="button"
+                        disabled={translating}
+                        onClick={() => handleTranslateStay(lang)}
+                        className={`px-2.5 py-1 rounded-full text-[11px] font-bold border transition-all cursor-pointer disabled:opacity-50 ${
+                          translationLang.toLowerCase() === lang.toLowerCase()
+                            ? 'bg-purple-600 text-white border-purple-600 shadow-xs'
+                            : 'bg-white dark:bg-stone-800 text-stone-700 dark:text-stone-300 border-stone-200 dark:border-stone-700 hover:border-purple-400'
+                        }`}
+                      >
+                        {lang}
+                      </button>
+                    ))}
+
+                    <div className="flex items-center gap-1.5 flex-1 min-w-[210px]">
+                      <input
+                        type="text"
+                        value={customLangInput}
+                        onChange={e => setCustomLangInput(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleTranslateStay(customLangInput);
+                          }
+                        }}
+                        placeholder="Any language (e.g. Kikuyu, Dholuo, Japanese)..."
+                        aria-label="Translate listing to any language"
+                        className="flex-1 px-2.5 py-1 bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 rounded-xl text-[11px] outline-none focus:border-purple-500"
+                      />
+                      <button
+                        type="button"
+                        disabled={translating || !customLangInput.trim()}
+                        onClick={() => handleTranslateStay(customLangInput)}
+                        className="px-3 py-1 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-[11px] font-bold disabled:opacity-50 cursor-pointer inline-flex items-center gap-1"
+                      >
+                        {translating ? <Loader2 className="w-3 h-3 animate-spin" /> : <Languages className="w-3 h-3" />}
+                        <span>{translating ? 'Translating...' : 'Translate'}</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {translateError && (
+                    <div className="text-[11px] text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 rounded-lg px-2.5 py-1">
+                      {translateError}
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
-
-            <h1 className="text-xl sm:text-2xl font-black font-heading tracking-tight text-stone-900 dark:text-white">
-              {stay.title}
-            </h1>
-
-            <div className="flex items-center gap-1 text-xs text-stone-500 dark:text-stone-400">
-              <MapPin className="w-3.5 h-3.5 text-[#e4002b]" />
-              <span>{stay.location}</span>
-              <span>·</span>
-              <span>{stay.guests} guests max</span>
-              <span>·</span>
-              <span>{stay.beds} beds</span>
-              <span>·</span>
-              <span>{stay.area} m²</span>
-            </div>
-          </div>
+            );
+          })()}
 
           {/* Live Weather Widget & 3-Day Forecast */}
           <StayWeatherWidget
@@ -859,17 +989,17 @@ export const StayDetailModal: React.FC<StayDetailModalProps> = ({
           <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
             {/* Left Column: Description, Amenities, Host Rules */}
             <div className="md:col-span-7 space-y-5">
-              {stay.description && (
+              {(translatedFields?.description ?? stay.description) && (
                 <div>
                   <h3 className="text-sm font-extrabold text-stone-900 dark:text-white mb-2">About this stay</h3>
                   <p className="text-xs text-stone-600 dark:text-stone-300 leading-relaxed whitespace-pre-line">
-                    {stay.description}
+                    {translatedFields?.description ?? stay.description}
                   </p>
                 </div>
               )}
 
               {/* Host Personal Welcome Note */}
-              {stay.hostMessage && (
+              {(translatedFields?.hostMessage ?? stay.hostMessage) && (
                 <div className="p-4 rounded-2xl bg-gradient-to-r from-rose-50 to-amber-50 dark:from-[#1e1b24] dark:to-[#221c21] border border-rose-200/60 dark:border-rose-900/40">
                   <div className="flex items-start gap-3">
                     <div className="w-10 h-10 rounded-full bg-[#e4002b] text-white flex items-center justify-center font-bold text-sm shrink-0 shadow-sm">
@@ -885,7 +1015,7 @@ export const StayDetailModal: React.FC<StayDetailModalProps> = ({
                         </span>
                       </div>
                       <p className="text-xs text-stone-700 dark:text-stone-300 italic leading-relaxed">
-                        “{stay.hostMessage}”
+                        “{translatedFields?.hostMessage ?? stay.hostMessage}”
                       </p>
                     </div>
                   </div>
@@ -893,7 +1023,8 @@ export const StayDetailModal: React.FC<StayDetailModalProps> = ({
               )}
 
               {/* Complimentary Host Welcome Gifts */}
-              {stay.welcomeGifts && stay.welcomeGifts.length > 0 && (
+              {((translatedFields?.welcomeGifts && translatedFields.welcomeGifts.length > 0) ||
+                (stay.welcomeGifts && stay.welcomeGifts.length > 0)) && (
                 <div className="p-4 rounded-2xl bg-amber-50/70 dark:bg-amber-950/20 border border-amber-300/60 dark:border-amber-800/40 space-y-2.5">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
@@ -915,7 +1046,7 @@ export const StayDetailModal: React.FC<StayDetailModalProps> = ({
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
-                    {stay.welcomeGifts.map((gift, idx) => (
+                    {(translatedFields?.welcomeGifts?.length ? translatedFields.welcomeGifts : stay.welcomeGifts || []).map((gift, idx) => (
                       <div
                         key={idx}
                         className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white dark:bg-stone-900 border border-amber-200 dark:border-amber-900/60 text-xs font-semibold text-stone-800 dark:text-stone-200 shadow-xs"
@@ -931,12 +1062,12 @@ export const StayDetailModal: React.FC<StayDetailModalProps> = ({
               {/* Amenities */}
               <div>
                 <h3 className="text-sm font-extrabold text-stone-900 dark:text-white mb-2">
-                  What this place offers ({stay.features?.length || 0})
+                  What this place offers ({(translatedFields?.features?.length ? translatedFields.features : stay.features)?.length || 0})
                 </h3>
                 <div className="grid grid-cols-2 gap-2">
-                  {stay.features?.map(feat => (
+                  {(translatedFields?.features?.length ? translatedFields.features : stay.features || []).map((feat, idx) => (
                     <div
-                      key={feat}
+                      key={`${feat}_${idx}`}
                       className="flex items-center gap-2 p-2 rounded-xl bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-800 text-xs font-medium text-stone-700 dark:text-stone-300"
                     >
                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
@@ -949,16 +1080,18 @@ export const StayDetailModal: React.FC<StayDetailModalProps> = ({
               {/* House Rules & Policies */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
                 <div className="p-3.5 rounded-2xl bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-800">
-                  <h4 className="text-xs font-bold text-stone-900 dark:text-white mb-1">House Rules</h4>
+                  <h4 className="text-xs font-bold text-stone-900 dark:text-white mb-1">House Rules &amp; Booking Hours</h4>
                   <p className="text-[11px] text-stone-500 leading-normal">
-                    Check-in after 14:00, checkout before 10:00. No unauthorized parties. Respect neighborhood quiet hours.
+                    {translatedFields?.bookingHoursText ||
+                      'Check-in after 14:00, checkout before 10:00. No unauthorized parties. Respect neighborhood quiet hours.'}
                   </p>
                 </div>
 
                 <div className="p-3.5 rounded-2xl bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-800">
                   <h4 className="text-xs font-bold text-stone-900 dark:text-white mb-1">Direct Settlement</h4>
                   <p className="text-[11px] text-stone-500 leading-normal">
-                    Free cancellation before check-in. Guests pay hosts directly after property tour and key handover.
+                    {translatedFields?.directSettlementText ||
+                      'Free cancellation before check-in. Guests pay hosts directly after property tour and key handover.'}
                   </p>
                 </div>
               </div>
@@ -981,17 +1114,23 @@ export const StayDetailModal: React.FC<StayDetailModalProps> = ({
                     : 'border-stone-200 dark:border-stone-800'
                 }`}
               >
-                <div className="flex items-baseline justify-between">
+                <div className="flex items-baseline justify-between gap-2">
                   <div>
                     <span className="text-2xl font-black text-stone-900 dark:text-white">
                       {formatMoney(stay.price)}
                     </span>
                     <span className="text-xs text-stone-500 ml-1">
-                      for {stay.nights || 1} {(stay.nights || 1) === 1 ? 'night' : 'nights'}
+                      {translatedFields?.priceText
+                        ? `(${translatedFields.priceText})`
+                        : `for ${stay.nights || 1} ${(stay.nights || 1) === 1 ? 'night' : 'nights'}`}
                     </span>
                   </div>
                   <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400">
-                    {stay.instantBook ? '⚡ Instant Confirmation' : 'Host approval'}
+                    {translatedFields?.instantBookLabel
+                      ? `${stay.instantBook ? '⚡ ' : ''}${translatedFields.instantBookLabel}`
+                      : stay.instantBook
+                      ? '⚡ Instant Confirmation'
+                      : 'Host approval'}
                   </span>
                 </div>
 

@@ -4,8 +4,8 @@ import fs from 'fs';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
-import { GoogleGenAI } from '@google/genai';
-import { db, hashPassword, PLANS, SESSION_IDLE_TIMEOUT_MS, validatePasswordStrength } from './src/server/db';
+import { GoogleGenAI, Type } from '@google/genai';
+import { db, hashPassword, verifyPassword, PLANS, SESSION_IDLE_TIMEOUT_MS, validatePasswordStrength } from './src/server/db';
 import { User, Stay, StayCategory, Booking, ChatThread, ChatMessage, PaymentRecordType, PaymentRecordMethod, ShortIntentType } from './src/types';
 import { audioLibraryService } from './src/server/services/audioLibraryService';
 import { CHUNK_UPLOADS_DIR, mediaProcessingService, VIDEOS_OUTPUT_DIR } from './src/server/services/mediaProcessingService';
@@ -164,7 +164,7 @@ app.use((req, res, next) => {
 let genAI: GoogleGenAI | null = null;
 if (process.env.GEMINI_API_KEY) {
   try {
-    genAI = new GoogleGenAI({});
+    genAI = new GoogleGenAI({ httpOptions: { headers: { 'User-Agent': 'aistudio-build' } } });
   } catch (err) {
     console.warn('GenAI initialization skipped:', err);
   }
@@ -736,7 +736,7 @@ app.post('/api/admin/change-credentials', (req, res) => {
 
     const updated = db.updateAdminCredentials(
       user.email,
-      hashPassword(String(currentPassword)),
+      String(currentPassword),
       {
         newName: newName ? String(newName).trim() : undefined,
         newEmail: newEmail ? String(newEmail).trim().toLowerCase() : undefined,
@@ -892,19 +892,23 @@ app.post('/api/auth/login', (req, res) => {
 
     const { portal, username, email, password } = req.body || {};
 
-    // Isolated Guest or Host portal login (strictly exact case- and punctuation-sensitive username + password)
+    // Isolated Guest or Host portal login (trimmed case-insensitive username/email lookup + bcrypt password)
     if (portal === 'guest' || portal === 'owner' || (username !== undefined && !email)) {
       if (portal !== 'guest' && portal !== 'owner') {
         return res.status(400).json({ error: 'Please choose Login to Guest or Login to Host first.' });
       }
-      if (!String(username || '').trim() || !password) {
+      const loginIdentifier =
+        username !== undefined && String(username).trim()
+          ? String(username)
+          : String(email || '');
+      if (!loginIdentifier.trim() || !password) {
         return res.status(400).json({ error: 'Username and password are required.' });
       }
 
       try {
         const { user, token } = db.loginPortalUser({
           portal,
-          username: String(username),
+          username: loginIdentifier,
           password: String(password),
         });
         loginRateLimitMap.delete(`login_${clientIp}`);
@@ -925,9 +929,10 @@ app.post('/api/auth/login', (req, res) => {
     }
     const cleanEmail = String(email).trim().toLowerCase();
     const user = db.findUserByEmail(cleanEmail) as any;
-    if (!user || user.role !== 'admin' || user.passwordHash !== hashPassword(String(password))) {
+    if (!user || user.role !== 'admin' || !verifyPassword(String(password), user.passwordHash)) {
       return res.status(401).json({ error: 'Invalid administrator email or password.' });
     }
+    db.upgradeLegacyPasswordHashIfNeeded(user, String(password));
 
     loginRateLimitMap.delete(`login_${clientIp}`);
     const session = db.createAuthSession(user, 'admin');
@@ -1068,7 +1073,7 @@ app.post('/api/auth/change-password', (req, res) => {
   if (!currentPassword || !newPassword) {
     return res.status(400).json({ error: 'Current password and new password are required.' });
   }
-  if (user.passwordHash && user.passwordHash !== hashPassword(currentPassword)) {
+  if (user.passwordHash && !verifyPassword(String(currentPassword), user.passwordHash)) {
     return res.status(400).json({ error: 'Incorrect current password.' });
   }
   const changePwErr = validatePasswordStrength(String(newPassword));
@@ -1324,6 +1329,174 @@ Provide a friendly, direct, and benevolent response in 2 to 4 concise sentences.
     return res.json({ answer: fallbackAnswer });
   } catch (err: any) {
     return res.status(500).json({ error: err.message || 'Server error' });
+  }
+});
+
+// airbus.ai Listing Translation into ANY language with per-(stayId, field, language) caching
+app.post('/api/stays/:id/translate', async (req, res) => {
+  try {
+    const targetLanguage = String(req.body?.targetLanguage || '').trim();
+    if (!targetLanguage || targetLanguage.length > 80) {
+      return res.status(400).json({ error: 'Please enter a valid target language.' });
+    }
+
+    const stay = db.getStayById(req.params.id);
+    if (!stay) {
+      return res.status(404).json({ error: 'Listing not found.' });
+    }
+
+    const defaultBookingHours =
+      'Check-in after 14:00, checkout before 10:00. No unauthorized parties. Respect neighborhood quiet hours.';
+    const defaultSettlement =
+      'Free cancellation before check-in. Guests pay hosts directly after property tour and key handover.';
+    const defaultPriceText = `KES ${Number(stay.price || 0).toLocaleString()} for ${stay.nights || 1} ${
+      (stay.nights || 1) === 1 ? 'night' : 'nights'
+    }`;
+
+    const sourceFields = {
+      title: String(stay.title || ''),
+      location: String(stay.location || ''),
+      type: String(stay.type || ''),
+      description: String(stay.description || ''),
+      hostMessage: String(stay.hostMessage || ''),
+      welcomeGifts: Array.isArray(stay.welcomeGifts) ? stay.welcomeGifts.map(String) : [],
+      features: Array.isArray(stay.features) ? stay.features.map(String) : [],
+      highlights: Array.isArray(stay.highlights) ? stay.highlights.map(String) : [],
+      bookingHoursText: String(req.body?.bookingHoursText || defaultBookingHours),
+      directSettlementText: defaultSettlement,
+      priceText: String(req.body?.priceText || defaultPriceText),
+      instantBookLabel: stay.instantBook ? 'Instant Confirmation' : 'Host approval',
+    };
+
+    const lowerLang = targetLanguage.toLowerCase();
+    if (lowerLang === 'english' || lowerLang === 'en' || lowerLang === 'en-us' || lowerLang === 'en-gb') {
+      return res.json({
+        language: 'English',
+        translated: sourceFields,
+        cached: true,
+        isOriginal: true,
+      });
+    }
+
+    const sourceHash = crypto
+      .createHash('sha256')
+      .update(JSON.stringify(sourceFields))
+      .digest('hex')
+      .slice(0, 16);
+
+    const fieldKeys = Object.keys(sourceFields) as Array<keyof typeof sourceFields>;
+    const cachedResult: Record<string, string | string[]> = {};
+    let allCached = true;
+    for (const field of fieldKeys) {
+      const hit = db.getStayTranslationField(stay.id, targetLanguage, field, sourceHash);
+      if (hit === null) {
+        allCached = false;
+        break;
+      }
+      cachedResult[field] = hit;
+    }
+
+    if (allCached) {
+      return res.json({
+        language: targetLanguage,
+        translated: cachedResult,
+        cached: true,
+        isOriginal: false,
+      });
+    }
+
+    if (!genAI || !process.env.GEMINI_API_KEY) {
+      return res.status(503).json({
+        error: 'airbus.ai translation service is not configured on this server (missing GEMINI_API_KEY).',
+      });
+    }
+
+    const prompt = `Translate all English values in the JSON below naturally and accurately into ${targetLanguage}.
+Rules:
+1. Keep all numbers, quantities, booking hours (e.g. 14:00, 10:00), prices, and currency codes (e.g. KES, USD, EUR) completely exact.
+2. Keep proper Kenyan place names (such as Westlands, Kilimani, Diani, Nairobi, Mombasa, Kenya) recognizable.
+3. Preserve array lengths and item order for welcomeGifts, features, and highlights.
+4. Return strictly valid JSON matching the requested schema.
+
+Input JSON:
+${JSON.stringify(sourceFields, null, 2)}`;
+
+    const response = await genAI.models.generateContent({
+      model: 'gemini-4-hydrogen',
+      contents: prompt,
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            title: { type: Type.STRING },
+            location: { type: Type.STRING },
+            type: { type: Type.STRING },
+            description: { type: Type.STRING },
+            hostMessage: { type: Type.STRING },
+            welcomeGifts: { type: Type.ARRAY, items: { type: Type.STRING } },
+            features: { type: Type.ARRAY, items: { type: Type.STRING } },
+            highlights: { type: Type.ARRAY, items: { type: Type.STRING } },
+            bookingHoursText: { type: Type.STRING },
+            directSettlementText: { type: Type.STRING },
+            priceText: { type: Type.STRING },
+            instantBookLabel: { type: Type.STRING },
+          },
+          required: [
+            'title',
+            'location',
+            'type',
+            'description',
+            'hostMessage',
+            'welcomeGifts',
+            'features',
+            'highlights',
+            'bookingHoursText',
+            'directSettlementText',
+            'priceText',
+            'instantBookLabel',
+          ],
+        },
+      },
+    });
+
+    const rawText = (response.text || '').trim();
+    if (!rawText) {
+      return res.status(502).json({ error: `airbus.ai could not generate a translation for "${targetLanguage}".` });
+    }
+    const parsed = JSON.parse(rawText);
+    const normalizedTranslated: Record<string, string | string[]> = {
+      title: typeof parsed.title === 'string' && parsed.title.trim() ? parsed.title.trim() : sourceFields.title,
+      location: typeof parsed.location === 'string' && parsed.location.trim() ? parsed.location.trim() : sourceFields.location,
+      type: typeof parsed.type === 'string' && parsed.type.trim() ? parsed.type.trim() : sourceFields.type,
+      description: typeof parsed.description === 'string' ? parsed.description : sourceFields.description,
+      hostMessage: typeof parsed.hostMessage === 'string' ? parsed.hostMessage : sourceFields.hostMessage,
+      welcomeGifts: Array.isArray(parsed.welcomeGifts) ? parsed.welcomeGifts.map(String) : sourceFields.welcomeGifts,
+      features: Array.isArray(parsed.features) ? parsed.features.map(String) : sourceFields.features,
+      highlights: Array.isArray(parsed.highlights) ? parsed.highlights.map(String) : sourceFields.highlights,
+      bookingHoursText: typeof parsed.bookingHoursText === 'string' && parsed.bookingHoursText.trim()
+        ? parsed.bookingHoursText.trim()
+        : sourceFields.bookingHoursText,
+      directSettlementText: typeof parsed.directSettlementText === 'string' && parsed.directSettlementText.trim()
+        ? parsed.directSettlementText.trim()
+        : sourceFields.directSettlementText,
+      priceText: typeof parsed.priceText === 'string' && parsed.priceText.trim() ? parsed.priceText.trim() : sourceFields.priceText,
+      instantBookLabel: typeof parsed.instantBookLabel === 'string' && parsed.instantBookLabel.trim()
+        ? parsed.instantBookLabel.trim()
+        : sourceFields.instantBookLabel,
+    };
+
+    db.setStayTranslationFields(stay.id, targetLanguage, sourceHash, normalizedTranslated);
+
+    return res.json({
+      language: targetLanguage,
+      translated: normalizedTranslated,
+      cached: false,
+      isOriginal: false,
+    });
+  } catch (err: any) {
+    console.warn('airbus.ai translate error:', err);
+    return res.status(500).json({ error: err?.message || 'Failed to translate listing.' });
   }
 });
 
@@ -2770,16 +2943,19 @@ app.get('/api/admin/overview', (req, res) => {
   const auditLogs = raw.auditLogs;
   const bookings = raw.bookings;
 
+  const reviewQueueCounts = db.getAdminReviewQueue().counts;
+
   return res.json({
     metrics: {
       totalStays: stays.length,
       liveStays: stays.filter(s => s.status === 'live' || s.status === 'PUBLISHED').length,
-      pendingReviews: stays.filter(s => s.status === 'review').length,
+      pendingReviews: reviewQueueCounts.stays,
       totalUsers: users.length,
       pendingPayments: paymentCounts.pending,
       totalBookings: bookings.length,
       volumeKes: bookings.filter(b => b.status === 'confirmed').reduce((acc, b) => acc + b.total, 0),
     },
+    reviewQueueCounts,
     stays,
     users,
     payments,
@@ -3093,10 +3269,15 @@ app.post('/api/admin/wallet/special-refund', async (req, res) => {
   }
 });
 
-app.get('/api/geocode', (req, res) => {
-  const query = typeof req.query.q === 'string' ? req.query.q : '';
-  const result = db.geocodeKenyanLocation(query);
-  return res.json(result);
+app.get('/api/geocode', async (req, res) => {
+  try {
+    const query = typeof req.query.q === 'string' ? req.query.q : '';
+    const strict = req.query.strict === '1' || req.query.strict === 'true';
+    const result = await db.geocodeKenyanLocationAsync(query, strict);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(404).json({ error: err?.message || 'City or town not found in Kenya.' });
+  }
 });
 
 app.get('/api/music/tracks', (req, res) => {
@@ -3154,6 +3335,22 @@ app.post('/api/stays/:id/ai-short', (req, res) => {
   } catch (err: any) {
     return res.status(400).json({ error: err.message || 'AI Short generation failed.' });
   }
+});
+
+app.get('/api/admin/users', (req, res) => {
+  const user = requireAdminUser(req, res);
+  if (!user) return;
+  const roleRaw = typeof req.query.role === 'string' ? req.query.role.toLowerCase() : 'all';
+  const role = (
+    ['all', 'guests', 'guest', 'hosts', 'owner', 'suspended'].includes(roleRaw) ? roleRaw : 'all'
+  ) as 'all' | 'guests' | 'guest' | 'hosts' | 'owner' | 'suspended';
+  const out = db.getAdminRegisteredUsers({
+    role,
+    q: typeof req.query.q === 'string' ? req.query.q : undefined,
+    page: req.query.page ? Number(req.query.page) : 1,
+    limit: req.query.limit ? Number(req.query.limit) : 20,
+  });
+  return res.json(out);
 });
 
 app.post('/api/admin/users/:email/verify', (req, res) => {
@@ -3433,7 +3630,7 @@ app.get('/api/live/updates', (req, res) => {
   const user = getAuthUser(req);
   const raw = db.getRaw();
   const pendingPayments = (raw.paymentRecords || []).filter(p => p.status === 'pending').length;
-  const pendingStays = (raw.stays || []).filter(s => s.status === 'review' || s.moderationStatus === 'pending').length;
+  const pendingStays = (raw.stays || []).filter(s => db.isStayPendingReview(s)).length;
   const flaggedMedia = (raw.stays || []).filter(s => s.mediaModerationStatus === 'flagged').length;
   const pendingReports = (raw.reports || []).filter(r => r.status === 'pending').length;
   const unreadNotifs = user ? (raw.notifications || []).filter(n => n.userEmail?.toLowerCase() === user.email.toLowerCase() && !n.read).length : 0;
@@ -5140,7 +5337,7 @@ async function startServer() {
 
   const httpServer = app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 AirBus full-stack server running on http://0.0.0.0:${PORT}`);
-    // Run subscription/boost/ad expiration checks on startup and every 60 seconds
+    // Run subscription/boost/ad expiration checks on startup and every 30 seconds
     db.checkAllExpirations();
     const expiryScheduler = setInterval(() => {
       try {
@@ -5148,7 +5345,7 @@ async function startServer() {
       } catch (err) {
         console.warn('Scheduled expiration check warning:', err);
       }
-    }, 60 * 1000);
+    }, 30 * 1000);
     expiryScheduler.unref();
 
     // Background transactional outbox delivery & retry worker
