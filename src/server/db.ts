@@ -2405,6 +2405,60 @@ class DatabaseStore {
       this.save();
       logger.info('migration_applied', { migrationId: migrationV6, migratedUsers: prevUserHashes.length });
     }
+
+    // Migration v7: Additive normalization for Stay descriptions, categorized custom amenities, ad lifecycle fields & subscription notification dedup keys
+    const migrationV7 = 'v7_description_custom_amenities_and_adverts';
+    if (!this.data.appliedMigrations.some(m => m.id === migrationV7)) {
+      const prevStaysV7 = (this.data.stays || []).map(s => ({
+        id: s.id,
+        description: s.description,
+        features: Array.isArray(s.features) ? [...s.features] : [],
+        customAmenitiesByCategory: s.customAmenitiesByCategory ? JSON.parse(JSON.stringify(s.customAmenitiesByCategory)) : undefined,
+      }));
+      const prevAdsV7 = (this.data.adRequests || []).map(a => ({ ...a }));
+      const hadSubNotifKeys = Array.isArray(this.data.subscriptionNotificationKeys);
+
+      (this.data.stays || []).forEach(s => {
+        if (typeof s.description === 'string') {
+          s.description = s.description.trim();
+        } else {
+          s.description = '';
+        }
+        if (s.customAmenitiesByCategory && typeof s.customAmenitiesByCategory === 'object') {
+          const sanitized = this.sanitizeCustomAmenitiesByCategory(s.customAmenitiesByCategory, s.features);
+          s.customAmenitiesByCategory = sanitized.customAmenitiesByCategory;
+          s.features = sanitized.features;
+        }
+      });
+
+      (this.data.adRequests || []).forEach(a => {
+        if (!a.hostEmail) a.hostEmail = a.advertiserEmail;
+        if (!a.listingId) a.listingId = a.stayId;
+        if (a.start_at === undefined) a.start_at = a.startsAt ?? null;
+        if (a.end_at === undefined) a.end_at = a.expiresAt ?? null;
+        if (a.amount_paid === undefined) {
+          const paid = a.status === 'approved' || a.status === 'active' || a.status === 'expired' ? a.totalAmount : 0;
+          a.amount_paid = paid;
+          a.amountPaid = paid;
+        }
+      });
+
+      if (!Array.isArray(this.data.subscriptionNotificationKeys)) {
+        this.data.subscriptionNotificationKeys = [];
+      }
+
+      this.data.appliedMigrations.push({
+        id: migrationV7,
+        appliedAt: Date.now(),
+        snapshot: { prevStaysV7, prevAdsV7, hadSubNotifKeys },
+      });
+      this.save();
+      logger.info('migration_applied', {
+        migrationId: migrationV7,
+        staysNormalized: prevStaysV7.length,
+        adsNormalized: prevAdsV7.length,
+      });
+    }
   }
 
   public rollbackMigration(migrationId: string): boolean {
@@ -2485,6 +2539,26 @@ class DatabaseStore {
         const c = (this.data.hostCredentials || []).find(x => x.id === orig.id);
         if (c) c.passwordHash = orig.passwordHash;
       });
+    }
+    if (Array.isArray(snap?.prevStaysV7)) {
+      snap.prevStaysV7.forEach((orig: any) => {
+        const s = (this.data.stays || []).find(st => st.id === orig.id);
+        if (s) {
+          s.description = orig.description;
+          s.features = orig.features;
+          if (orig.customAmenitiesByCategory === undefined) {
+            delete s.customAmenitiesByCategory;
+          } else {
+            s.customAmenitiesByCategory = orig.customAmenitiesByCategory;
+          }
+        }
+      });
+      if (Array.isArray(snap.prevAdsV7)) {
+        this.data.adRequests = snap.prevAdsV7;
+      }
+      if (!snap.hadSubNotifKeys) {
+        delete this.data.subscriptionNotificationKeys;
+      }
     }
     this.data.appliedMigrations.splice(idx, 1);
     this.rebuildAuthIndexes();
@@ -2773,6 +2847,7 @@ class DatabaseStore {
           if (!parsed.paymentRecords) parsed.paymentRecords = [];
           if (!parsed.walletTransactions) parsed.walletTransactions = [];
           if (!parsed.reports) parsed.reports = [];
+          if (!Array.isArray(parsed.subscriptionNotificationKeys)) parsed.subscriptionNotificationKeys = [];
           if (Array.isArray(parsed.stays)) {
             parsed.stays.forEach((stay: any) => {
               if (!stay.media) {
@@ -3446,6 +3521,7 @@ class DatabaseStore {
       blackFridaySubscribers: [],
       guideRequests: [],
       isSingleAdminRegistered: true,
+      subscriptionNotificationKeys: [],
     };
 
     return initialData;
@@ -3470,6 +3546,65 @@ class DatabaseStore {
     return this.data;
   }
 
+  public emitSubscriptionApprovedNotifications(opts: {
+    userEmail: string;
+    key: string;
+    days: number;
+    startsAt: number;
+    expiresAt: number;
+    includeDepositApproved?: boolean;
+  }): boolean {
+    const cleanEmail = String(opts.userEmail || '').toLowerCase().trim();
+    if (!cleanEmail) return false;
+    if (!Array.isArray(this.data.subscriptionNotificationKeys)) {
+      this.data.subscriptionNotificationKeys = [];
+    }
+    const dedupKey = `subnotif:${cleanEmail}:${opts.key}`;
+    if (this.data.subscriptionNotificationKeys.includes(dedupKey)) {
+      return false;
+    }
+    this.data.subscriptionNotificationKeys.push(dedupKey);
+
+    const now = Date.now();
+    const startStr = new Date(opts.startsAt).toLocaleDateString('en-KE', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    });
+    const expiryStr = new Date(opts.expiresAt).toLocaleDateString('en-KE', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    });
+    const cleanDays = Math.max(1, Math.floor(opts.days || 30));
+
+    if (opts.includeDepositApproved) {
+      this.createNotification({
+        id: `notif_subdep_${now}_${crypto.randomBytes(2).toString('hex')}`,
+        userEmail: cleanEmail,
+        title: 'M-Pesa Deposit Approved',
+        message: 'M-Pesa Deposit Approved. Your subscription is now active.',
+        read: false,
+        link: '/#owner',
+        type: 'subscription',
+        createdAt: now,
+      });
+    }
+
+    this.createNotification({
+      id: `notif_subact_${now}_${crypto.randomBytes(2).toString('hex')}`,
+      userEmail: cleanEmail,
+      title: 'Subscription Active',
+      message: `Thank you! You have ${cleanDays} days of active subscription. Start date: ${startStr}. Expiry date: ${expiryStr}.`,
+      read: false,
+      link: '/#owner',
+      type: 'subscription',
+      createdAt: now + 1,
+    });
+
+    return true;
+  }
+
   // --- Automatic Subscription Expiration (Monthly=30d, Annual=365d) & Immediate Public Hiding ---
   public checkSubscriptionExpirations() {
     const now = Date.now();
@@ -3480,6 +3615,32 @@ class DatabaseStore {
 
     for (const [email, plan] of Object.entries(this.data.hostPlans)) {
       const cleanEmail = email.toLowerCase().trim();
+      if (
+        plan.status === 'active' &&
+        plan.expiresAt > now &&
+        plan.expiresAt - now <= 3 * 864e5 &&
+        plan.preExpiryNotifiedForExpiresAt !== plan.expiresAt
+      ) {
+        plan.preExpiryNotifiedForExpiresAt = plan.expiresAt;
+        changed = true;
+        const expiryStr = new Date(plan.expiresAt).toLocaleDateString('en-KE', {
+          year: 'numeric',
+          month: 'short',
+          day: 'numeric',
+        });
+        const remainingDays = Math.max(1, Math.ceil((plan.expiresAt - now) / 864e5));
+        this.createNotification({
+          id: 'notif_preexp_' + now + '_' + Math.random().toString(36).slice(2, 6),
+          userEmail: cleanEmail,
+          title: 'Subscription Expiring Soon',
+          message: `Your ${plan.tier} hosting subscription expires in ${remainingDays} day${remainingDays === 1 ? '' : 's'} (on ${expiryStr}). Renew early to keep your listings live without interruption.`,
+          read: false,
+          link: '/#owner',
+          type: 'subscription',
+          createdAt: now,
+        });
+      }
+
       if (plan.status === 'active' && plan.expiresAt > 0 && now >= plan.expiresAt) {
         // Check if a scheduled tier switch was queued first
         if (plan.scheduledTier) {
@@ -3656,6 +3817,11 @@ class DatabaseStore {
           changed = true;
         }
       }
+    }
+
+    // 5. Strict advert expiry (never auto-extend)
+    if (this.expireOverdueAdRequests(now)) {
+      changed = true;
     }
 
     if (stayFeedChanged) {
@@ -4782,7 +4948,21 @@ class DatabaseStore {
         });
       }
     } else {
-      list = list.filter(s => s.status === filter.status && !s.isDelisted && (!s.isPlusVVVIP || canSeePlus || isAdminPreview));
+      list = list.filter(s => {
+        if (s.status !== filter.status || s.isDelisted) return false;
+        if (!isAdminPreview) {
+          if (!this.isStayApprovedPublic(s)) return false;
+          if (s.isPlusVVVIP && !canSeePlus) return false;
+          if (s.ownerEmail) {
+            const ownerUser = this.findUserByEmail(s.ownerEmail);
+            if (!ownerUser || ownerUser.role !== 'admin') {
+              const plan = this.getHostPlan(s.ownerEmail);
+              if (plan.status !== 'active' || (plan.expiresAt > 0 && plan.expiresAt <= Date.now())) return false;
+            }
+          }
+        }
+        return true;
+      });
     }
 
     if (filter) {
@@ -5163,6 +5343,66 @@ class DatabaseStore {
     return newReply;
   }
 
+  public sanitizeCustomAmenitiesByCategory(
+    input?: Record<string, string[]>,
+    existingFeatures?: string[]
+  ): { customAmenitiesByCategory: Record<string, string[]>; features: string[] } {
+    const cleanByCategory: Record<string, string[]> = {};
+    const seenLower = new Set<string>();
+    const combinedFeatures: string[] = [];
+
+    const addFeature = (raw: string) => {
+      const cleaned = stripHtmlTags(String(raw || '')).trim().replace(/\s+/g, ' ');
+      if (!cleaned) return null;
+      const lower = cleaned.toLowerCase();
+      if (seenLower.has(lower)) return null;
+      seenLower.add(lower);
+      combinedFeatures.push(cleaned);
+      return cleaned;
+    };
+
+    // Preserve already-selected features (e.g. preset amenities) first
+    if (Array.isArray(existingFeatures)) {
+      for (const f of existingFeatures) {
+        addFeature(f);
+      }
+    }
+
+    const presetLowerByCategory = new Map<string, Set<string>>();
+    for (const [cat, items] of Object.entries(AMENITY_GROUPS)) {
+      presetLowerByCategory.set(cat, new Set(items.map(i => i.toLowerCase())));
+    }
+
+    if (input && typeof input === 'object') {
+      for (const [rawCat, rawList] of Object.entries(input)) {
+        const matchedCat =
+          Object.keys(AMENITY_GROUPS).find(c => c.toLowerCase() === String(rawCat).trim().toLowerCase()) ||
+          stripHtmlTags(String(rawCat)).trim();
+        if (!matchedCat || !Array.isArray(rawList)) continue;
+        const catPresets = presetLowerByCategory.get(matchedCat) || new Set<string>();
+        const catSeen = new Set<string>();
+        const catItems: string[] = [];
+        for (const item of rawList) {
+          const cleaned = stripHtmlTags(String(item || '')).trim().replace(/\s+/g, ' ');
+          if (!cleaned) continue;
+          const lower = cleaned.toLowerCase();
+          if (catPresets.has(lower) || catSeen.has(lower)) continue;
+          catSeen.add(lower);
+          catItems.push(cleaned);
+          addFeature(cleaned);
+        }
+        if (catItems.length > 0) {
+          cleanByCategory[matchedCat] = catItems;
+        }
+      }
+    }
+
+    return {
+      customAmenitiesByCategory: cleanByCategory,
+      features: combinedFeatures,
+    };
+  }
+
   public createStay(stay: Stay): Stay {
     this.assertNoBlobUrls([
       stay.videoUrl,
@@ -5171,6 +5411,10 @@ class DatabaseStore {
       stay.media?.video?.url,
       ...(stay.media?.photos?.map(p => p.url) || []),
     ]);
+    stay.description = typeof stay.description === 'string' ? stripHtmlTags(stay.description).trim() : '';
+    const sanitizedAmenities = this.sanitizeCustomAmenitiesByCategory(stay.customAmenitiesByCategory, stay.features);
+    stay.customAmenitiesByCategory = sanitizedAmenities.customAmenitiesByCategory;
+    stay.features = sanitizedAmenities.features;
     const refMediaId = stay.videoMediaId || stay.media?.video?.mediaId;
     if (refMediaId) {
       this.assertMediaAssetsReady([refMediaId]);
@@ -5253,7 +5497,19 @@ class DatabaseStore {
     if (refMediaId) {
       this.assertMediaAssetsReady([refMediaId]);
     }
-    Object.assign(s, updates);
+    const nextUpdates = { ...updates };
+    if (typeof nextUpdates.description === 'string') {
+      nextUpdates.description = stripHtmlTags(nextUpdates.description).trim();
+    }
+    Object.assign(s, nextUpdates);
+    if (nextUpdates.customAmenitiesByCategory !== undefined || nextUpdates.features !== undefined) {
+      const sanitized = this.sanitizeCustomAmenitiesByCategory(
+        s.customAmenitiesByCategory,
+        s.features
+      );
+      s.customAmenitiesByCategory = sanitized.customAmenitiesByCategory;
+      s.features = sanitized.features;
+    }
     if (refMediaId) {
       const asset = this.getMediaAssetById(refMediaId);
       if (asset) {
@@ -5299,7 +5555,18 @@ class DatabaseStore {
 
     const preservedCreatedAt = s.createdAt;
     const { createdAt: _ignoreCreatedAt, id: _ignoreId, ...safeUpdates } = updates as any;
+    if (typeof safeUpdates.description === 'string') {
+      safeUpdates.description = stripHtmlTags(safeUpdates.description).trim();
+    }
     Object.assign(s, safeUpdates);
+    if (safeUpdates.customAmenitiesByCategory !== undefined || safeUpdates.features !== undefined) {
+      const sanitized = this.sanitizeCustomAmenitiesByCategory(
+        s.customAmenitiesByCategory,
+        s.features
+      );
+      s.customAmenitiesByCategory = sanitized.customAmenitiesByCategory;
+      s.features = sanitized.features;
+    }
     s.createdAt = preservedCreatedAt; // Preserve original submission timestamp
 
     if (refMediaId) {
@@ -5767,9 +6034,16 @@ class DatabaseStore {
           ? 'airbus_plus'
           : rawType === 'boost'
           ? 'promotion'
+          : rawType === 'advert'
+          ? 'advert_expense'
           : rawType;
       const isDeposit = normalizedType === 'deposit';
       const amt = Math.floor(Number(p.approvedAmount ?? p.claimedAmount ?? p.amountKes ?? p.amount ?? 0) || 0);
+      const linkedTx = rawType === 'advert'
+        ? (this.data.walletTransactions || []).find(
+            tx => tx.relatedPaymentId === p.id && (tx.walletId || tx.wallet_id || '').toLowerCase().trim() === userEmail
+          )
+        : undefined;
       return {
         id: p.id,
         date: p.createdAt || Date.now(),
@@ -5783,9 +6057,14 @@ class DatabaseStore {
         mpesaCode: p.mpesaCode || undefined,
         rejectionReason: p.rejectionReason || undefined,
         method: p.method,
+        advertId: linkedTx?.advertId || (rawType === 'advert' ? (p.referenceId || p.reference_id) : undefined),
+        listingId: linkedTx?.listingId,
+        hostEmail: linkedTx?.hostEmail || p.hostEmail,
         note:
           normalizedType === 'deposit'
             ? `Deposit (M-Pesa${p.mpesaCode ? ` · ${p.mpesaCode}` : ''})`
+            : rawType === 'advert'
+            ? linkedTx?.note || 'Advert Expense'
             : `${normalizedType.replace(/_/g, ' ')} payment from wallet`,
       };
     });
@@ -5811,6 +6090,9 @@ class DatabaseStore {
         mpesaCode: undefined,
         rejectionReason: undefined,
         method: 'wallet' as const,
+        advertId: tx.advertId,
+        listingId: tx.listingId,
+        hostEmail: tx.hostEmail,
         note: tx.note,
       }));
 
@@ -6158,6 +6440,8 @@ class DatabaseStore {
     purpose?: string;
     proofUrl?: string;
     requirePhone?: boolean;
+    planTier?: StayCategory;
+    period?: 'monthly' | 'annual';
   }): { payment: PaymentRecord; walletBalance: number } {
     const cleanEmail = String(opts.userId || '').toLowerCase().trim();
     const payer = this.findUserByEmail(cleanEmail);
@@ -6221,6 +6505,8 @@ class DatabaseStore {
       walletPurpose: normalizedPurpose,
       purpose: purposeOpt.value,
       purposeLabel: purposeOpt.label,
+      planTier: opts.planTier,
+      period: opts.period,
       status: 'pending',
       canonicalStatus: PaymentStatus.PENDING,
       createdAt: now,
@@ -6716,6 +7002,15 @@ class DatabaseStore {
 
       let creditLedgerId: string | null = null;
 
+      let subscriptionNotificationPayload: {
+        userEmail: string;
+        key: string;
+        days: number;
+        startsAt: number;
+        expiresAt: number;
+        includeDepositApproved: boolean;
+      } | null = null;
+
       if (isDepositRecord(p)) {
         const wtx = this.recordWalletTransaction({
           walletId: hostEmail,
@@ -6730,6 +7025,100 @@ class DatabaseStore {
           relatedPaymentId: p.id,
         });
         creditLedgerId = wtx.ledgerId || null;
+
+        // If this M-Pesa deposit was specifically submitted for Host Subscription when host has no active plan, activate atomically
+        const currentHostPlan = this.getHostPlan(hostEmail);
+        const currentActiveSub = this.getActiveSubscription(hostEmail);
+        const hasActiveHostSubscription =
+          Boolean(currentActiveSub) &&
+          currentHostPlan.status === 'active' &&
+          (currentHostPlan.expiresAt || 0) > now;
+        if (resolvedPurpose === 'SUBSCRIPTION' && payerUser?.role === 'owner' && !hasActiveHostSubscription) {
+          const inferredPeriod: 'monthly' | 'annual' =
+            p.period === 'annual' || (!p.period && [10000, 25000, 50000].includes(finalApprovedAmount))
+              ? 'annual'
+              : 'monthly';
+          const validTiers: StayCategory[] = ['Silver', 'Diamond', 'Gold'];
+          const inferredTier: StayCategory | null = validTiers.includes(p.planTier as StayCategory)
+            ? (p.planTier as StayCategory)
+            : finalApprovedAmount === 50000 || finalApprovedAmount === 5000
+            ? 'Gold'
+            : finalApprovedAmount === 25000 || finalApprovedAmount === 2500
+            ? 'Diamond'
+            : finalApprovedAmount === 10000 || finalApprovedAmount === 1000
+            ? 'Silver'
+            : null;
+          if (inferredTier) {
+            const annualPrices: Record<StayCategory, number> = { Silver: 10000, Diamond: 25000, Gold: 50000 };
+            const settings = this.getSettings();
+            const planCost = Math.floor(
+              inferredPeriod === 'annual'
+                ? annualPrices[inferredTier]
+                : (settings.planPrices as any)?.[inferredTier] || PLANS[inferredTier].p
+            );
+            const hostAvail = Math.floor(this.ensureWallet(hostEmail).balance - (this.ensureWallet(hostEmail).holdBalance || 0));
+            if (hostAvail >= planCost) {
+              const days = inferredPeriod === 'annual' ? 365 : 30;
+              const subId = 'sub_dep_' + now + '_' + crypto.randomBytes(2).toString('hex');
+              const subPayRes = this.payWithWallet({
+                userId: hostEmail,
+                type: 'subscription',
+                amountSc: planCost,
+                referenceId: subId,
+                planTier: inferredTier,
+                durationDays: days,
+                period: inferredPeriod,
+                note: `Host Subscription (${inferredTier} · ${days} Days) activated from approved M-Pesa Deposit (${paymentCode})`,
+              });
+              const endsAt = now + days * 864e5;
+              if (!this.data.subscriptions) this.data.subscriptions = [];
+              for (const oldSub of this.data.subscriptions) {
+                if ((oldSub.ownerId || oldSub.owner_id || '').toLowerCase().trim() === hostEmail && oldSub.status === 'active') {
+                  oldSub.status = 'expired';
+                  oldSub.updatedAt = now;
+                }
+              }
+              this.data.subscriptions.unshift({
+                id: subId,
+                ownerId: hostEmail,
+                owner_id: hostEmail,
+                tier: inferredTier,
+                billing: inferredPeriod,
+                status: 'active',
+                startsAt: now,
+                endsAt,
+                paymentId: subPayRes.payment.id,
+                createdAt: now,
+                created_at: now,
+                updatedAt: now,
+                updated_at: now,
+              });
+              this.setHostPlan(hostEmail, {
+                tier: inferredTier,
+                status: 'active',
+                startsAt: now,
+                expiresAt: endsAt,
+                graceExpiresAt: endsAt,
+                hasPaidSubscription: true,
+                period: inferredPeriod,
+              });
+              this.data.stays.forEach(s => {
+                if (s.ownerEmail?.toLowerCase() === hostEmail && (s.status === 'expired' || s.status === 'delisted' || s.isDelisted)) {
+                  s.status = 'live';
+                  s.isDelisted = false;
+                }
+              });
+              subscriptionNotificationPayload = {
+                userEmail: hostEmail,
+                key: p.id,
+                days,
+                startsAt: now,
+                expiresAt: endsAt,
+                includeDepositApproved: true,
+              };
+            }
+          }
+        }
       } else if (p.type === 'trip_dating' || p.kind === 'trip_dating') {
         const wtx = this.recordWalletTransaction({
           walletId: MPESA_CONFIG.ADMIN_WALLET_ID,
@@ -6749,22 +7138,33 @@ class DatabaseStore {
         const linkedSub = (this.data.subscriptions || []).find(
           s => s.paymentId === p.id || s.id === p.referenceId || s.id === p.relatedId
         );
+        const days = linkedSub ? (linkedSub.billing === 'annual' ? 365 : p.durationDays || 30) : p.durationDays || (p.period === 'annual' ? 365 : 30);
+        const endsAt = now + days * 864e5;
+        const tier = ((linkedSub?.tier || p.planTier || 'Silver') as StayCategory);
+        const billing = linkedSub?.billing || p.period || (days > 30 ? 'annual' : 'monthly');
         if (linkedSub) {
-          const days = linkedSub.billing === 'annual' ? 365 : p.durationDays || 30;
           linkedSub.status = 'active';
           linkedSub.startsAt = now;
-          linkedSub.endsAt = now + days * 864e5;
+          linkedSub.endsAt = endsAt;
           linkedSub.updatedAt = now;
-          const tier = (linkedSub.tier || p.planTier || 'Silver') as StayCategory;
-          this.data.hostPlans[hostEmail] = {
-            tier,
-            status: 'active',
-            expiresAt: linkedSub.endsAt,
-            graceExpiresAt: linkedSub.endsAt + 7 * 864e5,
-            hasPaidSubscription: true,
-            period: linkedSub.billing || p.period || 'monthly',
-          };
         }
+        this.data.hostPlans[hostEmail] = {
+          tier,
+          status: 'active',
+          startsAt: now,
+          expiresAt: endsAt,
+          graceExpiresAt: endsAt,
+          hasPaidSubscription: true,
+          period: billing,
+        };
+        subscriptionNotificationPayload = {
+          userEmail: hostEmail,
+          key: p.id,
+          days,
+          startsAt: now,
+          expiresAt: endsAt,
+          includeDepositApproved: true,
+        };
       } else if (p.type === 'advert' || p.kind === 'advert') {
         const linkedAd = (this.data.adSlots || []).find(s => s.paymentId === p.id || s.id === p.referenceId);
         if (linkedAd && linkedAd.status !== 'active') {
@@ -6828,6 +7228,10 @@ class DatabaseStore {
         type: 'payment',
         createdAt: now,
       });
+
+      if (subscriptionNotificationPayload) {
+        this.emitSubscriptionApprovedNotifications(subscriptionNotificationPayload);
+      }
 
       const newHostBal = this.getWallet(hostEmail);
       const newAdminBal = this.getWallet(MPESA_CONFIG.ADMIN_WALLET_ID);
@@ -7708,15 +8112,13 @@ class DatabaseStore {
         }
       });
 
-      this.createNotification({
-        id: 'notif_' + now,
+      this.emitSubscriptionApprovedNotifications({
         userEmail: cleanOwnerId,
-        title: `${opts.tier} Plan Activated!`,
-        message: `KES ${cost.toLocaleString()} paid from your Host wallet. Subscription active until ${new Date(endsAt).toLocaleDateString()}.`,
-        read: false,
-        link: '/#owner',
-        type: 'subscription',
-        createdAt: now,
+        key: subscription.id,
+        days: durationDays,
+        startsAt: now,
+        expiresAt: endsAt,
+        includeDepositApproved: false,
       });
 
       this.save();
@@ -8290,20 +8692,27 @@ class DatabaseStore {
         createdAt: now,
       });
 
-      this.createNotification({
-        id: 'notif_' + now,
-        userEmail: cleanEmail,
-        title: `${durationLabel} ${tier} Plan ${targetPlan.scheduledTier ? 'Scheduled' : 'Activated'}!`,
-        message: `KES ${cost.toLocaleString()} was deducted from your wallet. ${
-          targetPlan.scheduledTier
-            ? `Your current plan finishes first, then ${tier} takes effect on ${new Date(targetPlan.expiresAt).toLocaleDateString()}.`
-            : `Your subscription is active until ${new Date(targetPlan.expiresAt).toLocaleDateString()}.`
-        }`,
-        read: false,
-        link: '/#owner',
-        type: 'subscription',
-        createdAt: now,
-      });
+      if (!targetPlan.scheduledTier) {
+        this.emitSubscriptionApprovedNotifications({
+          userEmail: cleanEmail,
+          key: subId,
+          days: durationDays,
+          startsAt: targetPlan.startsAt || now,
+          expiresAt: targetPlan.expiresAt,
+          includeDepositApproved: false,
+        });
+      } else {
+        this.createNotification({
+          id: 'notif_' + now,
+          userEmail: cleanEmail,
+          title: `${durationLabel} ${tier} Plan Scheduled!`,
+          message: `KES ${cost.toLocaleString()} was deducted from your wallet. Your current plan finishes first, then ${tier} takes effect on ${new Date(targetPlan.expiresAt).toLocaleDateString()}.`,
+          read: false,
+          link: '/#owner',
+          type: 'subscription',
+          createdAt: now,
+        });
+      }
 
       this.save();
       const updatedRec = this.ensureWallet(cleanEmail);
@@ -8454,27 +8863,73 @@ class DatabaseStore {
     return true;
   }
 
-  // --- Adverts (10 Slots per Video/Short) ---
+  // --- Adverts (Optional, Paid Upon Admin Approval, Strict Non-Auto-Extending Duration) ---
+  public expireOverdueAdRequests(now = Date.now()): boolean {
+    if (!this.data.adRequests) this.data.adRequests = [];
+    let changed = false;
+    for (const ad of this.data.adRequests) {
+      const endTs = ad.end_at ?? ad.expiresAt;
+      if ((ad.status === 'active' || ad.status === 'approved') && endTs && endTs <= now) {
+        ad.status = 'expired';
+        changed = true;
+        if (!ad.expiryNotifiedAt) {
+          ad.expiryNotifiedAt = now;
+          const targetEmail = (ad.hostEmail || ad.advertiserEmail || '').toLowerCase().trim();
+          const endDateStr = new Date(endTs).toLocaleDateString('en-KE', {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+          });
+          if (targetEmail) {
+            this.createNotification({
+              id: `notif_adexp_${ad.id}_${now}`,
+              userEmail: targetEmail,
+              title: 'Advert Expired — Request Extension?',
+              message: `Your advert "${ad.title}" ended on ${endDateStr} after ${ad.days} day(s) and is now inactive. Would you like to request an extension? Submit a new extension request for Admin approval.`,
+              read: false,
+              link: '/#owner',
+              type: 'system',
+              createdAt: now,
+            });
+          }
+        }
+      }
+    }
+    return changed;
+  }
+
   public getAdRequests(filter?: { stayId?: string; advertiserEmail?: string; status?: AdRequestStatus }): AdRequest[] {
     if (!this.data.adRequests) this.data.adRequests = [];
-    const now = Date.now();
-    // Auto-expire approved ads that have passed duration
-    this.data.adRequests.forEach(a => {
-      if (a.status === 'approved' && a.expiresAt && a.expiresAt < now) {
-        a.status = 'expired';
+    if (this.expireOverdueAdRequests(Date.now())) {
+      this.save();
+    }
+
+    const matchStatus = (adStatus: AdRequestStatus, requested: AdRequestStatus): boolean => {
+      if (requested === 'active' || requested === 'approved') {
+        return adStatus === 'active' || adStatus === 'approved';
       }
-    });
+      if (requested === 'declined' || requested === 'rejected') {
+        return adStatus === 'declined' || adStatus === 'rejected';
+      }
+      return adStatus === requested;
+    };
 
     return this.data.adRequests.filter(a => {
-      if (filter?.stayId && a.stayId !== filter.stayId) return false;
-      if (filter?.advertiserEmail && a.advertiserEmail.toLowerCase() !== filter.advertiserEmail.toLowerCase()) return false;
-      if (filter?.status && a.status !== filter.status) return false;
+      if (filter?.stayId && a.stayId !== filter.stayId && a.listingId !== filter.stayId) return false;
+      if (
+        filter?.advertiserEmail &&
+        (a.advertiserEmail || '').toLowerCase() !== filter.advertiserEmail.toLowerCase() &&
+        (a.hostEmail || '').toLowerCase() !== filter.advertiserEmail.toLowerCase()
+      ) {
+        return false;
+      }
+      if (filter?.status && !matchStatus(a.status, filter.status)) return false;
       return true;
     });
   }
 
   public getActiveAdsForStay(stayId: string): AdRequest[] {
-    return this.getAdRequests({ stayId, status: 'approved' });
+    return this.getAdRequests({ stayId, status: 'active' });
   }
 
   public createAdRequest(req: {
@@ -8482,159 +8937,379 @@ class DatabaseStore {
     stayId: string;
     title: string;
     description: string;
-    imageUrl: string;
-    targetUrl: string;
+    imageUrl?: string;
+    targetUrl?: string;
     contactPhone?: string;
     tag?: string;
     days: number;
+    extensionOfAdId?: string;
   }): AdRequest {
+    const cleanEmail = req.advertiserEmail.toLowerCase().trim();
+    const actor = this.findUserByEmail(cleanEmail);
+    if (!actor) throw new Error('User account not found.');
+
+    const stay = this.getStayById(req.stayId, actor);
+    if (!stay) throw new Error('Selected listing was not found.');
+
+    if (actor.role === 'owner' && stay.ownerEmail && stay.ownerEmail.toLowerCase().trim() !== cleanEmail) {
+      throw new Error('Hosts can only request adverts for their own listings.');
+    }
+
     const settings = this.getSettings();
-    const cleanDays = Math.max(1, Math.min(30, Math.floor(req.days)));
+    const cleanDays = Math.floor(Number(req.days));
+    if (!Number.isFinite(cleanDays) || cleanDays < 1 || cleanDays > 365) {
+      throw new Error('Advert duration must be a whole number between 1 and 365 days.');
+    }
+    const cleanTitle = stripHtmlTags(String(req.title || '')).trim();
+    if (!cleanTitle) {
+      throw new Error('Advert headline title is required.');
+    }
+
     const ratePerDay = Math.floor(settings.adPricePerDay || 100);
     const totalAmount = cleanDays * ratePerDay;
-    const cleanEmail = req.advertiserEmail.toLowerCase().trim();
+    const activeAds = this.getActiveAdsForStay(stay.id);
+    if (activeAds.length >= (settings.maxAdSlotsPerPost || 10)) {
+      throw new Error(`All ${settings.maxAdSlotsPerPost || 10} sponsor ad slots on this stay are currently occupied.`);
+    }
 
-    const activeAds = this.getActiveAdsForStay(req.stayId);
-    if (activeAds.length >= settings.maxAdSlotsPerPost) {
-      throw new Error(`All ${settings.maxAdSlotsPerPost} sponsor ad slots on this stay video are currently occupied.`);
+    const now = Date.now();
+    const adId = 'ad_' + now + '_' + crypto.randomBytes(2).toString('hex');
+    const resolvedImage =
+      stripHtmlTags(String(req.imageUrl || '')).trim() ||
+      stay.thumbnailUrl ||
+      stay.images?.[0] ||
+      'https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?auto=format&fit=crop&w=800&q=80';
+    const resolvedTarget =
+      stripHtmlTags(String(req.targetUrl || '')).trim() || `/#stay-${stay.id}`;
+
+    const adRequest: AdRequest = {
+      id: adId,
+      advertiserEmail: cleanEmail,
+      hostEmail: cleanEmail,
+      stayId: stay.id,
+      listingId: stay.id,
+      title: cleanTitle,
+      description: stripHtmlTags(String(req.description || '')).trim(),
+      imageUrl: resolvedImage,
+      targetUrl: resolvedTarget,
+      contactPhone: req.contactPhone ? stripHtmlTags(req.contactPhone).trim() : actor.phone,
+      tag: stripHtmlTags(String(req.tag || '')).trim() || 'Featured Advert',
+      days: cleanDays,
+      totalAmount,
+      platformFee: totalAmount,
+      hostNet: 0,
+      amount_paid: 0,
+      amountPaid: 0,
+      status: 'pending',
+      start_at: null,
+      end_at: null,
+      startsAt: undefined,
+      expiresAt: undefined,
+      extensionOfAdId: req.extensionOfAdId,
+      createdAt: now,
+    };
+
+    if (!this.data.adRequests) this.data.adRequests = [];
+    this.data.adRequests.unshift(adRequest);
+
+    this.createAuditLog({
+      id: 'aud_' + now + '_' + crypto.randomBytes(2).toString('hex'),
+      action: 'ad_submitted',
+      actorEmail: cleanEmail,
+      details: `Submitted optional advert "${cleanTitle}" (${cleanDays} days, KES ${totalAmount.toLocaleString()}) for stay "${stay.title}" (${stay.id}). Pending Admin approval (KES 0 charged until approved).`,
+      createdAt: now,
+    });
+
+    this.createNotification({
+      id: 'notif_' + now + '_' + crypto.randomBytes(2).toString('hex'),
+      userEmail: cleanEmail,
+      title: 'Advert Request Submitted',
+      message: `Your advert "${adRequest.title}" (${cleanDays} days · KES ${totalAmount.toLocaleString()}) is awaiting Admin approval. Your wallet will only be charged once approved.`,
+      read: false,
+      link: '/#owner',
+      type: 'system',
+      createdAt: now,
+    });
+
+    (this.data.users || [])
+      .filter(u => u.role === 'admin')
+      .forEach(admin => {
+        this.createNotification({
+          id: 'notif_adadm_' + now + '_' + crypto.randomBytes(2).toString('hex'),
+          userEmail: admin.email,
+          title: 'New Advert Pending Approval',
+          message: `${actor.name || cleanEmail} requested a ${cleanDays}-day advert "${adRequest.title}" (KES ${totalAmount.toLocaleString()}).`,
+          read: false,
+          link: '/#admin',
+          type: 'system',
+          createdAt: now,
+        });
+      });
+
+    this.save();
+    return adRequest;
+  }
+
+  public approveAdRequest(id: string, adminEmail: string): AdRequest | null {
+    if (!this.data.adRequests) this.data.adRequests = [];
+    const ad = this.data.adRequests.find(a => a.id === id);
+    if (!ad) return null;
+
+    // Idempotency guard: already approved/active returns existing without double-charging
+    if ((ad.status === 'active' || ad.status === 'approved') && ad.approvedPaymentId) {
+      return ad;
+    }
+    if (ad.status !== 'pending') {
+      throw new Error(`Advert cannot be approved because its current status is "${ad.status}".`);
+    }
+
+    const stay = this.getStayById(ad.stayId || ad.listingId || '');
+    const hostEmail = (ad.hostEmail || ad.advertiserEmail).toLowerCase().trim();
+    const payer = this.findUserByEmail(hostEmail);
+    const totalAmount = Math.floor(Number(ad.totalAmount || 0));
+    if (!Number.isInteger(totalAmount) || totalAmount <= 0) {
+      throw new Error('Invalid advert billing amount.');
     }
 
     return this.runAtomicWalletTransaction(() => {
+      const hostWallet = this.ensureWallet(hostEmail);
+      const available = Math.floor(hostWallet.balance - (hostWallet.holdBalance || 0));
+      if (available < totalAmount) {
+        const shortfall = totalAmount - available;
+        throw new Error(
+          `Insufficient host wallet balance to approve advert "${ad.title}". Available: KES ${available.toLocaleString()}, Required: KES ${totalAmount.toLocaleString()} (Shortfall: KES ${shortfall.toLocaleString()}).`
+        );
+      }
+
       const now = Date.now();
-      const adId = 'ad_' + now + '_' + Math.random().toString(36).slice(2, 6);
+      const paymentId = 'pay_ad_' + now + '_' + crypto.randomBytes(2).toString('hex');
+      const uniquePaymentCode = `ADV_${ad.id.slice(-6).toUpperCase()}_${paymentId.slice(-4).toUpperCase()}`;
 
-      this.payWithWallet({
-        userId: cleanEmail,
-        type: 'advert',
+      // Debit Host wallet atomically
+      hostWallet.balance = Math.floor(hostWallet.balance) - totalAmount;
+      hostWallet.lifetimeSpent = (hostWallet.lifetimeSpent || 0) + totalAmount;
+      hostWallet.updatedAt = now;
+      this.data.wallets[hostEmail] = hostWallet.balance;
+
+      // Credit Admin wallet atomically
+      const adminWallet = this.ensureWallet(MPESA_CONFIG.ADMIN_WALLET_ID);
+      adminWallet.balance = Math.floor(adminWallet.balance) + totalAmount;
+      adminWallet.lifetimeEarnings = (adminWallet.lifetimeEarnings || 0) + totalAmount;
+      adminWallet.updatedAt = now;
+      this.data.wallets[MPESA_CONFIG.ADMIN_WALLET_ID] = adminWallet.balance;
+
+      const hostTx: WalletTransaction = {
+        id: 'wtx_' + now + '_adr_' + crypto.randomBytes(2).toString('hex'),
+        walletId: hostEmail,
+        wallet_id: hostEmail,
+        direction: 'debit',
+        amount: totalAmount,
         amountSc: totalAmount,
-        referenceId: adId,
-        durationDays: cleanDays,
-        note: `Advert placement "${req.title.trim()}" (${cleanDays} days @ KES ${ratePerDay}/day)`,
-      });
-
-      const adRequest: AdRequest = {
-        id: adId,
-        advertiserEmail: cleanEmail,
-        stayId: req.stayId,
-        title: req.title.trim(),
-        description: req.description.trim(),
-        imageUrl: req.imageUrl.trim(),
-        targetUrl: req.targetUrl.trim(),
-        contactPhone: req.contactPhone?.trim(),
-        tag: req.tag?.trim() || 'Featured Sponsor',
-        days: cleanDays,
-        totalAmount,
-        platformFee: totalAmount,
-        hostNet: 0,
-        status: 'approved',
-        startsAt: now,
-        expiresAt: now + cleanDays * 864e5,
+        amount_sc: totalAmount,
+        type: 'advert_expense',
+        reference: ad.id,
+        relatedPaymentId: paymentId,
+        related_payment_id: paymentId,
+        advertId: ad.id,
+        listingId: ad.listingId || ad.stayId,
+        hostEmail,
+        note: `Advert Expense: "${ad.title}" (${ad.days} days)`,
         createdAt: now,
+        created_at: now,
       };
 
-      if (!this.data.adRequests) this.data.adRequests = [];
-      this.data.adRequests.unshift(adRequest);
+      const adminTx: WalletTransaction = {
+        id: 'wtx_' + now + '_acr_' + crypto.randomBytes(2).toString('hex'),
+        walletId: MPESA_CONFIG.ADMIN_WALLET_ID,
+        wallet_id: MPESA_CONFIG.ADMIN_WALLET_ID,
+        direction: 'credit',
+        amount: totalAmount,
+        amountSc: totalAmount,
+        amount_sc: totalAmount,
+        type: 'advert_fee',
+        reference: ad.id,
+        relatedPaymentId: paymentId,
+        related_payment_id: paymentId,
+        advertId: ad.id,
+        listingId: ad.listingId || ad.stayId,
+        hostEmail,
+        note: `Advert fee: "${ad.title}" (${ad.days} days) from ${hostEmail}`,
+        createdAt: now,
+        created_at: now,
+      };
 
+      const paymentRecord: PaymentRecord = {
+        id: paymentId,
+        userId: hostEmail,
+        user_id: hostEmail,
+        userRole: payer?.role || 'owner',
+        userName: payer?.username || payer?.name || hostEmail,
+        hostEmail,
+        type: 'advert',
+        kind: 'advert',
+        method: 'wallet',
+        amountSc: totalAmount,
+        amount_sc: totalAmount,
+        amountKes: totalAmount,
+        amount_kes: totalAmount,
+        amount: totalAmount,
+        approvedAmount: totalAmount,
+        walletPurpose: 'ADVERTISING',
+        approvedBy: adminEmail,
+        approved_by: adminEmail,
+        approvedAt: now,
+        approved_at: now,
+        status: 'approved',
+        canonicalStatus: PaymentStatus.APPROVED,
+        referenceId: ad.id,
+        reference_id: ad.id,
+        reference: uniquePaymentCode,
+        durationDays: ad.days,
+        duration_days: ad.days,
+        createdAt: now,
+        created_at: now,
+        updatedAt: now,
+        updated_at: now,
+      };
+
+      if (!this.data.paymentRecords) this.data.paymentRecords = [];
+      this.data.paymentRecords.unshift(paymentRecord);
+      if (!this.data.payments) this.data.payments = [];
+      this.data.payments.unshift(paymentRecord);
+      if (!this.data.walletTransactions) this.data.walletTransactions = [];
+      this.data.walletTransactions.unshift(hostTx, adminTx);
+
+      const fiscalYear = getEATParts(now).year;
+      if (!this.data.ledgerEntries) this.data.ledgerEntries = [];
+      this.data.ledgerEntries.unshift({
+        id: 'ledg_' + now + '_' + crypto.randomBytes(2).toString('hex'),
+        fromWallet: hostEmail,
+        toWallet: MPESA_CONFIG.ADMIN_WALLET_ID,
+        amount: totalAmount,
+        type: 'ad_fee',
+        referenceId: ad.id,
+        paymentCode: uniquePaymentCode,
+        purpose: 'ADVERTISING',
+        fiscalYear,
+        depositorName: payer?.name || payer?.username || hostEmail,
+        depositorRole: payer?.role || 'owner',
+        approvingAdmin: adminEmail,
+        description: `Advert fee for "${ad.title}" (${ad.days} days) on listing ${stay?.title || ad.stayId}`,
+        createdAt: now,
+      });
+
+      this.recordAdminWalletEntry({
+        id: 'awe_' + paymentId,
+        sourceKind: 'SERVICE_REVENUE',
+        depositorName: payer?.name || payer?.username || hostEmail,
+        depositorId: hostEmail,
+        depositorRole: payer?.role || 'owner',
+        timestampUtc: now,
+        fiscalYear,
+        paymentCode: uniquePaymentCode,
+        amount: totalAmount,
+        purpose: 'ADVERTISING',
+        subPurpose: 'Advert fee',
+        approvingAdmin: adminEmail,
+        description: `Advert fee · "${ad.title}" (${ad.days} days) by ${hostEmail}`,
+        relatedPaymentId: paymentId,
+      });
+
+      const endAt = now + ad.days * 864e5;
+      ad.status = 'active';
+      ad.start_at = now;
+      ad.startsAt = now;
+      ad.end_at = endAt;
+      ad.expiresAt = endAt;
+      ad.amount_paid = totalAmount;
+      ad.amountPaid = totalAmount;
+      ad.platformFee = totalAmount;
+      ad.hostNet = 0;
+      ad.approvedBy = adminEmail;
+      ad.approvedAt = now;
+      ad.approvedPaymentId = paymentId;
+      ad.hostTxId = hostTx.id;
+      ad.adminTxId = adminTx.id;
+      ad.admin_feedback = null;
+      ad.rejectionReason = undefined;
+      ad.listingId = ad.listingId || ad.stayId;
+      ad.hostEmail = hostEmail;
+
+      this.createAuditLog({
+        id: 'aud_' + now + '_' + crypto.randomBytes(2).toString('hex'),
+        action: 'ad_approved',
+        actorEmail: adminEmail,
+        details: `Approved advert #${ad.id} ("${ad.title}", ${ad.days} days). Debited host ${hostEmail} KES ${totalAmount} and credited Admin Wallet Advert fee KES ${totalAmount}.`,
+        createdAt: now,
+      });
+
+      const startLabel = new Date(now).toLocaleDateString('en-KE', { year: 'numeric', month: 'short', day: 'numeric' });
+      const endLabel = new Date(endAt).toLocaleDateString('en-KE', { year: 'numeric', month: 'short', day: 'numeric' });
       this.createNotification({
-        id: 'notif_' + now,
-        userEmail: cleanEmail,
-        title: 'Advert Activated!',
-        message: `KES ${totalAmount.toLocaleString()} was paid from your wallet and your advert "${adRequest.title}" is now live for ${cleanDays} days.`,
+        id: 'notif_adapp_' + now + '_' + crypto.randomBytes(2).toString('hex'),
+        userEmail: hostEmail,
+        title: 'Advert Approved & Active',
+        message: `Your advert "${ad.title}" has been approved! KES ${totalAmount.toLocaleString()} was deducted from your wallet. Active from ${startLabel} to ${endLabel} (${ad.days} days).`,
         read: false,
-        link: `/#stay-${req.stayId}`,
+        link: `/#stay-${ad.stayId}`,
         type: 'payment',
         createdAt: now,
       });
 
       this.save();
-      return adRequest;
+      this.emitWalletUpdate(hostEmail, {
+        eventType: 'advert_approved',
+        paymentId,
+        approvedAmount: totalAmount,
+      });
+      this.emitWalletUpdate(MPESA_CONFIG.ADMIN_WALLET_ID, {
+        eventType: 'advert_fee_received',
+        paymentId,
+        approvedAmount: totalAmount,
+      });
+      return ad;
     });
-  }
-
-  public approveAdRequest(id: string, adminEmail: string): AdRequest | null {
-    const ad = this.data.adRequests?.find(a => a.id === id);
-    if (!ad || ad.status !== 'pending') return null;
-
-    const stay = this.getStayById(ad.stayId);
-    const hostEmail = stay?.ownerEmail || 'owner@airbus.ke';
-
-    // Release wallet hold
-    this.releaseWalletHold(ad.advertiserEmail, ad.totalAmount);
-
-    // Atomic ledger distribution:
-    // 70% host net (e.g. 210 KES)
-    // 30% platform fee (e.g. 90 KES)
-    this.transfer(ad.advertiserEmail, hostEmail, ad.hostNet, 'ad_revenue', ad.id, `Sponsor ad revenue (70% net) on stay: ${stay?.title || ad.stayId}`);
-    this.transfer(ad.advertiserEmail, 'treasury', ad.platformFee, 'ad_fee', ad.id, `Platform ad service fee (30%) on stay: ${stay?.title || ad.stayId}`);
-
-    // Affiliate referral commission on platform revenue
-    this.distributeReferralCommission(ad.advertiserEmail, ad.platformFee, 'ad_fee');
-
-    ad.status = 'approved';
-    ad.startsAt = Date.now();
-    ad.expiresAt = Date.now() + ad.days * 864e5;
-
-    this.createAuditLog({
-      id: 'aud_' + Date.now(),
-      action: 'ad_approved',
-      actorEmail: adminEmail,
-      details: `Approved ad #${ad.id} (${ad.totalAmount} KES) on stay #${ad.stayId}. Credited Host ${ad.hostNet} KES and Treasury ${ad.platformFee} KES.`,
-      createdAt: Date.now(),
-    });
-
-    this.createNotification({
-      id: 'notif_' + Date.now() + '1',
-      userEmail: ad.advertiserEmail,
-      title: 'Ad Approved & Live! 🚀',
-      message: `Your advertisement "${ad.title}" is now active on ${stay?.title || 'stay video'} for ${ad.days} days.`,
-      read: false,
-      link: `/#stay-${ad.stayId}`,
-      type: 'system',
-      createdAt: Date.now(),
-    });
-
-    this.createNotification({
-      id: 'notif_' + Date.now() + '2',
-      userEmail: hostEmail,
-      title: 'New Ad Revenue Credited! 💰',
-      message: `You earned KES ${ad.hostNet} (70% net) from an approved sponsor ad on your listing "${stay?.title}".`,
-      read: false,
-      link: '/#owner',
-      type: 'payment',
-      createdAt: Date.now(),
-    });
-
-    this.save();
-    return ad;
   }
 
   public rejectAdRequest(id: string, adminEmail: string, reason?: string): AdRequest | null {
-    const ad = this.data.adRequests?.find(a => a.id === id);
-    if (!ad || ad.status !== 'pending') return null;
+    if (!this.data.adRequests) this.data.adRequests = [];
+    const ad = this.data.adRequests.find(a => a.id === id);
+    if (!ad) return null;
+    if (ad.status !== 'pending') {
+      throw new Error(`Advert cannot be declined because its current status is "${ad.status}".`);
+    }
 
-    // Release wallet hold back to available
-    this.releaseWalletHold(ad.advertiserEmail, ad.totalAmount);
+    const cleanReason = stripHtmlTags(String(reason || '')).trim();
+    if (!cleanReason) {
+      throw new Error('A decline reason explaining the feedback to the host is required.');
+    }
 
-    ad.status = 'rejected';
-    ad.rejectionReason = reason || 'Ad banner or destination does not comply with short-stay rental advertising standards.';
+    const now = Date.now();
+    ad.status = 'declined';
+    ad.admin_feedback = cleanReason;
+    ad.rejectionReason = cleanReason;
+    ad.amount_paid = 0;
+    ad.amountPaid = 0;
+    ad.start_at = null;
+    ad.end_at = null;
 
     this.createAuditLog({
-      id: 'aud_' + Date.now(),
-      action: 'ad_rejected',
+      id: 'aud_' + now + '_' + crypto.randomBytes(2).toString('hex'),
+      action: 'ad_declined',
       actorEmail: adminEmail,
-      details: `Rejected ad #${ad.id} on stay #${ad.stayId}. Reason: ${ad.rejectionReason}. Refunded hold of ${ad.totalAmount} KES.`,
-      createdAt: Date.now(),
+      details: `Declined advert #${ad.id} on stay #${ad.stayId}. Reason: ${cleanReason}. Zero wallet charge applied.`,
+      createdAt: now,
     });
 
     this.createNotification({
-      id: 'notif_' + Date.now(),
-      userEmail: ad.advertiserEmail,
-      title: 'Ad Request Declined',
-      message: `Your ad "${ad.title}" was declined: ${ad.rejectionReason}. The KES ${ad.totalAmount} hold on your wallet has been released.`,
+      id: 'notif_addec_' + now + '_' + crypto.randomBytes(2).toString('hex'),
+      userEmail: ad.hostEmail || ad.advertiserEmail,
+      title: 'Advert Request Declined',
+      message: `Your advert "${ad.title}" was declined: ${cleanReason}. No funds were deducted from your wallet.`,
       read: false,
-      link: '/#guest',
-      type: 'payment',
-      createdAt: Date.now(),
+      link: '/#owner',
+      type: 'system',
+      createdAt: now,
     });
 
     this.save();
@@ -11180,16 +11855,31 @@ class DatabaseStore {
       createdAt: now,
     });
 
-    this.createNotification({
-      id: 'notif_' + now,
-      userEmail: ownerEmail,
-      title: `Hosting Subscription ${action === 'extend' ? 'Extended' : action === 'approve' ? 'Activated' : 'Updated'}`,
-      message: `Your hosting subscription was updated by admin: ${action} (${cleanReason}).`,
-      read: false,
-      link: '/#owner',
-      type: 'subscription',
-      createdAt: now,
-    });
+    if (action === 'approve') {
+      const plan = this.getHostPlan(ownerEmail);
+      const subDays = sub?.billing === 'annual' ? 365 : 30;
+      const startsAt = sub?.startsAt || plan.startsAt || now;
+      const expiresAt = sub?.endsAt || plan.expiresAt || now + subDays * 864e5;
+      this.emitSubscriptionApprovedNotifications({
+        userEmail: ownerEmail,
+        key: sub?.id || `modsub_${ownerEmail}_${expiresAt}`,
+        days: subDays,
+        startsAt,
+        expiresAt,
+        includeDepositApproved: true,
+      });
+    } else {
+      this.createNotification({
+        id: 'notif_' + now,
+        userEmail: ownerEmail,
+        title: `Hosting Subscription ${action === 'extend' ? 'Extended' : 'Updated'}`,
+        message: `Your hosting subscription was updated by admin: ${action} (${cleanReason}).`,
+        read: false,
+        link: '/#owner',
+        type: 'subscription',
+        createdAt: now,
+      });
+    }
 
     this.save();
     return { success: true, ownerEmail, action, sub };
@@ -11205,12 +11895,30 @@ class DatabaseStore {
     const now = Date.now();
     const cleanReason = (reason || '').trim() || 'Administrative advert update.';
 
+    // Check adRequests first and delegate approve/reject to atomic advert workflow
+    const adReq = (this.data.adRequests || []).find(a => a.id === id);
+    if (adReq) {
+      if (action === 'approve') {
+        const updated = this.approveAdRequest(id, adminEmail);
+        return { success: true, id, action, ad: updated };
+      }
+      if (action === 'reject') {
+        const updated = this.rejectAdRequest(id, adminEmail, reason);
+        return { success: true, id, action, ad: updated };
+      }
+      if (action === 'end') {
+        adReq.status = 'expired';
+        adReq.end_at = now;
+        adReq.expiresAt = now;
+        this.save();
+        return { success: true, id, action, ad: adReq };
+      }
+    }
+
     // Check adSlots
     const adSlot = (this.data.adSlots || []).find(s => s.id === id);
     // Check sponsorSlots
     const spSlot = (this.data.sponsorSlots || []).find(s => s.id === id);
-    // Check adRequests
-    const adReq = (this.data.adRequests || []).find(a => a.id === id);
 
     let advertiserEmail = '';
     if (adSlot) {
@@ -11244,20 +11952,6 @@ class DatabaseStore {
       } else if (action === 'end') {
         spSlot.status = 'expired';
         spSlot.ends_at = now;
-      }
-    }
-
-    if (adReq) {
-      advertiserEmail = adReq.advertiserEmail || advertiserEmail;
-      if (action === 'approve') {
-        adReq.status = 'approved';
-        adReq.startsAt = now;
-        adReq.expiresAt = now + (adReq.days * 864e5);
-      } else if (action === 'reject') {
-        adReq.status = 'rejected';
-      } else if (action === 'end') {
-        adReq.status = 'expired';
-        adReq.expiresAt = now;
       }
     }
 

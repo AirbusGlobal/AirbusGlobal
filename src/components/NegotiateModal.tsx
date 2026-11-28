@@ -1,9 +1,12 @@
-import React, { useState } from 'react';
-import { Stay, Currency, CURRENCY_RATES } from '../types';
-import { X, BadgeDollarSign, Sparkles, ArrowRight } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Stay, Currency, CURRENCY_RATES, Booking, ChatThread } from '../types';
+import { X, BadgeDollarSign, ArrowRight } from 'lucide-react';
+import { BookingStatusTracker } from './BookingStatusTracker';
 
 interface NegotiateModalProps {
   stay: Stay | null;
+  booking?: Booking | null;
+  thread?: ChatThread | null;
   isOpen: boolean;
   onClose: () => void;
   onSubmitOffer: (amount: number) => Promise<void>;
@@ -12,6 +15,8 @@ interface NegotiateModalProps {
 
 export const NegotiateModal: React.FC<NegotiateModalProps> = ({
   stay,
+  booking = null,
+  thread = null,
   isOpen,
   onClose,
   onSubmitOffer,
@@ -20,6 +25,13 @@ export const NegotiateModal: React.FC<NegotiateModalProps> = ({
   const [offerAmount, setOfferAmount] = useState<number>(stay?.price ? Math.round(stay.price * 0.9) : 0);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (stay?.price) {
+      setOfferAmount(Math.round(stay.price * 0.9));
+      setError(null);
+    }
+  }, [stay?.id, stay?.price, isOpen]);
 
   if (!isOpen || !stay) return null;
 
@@ -74,9 +86,12 @@ export const NegotiateModal: React.FC<NegotiateModalProps> = ({
           <h2 className="text-xl font-extrabold font-heading">Negotiate Rate</h2>
         </div>
 
-        <p className="text-xs text-stone-500 mb-4">
+        <p className="text-xs text-stone-500 mb-3">
           Listed at <span className="font-bold text-stone-800 dark:text-stone-200">{formatMoney(stay.price)}/night</span> for {stay.title}. Send the host your counter-offer directly.
         </p>
+
+        {/* Visual Booking & Negotiation Progress Indicator */}
+        <BookingStatusTracker booking={booking} thread={thread} variant="card" className="mb-4" />
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>

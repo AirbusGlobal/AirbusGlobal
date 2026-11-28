@@ -2364,7 +2364,266 @@ describe('AirBus Platform End-to-End Integrity Suite', () => {
     assert.equal(approveTwo.status, 200);
     assert.equal(approveTwo.data.stay.status, 'live');
   });
+
+  it('30. Subscription notifications fire once on approval, never on pending/rejected', async () => {
+    const subCode = `SUBNOTIF${Date.now().toString(36).toUpperCase().slice(-5)}`;
+    const notifsBefore = await apiJson<{ notifications: any[] }>('/api/notifications', { token: hostToken });
+    const countBefore = notifsBefore.data.notifications.filter(
+      n => n.title === 'M-Pesa Deposit Approved' || n.title === 'Subscription Active'
+    ).length;
+
+    // Submit pending subscription deposit -> zero success notifications
+    const depRes = await apiJson<{ payment: any }>('/api/merchant/deposits', {
+      method: 'POST',
+      token: hostToken,
+      body: {
+        amountKes: 2500,
+        mpesaCode: subCode,
+        phone: '0712345678',
+        purpose: 'SUBSCRIPTION',
+        planTier: 'Diamond',
+        period: 'monthly',
+      },
+    });
+    assert.equal(depRes.status, 201);
+
+    // Also submit & reject another payment -> zero success notifications
+    const rejCode = `SUBREJ${Date.now().toString(36).toUpperCase().slice(-5)}`;
+    const rejDep = await apiJson<{ payment: any }>('/api/merchant/deposits', {
+      method: 'POST',
+      token: hostToken,
+      body: { amountKes: 1000, mpesaCode: rejCode, phone: '0712345678', purpose: 'SUBSCRIPTION', planTier: 'Silver' },
+    });
+    assert.equal(rejDep.status, 201);
+    const rejAction = await apiJson(`/api/admin/payments/${rejDep.data.payment.id}/decline`, {
+      method: 'POST',
+      token: adminToken,
+      body: { reason: 'Code mismatch during test' },
+    });
+    assert.equal(rejAction.status, 200);
+
+    const notifsWhilePending = await apiJson<{ notifications: any[] }>('/api/notifications', { token: hostToken });
+    const countWhilePending = notifsWhilePending.data.notifications.filter(
+      n => n.title === 'M-Pesa Deposit Approved' || n.title === 'Subscription Active'
+    ).length;
+    assert.equal(countWhilePending, countBefore, 'Pending or declined payments must never trigger subscription active notifications');
+
+    // Clear active plan briefly so approval activates subscription cleanly, then approve twice to test idempotency
+    const hostPlanRef = (db as any).data.hostPlans['owner@airbus.ke'];
+    if (hostPlanRef) {
+      hostPlanRef.expiresAt = Date.now() - 1000;
+      hostPlanRef.status = 'expired';
+    }
+    const app1 = await apiJson(`/api/admin/payments/${depRes.data.payment.id}/approve`, {
+      method: 'POST',
+      token: adminToken,
+      body: {},
+    });
+    assert.equal(app1.status, 200);
+    const app2 = await apiJson(`/api/admin/payments/${depRes.data.payment.id}/approve`, {
+      method: 'POST',
+      token: adminToken,
+      body: {},
+    });
+    assert.equal(app2.status, 200);
+
+    const notifsAfter = await apiJson<{ notifications: any[] }>('/api/notifications', { token: hostToken });
+    const addedDepApproved = notifsAfter.data.notifications.filter(n => n.title === 'M-Pesa Deposit Approved');
+    const addedSubActive = notifsAfter.data.notifications.filter(n => n.title === 'Subscription Active');
+    assert.ok(addedDepApproved.length >= 1, 'Host must receive M-Pesa Deposit Approved notification');
+    assert.ok(addedSubActive.length >= 1, 'Host must receive Subscription Active notification with start & expiry dates');
+    assert.equal(
+      addedDepApproved.length + addedSubActive.length - countBefore,
+      2,
+      'Double approval must emit the 2 subscription notifications exactly once'
+    );
+    assert.ok(addedSubActive[0].message.includes('Start date:') && addedSubActive[0].message.includes('Expiry date:'));
+
+    // Restore Gold plan capacity for subsequent tests
+    await apiJson('/api/admin/plan', {
+      method: 'POST',
+      token: adminToken,
+      body: { hostEmail: 'owner@airbus.ke', tier: 'Gold', durationDays: 30 },
+    });
+  });
+
+  it('31. Listing description, per-category custom amenities (deduped), public feed visibility & unauthenticated media access', async () => {
+    const tinyPngDataUrl =
+      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+    const up = await apiJson<{ url: string }>('/api/uploads/media', {
+      method: 'POST',
+      token: hostToken,
+      body: { dataUrl: tinyPngDataUrl, filename: 'pub_test.png', kind: 'photo' },
+    });
+    assert.equal(up.status, 201);
+    createdUploadFiles.push(up.data.url);
+
+    const createRes = await apiJson<{ stay: any }>('/api/stays', {
+      method: 'POST',
+      token: hostToken,
+      body: {
+        title: 'Karen Sanctuary Villa',
+        description: 'Quiet garden retreat near Giraffe Centre with private chef kitchen.',
+        location: 'Karen, Nairobi',
+        lat: -1.319,
+        lng: 36.707,
+        price: 12000,
+        features: ['WiFi', 'Starlink Mesh', 'starlink mesh', 'Solar Heater'],
+        customAmenitiesByCategory: {
+          Connectivity: ['Starlink Mesh', '  starlink mesh ', 'Ethernet Desk'],
+          Utilities: ['Solar Heater', 'Rainwater Filter'],
+        },
+        images: [up.data.url],
+        thumbnailUrl: up.data.url,
+      },
+    });
+    assert.equal(createRes.status, 201);
+    const stayId = createRes.data.stay.id;
+    assert.equal(createRes.data.stay.description, 'Quiet garden retreat near Giraffe Centre with private chef kitchen.');
+    assert.deepEqual(createRes.data.stay.customAmenitiesByCategory.Connectivity, ['Starlink Mesh', 'Ethernet Desk']);
+
+    // Pending listing is hidden from unauthenticated public feed & detail
+    const pubPendingFeed = await apiJson<{ stays: any[] }>('/api/stays');
+    assert.equal(pubPendingFeed.status, 200);
+    assert.ok(!pubPendingFeed.data.stays.some(s => s.id === stayId), 'Pending stay must not appear on public feed');
+    const pubPendingDetail = await apiJson(`/api/stays/${stayId}`);
+    assert.equal(pubPendingDetail.status, 404, 'Pending stay detail must be hidden from unauthenticated visitors');
+
+    // Approve listing -> immediately visible on public feed and detail, including media URL accessibility without auth
+    const approveRes = await apiJson<{ stay: any }>(`/api/admin/review-queue/stays/${stayId}`, {
+      method: 'POST',
+      token: adminToken,
+      body: { action: 'approve' },
+    });
+    assert.equal(approveRes.status, 200);
+
+    const pubLiveDetail = await apiJson<{ stay: any }>(`/api/stays/${stayId}`);
+    assert.equal(pubLiveDetail.status, 200);
+    assert.equal(pubLiveDetail.data.stay.description, 'Quiet garden retreat near Giraffe Centre with private chef kitchen.');
+    assert.deepEqual(pubLiveDetail.data.stay.customAmenitiesByCategory.Utilities, ['Solar Heater', 'Rainwater Filter']);
+
+    const mediaRes = await fetch(`${baseUrl}${up.data.url}`);
+    assert.equal(mediaRes.status, 200, 'Uploaded media must be publicly readable without auth');
+    assert.equal(mediaRes.headers.get('access-control-allow-origin'), '*');
+  });
+
+  it('32. Optional Adverts: pending -> atomic approval debit/credit (idempotent), insufficient balance block, decline with reason, strict expiry & extension', async () => {
+    const liveHostStay = db.getStays().find(s => (s.ownerEmail || '').toLowerCase() === 'owner@airbus.ke');
+    assert.ok(liveHostStay);
+
+    // 1. Submit optional advert -> pending, KES 0 charged
+    const hostBalStart = db.getWalletBalance('owner@airbus.ke');
+    const adminBalStart = db.getWalletBalance('admin@airbus.ke');
+    const createAdRes = await apiJson<{ ad: any }>('/api/ads', {
+      method: 'POST',
+      token: hostToken,
+      body: {
+        stayId: liveHostStay.id,
+        title: 'Nairobi Weekend Escapes',
+        description: 'Direct airport pickup included',
+        days: 3,
+      },
+    });
+    assert.equal(createAdRes.status, 201);
+    const adId = createAdRes.data.ad.id;
+    assert.equal(createAdRes.data.ad.status, 'pending');
+    assert.equal(db.getWalletBalance('owner@airbus.ke'), hostBalStart);
+
+    // 2. Insufficient balance blocks approval atomically with no changes
+    const hugeAdRes = await apiJson<{ ad: any }>('/api/ads', {
+      method: 'POST',
+      token: hostToken,
+      body: {
+        stayId: liveHostStay.id,
+        title: 'Expensive Year Campaign',
+        days: 365,
+      },
+    });
+    assert.equal(hugeAdRes.status, 201);
+    const failApprove = await apiJson<{ error: string }>(`/api/ads/${hugeAdRes.data.ad.id}/approve`, {
+      method: 'POST',
+      token: adminToken,
+      body: {},
+    });
+    assert.equal(failApprove.status, 400);
+    assert.ok(failApprove.data.error.toLowerCase().includes('insufficient'));
+    assert.equal(db.getWalletBalance('owner@airbus.ke'), hostBalStart);
+    assert.equal(db.getWalletBalance('admin@airbus.ke'), adminBalStart);
+
+    // Decline expensive ad -> requires reason, charges 0
+    const declineBad = await apiJson(`/api/ads/${hugeAdRes.data.ad.id}/reject`, {
+      method: 'POST',
+      token: adminToken,
+      body: { reason: '  ' },
+    });
+    assert.equal(declineBad.status, 400);
+    const declineOk = await apiJson<{ ad: any }>(`/api/ads/${hugeAdRes.data.ad.id}/reject`, {
+      method: 'POST',
+      token: adminToken,
+      body: { reason: 'Budget exceeds current campaign limit' },
+    });
+    assert.equal(declineOk.status, 200);
+    assert.equal(declineOk.data.ad.status, 'declined');
+    assert.equal(db.getWalletBalance('owner@airbus.ke'), hostBalStart);
+
+    // 3. Approve valid 3-day advert (KES 300) twice -> debits host once & credits Admin "Advert fee" once
+    const idem = `ad_app_${Date.now()}`;
+    const appAd1 = await apiJson<{ ad: any }>(`/api/ads/${adId}/approve`, {
+      method: 'POST',
+      token: adminToken,
+      headers: { 'Idempotency-Key': idem },
+      body: {},
+    });
+    assert.equal(appAd1.status, 200);
+    assert.equal(appAd1.data.ad.status, 'active');
+    assert.equal(appAd1.data.ad.amount_paid, 300);
+    assert.ok(appAd1.data.ad.end_at > appAd1.data.ad.start_at);
+    assert.equal(appAd1.data.ad.end_at - appAd1.data.ad.start_at, 3 * 864e5);
+
+    const appAd2 = await apiJson<{ ad: any }>(`/api/ads/${adId}/approve`, {
+      method: 'POST',
+      token: adminToken,
+      body: {},
+    });
+    assert.equal(appAd2.status, 200);
+    assert.equal(db.getWalletBalance('owner@airbus.ke'), hostBalStart - 300);
+    assert.equal(db.getWalletBalance('admin@airbus.ke'), adminBalStart + 300);
+
+    // Check host expense tx & admin Advert fee entry
+    const hostWalletRes = await apiJson<{ transactions: any[] }>('/api/wallet', { token: hostToken });
+    assert.ok(hostWalletRes.data.transactions.some(t => t.advertId === adId && t.direction === 'debit' && t.amount === 300));
+    const adminWalletRes = await apiJson<{ entries: any[] }>('/api/admin/wallet/ledger?purpose=ADVERTISING', { token: adminToken });
+    assert.equal(adminWalletRes.status, 200);
+    assert.ok(adminWalletRes.data.entries.some(e => e.subPurpose === 'Advert fee' && e.amount === 300));
+
+    // 4. Strict duration expiry notifies host and asks for extension (new pending request)
+    const adRef = (db as any).data.adRequests.find((a: any) => a.id === adId)!;
+    adRef.end_at = Date.now() - 1000;
+    adRef.expiresAt = adRef.end_at;
+
+    const adsAfterExpiry = await apiJson<{ ads: any[] }>(`/api/ads?stayId=${liveHostStay.id}`, { token: hostToken });
+    const expiredAd = adsAfterExpiry.data.ads.find(a => a.id === adId);
+    assert.equal(expiredAd?.status, 'expired');
+
+    const hostNotifs = await apiJson<{ notifications: any[] }>('/api/notifications', { token: hostToken });
+    assert.ok(hostNotifs.data.notifications.some(n => n.title.includes('Advert Expired')));
+
+    const extRes = await apiJson<{ ad: any }>('/api/ads', {
+      method: 'POST',
+      token: hostToken,
+      body: {
+        stayId: liveHostStay.id,
+        title: 'Nairobi Weekend Escapes (Extension)',
+        days: 1,
+        extensionOfAdId: adId,
+      },
+    });
+    assert.equal(extRes.status, 201);
+    assert.equal(extRes.data.ad.status, 'pending');
+    assert.equal(extRes.data.ad.extensionOfAdId, adId);
+  });
 });
+
 
 
 

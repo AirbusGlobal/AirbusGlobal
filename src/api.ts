@@ -2117,28 +2117,38 @@ export const api = {
   },
 
   // Ads
-  async getAds(params?: { stayId?: string; status?: string }, slot?: PortalSlot): Promise<{ ads: AdRequest[] }> {
+  async getAds(params?: { stayId?: string; status?: string; advertiserEmail?: string }, slot?: PortalSlot): Promise<{ ads: AdRequest[] }> {
     const sp = new URLSearchParams();
     if (params?.stayId) sp.set('stayId', params.stayId);
     if (params?.status) sp.set('status', params.status);
+    if (params?.advertiserEmail) sp.set('advertiserEmail', params.advertiserEmail);
     const qs = sp.toString();
     return this.request(`/api/ads${qs ? '?' + qs : ''}`, { portalSlot: slot });
   },
 
-  async createAd(data: any): Promise<{ ad: AdRequest }> {
+  async createAd(data: any, slot?: PortalSlot): Promise<{ ad: AdRequest; message?: string }> {
     return this.request('/api/ads', {
       method: 'POST',
+      portalSlot: slot,
       body: JSON.stringify(data),
     });
   },
 
-  async approveAd(id: string): Promise<{ ad: AdRequest }> {
-    return this.request(`/api/ads/${id}/approve`, { method: 'POST' });
+  async approveAd(id: string, idempotencyKey?: string): Promise<{ ad: AdRequest; deduplicated?: boolean }> {
+    const headers: Record<string, string> = {};
+    if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey;
+    return this.request(`/api/ads/${id}/approve`, {
+      method: 'POST',
+      portalSlot: 'admin',
+      headers,
+      body: JSON.stringify(idempotencyKey ? { idempotencyKey } : {}),
+    });
   },
 
-  async rejectAd(id: string, reason?: string): Promise<{ ad: AdRequest }> {
+  async rejectAd(id: string, reason: string): Promise<{ ad: AdRequest }> {
     return this.request(`/api/ads/${id}/reject`, {
       method: 'POST',
+      portalSlot: 'admin',
       body: JSON.stringify({ reason }),
     });
   },

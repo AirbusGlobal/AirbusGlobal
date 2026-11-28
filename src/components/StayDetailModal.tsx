@@ -10,8 +10,11 @@ import {
   VideoComment,
   AdRequest,
   ShortIntentType,
+  ChatThread,
 } from '../types';
 import { ListingMediaViewer } from './ListingMediaViewer';
+import { BookingStatusTracker } from './BookingStatusTracker';
+import { AMENITY_GROUPS } from '../constants';
 import {
   X,
   Star,
@@ -97,6 +100,8 @@ interface StayDetailModalProps {
   initialIntent?: ShortIntentType | null;
   fromShort?: boolean;
   onBackToShort?: () => void;
+  activeBooking?: Booking | null;
+  activeThread?: ChatThread | null;
 }
 
 export const StayDetailModal: React.FC<StayDetailModalProps> = ({
@@ -122,6 +127,8 @@ export const StayDetailModal: React.FC<StayDetailModalProps> = ({
   initialIntent = null,
   fromShort = false,
   onBackToShort,
+  activeBooking = null,
+  activeThread = null,
 }) => {
   const todayStr = new Date().toISOString().slice(0, 10);
   const tomorrowStr = new Date(Date.now() + 864e5).toISOString().slice(0, 10);
@@ -250,6 +257,8 @@ export const StayDetailModal: React.FC<StayDetailModalProps> = ({
       setCustomLangInput('');
       setTranslatedFields(null);
       setTranslateError(null);
+      setConfirmedBooking(null);
+      setCheckoutStep('details');
     }
   }, [stay?.id, user?.email]);
 
@@ -1059,23 +1068,113 @@ export const StayDetailModal: React.FC<StayDetailModalProps> = ({
                 </div>
               )}
 
-              {/* Amenities */}
-              <div>
-                <h3 className="text-sm font-extrabold text-stone-900 dark:text-white mb-2">
-                  What this place offers ({(translatedFields?.features?.length ? translatedFields.features : stay.features)?.length || 0})
-                </h3>
-                <div className="grid grid-cols-2 gap-2">
-                  {(translatedFields?.features?.length ? translatedFields.features : stay.features || []).map((feat, idx) => (
-                    <div
-                      key={`${feat}_${idx}`}
-                      className="flex items-center gap-2 p-2 rounded-xl bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-800 text-xs font-medium text-stone-700 dark:text-stone-300"
-                    >
-                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-                      <span>{feat}</span>
+              {/* Amenities grouped under matching columns (including host custom amenities) */}
+              {(() => {
+                const isTranslated = Boolean(translatedFields?.features?.length);
+                const featureList = isTranslated
+                  ? translatedFields!.features!
+                  : stay.features || [];
+
+                if (isTranslated) {
+                  return (
+                    <div>
+                      <h3 className="text-sm font-extrabold text-stone-900 dark:text-white mb-2">
+                        What this place offers ({featureList.length})
+                      </h3>
+                      <div className="grid grid-cols-2 gap-2">
+                        {featureList.map((feat, idx) => (
+                          <div
+                            key={`${feat}_${idx}`}
+                            className="flex items-center gap-2 p-2 rounded-xl bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-800 text-xs font-medium text-stone-700 dark:text-stone-300"
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                            <span>{feat}</span>
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                  ))}
-                </div>
-              </div>
+                  );
+                }
+
+                const groupedColumns: { category: string; items: string[] }[] = [];
+                const seenLower = new Set<string>();
+                const featureLowerSet = new Set(
+                  featureList.map(f => String(f || '').trim().toLowerCase()).filter(Boolean)
+                );
+
+                for (const [category, presets] of Object.entries(AMENITY_GROUPS)) {
+                  const colItems: string[] = [];
+                  for (const preset of presets) {
+                    const lower = preset.toLowerCase();
+                    if (featureLowerSet.has(lower) && !seenLower.has(lower)) {
+                      seenLower.add(lower);
+                      colItems.push(preset);
+                    }
+                  }
+                  const customForCat = stay.customAmenitiesByCategory?.[category] || [];
+                  for (const custom of customForCat) {
+                    const clean = String(custom || '').trim();
+                    const lower = clean.toLowerCase();
+                    if (clean && !seenLower.has(lower)) {
+                      seenLower.add(lower);
+                      colItems.push(clean);
+                    }
+                  }
+                  if (colItems.length > 0) {
+                    groupedColumns.push({ category, items: colItems });
+                  }
+                }
+
+                const uncategorized: string[] = [];
+                for (const f of featureList) {
+                  const clean = String(f || '').trim();
+                  const lower = clean.toLowerCase();
+                  if (clean && !seenLower.has(lower)) {
+                    seenLower.add(lower);
+                    uncategorized.push(clean);
+                  }
+                }
+                if (uncategorized.length > 0) {
+                  groupedColumns.push({ category: 'Additional Features', items: uncategorized });
+                }
+
+                const totalUniqueCount = groupedColumns.reduce((acc, col) => acc + col.items.length, 0);
+
+                return (
+                  <div>
+                    <h3 className="text-sm font-extrabold text-stone-900 dark:text-white mb-2.5">
+                      What this place offers ({totalUniqueCount})
+                    </h3>
+                    {groupedColumns.length === 0 ? (
+                      <p className="text-xs text-stone-400">No amenities listed yet.</p>
+                    ) : (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {groupedColumns.map(col => (
+                          <div
+                            key={col.category}
+                            className="p-3 rounded-2xl bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-800 space-y-2"
+                          >
+                            <div className="text-[10px] font-black uppercase tracking-wider text-stone-500 dark:text-stone-400">
+                              {col.category}
+                            </div>
+                            <div className="space-y-1.5">
+                              {col.items.map((feat, idx) => (
+                                <div
+                                  key={`${col.category}_${feat}_${idx}`}
+                                  className="flex items-center gap-2 text-xs font-medium text-stone-700 dark:text-stone-300"
+                                >
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                                  <span>{feat}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* House Rules & Policies */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
@@ -1133,6 +1232,15 @@ export const StayDetailModal: React.FC<StayDetailModalProps> = ({
                       : 'Host approval'}
                   </span>
                 </div>
+
+                {/* VISUAL BOOKING / NEGOTIATION STATUS TRACKER (Requested -> Negotiating -> Confirmed -> Completed) */}
+                {(confirmedBooking || activeBooking || activeThread) && (
+                  <BookingStatusTracker
+                    booking={confirmedBooking || activeBooking}
+                    thread={activeThread}
+                    variant="card"
+                  />
+                )}
 
                 {/* VISUAL CHECKOUT PROGRESS BAR (Details -> Payment -> Confirmation) */}
                 <div className="pt-1 pb-2">
@@ -1229,7 +1337,9 @@ export const StayDetailModal: React.FC<StayDetailModalProps> = ({
                     <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto" />
                     <div>
                       <h4 className="text-base font-extrabold text-emerald-900 dark:text-emerald-200">
-                        Booking Confirmed! 🎉
+                        {confirmedBooking?.status === 'requested'
+                          ? 'Booking Request Submitted'
+                          : 'Booking Confirmed! 🎉'}
                       </h4>
                       <p className="text-xs text-emerald-700 dark:text-emerald-300 mt-0.5">
                         Reference:{' '}

@@ -124,4 +124,5 @@ export interface DatabaseSchema {
     field: string;
     updatedAt: number;
   }>;
+  subscriptionNotificationKeys?: string[];
 }

@@ -13,6 +13,7 @@ import {
   ListingAudioConfig,
   ShortAudioConfig,
   PaymentRecord,
+  AdRequest,
 } from '../types';
 import { api } from '../api';
 import { SharedVideoPlayer } from './shared/SharedVideoPlayer';
@@ -121,7 +122,19 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
   walletRefreshTick = 0,
   showToast,
 }) => {
-  const [activeTab, setActiveTab] = useState<'listings' | 'reservations' | 'promotions' | 'wallet' | 'shorts' | 'new-stay' | 'insights'>('listings');
+  const [activeTab, setActiveTab] = useState<'listings' | 'reservations' | 'promotions' | 'adverts' | 'wallet' | 'shorts' | 'new-stay' | 'insights'>('listings');
+
+  // Host Optional Adverts State
+  const [myAdverts, setMyAdverts] = useState<AdRequest[]>([]);
+  const [loadingMyAdverts, setLoadingMyAdverts] = useState<boolean>(false);
+  const [adStayId, setAdStayId] = useState<string>(myStays[0]?.id || '');
+  const [adDays, setAdDays] = useState<number>(3);
+  const [adTitle, setAdTitle] = useState<string>('');
+  const [adDesc, setAdDesc] = useState<string>('');
+  const [adTag, setAdTag] = useState<string>('Featured Advert');
+  const [adSubmitting, setAdSubmitting] = useState<boolean>(false);
+  const [adFeedback, setAdFeedback] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
+  const [extendingAdId, setExtendingAdId] = useState<string | null>(null);
 
   // Check if subscription is active (strict backend-synced expiry; no grace-period masking)
   const isPlanActive = plan.status === 'active' && plan.expiresAt > Date.now();
@@ -151,6 +164,12 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
   useEffect(() => {
     boostIdemKeyRef.current = '';
   }, [selectedStayIdForPromo, promoDays]);
+
+  useEffect(() => {
+    if (!adStayId && myStays.length > 0) {
+      setAdStayId(myStays[0].id);
+    }
+  }, [myStays, adStayId]);
 
   const [realtimeApprovedDeposit, setRealtimeApprovedDeposit] = useState<{
     id: string;
@@ -230,14 +249,26 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
     }
   };
 
+  const fetchMyAdverts = () => {
+    if (!api.getToken(ownerPortalSlot)) return;
+    setLoadingMyAdverts(true);
+    api.getAds({ advertiserEmail: user.email }, ownerPortalSlot)
+      .then(res => setMyAdverts(res.ads || []))
+      .catch(() => {})
+      .finally(() => setLoadingMyAdverts(false));
+  };
+
   useEffect(() => {
     fetchPromotions();
     fetchHostWallet();
+    fetchMyAdverts();
   }, [walletBalance, walletRefreshTick, ownerPortalSlot]);
 
   useEffect(() => {
     if (activeTab === 'wallet') {
       fetchHostWallet();
+    } else if (activeTab === 'adverts') {
+      fetchMyAdverts();
     }
   }, [activeTab]);
 
@@ -502,6 +533,9 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
   const [price, setPrice] = useState(7500);
   const [desc, setDesc] = useState('');
   const [selectedFeatures, setSelectedFeatures] = useState<string[]>(['WiFi', 'Parking', 'Kitchen']);
+  const [customAmenitiesByCategory, setCustomAmenitiesByCategory] = useState<Record<string, string[]>>({});
+  const [customAmenityInputs, setCustomAmenityInputs] = useState<Record<string, string>>({});
+  const [customAmenityErrors, setCustomAmenityErrors] = useState<Record<string, string>>({});
   const [blackFridayOptIn, setBlackFridayOptIn] = useState(false);
   const [isAirbusWork, setIsAirbusWork] = useState(false);
   const [isLocalGuideExperience, setIsLocalGuideExperience] = useState(false);
@@ -694,6 +728,13 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
     setPrice(s.price || 5000);
     setDesc(s.description || '');
     setSelectedFeatures(Array.isArray(s.features) && s.features.length > 0 ? s.features : ['WiFi', 'Parking']);
+    setCustomAmenitiesByCategory(
+      s.customAmenitiesByCategory && typeof s.customAmenitiesByCategory === 'object'
+        ? JSON.parse(JSON.stringify(s.customAmenitiesByCategory))
+        : {}
+    );
+    setCustomAmenityInputs({});
+    setCustomAmenityErrors({});
     setWhatsapp(s.whatsapp || '');
     setAffiliateLink(s.affiliateLink || '');
     setWelcomeGifts(Array.isArray(s.welcomeGifts) ? s.welcomeGifts : []);
@@ -857,6 +898,97 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
     );
   };
 
+  const handleAddCustomAmenity = (category: string) => {
+    const raw = customAmenityInputs[category] || '';
+    const cleaned = raw.trim().replace(/\s+/g, ' ');
+    if (!cleaned) {
+      setCustomAmenityErrors(prev => ({ ...prev, [category]: 'Enter a feature name first.' }));
+      return;
+    }
+    const presets = (AMENITY_GROUPS as Record<string, string[]>)[category] || [];
+    const existingCustom = customAmenitiesByCategory[category] || [];
+    const lower = cleaned.toLowerCase();
+    const dupPreset = presets.some(p => p.toLowerCase() === lower);
+    const dupCustom = existingCustom.some(c => c.toLowerCase() === lower);
+    if (dupPreset || dupCustom) {
+      setCustomAmenityErrors(prev => ({ ...prev, [category]: `"${cleaned}" already exists in ${category}.` }));
+      return;
+    }
+    setCustomAmenitiesByCategory(prev => ({
+      ...prev,
+      [category]: [...(prev[category] || []), cleaned],
+    }));
+    setSelectedFeatures(prev =>
+      prev.some(f => f.toLowerCase() === lower) ? prev : [...prev, cleaned]
+    );
+    setCustomAmenityInputs(prev => ({ ...prev, [category]: '' }));
+    setCustomAmenityErrors(prev => ({ ...prev, [category]: '' }));
+  };
+
+  const handleRemoveCustomAmenity = (category: string, item: string) => {
+    setCustomAmenitiesByCategory(prev => {
+      const nextList = (prev[category] || []).filter(x => x !== item);
+      const copy = { ...prev };
+      if (nextList.length === 0) delete copy[category];
+      else copy[category] = nextList;
+      return copy;
+    });
+    setSelectedFeatures(prev => prev.filter(f => f.toLowerCase() !== item.toLowerCase()));
+  };
+
+  const handleCreateHostAdvert = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAdFeedback(null);
+    const targetStay = myStays.find(s => s.id === adStayId) || myStays[0];
+    if (!targetStay) {
+      setAdFeedback({ type: 'error', msg: 'Please create a listing before submitting an advert.' });
+      return;
+    }
+    if (!adTitle.trim()) {
+      setAdFeedback({ type: 'error', msg: 'Please enter an advert headline title.' });
+      return;
+    }
+    setAdSubmitting(true);
+    try {
+      const cover = targetStay.thumbnailUrl || targetStay.images?.[0] || targetStay.media?.photos?.[0]?.url || '';
+      const res = await api.createAd({
+        stayId: targetStay.id,
+        title: adTitle.trim(),
+        description: adDesc.trim() || targetStay.description?.slice(0, 140) || `Book ${targetStay.title} in ${targetStay.location}`,
+        imageUrl: cover,
+        targetUrl: `/#stay-${targetStay.id}`,
+        tag: adTag.trim() || 'Featured Advert',
+        days: adDays,
+        extensionOfAdId: extendingAdId || undefined,
+      });
+      setAdFeedback({
+        type: 'success',
+        msg: res.message || 'Advert submitted for Admin approval! Your AirBus Wallet will only be charged once approved.',
+      });
+      setAdTitle('');
+      setAdDesc('');
+      setExtendingAdId(null);
+      fetchMyAdverts();
+    } catch (err: any) {
+      setAdFeedback({ type: 'error', msg: err.message || 'Could not submit advert request.' });
+    } finally {
+      setAdSubmitting(false);
+    }
+  };
+
+  const handleStartExtendAdvert = (ad: AdRequest) => {
+    setAdStayId(ad.stayId || ad.listingId || myStays[0]?.id || '');
+    setAdTitle(ad.title);
+    setAdDesc(ad.description || '');
+    setAdTag(ad.tag || 'Extension');
+    setAdDays(ad.days || 3);
+    setExtendingAdId(ad.id);
+    setAdFeedback({
+      type: 'success',
+      msg: `Pre-filled extension for "${ad.title}". Adjust days if needed and submit as a new Admin-approved request.`,
+    });
+  };
+
   const handleGenerateAI = async () => {
     if (!title || !area) {
       setWizardError('Please fill in Title and Area first before generating AI description.');
@@ -896,8 +1028,8 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
       return;
     }
 
-    if (!title || !area || !price) {
-      setWizardError('Please complete required fields.');
+    if (!title.trim() || !desc.trim() || !area.trim() || !price) {
+      setWizardError('Please complete required fields including Stay Title, Description, Area, and Price.');
       return;
     }
 
@@ -981,8 +1113,9 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
         beds: rooms,
         area: rooms * 35,
         features: selectedFeatures,
+        customAmenitiesByCategory,
         highlights: aiHighlights,
-        description: desc,
+        description: desc.trim(),
         videoUrl: fullVideoUrl,
         videoMediaId: !youtubeVideoId ? (videoMediaId || undefined) : undefined,
         videoThumbnail: thumb,
@@ -1063,6 +1196,10 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
       setSessionRawUploads([]);
       setEditingResubmitStay(null);
       setTitle('');
+      setDesc('');
+      setCustomAmenitiesByCategory({});
+      setCustomAmenityInputs({});
+      setCustomAmenityErrors({});
       setArea('');
       setLandmark('');
       setLat(-1.2683);
@@ -1583,6 +1720,26 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
           {myStays.some(s => s.isPromoted) && (
             <span className="bg-amber-400 text-stone-950 text-[10px] font-black px-1.5 py-0.2 rounded-full">
               Boost Active
+            </span>
+          )}
+        </button>
+
+        <button
+          onClick={() => {
+            setActiveTab('adverts');
+            fetchMyAdverts();
+          }}
+          className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ${
+            activeTab === 'adverts'
+              ? 'bg-gradient-to-r from-[#ff2e93] to-[#8b5cf6] text-white shadow-md'
+              : 'text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800'
+          }`}
+        >
+          <Megaphone className="w-4 h-4 text-pink-500" />
+          <span>Adverts ({myAdverts.length})</span>
+          {myAdverts.some(a => a.status === 'pending') && (
+            <span className="bg-amber-400 text-stone-950 text-[10px] font-black px-1.5 py-0.2 rounded-full">
+              Pending
             </span>
           )}
         </button>
@@ -2711,6 +2868,263 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
         </div>
       )}
 
+      {/* TAB: OPTIONAL PAID ADVERTS (ADMIN-APPROVED) */}
+      {activeTab === 'adverts' && (
+        <div className="space-y-6">
+          <div className="p-6 rounded-3xl bg-gradient-to-r from-pink-950/60 via-stone-900 to-purple-950/60 border border-pink-500/30 text-white shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+            <div className="space-y-2 max-w-xl">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="p-2 rounded-xl bg-gradient-to-tr from-[#ff2e93] to-[#8b5cf6] text-white shadow-sm">
+                  <Megaphone className="w-5 h-5" />
+                </span>
+                <h3 className="text-lg font-black tracking-wide">Listing Adverts (Optional)</h3>
+                <span className="text-[10px] bg-pink-400 text-stone-950 font-black px-2.5 py-0.5 rounded-full uppercase">
+                  KES 100 / Day · Billed on Approval
+                </span>
+              </div>
+              <p className="text-xs text-stone-300 leading-relaxed">
+                Promoting an advert is completely optional. Submitting creates a Pending Approval request with zero wallet charge—your AirBus Wallet is only billed once an Admin approves it. Expired adverts never auto-extend.
+              </p>
+            </div>
+            <div className="p-4 rounded-2xl bg-white/5 border border-white/10 text-center shrink-0 w-full md:w-auto">
+              <span className="text-[10px] uppercase font-bold text-stone-400 block mb-1">Host Wallet Balance</span>
+              <div className="text-xl font-black text-emerald-400 mb-2">KES {walletBalance.toLocaleString()}</div>
+              <button
+                type="button"
+                onClick={onOpenTopupModal}
+                className="px-4 py-1.5 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-colors cursor-pointer shadow-sm w-full"
+              >
+                Deposit (M-Pesa)
+              </button>
+            </div>
+          </div>
+
+          <form onSubmit={handleCreateHostAdvert} className="p-6 bg-white dark:bg-[#15171e] rounded-3xl border border-stone-200 dark:border-stone-800 shadow-sm space-y-4">
+            <div className="flex items-center justify-between">
+              <h4 className="text-sm font-extrabold text-stone-900 dark:text-white flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-[#ff2e93]" />
+                <span>{extendingAdId ? 'Request Advert Extension (New Submission)' : 'Submit an Optional Advert Request'}</span>
+              </h4>
+              {extendingAdId && (
+                <button
+                  type="button"
+                  onClick={() => setExtendingAdId(null)}
+                  className="text-xs font-bold text-stone-500 hover:text-stone-800 cursor-pointer"
+                >
+                  Cancel Extension
+                </button>
+              )}
+            </div>
+
+            {adFeedback && (
+              <div
+                className={`p-3.5 rounded-2xl text-xs font-semibold flex items-center gap-2 ${
+                  adFeedback.type === 'success'
+                    ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-800'
+                    : 'bg-rose-50 dark:bg-rose-950/40 text-rose-800 dark:text-rose-200 border border-rose-300 dark:border-rose-800'
+                }`}
+              >
+                {adFeedback.type === 'success' ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <AlertCircle className="w-4 h-4 shrink-0" />}
+                <span>{adFeedback.msg}</span>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+              <div>
+                <label className="font-bold text-stone-700 dark:text-stone-300 block mb-1">1. Select Listing *</label>
+                {myStays.length === 0 ? (
+                  <p className="text-stone-400">Create a listing first to attach an advert.</p>
+                ) : (
+                  <select
+                    value={adStayId}
+                    onChange={e => setAdStayId(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl outline-none"
+                  >
+                    {myStays.map(s => (
+                      <option key={s.id} value={s.id}>
+                        {s.title} ({s.location})
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+
+              <div>
+                <label className="font-bold text-stone-700 dark:text-stone-300 block mb-1">2. Duration (Days @ KES 100/day) *</label>
+                <div className="flex items-center gap-2">
+                  {[3, 7, 14, 30].map(d => (
+                    <button
+                      key={d}
+                      type="button"
+                      onClick={() => setAdDays(d)}
+                      className={`px-3 py-2 rounded-xl font-bold border cursor-pointer ${
+                        adDays === d
+                          ? 'bg-[#ff2e93] text-white border-[#ff2e93]'
+                          : 'bg-stone-50 dark:bg-stone-900 border-stone-200 dark:border-stone-700 text-stone-700 dark:text-stone-300'
+                      }`}
+                    >
+                      {d}d
+                    </button>
+                  ))}
+                  <input
+                    type="number"
+                    min={1}
+                    max={365}
+                    value={adDays}
+                    onChange={e => {
+                      const val = parseInt(e.target.value, 10);
+                      setAdDays(Number.isFinite(val) ? Math.max(1, Math.min(365, val)) : 1);
+                    }}
+                    className="w-20 px-2.5 py-2 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl font-mono outline-none"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="font-bold text-stone-700 dark:text-stone-300 block mb-1">3. Advert Headline *</label>
+                <input
+                  type="text"
+                  maxLength={80}
+                  value={adTitle}
+                  onChange={e => setAdTitle(e.target.value)}
+                  placeholder="e.g. Weekend Escape Special in Kilimani"
+                  className="w-full px-3.5 py-2.5 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl outline-none"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="font-bold text-stone-700 dark:text-stone-300 block mb-1">4. Tag / Badge</label>
+                <input
+                  type="text"
+                  maxLength={30}
+                  value={adTag}
+                  onChange={e => setAdTag(e.target.value)}
+                  placeholder="Featured Advert"
+                  className="w-full px-3.5 py-2.5 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl outline-none"
+                />
+              </div>
+
+              <div className="md:col-span-2">
+                <label className="font-bold text-stone-700 dark:text-stone-300 block mb-1">5. Advert Copy (Optional)</label>
+                <textarea
+                  rows={2}
+                  value={adDesc}
+                  onChange={e => setAdDesc(e.target.value)}
+                  placeholder="Highlight what makes this offer special..."
+                  className="w-full px-3.5 py-2 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl outline-none"
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2 border-t border-stone-100 dark:border-stone-800 text-xs">
+              <div className="text-stone-600 dark:text-stone-400">
+                Estimated Charge on Admin Approval:{' '}
+                <strong className="text-stone-900 dark:text-white font-mono">
+                  KES {(adDays * 100).toLocaleString()}
+                </strong>{' '}
+                <span className="text-[11px] text-emerald-600 dark:text-emerald-400">(KES 0 charged today)</span>
+              </div>
+              <button
+                type="submit"
+                disabled={adSubmitting || myStays.length === 0}
+                className="px-5 py-2.5 rounded-full bg-gradient-to-r from-[#ff2e93] to-[#8b5cf6] text-white font-extrabold hover:opacity-95 disabled:opacity-50 cursor-pointer"
+              >
+                {adSubmitting ? 'Submitting...' : 'Submit Advert for Approval'}
+              </button>
+            </div>
+          </form>
+
+          <div className="p-6 bg-white dark:bg-[#15171e] rounded-3xl border border-stone-200 dark:border-stone-800 shadow-sm space-y-4">
+            <div className="flex items-center justify-between">
+              <h4 className="text-sm font-extrabold text-stone-900 dark:text-white">
+                My Adverts ({myAdverts.length})
+              </h4>
+              <button
+                type="button"
+                onClick={fetchMyAdverts}
+                className="text-xs font-bold text-[#ff2e93] hover:underline cursor-pointer flex items-center gap-1"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${loadingMyAdverts ? 'animate-spin' : ''}`} />
+                <span>Refresh</span>
+              </button>
+            </div>
+
+            {myAdverts.length === 0 ? (
+              <div className="p-8 text-center border border-dashed border-stone-200 dark:border-stone-800 rounded-2xl text-xs text-stone-400">
+                No adverts requested yet.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {myAdverts.map(ad => {
+                  const stay = myStays.find(s => s.id === (ad.stayId || ad.listingId));
+                  const startTs = ad.start_at ?? ad.startsAt;
+                  const endTs = ad.end_at ?? ad.expiresAt;
+                  const isActive = ad.status === 'active' || ad.status === 'approved';
+                  const isDeclined = ad.status === 'declined' || ad.status === 'rejected';
+                  const isExpired = ad.status === 'expired';
+                  return (
+                    <div
+                      key={ad.id}
+                      className="p-4 rounded-2xl bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                    >
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span
+                            className={`text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full ${
+                              isActive
+                                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
+                                : ad.status === 'pending'
+                                ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
+                                : isDeclined
+                                ? 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300'
+                                : 'bg-stone-200 text-stone-700 dark:bg-stone-800 dark:text-stone-300'
+                            }`}
+                          >
+                            {ad.status === 'pending'
+                              ? 'Pending Approval'
+                              : isActive
+                              ? 'Active'
+                              : isDeclined
+                              ? 'Declined'
+                              : 'Expired'}
+                          </span>
+                          <span className="text-[11px] font-bold text-stone-500">
+                            {ad.days} day(s) · KES {(ad.amount_paid ?? ad.amountPaid ?? (ad.status === 'pending' || isDeclined ? 0 : ad.totalAmount)).toLocaleString()} paid
+                          </span>
+                        </div>
+                        <h5 className="text-sm font-extrabold text-stone-900 dark:text-white">{ad.title}</h5>
+                        {stay && <p className="text-[11px] text-stone-500">Listing: {stay.title}</p>}
+                        {startTs && endTs && (
+                          <p className="text-[11px] text-stone-500">
+                            Window: {new Date(startTs).toLocaleDateString()} → {new Date(endTs).toLocaleDateString()} · {ad.views || 0} views · {ad.clicks || 0} clicks
+                          </p>
+                        )}
+                        {isDeclined && (ad.admin_feedback || ad.rejectionReason) && (
+                          <p className="text-xs font-semibold text-rose-600 dark:text-rose-400">
+                            Admin feedback: {ad.admin_feedback || ad.rejectionReason}
+                          </p>
+                        )}
+                      </div>
+
+                      {isExpired && (
+                        <button
+                          type="button"
+                          onClick={() => handleStartExtendAdvert(ad)}
+                          className="px-4 py-2 rounded-full bg-gradient-to-r from-[#ff2e93] to-[#8b5cf6] text-white text-xs font-bold cursor-pointer shrink-0"
+                        >
+                          Request Extension
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* TAB: PRIVATE HOST WALLET & TRANSACTION HISTORY */}
       {activeTab === 'wallet' && (
         <div className="space-y-6">
@@ -3111,7 +3525,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                           {tx.user}
                         </td>
                         <td className="py-3 px-3 font-bold capitalize text-stone-900 dark:text-white">
-                          {String(tx.type || '').replace(/_/g, ' ')}
+                          {tx.type === 'advert_expense' ? 'Advert Expense' : String(tx.type || '').replace(/_/g, ' ')}
                         </td>
                         <td className={`py-3 px-3 font-mono font-bold ${tx.direction === 'credit' ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
                           {tx.direction === 'credit' ? '+' : '-'}KES {Number(tx.amount || 0).toLocaleString()}
@@ -3496,6 +3910,20 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                   />
                 </div>
 
+                <div>
+                  <label className="text-xs font-bold text-stone-700 dark:text-stone-300 block mb-1">
+                    About This Listing / Description *
+                  </label>
+                  <textarea
+                    rows={4}
+                    value={desc}
+                    onChange={e => setDesc(e.target.value)}
+                    placeholder="Describe the space, ambiance, neighbourhood highlights, and what makes guests love staying here..."
+                    className="w-full px-3.5 py-2.5 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-xs outline-none focus:border-[#e4002b]"
+                    required
+                  />
+                </div>
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="text-xs font-bold text-stone-700 dark:text-stone-300 block mb-1">
@@ -3801,9 +4229,9 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                   <button
                     type="button"
                     onClick={() => {
-                      if (!title || !area) {
-                        setWizardError('Please fill in title and area.');
-                        showToast?.('Please fill in title and area.');
+                      if (!title.trim() || !desc.trim() || !area.trim()) {
+                        setWizardError('Please fill in Stay Title, About This Listing / Description, and Area.');
+                        showToast?.('Please fill in Stay Title, Description, and Area.');
                         return;
                       }
                       if (isWorldWide && !worldWideCountry.trim()) {
@@ -3833,39 +4261,109 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                   </p>
                 </div>
 
-                <div className="space-y-4 max-h-[360px] overflow-y-auto pr-1">
-                  {Object.entries(AMENITY_GROUPS).map(([category, items]) => (
-                    <div key={category}>
-                      <span className="text-[10px] font-black uppercase text-stone-400 tracking-wider block mb-1.5">
-                        {category}
-                      </span>
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                        {items.map(item => {
-                          const isChecked = selectedFeatures.includes(item);
-                          return (
-                            <label
-                              key={item}
-                              onClick={() => toggleFeature(item)}
-                              className={`p-2 rounded-xl text-xs font-medium border flex items-center gap-2 cursor-pointer transition-all ${
-                                isChecked
-                                  ? 'bg-[#fbeeee] dark:bg-[#331219] border-[#e4002b] text-[#e4002b]'
-                                  : 'bg-stone-50 dark:bg-stone-900 border-stone-200 dark:border-stone-800 text-stone-700 dark:text-stone-300'
-                              }`}
-                            >
-                              <div
-                                className={`w-3.5 h-3.5 rounded flex items-center justify-center border ${
-                                  isChecked ? 'bg-[#e4002b] border-[#e4002b]' : 'border-stone-400'
+                <div className="space-y-5 max-h-[420px] overflow-y-auto pr-1">
+                  {Object.entries(AMENITY_GROUPS).map(([category, items]) => {
+                    const customItems = customAmenitiesByCategory[category] || [];
+                    const customInput = customAmenityInputs[category] || '';
+                    const customErr = customAmenityErrors[category] || '';
+                    return (
+                      <div key={category} className="p-3 rounded-2xl border border-stone-200/70 dark:border-stone-800/80 bg-stone-50/40 dark:bg-stone-900/30 space-y-2.5">
+                        <span className="text-[10px] font-black uppercase text-stone-500 dark:text-stone-400 tracking-wider block">
+                          {category}
+                        </span>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                          {items.map(item => {
+                            const isChecked = selectedFeatures.includes(item);
+                            return (
+                              <label
+                                key={item}
+                                onClick={() => toggleFeature(item)}
+                                className={`p-2 rounded-xl text-xs font-medium border flex items-center gap-2 cursor-pointer transition-all ${
+                                  isChecked
+                                    ? 'bg-[#fbeeee] dark:bg-[#331219] border-[#e4002b] text-[#e4002b]'
+                                    : 'bg-white dark:bg-stone-900 border-stone-200 dark:border-stone-800 text-stone-700 dark:text-stone-300'
                                 }`}
                               >
-                                {isChecked && <Check className="w-2.5 h-2.5 text-white" />}
+                                <div
+                                  className={`w-3.5 h-3.5 rounded flex items-center justify-center border shrink-0 ${
+                                    isChecked ? 'bg-[#e4002b] border-[#e4002b]' : 'border-stone-400'
+                                  }`}
+                                >
+                                  {isChecked && <Check className="w-2.5 h-2.5 text-white" />}
+                                </div>
+                                <span className="truncate">{item}</span>
+                              </label>
+                            );
+                          })}
+                          {customItems.map(item => {
+                            const isChecked = selectedFeatures.some(f => f.toLowerCase() === item.toLowerCase());
+                            return (
+                              <div
+                                key={`custom_${category}_${item}`}
+                                onClick={() => toggleFeature(item)}
+                                className={`p-2 rounded-xl text-xs font-medium border flex items-center justify-between gap-1.5 cursor-pointer transition-all ${
+                                  isChecked
+                                    ? 'bg-[#fbeeee] dark:bg-[#331219] border-[#e4002b] text-[#e4002b]'
+                                    : 'bg-white dark:bg-stone-900 border-stone-200 dark:border-stone-800 text-stone-700 dark:text-stone-300'
+                                }`}
+                              >
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <div
+                                    className={`w-3.5 h-3.5 rounded flex items-center justify-center border shrink-0 ${
+                                      isChecked ? 'bg-[#e4002b] border-[#e4002b]' : 'border-stone-400'
+                                    }`}
+                                  >
+                                    {isChecked && <Check className="w-2.5 h-2.5 text-white" />}
+                                  </div>
+                                  <span className="truncate">{item}</span>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={e => {
+                                    e.stopPropagation();
+                                    handleRemoveCustomAmenity(category, item);
+                                  }}
+                                  className="text-stone-400 hover:text-rose-600 p-0.5 rounded shrink-0 cursor-pointer"
+                                  title={`Remove ${item}`}
+                                >
+                                  <X className="w-3 h-3" />
+                                </button>
                               </div>
-                              <span className="truncate">{item}</span>
-                            </label>
-                          );
-                        })}
+                            );
+                          })}
+                        </div>
+
+                        <div className="flex items-center gap-2 pt-1">
+                          <input
+                            type="text"
+                            value={customInput}
+                            onChange={e => {
+                              setCustomAmenityInputs(prev => ({ ...prev, [category]: e.target.value }));
+                              if (customErr) setCustomAmenityErrors(prev => ({ ...prev, [category]: '' }));
+                            }}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                handleAddCustomAmenity(category);
+                              }
+                            }}
+                            placeholder={`Add custom ${category.toLowerCase()} feature...`}
+                            className="flex-1 px-3 py-1.5 bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-xs outline-none focus:border-[#e4002b]"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleAddCustomAmenity(category)}
+                            className="px-3 py-1.5 rounded-xl bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 text-xs font-bold hover:opacity-90 cursor-pointer shrink-0"
+                          >
+                            Add
+                          </button>
+                        </div>
+                        {customErr && (
+                          <p className="text-[11px] font-semibold text-rose-600 dark:text-rose-400">{customErr}</p>
+                        )}
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
 
                 <div className="pt-4 flex justify-between">

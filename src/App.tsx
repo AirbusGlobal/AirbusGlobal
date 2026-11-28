@@ -1145,6 +1145,34 @@ export default function App() {
   const chatStay = stays.find(s => s.id === chatStayId) || null;
   const activeThread = threads.find(t => t.id === chatStayId || t.stayId === chatStayId) || null;
 
+  const findBookingForStay = (stayObj: Stay | null, threadObj?: ChatThread | null) => {
+    if (!stayObj) return null;
+    return (
+      bookings
+        .filter(b => {
+          if (b.stayId !== stayObj.id) return false;
+          if (threadObj?.guestEmail) {
+            return b.guestEmail.toLowerCase() === threadObj.guestEmail.toLowerCase();
+          }
+          if (user?.role === 'guest' && user.email) {
+            return b.guestEmail.toLowerCase() === user.email.toLowerCase();
+          }
+          return true;
+        })
+        .sort((a, b) => b.createdAt - a.createdAt)[0] || null
+    );
+  };
+
+  const activeStayThread = activeStay
+    ? threads.find(t => t.id === activeStay.id || t.stayId === activeStay.id) || null
+    : null;
+  const activeStayBooking = findBookingForStay(activeStay, activeStayThread);
+  const activeNegotiateThread = negotiateStay
+    ? threads.find(t => t.id === negotiateStay.id || t.stayId === negotiateStay.id) || null
+    : null;
+  const activeNegotiateBooking = findBookingForStay(negotiateStay, activeNegotiateThread);
+  const activeChatBooking = findBookingForStay(chatStay, activeThread);
+
   const totalUnreadMessages = threads.filter(t => (user?.role === 'owner' ? t.unreadHost : t.unreadGuest)).length;
 
   // PRIVATE ADMIN PORTAL (Requirements 2, 3, 4, 5, 6)
@@ -1713,11 +1741,15 @@ export default function App() {
         initialIntent={activeStayIntent}
         fromShort={Boolean(returnToShort)}
         onBackToShort={handleBackToShort}
+        activeBooking={activeStayBooking}
+        activeThread={activeStayThread}
       />
 
       {/* 3. Negotiate Modal */}
       <NegotiateModal
         stay={negotiateStay}
+        booking={activeNegotiateBooking}
+        thread={activeNegotiateThread}
         isOpen={!!negotiateStayId}
         onClose={() => setNegotiateStayId(null)}
         onSubmitOffer={handleSubmitOffer}
@@ -1728,6 +1760,7 @@ export default function App() {
       <ChatModal
         stay={chatStay}
         thread={activeThread}
+        booking={activeChatBooking}
         user={user}
         isOpen={!!chatStayId}
         onClose={() => setChatStayId(null)}

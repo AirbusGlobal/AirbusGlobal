@@ -156,6 +156,7 @@ export interface Stay {
   category: StayCategory;
   status: ListingStatus;
   features: string[];
+  customAmenitiesByCategory?: Record<string, string[]>;
   highlights?: string[];
   description: string;
   videoUrl: string;
@@ -429,6 +430,7 @@ export interface HostPlanStatus {
   scheduledTier?: StayCategory;
   scheduledStartsAt?: number;
   scheduledPeriod?: 'monthly' | 'annual';
+  preExpiryNotifiedForExpiresAt?: number;
 }
 
 export type PaymentRecordType = 'boost' | 'advert' | 'subscription' | 'booking_fee' | 'wallet_topup' | 'wallet' | 'deposit' | 'mpesa_deposit' | 'trip_dating' | 'vvvip';
@@ -599,6 +601,9 @@ export interface WalletTransaction {
   status?: string;
   relatedPaymentId?: string;
   related_payment_id?: string;
+  advertId?: string;
+  listingId?: string;
+  hostEmail?: string;
   note: string;
   createdAt: number;
   created_at?: number;
@@ -1073,12 +1078,14 @@ export interface WalletRecord {
 }
 
 // --- Adverts (10 Slots per Video/Short) ---
-export type AdRequestStatus = 'pending' | 'approved' | 'rejected' | 'expired';
+export type AdRequestStatus = 'pending' | 'active' | 'approved' | 'declined' | 'rejected' | 'expired';
 
 export interface AdRequest {
   id: string;
   advertiserEmail: string;
+  hostEmail?: string;
   stayId: string;
+  listingId?: string;
   title: string;
   description: string;
   imageUrl: string;
@@ -1087,14 +1094,26 @@ export interface AdRequest {
   tag?: string;
   days: number;
   totalAmount: number; // e.g. 300 KES
-  platformFee: number; // 30% e.g. 90 KES
-  hostNet: number; // 70% e.g. 210 KES
+  amount_paid?: number;
+  amountPaid?: number;
+  platformFee: number;
+  hostNet: number;
   status: AdRequestStatus;
   views?: number;
   clicks?: number;
   startsAt?: number;
+  start_at?: number | null;
   expiresAt?: number;
+  end_at?: number | null;
   rejectionReason?: string;
+  admin_feedback?: string | null;
+  approvedBy?: string | null;
+  approvedAt?: number | null;
+  approvedPaymentId?: string | null;
+  hostTxId?: string | null;
+  adminTxId?: string | null;
+  expiryNotifiedAt?: number | null;
+  extensionOfAdId?: string | null;
   createdAt: number;
 }
 

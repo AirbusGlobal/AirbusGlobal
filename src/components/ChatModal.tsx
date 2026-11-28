@@ -1,10 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Stay, ChatThread, User } from '../types';
-import { X, Send, BadgeDollarSign, Check, XCircle, Bot, Sparkles } from 'lucide-react';
+import { Stay, ChatThread, User, Booking } from '../types';
+import { X, Send, BadgeDollarSign, Check, XCircle, Bot } from 'lucide-react';
+import { BookingStatusTracker } from './BookingStatusTracker';
 
 interface ChatModalProps {
   stay: Stay | null;
   thread: ChatThread | null;
+  booking?: Booking | null;
   user: User | null;
   isOpen: boolean;
   onClose: () => void;
@@ -15,6 +17,7 @@ interface ChatModalProps {
 export const ChatModal: React.FC<ChatModalProps> = ({
   stay,
   thread,
+  booking = null,
   user,
   isOpen,
   onClose,
@@ -23,6 +26,7 @@ export const ChatModal: React.FC<ChatModalProps> = ({
 }) => {
   const [inputText, setInputText] = useState('');
   const [offerInput, setOfferInput] = useState('');
+  const [offerError, setOfferError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -56,9 +60,10 @@ export const ChatModal: React.FC<ChatModalProps> = ({
   };
 
   const handleSendOffer = async () => {
+    setOfferError(null);
     const val = Number(offerInput);
     if (!val || val <= 0) {
-      alert('Please enter a valid offer amount.');
+      setOfferError('Please enter a valid offer amount.');
       return;
     }
     setLoading(true);
@@ -68,6 +73,8 @@ export const ChatModal: React.FC<ChatModalProps> = ({
         amount: val,
       });
       setOfferInput('');
+    } catch (err: any) {
+      setOfferError(err?.message || 'Could not send offer.');
     } finally {
       setLoading(false);
     }
@@ -105,7 +112,7 @@ export const ChatModal: React.FC<ChatModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200">
-      <div className="relative w-full max-w-lg bg-white dark:bg-[#15171e] text-stone-900 dark:text-stone-100 rounded-3xl shadow-2xl border border-stone-200 dark:border-stone-800 flex flex-col h-[580px] overflow-hidden">
+      <div className="relative w-full max-w-lg bg-white dark:bg-[#15171e] text-stone-900 dark:text-stone-100 rounded-3xl shadow-2xl border border-stone-200 dark:border-stone-800 flex flex-col h-[min(640px,90vh)] overflow-hidden">
         {/* Header */}
         <div className="p-4 bg-stone-50 dark:bg-stone-900/80 border-b border-stone-200 dark:border-stone-800 flex items-center justify-between">
           <div>
@@ -117,11 +124,15 @@ export const ChatModal: React.FC<ChatModalProps> = ({
 
           <button
             onClick={onClose}
+            aria-label="Close chat modal"
             className="p-1.5 rounded-full hover:bg-stone-200 dark:hover:bg-stone-800 text-stone-400 hover:text-stone-700 cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
+
+        {/* Visual Booking & Negotiation Progress Indicator */}
+        <BookingStatusTracker booking={booking} thread={thread} variant="header" />
 
         {/* Message Thread Body */}
         <div ref={scrollRef} className="flex-1 p-4 overflow-y-auto space-y-3">
@@ -266,7 +277,10 @@ export const ChatModal: React.FC<ChatModalProps> = ({
               type="number"
               placeholder={pendingOffer ? 'Counter offer (KES)' : 'Make offer (KES)'}
               value={offerInput}
-              onChange={e => setOfferInput(e.target.value)}
+              onChange={e => {
+                setOfferInput(e.target.value);
+                if (offerError) setOfferError(null);
+              }}
               className="flex-1 px-3 py-1.5 bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 rounded-xl text-xs outline-none"
             />
             <button
@@ -286,6 +300,11 @@ export const ChatModal: React.FC<ChatModalProps> = ({
               <span>Simulate</span>
             </button>
           </div>
+          {offerError && (
+            <p className="text-[11px] text-rose-600 dark:text-rose-400 font-medium px-1">
+              {offerError}
+            </p>
+          )}
         </div>
       </div>
     </div>

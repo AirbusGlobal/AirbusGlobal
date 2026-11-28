@@ -1193,10 +1193,11 @@ app.get('/api/stays/:id', (req, res) => {
   );
   if (!isOwnerOrAdmin) {
     const isLiveStatus = stay.status === 'live' || stay.status === 'PUBLISHED';
+    const isPublishedState = !stay.publishState || stay.publishState === 'PUBLISHED';
     const isApproved =
       stay.moderationState
-        ? stay.moderationState === 'APPROVED' && isLiveStatus
-        : isLiveStatus && stay.isApprovedByAdmin !== false;
+        ? stay.moderationState === 'APPROVED' && isLiveStatus && isPublishedState
+        : isLiveStatus && isPublishedState && stay.isApprovedByAdmin !== false;
     if (!isApproved || stay.isDelisted || stay.ownerSubscriptionExpired) {
       return res.status(404).json({ error: 'This listing is currently unavailable.' });
     }
@@ -1569,6 +1570,7 @@ app.post('/api/stays', (req, res) => {
     collections,
     videoMediaId,
     videoThumbnail,
+    customAmenitiesByCategory,
   } = req.body;
 
   if (!title || !location || !price) {
@@ -1634,8 +1636,12 @@ app.post('/api/stays', (req, res) => {
     reviewed_by: null,
     mediaModerationStatus: 'clean',
     features: Array.isArray(features) ? features : ['WiFi', 'Parking'],
+    customAmenitiesByCategory:
+      customAmenitiesByCategory && typeof customAmenitiesByCategory === 'object'
+        ? customAmenitiesByCategory
+        : undefined,
     highlights: Array.isArray(highlights) ? highlights : [],
-    description: description || '',
+    description: typeof description === 'string' ? description.trim() : '',
     videoUrl: videoUrl || (media?.video?.url || ''),
     videoMediaId: videoMediaId || media?.video?.mediaId || undefined,
     thumbnailUrl: thumbnailUrl || videoThumbnail || (images && images[0]) || (media?.photos && media.photos[0]?.url) || '',
@@ -1757,6 +1763,7 @@ app.patch('/api/stays/:id', (req, res) => {
     'status',
     'isFeatured',
     'features',
+    'customAmenitiesByCategory',
     'highlights',
     'description',
     'videoUrl',
@@ -2505,7 +2512,7 @@ app.post('/api/payments', async (req, res) => {
   if (!rl.allowed) {
     return res.status(429).json({ error: `Rate limit exceeded. Retry in ${rl.retryAfterSec}s.` });
   }
-  const { kind, amount, amountKes, mpesaCode, phone, phoneNumber, purpose, proofUrl } = req.body || {};
+  const { kind, amount, amountKes, mpesaCode, phone, phoneNumber, purpose, proofUrl, planTier, period } = req.body || {};
 
   const rawType = String(kind || req.body?.type || req.body?.purpose || '');
   if (!['wallet', 'wallet_topup', 'deposit', 'mpesa_deposit'].includes(rawType)) {
@@ -2526,6 +2533,8 @@ app.post('/api/payments', async (req, res) => {
           purpose,
           proofUrl,
           requirePhone: false,
+          planTier,
+          period,
         }),
         201
       )
@@ -2544,7 +2553,7 @@ app.post('/api/merchant/deposits', async (req, res) => {
   if (!rl.allowed) {
     return res.status(429).json({ error: `Rate limit exceeded. Retry in ${rl.retryAfterSec}s.` });
   }
-  const { amount, amountKes, mpesaCode, phone, phoneNumber, purpose, proofUrl } = req.body || {};
+  const { amount, amountKes, mpesaCode, phone, phoneNumber, purpose, proofUrl, planTier, period } = req.body || {};
   const idemKey = (req.headers['idempotency-key'] as string) || req.body?.idempotencyKey;
 
   try {
@@ -2558,6 +2567,8 @@ app.post('/api/merchant/deposits', async (req, res) => {
           purpose,
           proofUrl,
           requirePhone: true,
+          planTier,
+          period,
         });
         return {
           message: `Deposit (M-Pesa) of KES ${result.payment.amountKes?.toLocaleString() || result.payment.amount.toLocaleString()} submitted and awaiting Admin verification.`,
@@ -2765,9 +2776,9 @@ app.get('/api/ads/active', (req, res) => {
 
   const combined = [...activeSlots, ...activeSponsors];
 
-  // If no slots yet, fallback to approved legacy ad requests
+  // If no slots yet, fallback to active/approved ad requests
   if (combined.length === 0) {
-    const approvedLegacy = db.getAdRequests({ status: 'approved' });
+    const approvedLegacy = db.getAdRequests({ status: 'active' });
     const formatted = approvedLegacy.map(a => ({
       id: a.id,
       ownerId: a.advertiserEmail,
@@ -3864,7 +3875,7 @@ app.post('/api/wallet/topup', async (req, res) => {
   if (!rl.allowed) {
     return res.status(429).json({ error: `Rate limit exceeded. Retry in ${rl.retryAfterSec}s.` });
   }
-  const { amount, amountKes, mpesaCode, phone, phoneNumber, proofUrl, purpose } = req.body || {};
+  const { amount, amountKes, mpesaCode, phone, phoneNumber, proofUrl, purpose, planTier, period } = req.body || {};
   const idemKey = (req.headers['idempotency-key'] as string) || req.body?.idempotencyKey;
 
   try {
@@ -3878,6 +3889,8 @@ app.post('/api/wallet/topup', async (req, res) => {
           purpose,
           proofUrl,
           requirePhone: false,
+          planTier,
+          period,
         });
         return {
           message: `Deposit (M-Pesa) of KES ${result.payment.amountKes?.toLocaleString() || result.payment.amount.toLocaleString()} submitted. Awaiting Admin approval.`,
@@ -3899,7 +3912,7 @@ app.post('/api/wallet/deposit', async (req, res) => {
   if (!rl.allowed) {
     return res.status(429).json({ error: `Rate limit exceeded. Retry in ${rl.retryAfterSec}s.` });
   }
-  const { amount, amountKes, mpesaCode, phone, phoneNumber, proofUrl, purpose } = req.body || {};
+  const { amount, amountKes, mpesaCode, phone, phoneNumber, proofUrl, purpose, planTier, period } = req.body || {};
   const idemKey = (req.headers['idempotency-key'] as string) || req.body?.idempotencyKey;
 
   try {
@@ -3913,6 +3926,8 @@ app.post('/api/wallet/deposit', async (req, res) => {
           purpose,
           proofUrl,
           requirePhone: false,
+          planTier,
+          period,
         });
         return {
           message: `Deposit (M-Pesa) of KES ${result.payment.amountKes?.toLocaleString() || result.payment.amount.toLocaleString()} submitted and awaiting Admin approval.`,
@@ -4445,10 +4460,18 @@ app.post('/api/shorts/:id/analytics', (req, res) => {
 // ADVERTS & 10 SLOTS SPONSORSHIPS
 // -----------------------------------------------------------------------------
 app.get('/api/ads', (req, res) => {
-  const { stayId, status } = req.query;
+  const viewer = getAuthUser(req);
+  const { stayId, status, advertiserEmail } = req.query;
+  const reqEmail = advertiserEmail ? String(advertiserEmail).trim().toLowerCase() : undefined;
+
+  if (reqEmail && (!viewer || (viewer.role !== 'admin' && viewer.email.toLowerCase() !== reqEmail))) {
+    return res.status(403).json({ error: 'Unauthorized to view another host’s advert history.' });
+  }
+
   const ads = db.getAdRequests({
     stayId: stayId ? String(stayId) : undefined,
-    status: status as any,
+    advertiserEmail: reqEmail,
+    status: status ? (String(status) as any) : undefined,
   });
   return res.json({ ads });
 });
@@ -4464,51 +4487,76 @@ app.post('/api/ads', (req, res) => {
     }
   }
 
-  const { stayId, title, description, imageUrl, targetUrl, contactPhone, tag, days, paymentMethod } = req.body;
+  const { stayId, title, description, imageUrl, targetUrl, contactPhone, tag, days, paymentMethod, extensionOfAdId } = req.body || {};
   if (paymentMethod && paymentMethod !== 'wallet') {
-    return res.status(400).json({ error: 'Adverts can only be paid strictly from your private AirBus Wallet.' });
+    return res.status(400).json({ error: 'Adverts are billed strictly from your AirBus Wallet upon Admin approval.' });
   }
-  if (!stayId || !title || !imageUrl || !targetUrl) {
-    return res.status(400).json({ error: 'Stay ID, headline title, banner image, and destination link/phone are required.' });
+  if (!stayId || !String(title || '').trim()) {
+    return res.status(400).json({ error: 'Listing selection and advert headline title are required.' });
   }
 
   try {
     const ad = db.createAdRequest({
       advertiserEmail: user.email,
-      stayId,
-      title,
-      description: description || '',
-      imageUrl,
-      targetUrl,
-      contactPhone,
-      tag,
+      stayId: String(stayId),
+      title: String(title),
+      description: String(description || ''),
+      imageUrl: imageUrl ? String(imageUrl) : undefined,
+      targetUrl: targetUrl ? String(targetUrl) : undefined,
+      contactPhone: contactPhone ? String(contactPhone) : undefined,
+      tag: tag ? String(tag) : undefined,
       days: Number(days) || 3,
+      extensionOfAdId: extensionOfAdId ? String(extensionOfAdId) : undefined,
     });
-    return res.status(201).json({ ad });
+    return res.status(201).json({
+      ad,
+      message: 'Advert submitted for Admin approval. Your wallet will only be billed when approved.',
+    });
   } catch (err: any) {
     return res.status(400).json({ error: err.message });
   }
 });
 
-app.post('/api/ads/:id/approve', (req, res) => {
+app.post('/api/ads/:id/approve', async (req, res) => {
   const user = getAuthUser(req);
-  if (!user || user.role !== 'admin') {
+  if (!user) return res.status(401).json({ error: 'Authentication required.' });
+  if (user.role !== 'admin') {
     return res.status(403).json({ error: 'Admin access required.' });
   }
-  const result = db.approveAdRequest(req.params.id, user.email);
-  if (!result) return res.status(404).json({ error: 'Ad request not found or not pending.' });
-  return res.json({ ad: result });
+  const existing = db.getAdRequests().find(a => a.id === req.params.id);
+  if (!existing) {
+    return res.status(404).json({ error: 'Ad request not found.' });
+  }
+  const lockOwner = existing.hostEmail || existing.advertiserEmail || user.email;
+  const idemKey = (req.headers['idempotency-key'] as string) || req.body?.idempotencyKey;
+  try {
+    const out = await walletMutex.withWalletLock(lockOwner, () =>
+      db.runWithIdempotency(idemKey, () => {
+        const result = db.approveAdRequest(req.params.id, user.email);
+        if (!result) throw new Error('Ad request not found.');
+        return { ad: result };
+      }, 200)
+    );
+    return res.status(200).json(out.response);
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'Could not approve advert.' });
+  }
 });
 
 app.post('/api/ads/:id/reject', (req, res) => {
   const user = getAuthUser(req);
-  if (!user || user.role !== 'admin') {
+  if (!user) return res.status(401).json({ error: 'Authentication required.' });
+  if (user.role !== 'admin') {
     return res.status(403).json({ error: 'Admin access required.' });
   }
-  const { reason } = req.body;
-  const result = db.rejectAdRequest(req.params.id, user.email, reason);
-  if (!result) return res.status(404).json({ error: 'Ad request not found.' });
-  return res.json({ ad: result });
+  const { reason } = req.body || {};
+  try {
+    const result = db.rejectAdRequest(req.params.id, user.email, reason);
+    if (!result) return res.status(404).json({ error: 'Ad request not found.' });
+    return res.json({ ad: result });
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'Could not decline advert.' });
+  }
 });
 
 // Record Ad View & Click Visibility Events

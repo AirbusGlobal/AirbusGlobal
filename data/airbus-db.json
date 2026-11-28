@@ -2039,6 +2039,26 @@
   ],
   "notifications": [
     {
+      "id": "notif_adexp_ad_2_1795872184267",
+      "userEmail": "guest@airbus.ke",
+      "title": "Advert Expired — Request Extension?",
+      "message": "Your advert \"Nyali Coastal Watersports & Jet Ski Hire\" ended on 28 Nov 2026 after 7 day(s) and is now inactive. Would you like to request an extension? Submit a new extension request for Admin approval.",
+      "read": false,
+      "link": "/#owner",
+      "type": "system",
+      "createdAt": 1795872184267
+    },
+    {
+      "id": "notif_adexp_ad_1_1795872184267",
+      "userEmail": "guest@airbus.ke",
+      "title": "Advert Expired — Request Extension?",
+      "message": "Your advert \"Nairobi Airport Transfers & Chauffeur VIP\" ended on 27 Nov 2026 after 5 day(s) and is now inactive. Would you like to request an extension? Submit a new extension request for Admin approval.",
+      "read": false,
+      "link": "/#owner",
+      "type": "system",
+      "createdAt": 1795872184267
+    },
+    {
       "id": "notif_host_remind_24h_b_demo_1",
       "userEmail": "owner@airbus.ke",
       "title": "🛎️ Guest Check-in within 24 Hours: Sarah Wanjiku",
@@ -2203,14 +2223,15 @@
       ],
       "moderationStatus": "approved",
       "status": "approved",
-      "views": 4200,
+      "views": 4201,
       "likes": 620,
       "shares": 145,
-      "viralityScore": 92,
+      "viralityScore": 100,
       "createdAt": 1794544245748,
       "updatedAt": 1794544245748,
       "listing_id": "s1",
-      "host_id": "owner@airbus.ke"
+      "host_id": "owner@airbus.ke",
+      "plays": 1
     },
     {
       "id": "post_video_2",
@@ -2315,12 +2336,19 @@
       "totalAmount": 500,
       "platformFee": 150,
       "hostNet": 350,
-      "status": "approved",
+      "status": "expired",
       "views": 342,
       "clicks": 48,
       "startsAt": 1795321845748,
       "expiresAt": 1795753845748,
-      "createdAt": 1795321845748
+      "createdAt": 1795321845748,
+      "hostEmail": "guest@airbus.ke",
+      "listingId": "s1",
+      "start_at": 1795321845748,
+      "end_at": 1795753845748,
+      "amount_paid": 500,
+      "amountPaid": 500,
+      "expiryNotifiedAt": 1795872184267
     },
     {
       "id": "ad_2",
@@ -2336,12 +2364,19 @@
       "totalAmount": 700,
       "platformFee": 210,
       "hostNet": 490,
-      "status": "approved",
+      "status": "expired",
       "views": 520,
       "clicks": 82,
       "startsAt": 1795235445748,
       "expiresAt": 1795840245748,
-      "createdAt": 1795235445748
+      "createdAt": 1795235445748,
+      "hostEmail": "guest@airbus.ke",
+      "listingId": "s4",
+      "start_at": 1795235445748,
+      "end_at": 1795840245748,
+      "amount_paid": 700,
+      "amountPaid": 700,
+      "expiryNotifiedAt": 1795872184267
     },
     {
       "id": "ad_worked_example_3",
@@ -2360,7 +2395,13 @@
       "status": "pending",
       "views": 0,
       "clicks": 0,
-      "createdAt": 1795404645748
+      "createdAt": 1795404645748,
+      "hostEmail": "guest@airbus.ke",
+      "listingId": "s1",
+      "start_at": null,
+      "end_at": null,
+      "amount_paid": 0,
+      "amountPaid": 0
     }
   ],
   "ledgerEntries": [
@@ -2464,7 +2505,13 @@
   },
   "referralCommissions": [],
   "withdrawals": [],
-  "viewEvents": [],
+  "viewEvents": [
+    {
+      "postId": "post_short_1",
+      "viewer": "102.201.92.14",
+      "timestamp": 1795872582724
+    }
+  ],
   "promotions": [
     {
       "id": "promo_seed_1",
@@ -3068,7 +3115,7 @@
       "paymentId": "pay_demo_1",
       "payment_id": "pay_demo_1",
       "paymentMethod": "wallet",
-      "impressions": 1420,
+      "impressions": 1421,
       "clicks": 86,
       "startsAt": 1794976245766,
       "endsAt": 1797568245766,
@@ -3579,7 +3626,24 @@
   "short_audio": [],
   "audioReports": [],
   "listing_audio": [],
-  "short_analytics": {},
+  "short_analytics": {
+    "post_short_1": {
+      "shortId": "post_short_1",
+      "listingId": "s1",
+      "ownerEmail": "owner@airbus.ke",
+      "views": 4201,
+      "plays": 1,
+      "replays": 0,
+      "clicks": {
+        "availability": 0,
+        "book": 0,
+        "chat": 0,
+        "negotiate": 0,
+        "whatsapp": 0
+      },
+      "updatedAt": 1795872582746
+    }
+  },
   "guestCredentials": [
     {
       "id": "cred_guest_u_guest",
@@ -14912,6 +14976,278 @@
           }
         ]
       }
+    },
+    {
+      "id": "v7_description_custom_amenities_and_adverts",
+      "appliedAt": 1795872184039,
+      "snapshot": {
+        "prevStaysV7": [
+          {
+            "id": "s1",
+            "description": "Immaculately styled 2-bedroom executive penthouse located on the 18th floor in the heart of Westlands. Features floor-to-ceiling glass, ultra-fast fiber internet, chef kitchen, and private sundowner terrace with breathtaking views over Nairobi.",
+            "features": [
+              "WiFi",
+              "Fiber Internet",
+              "Air Conditioning",
+              "Elevator",
+              "Swimming Pool",
+              "Parking",
+              "Smart Lock",
+              "24/7 Check-in"
+            ]
+          },
+          {
+            "id": "s2",
+            "description": "Chic, sun-drenched studio apartment thoughtfully designed for digital nomads and weekend explorers. High-speed WiFi, dedicated workspace, rain shower, and Netflix-enabled smart TV.",
+            "features": [
+              "WiFi",
+              "Air Conditioning",
+              "Hot Shower",
+              "Elevator",
+              "Self Check-in",
+              "Fridge",
+              "Microwave"
+            ]
+          },
+          {
+            "id": "s3",
+            "description": "Serene botanical oasis tucked away in leafy Lavington. Enjoy crisp morning birdsong on the covered veranda, evening fires in the stone hearth, and total privacy behind gated security.",
+            "features": [
+              "WiFi",
+              "Garden",
+              "Parking",
+              "Gas Cooker",
+              "BBQ Grill",
+              "Electric Fence",
+              "Backup Inverter"
+            ]
+          },
+          {
+            "id": "s4",
+            "description": "Breathtaking coastal sanctuary directly overlooking the turquoise Indian Ocean in Nyali. Architectural open-plan living, Swahili arches, sea-breeze terraces, and private pool.",
+            "features": [
+              "WiFi",
+              "Swimming Pool",
+              "Air Conditioning",
+              "Balcony",
+              "BBQ Grill",
+              "CCTV",
+              "Hot Shower",
+              "Parking"
+            ]
+          },
+          {
+            "id": "s5",
+            "description": "Charming thatched makuti roof cottage nestled among baobabs and swaying palm trees in world-renowned Diani Beach. Fall asleep to the gentle crash of waves and enjoy barefoot living.",
+            "features": [
+              "WiFi",
+              "Garden",
+              "Gas Cooker",
+              "Air Conditioning",
+              "Hot Shower",
+              "Solar Power"
+            ]
+          },
+          {
+            "id": "s6",
+            "description": "Step into colonial elegance surrounded by the lush greenery of Karen. Ideal retreat for creatives, writers, and couples looking for a calm escape 20 minutes from the city centre.",
+            "features": [
+              "WiFi",
+              "Garden",
+              "Parking",
+              "Gas Cooker",
+              "Perimeter Wall",
+              "Towels Provided"
+            ]
+          },
+          {
+            "id": "s7",
+            "description": "Modern luxury living at its finest on Rose Avenue. This corner 2BR suite features floor-to-ceiling double-glazed windows, minimalist Scandinavian interiors, and full access to building wellness club.",
+            "features": [
+              "WiFi",
+              "Swimming Pool",
+              "Air Conditioning",
+              "Elevator",
+              "Parking",
+              "Gas Cooker",
+              "Smart Lock"
+            ]
+          },
+          {
+            "id": "s8",
+            "description": "Set on the tranquil shores of Lake Naivasha, this eco-stone home offers an unforgettable wildlife encounter. Watch giraffes and zebras graze on the lawn right outside your breakfast table.",
+            "features": [
+              "WiFi",
+              "Garden",
+              "Gas Cooker",
+              "Parking",
+              "BBQ Grill",
+              "Hot Shower",
+              "Solar Power"
+            ]
+          },
+          {
+            "id": "s_plus_1",
+            "description": "Ultra-exclusive diplomatic sanctuary reserved exclusively for AirBus Plus VVVIP guests. Includes full private culinary staff, daily turn-down service, heated infinity lap pool, and chauffeur transfers.",
+            "features": [
+              "WiFi",
+              "Swimming Pool",
+              "Chef on Call",
+              "Airport Chauffeur",
+              "Daily Housekeeping",
+              "24/7 Concierge",
+              "Helipad Access",
+              "Spa"
+            ]
+          },
+          {
+            "id": "s_plus_2",
+            "description": "Architectural clifftop residence overlooking Watamu Marine Reserve, curated strictly for VVVIP members with full hotel concierge, morning housekeeping, seafood chef, and private speedboat.",
+            "features": [
+              "WiFi",
+              "Swimming Pool",
+              "Private Boat",
+              "Personal Butler",
+              "Private Chef",
+              "Daily Housekeeping",
+              "Airport Transfer"
+            ]
+          },
+          {
+            "id": "s_local_1",
+            "description": "Clean, bright, ultra-affordable stay tucked steps away from Roysambu vibrant open-air market and Thika Road Mall. Ideal for budget travelers wanting authentic Kenyan neighborhood hospitality.",
+            "features": [
+              "WiFi",
+              "Kitchen",
+              "Hot Shower",
+              "Near Fresh Market",
+              "24/7 Matatu Stage"
+            ]
+          },
+          {
+            "id": "s_local_2",
+            "description": "Breezy coastal studio minutes from Kongowea spice & fruit market and Bamburi beach. Discover Mombasa at local prices with insider guide recommendations.",
+            "features": [
+              "WiFi",
+              "Air Conditioning",
+              "Kitchen",
+              "Courtyard",
+              "Near Kongowea Market"
+            ]
+          },
+          {
+            "id": "s_ww_1",
+            "description": "Stunning sunlit South African villa perched above Camps Bay beach with panoramic ocean views, infinity plunge pool, and indoor-outdoor braai lounge.",
+            "features": [
+              "WiFi",
+              "Swimming Pool",
+              "Sea View",
+              "BBQ Braai",
+              "Fiber Internet",
+              "Parking"
+            ]
+          },
+          {
+            "id": "s_ww_2",
+            "description": "Hand-carved coral-stone beach sanctuary on the northern tip of Zanzibar, blending timeless Swahili craftsmanship with modern resort comfort.",
+            "features": [
+              "WiFi",
+              "Beachfront",
+              "Air Conditioning",
+              "Swimming Pool",
+              "Breakfast Included"
+            ]
+          },
+          {
+            "id": "s_ww_3",
+            "description": "Sleek 36th-floor designer residence in Dubai Marina featuring executive ergonomic workstation, floor-to-ceiling skyline vistas, and podium infinity pool.",
+            "features": [
+              "WiFi",
+              "Swimming Pool",
+              "Air Conditioning",
+              "Gym",
+              "Workspace",
+              "Elevator",
+              "24/7 Concierge"
+            ]
+          },
+          {
+            "id": "s_ww_4",
+            "description": "Handcrafted architectural bamboo sanctuary surrounded by tropical Ubud rainforest. Ideal for creative sabbaticals and exotic tropical escapes.",
+            "features": [
+              "WiFi",
+              "Swimming Pool",
+              "Garden",
+              "Workspace",
+              "Yoga Deck"
+            ]
+          }
+        ],
+        "prevAdsV7": [
+          {
+            "id": "ad_1",
+            "advertiserEmail": "guest@airbus.ke",
+            "stayId": "s1",
+            "title": "Nairobi Airport Transfers & Chauffeur VIP",
+            "description": "Mercedes E-Class & Prado airport pickups 24/7. 10% off for AirBus guests.",
+            "imageUrl": "https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=400&q=80",
+            "targetUrl": "https://wa.me/254712345678",
+            "contactPhone": "+254 712 345 678",
+            "tag": "Chauffeur",
+            "days": 5,
+            "totalAmount": 500,
+            "platformFee": 150,
+            "hostNet": 350,
+            "status": "approved",
+            "views": 342,
+            "clicks": 48,
+            "startsAt": 1795321845748,
+            "expiresAt": 1795753845748,
+            "createdAt": 1795321845748
+          },
+          {
+            "id": "ad_2",
+            "advertiserEmail": "guest@airbus.ke",
+            "stayId": "s4",
+            "title": "Nyali Coastal Watersports & Jet Ski Hire",
+            "description": "Guided dolphin tours, kitesurfing school and jet ski rentals directly off Nyali beach.",
+            "imageUrl": "https://images.unsplash.com/photo-1544551763-46a013bb70d5?auto=format&fit=crop&w=400&q=80",
+            "targetUrl": "https://wa.me/254700000001",
+            "contactPhone": "+254 700 000 001",
+            "tag": "Experiences",
+            "days": 7,
+            "totalAmount": 700,
+            "platformFee": 210,
+            "hostNet": 490,
+            "status": "approved",
+            "views": 520,
+            "clicks": 82,
+            "startsAt": 1795235445748,
+            "expiresAt": 1795840245748,
+            "createdAt": 1795235445748
+          },
+          {
+            "id": "ad_worked_example_3",
+            "advertiserEmail": "guest@airbus.ke",
+            "stayId": "s1",
+            "title": "Westlands Organic Rooftop Brunch & Cafe",
+            "description": "Fresh artisanal sourdough, espresso, and avocado toast 2 mins walk from your penthouse.",
+            "imageUrl": "https://images.unsplash.com/photo-1554118811-1e0d58224f24?auto=format&fit=crop&w=400&q=80",
+            "targetUrl": "https://wa.me/254712345678",
+            "contactPhone": "+254 712 345 678",
+            "tag": "Cafe & Dining",
+            "days": 3,
+            "totalAmount": 300,
+            "platformFee": 90,
+            "hostNet": 210,
+            "status": "pending",
+            "views": 0,
+            "clicks": 0,
+            "createdAt": 1795404645748
+          }
+        ],
+        "hadSubNotifKeys": true
+      }
     }
   ],
   "plusServiceRequests": [],
@@ -15315,5 +15651,6 @@
   "wallet_year_archives": [],
   "last_archived_fiscal_year": 2026,
   "admin_wallet_archives": [],
-  "idempotencyCache": {}
+  "idempotencyCache": {},
+  "subscriptionNotificationKeys": []
 }

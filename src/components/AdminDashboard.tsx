@@ -220,7 +220,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   // Adverts Moderation State
   const [adRejectModalId, setAdRejectModalId] = useState<string | null>(null);
-  const [adRejectReason, setAdRejectReason] = useState('Inappropriate target URL or content.');
+  const [adRejectReason, setAdRejectReason] = useState('Advert content or target listing does not meet guidelines.');
+  const [adRejectError, setAdRejectError] = useState<string | null>(null);
+  const [adActionLoadingId, setAdActionLoadingId] = useState<string | null>(null);
+  const [adModerationError, setAdModerationError] = useState<string | null>(null);
 
   // Queue View Filters
   const [reportFilter, setReportFilter] = useState<'all' | 'pending' | 'resolved' | 'dismissed'>('all');
@@ -263,7 +266,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [posts, setPosts] = useState<Post[]>([]);
   const [ads, setAds] = useState<AdRequest[]>([]);
   const [promotions, setPromotions] = useState<ListingPromotion[]>([]);
-  const [adFilter, setAdFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
+  const [adFilter, setAdFilter] = useState<'all' | 'pending' | 'active' | 'declined' | 'expired'>('all');
   const [withdrawals, setWithdrawals] = useState<any[]>([]);
   const [settings, setSettings] = useState<PlatformSettings | null>(null);
   const [treasuryLedger, setTreasuryLedger] = useState<LedgerEntry[]>([]);
@@ -3012,50 +3015,238 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
       )}
 
-      {/* TAB: AD REQUESTS & 70/30 SPLIT MODERATION */}
-      {tab === 'ads' && (
+      {/* TAB: OPTIONAL ADVERTS & PENDING APPROVALS */}
+      {tab === 'ads' && (() => {
+        const isAdActive = (a: AdRequest) => a.status === 'active' || a.status === 'approved';
+        const isAdDeclined = (a: AdRequest) => a.status === 'declined' || a.status === 'rejected';
+        const pendingAds = ads.filter(a => a.status === 'pending');
+        const activeAdsList = ads.filter(isAdActive);
+        const declinedAdsList = ads.filter(isAdDeclined);
+        const expiredAdsList = ads.filter(a => a.status === 'expired');
+        const totalAdvertFeeRevenue = ads
+          .filter(a => isAdActive(a) || a.status === 'expired')
+          .reduce((acc, a) => acc + Number(a.amount_paid ?? a.amountPaid ?? a.platformFee ?? 0), 0);
+
+        const matchesAdFilter = (a: AdRequest) => {
+          if (adFilter === 'all') return true;
+          if (adFilter === 'pending') return a.status === 'pending';
+          if (adFilter === 'active') return isAdActive(a);
+          if (adFilter === 'declined') return isAdDeclined(a);
+          if (adFilter === 'expired') return a.status === 'expired';
+          return true;
+        };
+
+        const handleApproveAdvert = async (ad: AdRequest) => {
+          if (adActionLoadingId) return;
+          setAdModerationError(null);
+          setAdActionLoadingId(ad.id);
+          try {
+            await api.approveAd(ad.id, `ad_approve_${ad.id}`);
+            showToast?.(`Advert "${ad.title}" approved! KES ${Number(ad.totalAmount || 0).toLocaleString()} debited from host wallet and credited to Admin Advert fee.`);
+            loadAdminData();
+          } catch (err: any) {
+            const msg = err?.message || 'Could not approve advert.';
+            setAdModerationError(msg);
+            showToast?.(msg);
+          } finally {
+            setAdActionLoadingId(null);
+          }
+        };
+
+        const renderAdCard = (ad: AdRequest) => {
+          const associatedStay = stays.find(s => s.id === (ad.stayId || ad.listingId));
+          const activeFlag = isAdActive(ad);
+          const declinedFlag = isAdDeclined(ad);
+          const startTs = ad.start_at ?? ad.startsAt;
+          const endTs = ad.end_at ?? ad.expiresAt;
+          const amountPaidVal = Number(ad.amount_paid ?? ad.amountPaid ?? (activeFlag || ad.status === 'expired' ? ad.totalAmount : 0));
+
+          return (
+            <div
+              key={ad.id}
+              className="p-4 sm:p-5 bg-white dark:bg-[#15171e] rounded-3xl border border-stone-200 dark:border-stone-800 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4"
+            >
+              <div className="flex items-start gap-3.5">
+                <img
+                  src={ad.imageUrl}
+                  alt={ad.title}
+                  className="w-16 h-16 rounded-2xl object-cover shrink-0 border border-stone-200 dark:border-stone-700 shadow-sm"
+                />
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300">
+                      {ad.tag || 'Advert'} · {ad.days} {ad.days === 1 ? 'Day' : 'Days'}
+                    </span>
+
+                    <span
+                      className={`text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full ${
+                        activeFlag
+                          ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
+                          : ad.status === 'pending'
+                          ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
+                          : declinedFlag
+                          ? 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300'
+                          : 'bg-stone-200 text-stone-700 dark:bg-stone-800 dark:text-stone-300'
+                      }`}
+                    >
+                      {ad.status === 'pending'
+                        ? 'Pending Approval'
+                        : activeFlag
+                        ? 'Active'
+                        : declinedFlag
+                        ? 'Declined'
+                        : 'Expired'}
+                    </span>
+
+                    {ad.extensionOfAdId && (
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300">
+                        Extension Request
+                      </span>
+                    )}
+                  </div>
+
+                  <h4 className="text-sm font-extrabold text-stone-900 dark:text-white">{ad.title}</h4>
+                  <p className="text-xs text-stone-600 dark:text-stone-400 line-clamp-1">{ad.description}</p>
+
+                  <div className="p-2.5 rounded-xl bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-800 text-xs grid grid-cols-3 gap-2 text-center max-w-md">
+                    <div>
+                      <span className="text-[10px] text-stone-400 font-semibold block">Quoted Price</span>
+                      <strong className="text-stone-900 dark:text-white">KES {Number(ad.totalAmount || 0).toLocaleString()}</strong>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-stone-400 font-semibold block">Amount Paid</span>
+                      <strong className="text-emerald-600 dark:text-emerald-400">KES {amountPaidVal.toLocaleString()}</strong>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-stone-400 font-semibold block">Duration</span>
+                      <strong className="text-purple-600 dark:text-purple-400">{ad.days} {ad.days === 1 ? 'day' : 'days'}</strong>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-3 pt-1 text-[11px]">
+                    <span className="text-stone-400">
+                      Host: <strong className="text-stone-700 dark:text-stone-300">{ad.hostEmail || ad.advertiserEmail}</strong>
+                    </span>
+                    {associatedStay && (
+                      <>
+                        <span className="text-stone-300 dark:text-stone-700">·</span>
+                        <span className="text-stone-500">
+                          Listing: <strong className="text-stone-800 dark:text-stone-200">{associatedStay.title}</strong>
+                        </span>
+                      </>
+                    )}
+                    {startTs && endTs && (
+                      <>
+                        <span className="text-stone-300 dark:text-stone-700">·</span>
+                        <span className="text-stone-500">
+                          Active window: <strong className="text-stone-700 dark:text-stone-200">{new Date(startTs).toLocaleDateString()} → {new Date(endTs).toLocaleDateString()}</strong>
+                        </span>
+                      </>
+                    )}
+                    <span className="text-stone-300 dark:text-stone-700">·</span>
+                    <span className="text-stone-500 font-semibold">
+                      {ad.views || 0} views · {ad.clicks || 0} clicks
+                    </span>
+                  </div>
+
+                  {declinedFlag && (ad.admin_feedback || ad.rejectionReason) && (
+                    <p className="text-xs font-semibold text-rose-600 dark:text-rose-400 pt-1">
+                      Decline reason: {ad.admin_feedback || ad.rejectionReason}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0 w-full md:w-auto justify-end">
+                {ad.status === 'pending' ? (
+                  <>
+                    <button
+                      type="button"
+                      disabled={adActionLoadingId === ad.id}
+                      onClick={() => handleApproveAdvert(ad)}
+                      className="px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:opacity-95 disabled:opacity-50 text-white rounded-full text-xs font-bold transition-all cursor-pointer flex items-center gap-1 shadow-sm"
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                      <span>{adActionLoadingId === ad.id ? 'Approving...' : 'Approve & Bill Wallet'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={adActionLoadingId === ad.id}
+                      onClick={() => {
+                        setAdRejectModalId(ad.id);
+                        setAdRejectReason('');
+                        setAdRejectError(null);
+                      }}
+                      className="px-4 py-2 bg-stone-100 dark:bg-stone-800 hover:bg-rose-100 text-rose-600 rounded-full text-xs font-bold transition-all cursor-pointer flex items-center gap-1 disabled:opacity-50"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                      <span>Decline</span>
+                    </button>
+                  </>
+                ) : (
+                  <span className="text-xs text-stone-400 font-semibold">
+                    {activeFlag ? 'Running' : ad.status === 'expired' ? 'Ended' : 'Declined'}
+                  </span>
+                )}
+              </div>
+            </div>
+          );
+        };
+
+        const filteredAds = ads.filter(matchesAdFilter);
+
+        return (
         <div className="space-y-4">
           <div className="p-4 rounded-3xl bg-gradient-to-r from-purple-950/30 via-pink-950/20 to-stone-900 border border-purple-500/30 space-y-2">
             <div className="flex items-center gap-2">
               <Megaphone className="w-4 h-4 text-[#ff2e93]" />
               <h4 className="text-xs font-black uppercase text-white tracking-wider">
-                Sponsor Ads Invariant & Split Engine
+                Optional Host Adverts · Atomic Approval &amp; Strict Duration
               </h4>
             </div>
             <p className="text-xs text-stone-300 leading-relaxed">
-              AirBus charges advertisers <strong className="text-white">KES 100/day</strong> per slot (max 10 active slots per video). On approval, funds are moved atomically: <strong className="text-emerald-400">70% host net</strong> is credited immediately to host wallet, and <strong className="text-purple-400">30% platform fee</strong> to Treasury. Rejection immediately releases the wallet hold back to the advertiser.
+              Adverts are optional. Approving a pending request atomically checks host wallet balance, debits the host as an expense, credits Admin Wallet as <strong className="text-white">Advert fee</strong>, and runs strictly from <strong className="text-emerald-400">start_at</strong> to <strong className="text-emerald-400">end_at</strong> with no auto-extension.
             </p>
-            <div className="text-[11px] font-mono text-purple-300 bg-purple-950/40 p-2.5 rounded-xl border border-purple-500/20">
-              Worked Example: 300 KES ad for 3 days ➔ Host Net: 210 KES | Treasury Fee: 90 KES
-            </div>
           </div>
 
-          {/* Slot Utilization & Financial Metrics */}
+          {adModerationError && (
+            <div className="p-3.5 rounded-2xl bg-rose-50 dark:bg-rose-950/50 border border-rose-300 dark:border-rose-800 text-xs font-semibold text-rose-700 dark:text-rose-300 flex items-center justify-between gap-2">
+              <span>{adModerationError}</span>
+              <button
+                type="button"
+                onClick={() => setAdModerationError(null)}
+                className="text-rose-500 hover:text-rose-700 cursor-pointer"
+                aria-label="Dismiss advert error"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
+          {/* Metrics */}
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
             <div className="p-3.5 bg-white dark:bg-[#15171e] rounded-2xl border border-stone-200 dark:border-stone-800">
-              <span className="text-[10px] uppercase font-bold text-stone-400 block">Total Placements</span>
-              <span className="text-base font-black text-stone-900 dark:text-white">{ads.length} Ads</span>
+              <span className="text-[10px] uppercase font-bold text-stone-400 block">Pending Approvals</span>
+              <span className="text-base font-black text-amber-600 dark:text-amber-400">{pendingAds.length}</span>
             </div>
             <div className="p-3.5 bg-white dark:bg-[#15171e] rounded-2xl border border-stone-200 dark:border-stone-800">
-              <span className="text-[10px] uppercase font-bold text-stone-400 block">Active Live Slots</span>
-              <span className="text-base font-black text-emerald-500">
-                {ads.filter(a => a.status === 'approved').length} / {stays.length * 10} Max
-              </span>
+              <span className="text-[10px] uppercase font-bold text-stone-400 block">Active Adverts</span>
+              <span className="text-base font-black text-emerald-500">{activeAdsList.length}</span>
             </div>
             <div className="p-3.5 bg-white dark:bg-[#15171e] rounded-2xl border border-stone-200 dark:border-stone-800">
-              <span className="text-[10px] uppercase font-bold text-stone-400 block">Host 70% Net Disbursed</span>
+              <span className="text-[10px] uppercase font-bold text-stone-400 block">Advert Fee Revenue</span>
               <span className="text-base font-black text-purple-600 dark:text-purple-400">
-                KES {ads.filter(a => a.status === 'approved').reduce((acc, a) => acc + a.hostNet, 0).toLocaleString()}
+                KES {totalAdvertFeeRevenue.toLocaleString()}
               </span>
             </div>
             <div className="p-3.5 bg-white dark:bg-[#15171e] rounded-2xl border border-stone-200 dark:border-stone-800">
-              <span className="text-[10px] uppercase font-bold text-stone-400 block">Treasury 30% Fee Kept</span>
-              <span className="text-base font-black text-pink-600 dark:text-pink-400">
-                KES {ads.filter(a => a.status === 'approved').reduce((acc, a) => acc + a.platformFee, 0).toLocaleString()}
+              <span className="text-[10px] uppercase font-bold text-stone-400 block">Expired / Declined</span>
+              <span className="text-base font-black text-stone-700 dark:text-stone-300">
+                {expiredAdsList.length} / {declinedAdsList.length}
               </span>
             </div>
             <div className="p-3.5 bg-white dark:bg-[#15171e] rounded-2xl border border-stone-200 dark:border-stone-800 col-span-2 sm:col-span-1">
-              <span className="text-[10px] uppercase font-bold text-stone-400 block">Total Ad Visibility</span>
+              <span className="text-[10px] uppercase font-bold text-stone-400 block">Total Ad Views</span>
               <span className="text-base font-black text-blue-600 dark:text-blue-400 flex items-center gap-1">
                 <Eye className="w-4 h-4" />
                 <span>{ads.reduce((acc, a) => acc + (a.views || 0), 0).toLocaleString()}</span>
@@ -3063,19 +3254,49 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </div>
           </div>
 
-          {/* Ad Filter Tabs & Header */}
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pt-2">
+          {/* Pending Approvals Section */}
+          <div className="space-y-2.5">
+            <div className="flex items-center justify-between">
+              <h4 className="text-sm font-extrabold text-stone-900 dark:text-white flex items-center gap-2">
+                <Clock className="w-4 h-4 text-amber-500" />
+                <span>Pending Approvals ({pendingAds.length})</span>
+              </h4>
+              <button
+                type="button"
+                onClick={loadAdminData}
+                className="px-3 py-1.5 rounded-full border border-stone-200 dark:border-stone-800 text-stone-600 dark:text-stone-300 text-xs font-bold flex items-center gap-1.5 hover:bg-stone-50 cursor-pointer"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>Refresh</span>
+              </button>
+            </div>
+
+            {pendingAds.length === 0 ? (
+              <div className="p-5 text-center bg-white dark:bg-[#15171e] rounded-2xl border border-dashed border-stone-200 dark:border-stone-800 text-xs text-stone-400">
+                No adverts awaiting approval right now.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {pendingAds.map(renderAdCard)}
+              </div>
+            )}
+          </div>
+
+          {/* All Adverts Filter & History */}
+          <div className="pt-3 border-t border-stone-200 dark:border-stone-800 space-y-3">
             <div className="flex items-center gap-1.5 overflow-x-auto">
               {[
-                { id: 'all', label: `All Ads (${ads.length})` },
-                { id: 'pending', label: `Pending (${ads.filter(a => a.status === 'pending').length})` },
-                { id: 'approved', label: `Approved (${ads.filter(a => a.status === 'approved').length})` },
-                { id: 'rejected', label: `Rejected (${ads.filter(a => a.status === 'rejected').length})` },
+                { id: 'all', label: `All (${ads.length})` },
+                { id: 'pending', label: `Pending (${pendingAds.length})` },
+                { id: 'active', label: `Active (${activeAdsList.length})` },
+                { id: 'declined', label: `Declined (${declinedAdsList.length})` },
+                { id: 'expired', label: `Expired (${expiredAdsList.length})` },
               ].map(f => (
                 <button
                   key={f.id}
+                  type="button"
                   onClick={() => setAdFilter(f.id as any)}
-                  className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer ${
+                  className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
                     adFilter === f.id
                       ? 'bg-stone-900 text-white dark:bg-stone-100 dark:text-stone-900 shadow-sm'
                       : 'bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-400 hover:bg-stone-200'
@@ -3086,132 +3307,91 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               ))}
             </div>
 
-            <button
-              onClick={loadAdminData}
-              className="px-3 py-1.5 rounded-full border border-stone-200 dark:border-stone-800 text-stone-600 dark:text-stone-300 text-xs font-bold flex items-center gap-1.5 hover:bg-stone-50 cursor-pointer"
-            >
-              <RefreshCw className="w-3.5 h-3.5" />
-              <span>Refresh</span>
-            </button>
+            {filteredAds.length === 0 ? (
+              <div className="p-8 text-center bg-white dark:bg-[#15171e] rounded-3xl border border-dashed border-stone-200 dark:border-stone-800 text-xs text-stone-400">
+                No advert requests in this category.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {filteredAds.map(renderAdCard)}
+              </div>
+            )}
           </div>
 
-          {ads.filter(a => adFilter === 'all' || a.status === adFilter).length === 0 ? (
-            <div className="p-8 text-center bg-white dark:bg-[#15171e] rounded-3xl border border-dashed border-stone-200 dark:border-stone-800 text-xs text-stone-400">
-              No advert requests in this category.
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {ads
-                .filter(a => adFilter === 'all' || a.status === adFilter)
-                .map(ad => {
-                  const associatedStay = stays.find(s => s.id === ad.stayId);
-                  return (
-                    <div
-                      key={ad.id}
-                      className="p-4 sm:p-5 bg-white dark:bg-[#15171e] rounded-3xl border border-stone-200 dark:border-stone-800 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4"
-                    >
-                      <div className="flex items-start gap-3.5">
-                        <img
-                          src={ad.imageUrl}
-                          alt={ad.title}
-                          className="w-16 h-16 rounded-2xl object-cover shrink-0 border border-stone-200 dark:border-stone-700 shadow-sm"
-                        />
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-2">
-                            <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300">
-                              {ad.tag || 'Sponsor'} ({ad.days} Days)
-                            </span>
-
-                            <span
-                              className={`text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full ${
-                                ad.status === 'approved'
-                                  ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
-                                  : ad.status === 'pending'
-                                  ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
-                                  : 'bg-rose-100 text-rose-800'
-                              }`}
-                            >
-                              {ad.status}
-                            </span>
-                          </div>
-
-                          <h4 className="text-sm font-extrabold text-stone-900 dark:text-white">{ad.title}</h4>
-                          <p className="text-xs text-stone-600 dark:text-stone-400 line-clamp-1">{ad.description}</p>
-
-                          {/* Financial Split Breakdown */}
-                          <div className="p-2.5 rounded-xl bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-800 text-xs grid grid-cols-3 gap-2 text-center max-w-md">
-                            <div>
-                              <span className="text-[10px] text-stone-400 font-semibold block">Total Billed</span>
-                              <strong className="text-stone-900 dark:text-white">KES {ad.totalAmount}</strong>
-                            </div>
-                            <div>
-                              <span className="text-[10px] text-stone-400 font-semibold block">Host Net (70%)</span>
-                              <strong className="text-emerald-600 dark:text-emerald-400">KES {ad.hostNet}</strong>
-                            </div>
-                            <div>
-                              <span className="text-[10px] text-stone-400 font-semibold block">Platform Fee (30%)</span>
-                              <strong className="text-purple-600 dark:text-purple-400">KES {ad.platformFee}</strong>
-                            </div>
-                          </div>
-
-                          {/* Visibility and Property Association Metrics */}
-                          <div className="flex flex-wrap items-center gap-3 pt-1 text-[11px]">
-                            <span className="text-stone-400">
-                              Advertiser: <strong className="text-stone-700 dark:text-stone-300">{ad.advertiserEmail}</strong>
-                            </span>
-                            <span className="text-stone-300 dark:text-stone-700">·</span>
-                            <span className="flex items-center gap-1 font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 px-2 py-0.5 rounded-full">
-                              <Eye className="w-3 h-3" />
-                              <span>{ad.views || 0} Ad Views</span>
-                            </span>
-                            <span className="flex items-center gap-1 font-bold text-pink-600 dark:text-pink-400 bg-pink-50 dark:bg-pink-950/40 px-2 py-0.5 rounded-full">
-                              <MousePointerClick className="w-3 h-3" />
-                              <span>{ad.clicks || 0} Clicks</span>
-                            </span>
-                            {associatedStay && (
-                              <span className="text-stone-500">
-                                Property: <strong className="text-stone-800 dark:text-stone-200">{associatedStay.title}</strong>
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-
-                    {/* Actions */}
-                    <div className="flex items-center gap-2 shrink-0 w-full md:w-auto justify-end">
-                      {ad.status === 'pending' ? (
-                        <>
-                          <button
-                            onClick={async () => {
-                              await api.approveAd(ad.id);
-                              showToast?.(`Ad approved! KES ${ad.hostNet} credited to host, KES ${ad.platformFee} to treasury.`);
-                              loadAdminData();
-                            }}
-                            className="px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:opacity-95 text-white rounded-full text-xs font-bold transition-all cursor-pointer flex items-center gap-1 shadow-sm"
-                          >
-                            <Check className="w-3.5 h-3.5" />
-                            <span>Approve &amp; Split</span>
-                          </button>
-                          <button
-                            onClick={async () => {
-                              const reason = prompt('Reason for rejecting advert:') || 'Ad does not meet quality requirements.';
-                              await api.rejectAd(ad.id, reason);
-                              showToast?.('Ad rejected and hold released.');
-                              loadAdminData();
-                            }}
-                            className="px-4 py-2 bg-stone-100 dark:bg-stone-800 hover:bg-rose-100 text-rose-600 rounded-full text-xs font-bold transition-all cursor-pointer flex items-center gap-1"
-                          >
-                            <X className="w-3.5 h-3.5" />
-                            <span>Reject &amp; Refund</span>
-                          </button>
-                        </>
-                      ) : (
-                        <span className="text-xs text-stone-400 font-semibold">Processed</span>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
+          {/* Decline Advert Reason Modal */}
+          {adRejectModalId && (
+            <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="w-full max-w-md bg-white dark:bg-[#15171e] rounded-3xl p-6 border border-stone-200 dark:border-stone-800 shadow-2xl space-y-4">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-base font-extrabold text-stone-900 dark:text-white">
+                    Decline Advert Request
+                  </h4>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAdRejectModalId(null);
+                      setAdRejectError(null);
+                    }}
+                    className="p-1 rounded-full hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-400 cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+                <p className="text-xs text-stone-500">
+                  No funds will be charged to the host. Provide a clear reason — it will be sent to the host in their notifications.
+                </p>
+                <textarea
+                  rows={3}
+                  value={adRejectReason}
+                  onChange={e => {
+                    setAdRejectReason(e.target.value);
+                    if (adRejectError) setAdRejectError(null);
+                  }}
+                  placeholder="Enter decline reason for the host..."
+                  className="w-full px-3.5 py-2.5 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-xs outline-none focus:border-[#e4002b]"
+                />
+                {adRejectError && (
+                  <p className="text-xs text-rose-600 font-semibold">{adRejectError}</p>
+                )}
+                <div className="flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAdRejectModalId(null);
+                      setAdRejectError(null);
+                    }}
+                    className="px-4 py-2 rounded-full bg-stone-100 dark:bg-stone-800 text-xs font-bold text-stone-700 dark:text-stone-300 cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={adActionLoadingId === adRejectModalId}
+                    onClick={async () => {
+                      const cleanReason = adRejectReason.trim();
+                      if (!cleanReason) {
+                        setAdRejectError('A decline reason is required.');
+                        return;
+                      }
+                      setAdActionLoadingId(adRejectModalId);
+                      try {
+                        await api.rejectAd(adRejectModalId, cleanReason);
+                        showToast?.('Advert declined. Host notified and KES 0 charged.');
+                        setAdRejectModalId(null);
+                        setAdRejectError(null);
+                        loadAdminData();
+                      } catch (err: any) {
+                        setAdRejectError(err?.message || 'Could not decline advert.');
+                      } finally {
+                        setAdActionLoadingId(null);
+                      }
+                    }}
+                    className="px-5 py-2 rounded-full bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold cursor-pointer disabled:opacity-50"
+                  >
+                    {adActionLoadingId === adRejectModalId ? 'Declining...' : 'Confirm Decline'}
+                  </button>
+                </div>
+              </div>
             </div>
           )}
 
@@ -3281,7 +3461,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             )}
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* TAB: WITHDRAWALS APPROVAL */}
       {tab === 'withdrawals' && (
