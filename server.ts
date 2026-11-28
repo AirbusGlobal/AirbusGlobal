@@ -4,7 +4,7 @@ import fs from 'fs';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
-import { GoogleGenAI, Type } from '@google/genai';
+import { GoogleGenAI } from '@google/genai';
 import { db, hashPassword, verifyPassword, PLANS, SESSION_IDLE_TIMEOUT_MS, validatePasswordStrength } from './src/server/db';
 import { User, Stay, StayCategory, Booking, ChatThread, ChatMessage, PaymentRecordType, PaymentRecordMethod, ShortIntentType } from './src/types';
 import { audioLibraryService } from './src/server/services/audioLibraryService';
@@ -13,6 +13,7 @@ import { shortJobQueue } from './src/server/services/shortJobQueue';
 import { SHORTS_TIER_CONFIG, AUDIO_UPLOAD_CONFIG } from './src/config/shortsTierConfig';
 import { apiRateLimiter, logger, opsMetrics, requestIdMiddleware, walletMutex } from './src/server/services/ops';
 import { MPESA_CONFIG, PaymentStatus, normalizePaymentStatus } from './src/shared/paymentConstants';
+import { isEnglishLanguage, resolveLanguageMeta, translateStayFieldsFree } from './src/server/services/translationService';
 
 dotenv.config();
 
@@ -1333,7 +1334,7 @@ Provide a friendly, direct, and benevolent response in 2 to 4 concise sentences.
   }
 });
 
-// airbus.ai Listing Translation into ANY language with per-(stayId, field, language) caching
+// airbus.ai Listing Translation into ANY language using free-forever zero-API-key engine + persistent per-field caching
 app.post('/api/stays/:id/translate', async (req, res) => {
   try {
     const targetLanguage = String(req.body?.targetLanguage || '').trim();
@@ -1369,8 +1370,7 @@ app.post('/api/stays/:id/translate', async (req, res) => {
       instantBookLabel: stay.instantBook ? 'Instant Confirmation' : 'Host approval',
     };
 
-    const lowerLang = targetLanguage.toLowerCase();
-    if (lowerLang === 'english' || lowerLang === 'en' || lowerLang === 'en-us' || lowerLang === 'en-gb') {
+    if (isEnglishLanguage(targetLanguage)) {
       return res.json({
         language: 'English',
         translated: sourceFields,
@@ -1385,119 +1385,50 @@ app.post('/api/stays/:id/translate', async (req, res) => {
       .digest('hex')
       .slice(0, 16);
 
+    const langMeta = resolveLanguageMeta(targetLanguage);
+    const cacheLangCandidates =
+      langMeta.canonical.toLowerCase() !== targetLanguage.toLowerCase()
+        ? [targetLanguage, langMeta.canonical]
+        : [targetLanguage];
+
     const fieldKeys = Object.keys(sourceFields) as Array<keyof typeof sourceFields>;
-    const cachedResult: Record<string, string | string[]> = {};
-    let allCached = true;
-    for (const field of fieldKeys) {
-      const hit = db.getStayTranslationField(stay.id, targetLanguage, field, sourceHash);
-      if (hit === null) {
-        allCached = false;
-        break;
+    for (const cacheLang of cacheLangCandidates) {
+      const cachedResult: Record<string, string | string[]> = {};
+      let allCached = true;
+      for (const field of fieldKeys) {
+        const hit = db.getStayTranslationField(stay.id, cacheLang, field, sourceHash);
+        if (hit === null) {
+          allCached = false;
+          break;
+        }
+        cachedResult[field] = hit;
       }
-      cachedResult[field] = hit;
+      if (allCached) {
+        return res.json({
+          language: cacheLang,
+          translated: cachedResult,
+          cached: true,
+          isOriginal: false,
+        });
+      }
     }
 
-    if (allCached) {
-      return res.json({
-        language: targetLanguage,
-        translated: cachedResult,
-        cached: true,
-        isOriginal: false,
-      });
+    const outcome = await translateStayFieldsFree(sourceFields, targetLanguage);
+    db.setStayTranslationFields(stay.id, targetLanguage, sourceHash, outcome.translated as unknown as Record<string, string | string[]>);
+    if (outcome.language.toLowerCase() !== targetLanguage.toLowerCase()) {
+      db.setStayTranslationFields(stay.id, outcome.language, sourceHash, outcome.translated as unknown as Record<string, string | string[]>);
     }
-
-    if (!genAI || !process.env.GEMINI_API_KEY) {
-      return res.status(503).json({
-        error: 'airbus.ai translation service is not configured on this server (missing GEMINI_API_KEY).',
-      });
-    }
-
-    const prompt = `Translate all English values in the JSON below naturally and accurately into ${targetLanguage}.
-Rules:
-1. Keep all numbers, quantities, booking hours (e.g. 14:00, 10:00), prices, and currency codes (e.g. KES, USD, EUR) completely exact.
-2. Keep proper Kenyan place names (such as Westlands, Kilimani, Diani, Nairobi, Mombasa, Kenya) recognizable.
-3. Preserve array lengths and item order for welcomeGifts, features, and highlights.
-4. Return strictly valid JSON matching the requested schema.
-
-Input JSON:
-${JSON.stringify(sourceFields, null, 2)}`;
-
-    const response = await genAI.models.generateContent({
-      model: 'gemini-4-hydrogen',
-      contents: prompt,
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            title: { type: Type.STRING },
-            location: { type: Type.STRING },
-            type: { type: Type.STRING },
-            description: { type: Type.STRING },
-            hostMessage: { type: Type.STRING },
-            welcomeGifts: { type: Type.ARRAY, items: { type: Type.STRING } },
-            features: { type: Type.ARRAY, items: { type: Type.STRING } },
-            highlights: { type: Type.ARRAY, items: { type: Type.STRING } },
-            bookingHoursText: { type: Type.STRING },
-            directSettlementText: { type: Type.STRING },
-            priceText: { type: Type.STRING },
-            instantBookLabel: { type: Type.STRING },
-          },
-          required: [
-            'title',
-            'location',
-            'type',
-            'description',
-            'hostMessage',
-            'welcomeGifts',
-            'features',
-            'highlights',
-            'bookingHoursText',
-            'directSettlementText',
-            'priceText',
-            'instantBookLabel',
-          ],
-        },
-      },
-    });
-
-    const rawText = (response.text || '').trim();
-    if (!rawText) {
-      return res.status(502).json({ error: `airbus.ai could not generate a translation for "${targetLanguage}".` });
-    }
-    const parsed = JSON.parse(rawText);
-    const normalizedTranslated: Record<string, string | string[]> = {
-      title: typeof parsed.title === 'string' && parsed.title.trim() ? parsed.title.trim() : sourceFields.title,
-      location: typeof parsed.location === 'string' && parsed.location.trim() ? parsed.location.trim() : sourceFields.location,
-      type: typeof parsed.type === 'string' && parsed.type.trim() ? parsed.type.trim() : sourceFields.type,
-      description: typeof parsed.description === 'string' ? parsed.description : sourceFields.description,
-      hostMessage: typeof parsed.hostMessage === 'string' ? parsed.hostMessage : sourceFields.hostMessage,
-      welcomeGifts: Array.isArray(parsed.welcomeGifts) ? parsed.welcomeGifts.map(String) : sourceFields.welcomeGifts,
-      features: Array.isArray(parsed.features) ? parsed.features.map(String) : sourceFields.features,
-      highlights: Array.isArray(parsed.highlights) ? parsed.highlights.map(String) : sourceFields.highlights,
-      bookingHoursText: typeof parsed.bookingHoursText === 'string' && parsed.bookingHoursText.trim()
-        ? parsed.bookingHoursText.trim()
-        : sourceFields.bookingHoursText,
-      directSettlementText: typeof parsed.directSettlementText === 'string' && parsed.directSettlementText.trim()
-        ? parsed.directSettlementText.trim()
-        : sourceFields.directSettlementText,
-      priceText: typeof parsed.priceText === 'string' && parsed.priceText.trim() ? parsed.priceText.trim() : sourceFields.priceText,
-      instantBookLabel: typeof parsed.instantBookLabel === 'string' && parsed.instantBookLabel.trim()
-        ? parsed.instantBookLabel.trim()
-        : sourceFields.instantBookLabel,
-    };
-
-    db.setStayTranslationFields(stay.id, targetLanguage, sourceHash, normalizedTranslated);
 
     return res.json({
-      language: targetLanguage,
-      translated: normalizedTranslated,
+      language: outcome.language,
+      translated: outcome.translated,
       cached: false,
       isOriginal: false,
+      engine: outcome.engine,
     });
   } catch (err: any) {
     console.warn('airbus.ai translate error:', err);
-    return res.status(500).json({ error: err?.message || 'Failed to translate listing.' });
+    return res.status(500).json({ error: 'Failed to translate listing. Please try again.' });
   }
 });
 

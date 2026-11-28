@@ -2761,6 +2761,51 @@ describe('AirBus Platform End-to-End Integrity Suite', () => {
     const adStatusAfterExpiry = await apiJson<{ ads: any[] }>('/api/ads?stayId=s_ww_3');
     assert.equal(adStatusAfterExpiry.data.ads.find(a => a.id === paidAdId)?.status, 'expired');
   });
+
+  it('34. Free-forever zero-API-key airbus.ai listing translation translates live across major & Kenyan languages without Gemini', async () => {
+    const stay = db.getStayById('s_ww_3') || db.getStays()[0];
+    assert.ok(stay);
+
+    const prevGeminiKey = process.env.GEMINI_API_KEY;
+    delete process.env.GEMINI_API_KEY;
+
+    try {
+      for (const lang of ['French', 'Spanish', 'Arabic', 'Chinese', 'German', 'Kikuyu', 'Dholuo', 'Kiswahili']) {
+        const res = await apiJson<{ language: string; cached: boolean; isOriginal: boolean; engine?: string; translated: any }>(
+          `/api/stays/${stay.id}/translate`,
+          {
+            method: 'POST',
+            body: { targetLanguage: lang },
+          }
+        );
+        assert.equal(res.status, 200, `Translation for ${lang} should succeed without GEMINI_API_KEY`);
+        assert.equal(res.data.isOriginal, false);
+        assert.ok(res.data.translated.title);
+        assert.ok(res.data.translated.directSettlementText);
+        assert.notEqual(
+          res.data.translated.directSettlementText,
+          'Free cancellation before check-in. Guests pay hosts directly after property tour and key handover.',
+          `directSettlementText must translate into ${lang}`
+        );
+        assert.ok(res.data.translated.priceText.includes('KES'), `priceText must preserve KES in ${lang}`);
+        assert.equal(res.data.translated.features.length, (stay.features || []).length);
+        assert.equal(res.data.translated.welcomeGifts.length, (stay.welcomeGifts || []).length);
+      }
+
+      // Repeating canonical language "Swahili" after "Kiswahili" hits persistent cache
+      const swCache = await apiJson<{ language: string; cached: boolean; translated: any }>(
+        `/api/stays/${stay.id}/translate`,
+        {
+          method: 'POST',
+          body: { targetLanguage: 'Swahili' },
+        }
+      );
+      assert.equal(swCache.status, 200);
+      assert.equal(swCache.data.cached, true);
+    } finally {
+      if (prevGeminiKey !== undefined) process.env.GEMINI_API_KEY = prevGeminiKey;
+    }
+  });
 });
 
 
