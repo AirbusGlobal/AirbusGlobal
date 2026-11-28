@@ -1,5 +1,5 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Stay, Currency, CURRENCY_RATES } from '../types';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { Stay, Currency, CURRENCY_RATES, AdRequest } from '../types';
 import { api } from '../api';
 import {
   Heart,
@@ -20,8 +20,8 @@ import {
   Gift,
   Video,
   Images,
-  Tag,
-  Percent,
+  Megaphone,
+  Clock,
 } from 'lucide-react';
 import { VerifiedBadge } from './VerifiedBadge';
 import { SharedVideoPlayer } from './shared/SharedVideoPlayer';
@@ -35,10 +35,22 @@ interface StayCardProps {
   onBookNow: (stayId: string) => void;
   onChatHost: (stayId: string) => void;
   onNegotiate: (stayId: string) => void;
+  onAdvertiseStay?: (stay: Stay) => void;
   onHover: (stayId: string | null) => void;
   currency: Currency;
   workView?: boolean;
   blackFridayActive?: boolean;
+}
+
+function formatAdRemaining(endTs: number | null | undefined, nowMs: number): string {
+  if (!endTs || endTs <= nowMs) return 'Ending';
+  const diffMs = endTs - nowMs;
+  const days = Math.floor(diffMs / 86_400_000);
+  if (days >= 1) return `${days}d left`;
+  const hours = Math.floor(diffMs / 3_600_000);
+  if (hours >= 1) return `${hours}h left`;
+  const mins = Math.max(1, Math.ceil(diffMs / 60_000));
+  return `${mins}m left`;
 }
 
 function countryCodeToFlag(code?: string): string {
@@ -59,6 +71,7 @@ export const StayCard: React.FC<StayCardProps> = ({
   onBookNow,
   onChatHost,
   onNegotiate,
+  onAdvertiseStay,
   onHover,
   currency,
   workView = false,
@@ -66,7 +79,48 @@ export const StayCard: React.FC<StayCardProps> = ({
 }) => {
   const [isVideoPlaying, setIsVideoPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(true);
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const videoRef = useRef<HTMLVideoElement>(null);
+  const recordedAdViewsRef = useRef<Set<string>>(new Set());
+
+  const liveAds = useMemo<AdRequest[]>(() => {
+    const raw = stay.activeAds || [];
+    return raw.filter(ad => {
+      const targetId = ad.stayId || ad.listingId;
+      if (targetId !== stay.id) return false;
+      if (ad.status !== 'active' && ad.status !== 'approved') return false;
+      const endTs = ad.end_at ?? ad.expiresAt;
+      return !endTs || endTs > nowMs;
+    });
+  }, [stay.activeAds, stay.id, nowMs]);
+
+  useEffect(() => {
+    setNowMs(Date.now());
+  }, [stay.activeAds, stay.id]);
+
+  useEffect(() => {
+    if (liveAds.length === 0) return;
+    const now = Date.now();
+    const soonestEnd = liveAds
+      .map(ad => ad.end_at ?? ad.expiresAt)
+      .filter((t): t is number => typeof t === 'number' && t > now)
+      .sort((a, b) => a - b)[0];
+    if (!soonestEnd) return;
+    const delayMs = Math.max(50, Math.min(2_147_483_647, soonestEnd - now + 100));
+    const timer = window.setTimeout(() => {
+      setNowMs(Date.now());
+    }, delayMs);
+    return () => window.clearTimeout(timer);
+  }, [liveAds]);
+
+  useEffect(() => {
+    for (const ad of liveAds) {
+      if (!recordedAdViewsRef.current.has(ad.id)) {
+        recordedAdViewsRef.current.add(ad.id);
+        api.recordAdView(ad.id).catch(() => {});
+      }
+    }
+  }, [liveAds]);
 
   // Format currency
   const formatMoney = (price: number) => {
@@ -479,10 +533,107 @@ export const StayCard: React.FC<StayCardProps> = ({
               🔒 Host contact &amp; booking temporarily paused
             </div>
           )}
-
-
         </div>
       </div>
+
+      {/* Listing Card Footer — Scoped Strictly to This Listing (Active Paid Adverts + Advertise CTA) */}
+      <footer
+        onClick={e => e.stopPropagation()}
+        className="border-t border-stone-200/80 dark:border-stone-800 bg-stone-50/90 dark:bg-[#101218] px-3.5 py-2.5 space-y-2"
+      >
+        {liveAds.length > 0 && (
+          <div className="space-y-1.5">
+            {liveAds.map(ad => {
+              const endTs = ad.end_at ?? ad.expiresAt;
+              const safeHref =
+                ad.targetUrl && (ad.targetUrl.startsWith('http://') || ad.targetUrl.startsWith('https://'))
+                  ? ad.targetUrl
+                  : ad.contactPhone
+                  ? `tel:${ad.contactPhone}`
+                  : undefined;
+
+              return (
+                <div
+                  key={ad.id}
+                  className="flex items-center gap-2.5 p-2 rounded-xl bg-white dark:bg-[#181b24] border border-stone-200 dark:border-stone-800/90"
+                >
+                  <div className="w-9 h-9 rounded-lg overflow-hidden bg-gradient-to-br from-purple-600/20 to-pink-500/20 shrink-0 border border-stone-200 dark:border-stone-700">
+                    {ad.imageUrl && (
+                      <img
+                        src={ad.imageUrl}
+                        alt={ad.title}
+                        referrerPolicy="no-referrer"
+                        onError={e => {
+                          (e.currentTarget as HTMLImageElement).style.display = 'none';
+                        }}
+                        className="w-full h-full object-cover"
+                      />
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5 text-[10px] leading-none">
+                      <span className="font-bold uppercase tracking-wider text-purple-600 dark:text-purple-400">
+                        Sponsored
+                      </span>
+                      {ad.tag && (
+                        <>
+                          <span className="text-stone-300 dark:text-stone-600">·</span>
+                          <span className="text-stone-500 dark:text-stone-400 truncate">{ad.tag}</span>
+                        </>
+                      )}
+                      {endTs && (
+                        <span className="ml-auto inline-flex items-center gap-0.5 text-[10px] font-medium text-stone-400 shrink-0">
+                          <Clock className="w-2.5 h-2.5" />
+                          {formatAdRemaining(endTs, nowMs)}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] font-bold text-stone-900 dark:text-white truncate mt-0.5">
+                      {ad.title}
+                    </p>
+                    {ad.description && (
+                      <p className="text-[10px] text-stone-500 dark:text-stone-400 truncate">
+                        {ad.description}
+                      </p>
+                    )}
+                  </div>
+                  {safeHref && (
+                    <a
+                      href={safeHref}
+                      target={safeHref.startsWith('http') ? '_blank' : undefined}
+                      rel={safeHref.startsWith('http') ? 'noopener noreferrer' : undefined}
+                      onClick={e => {
+                        e.stopPropagation();
+                        api.recordAdClick(ad.id).catch(() => {});
+                      }}
+                      className="px-2.5 py-1 rounded-full bg-stone-900 dark:bg-white text-white dark:text-stone-900 text-[10px] font-bold whitespace-nowrap shrink-0 flex items-center gap-1 hover:opacity-90"
+                    >
+                      <span>{safeHref.startsWith('tel:') ? 'Call' : 'Visit'}</span>
+                      <ExternalLink className="w-2.5 h-2.5" />
+                    </a>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        <button
+          type="button"
+          onClick={e => {
+            e.stopPropagation();
+            if (onAdvertiseStay) {
+              onAdvertiseStay(stay);
+            } else {
+              onSelectStay(stay.id);
+            }
+          }}
+          className="w-full py-1.5 px-3 rounded-lg border border-purple-500/30 bg-purple-500/5 hover:bg-purple-500/15 text-purple-700 dark:text-purple-300 text-[11px] font-bold flex items-center justify-center gap-1.5 whitespace-nowrap transition-colors cursor-pointer"
+        >
+          <Megaphone className="w-3 h-3 shrink-0" />
+          <span>Advertise Here (@ KES 100/day)</span>
+        </button>
+      </footer>
     </div>
   );
 };

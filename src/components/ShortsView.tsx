@@ -9,6 +9,7 @@ import {
   CaptionSegment,
   PostComment,
   ShortIntentType,
+  AdRequest,
 } from '../types';
 import {
   ChevronUp,
@@ -39,6 +40,8 @@ import {
   BadgeDollarSign,
   PhoneCall,
   AlertCircle,
+  ExternalLink,
+  Clock,
 } from 'lucide-react';
 import { api } from '../api';
 import { VerifiedBadge } from './VerifiedBadge';
@@ -154,6 +157,8 @@ export const ShortsView: React.FC<ShortsViewProps> = ({
   const [reportAudioReason, setReportAudioReason] = useState('');
   const [showReportAudioBox, setShowReportAudioBox] = useState(false);
   const [copiedShare, setCopiedShare] = useState(false);
+  const [adNowMs, setAdNowMs] = useState(() => Date.now());
+  const recordedShortAdViewsRef = useRef<Set<string>>(new Set());
 
   const loadShortsFeed = useCallback(() => {
     api
@@ -290,6 +295,56 @@ export const ShortsView: React.FC<ShortsViewProps> = ({
   const currentItem = unifiedFeed[safeIndex];
   const nextItem = unifiedFeed.length > 1 ? unifiedFeed[(safeIndex + 1) % unifiedFeed.length] : undefined;
   const currentStay = currentItem?.stay;
+
+  // Listing-scoped active adverts for the current Short's linked stay (auto-removed on expiry)
+  const activeShortAds = useMemo<AdRequest[]>(() => {
+    const linkedId = currentItem?.stayId || currentStay?.id;
+    if (!linkedId || currentItem?.listingUnavailable) return [];
+    const stayAds = currentStay?.activeAds || [];
+    const postAds = currentItem?.post?.activeAds || [];
+    const merged = new Map<string, AdRequest>();
+    for (const ad of [...stayAds, ...postAds]) {
+      if (!ad?.id) continue;
+      const targetId = ad.stayId || ad.listingId;
+      if (targetId !== linkedId) continue;
+      if (ad.status !== 'active' && ad.status !== 'approved') continue;
+      const endTs = ad.end_at ?? ad.expiresAt;
+      if (endTs && endTs <= adNowMs) continue;
+      merged.set(ad.id, ad);
+    }
+    return Array.from(merged.values());
+  }, [currentItem?.stayId, currentItem?.listingUnavailable, currentItem?.post?.activeAds, currentStay?.id, currentStay?.activeAds, adNowMs]);
+
+  useEffect(() => {
+    setAdNowMs(Date.now());
+  }, [currentItem?.key, currentStay?.activeAds, currentItem?.post?.activeAds]);
+
+  useEffect(() => {
+    if (activeShortAds.length === 0) return;
+    const now = Date.now();
+    const soonestEnd = activeShortAds
+      .map(ad => ad.end_at ?? ad.expiresAt)
+      .filter((t): t is number => typeof t === 'number' && t > now)
+      .sort((a, b) => a - b)[0];
+    if (!soonestEnd) return;
+    const delayMs = Math.max(50, Math.min(2_147_483_647, soonestEnd - now + 100));
+    const timer = window.setTimeout(() => {
+      setAdNowMs(Date.now());
+      loadShortsFeed();
+    }, delayMs);
+    return () => window.clearTimeout(timer);
+  }, [activeShortAds, loadShortsFeed]);
+
+  useEffect(() => {
+    for (const ad of activeShortAds) {
+      if (!recordedShortAdViewsRef.current.has(ad.id)) {
+        recordedShortAdViewsRef.current.add(ad.id);
+        api.recordAdView(ad.id).catch(() => {});
+      }
+    }
+  }, [activeShortAds]);
+
+  const hasShortFooterAds = activeShortAds.length > 0;
 
   // Reactive social state for active Short
   const [likesCount, setLikesCount] = useState(currentItem?.likes || 0);
@@ -946,7 +1001,9 @@ export const ShortsView: React.FC<ShortsViewProps> = ({
           <div
             className="absolute inset-x-3 pointer-events-none flex justify-start"
             style={{
-              bottom: SHORTS_ZONES.captionsBottomOffset,
+              bottom: hasShortFooterAds
+                ? `calc(${SHORTS_ZONES.captionsBottomOffset} + 3.75rem)`
+                : SHORTS_ZONES.captionsBottomOffset,
               paddingRight: SHORTS_ZONES.captionsRightPadding,
               zIndex: SHORTS_Z_INDEX.captions,
             }}
@@ -961,7 +1018,9 @@ export const ShortsView: React.FC<ShortsViewProps> = ({
         <div
           className="absolute flex flex-col items-center gap-2.5 pointer-events-auto"
           style={{
-            bottom: SHORTS_ZONES.actionRailBottomOffset,
+            bottom: hasShortFooterAds
+              ? `calc(${SHORTS_ZONES.actionRailBottomOffset} + 3.75rem)`
+              : SHORTS_ZONES.actionRailBottomOffset,
             right: SHORTS_ZONES.actionRailRightOffset,
             zIndex: SHORTS_Z_INDEX.infoAndActionRail,
           }}
@@ -1067,7 +1126,9 @@ export const ShortsView: React.FC<ShortsViewProps> = ({
         <div
           className="relative mt-auto pt-12 px-3.5 bg-gradient-to-t from-black/95 via-black/80 to-transparent text-white flex flex-col gap-1.5 pointer-events-none"
           style={{
-            paddingBottom: SHORTS_ZONES.infoBlockPaddingBottom,
+            paddingBottom: hasShortFooterAds
+              ? `calc(${SHORTS_ZONES.infoBlockPaddingBottom} + 3.75rem)`
+              : SHORTS_ZONES.infoBlockPaddingBottom,
             paddingRight: SHORTS_ZONES.infoBlockPaddingRight,
             zIndex: SHORTS_Z_INDEX.infoAndActionRail,
           }}
@@ -1169,7 +1230,9 @@ export const ShortsView: React.FC<ShortsViewProps> = ({
         <div
           className="absolute inset-x-2.5 flex items-center gap-1.5 overflow-x-auto no-scrollbar pointer-events-auto"
           style={{
-            bottom: SHORTS_ZONES.listingActionsBottomOffset,
+            bottom: hasShortFooterAds
+              ? `calc(${SHORTS_ZONES.listingActionsBottomOffset} + 3.75rem)`
+              : SHORTS_ZONES.listingActionsBottomOffset,
             zIndex: SHORTS_Z_INDEX.infoAndActionRail,
           }}
         >
@@ -1218,6 +1281,91 @@ export const ShortsView: React.FC<ShortsViewProps> = ({
             <span>Book direct on WhatsApp</span>
           </button>
         </div>
+
+        {/* Z-LAYER 3.5: Non-Obstructing Related Short Footer Advert Strip (Strictly for THIS Listing) */}
+        {hasShortFooterAds && (
+          <footer
+            onClick={e => e.stopPropagation()}
+            className="absolute inset-x-2.5 pointer-events-auto"
+            style={{
+              bottom: 'calc(max(0.35rem, env(safe-area-inset-bottom)) + 0.15rem)',
+              zIndex: SHORTS_Z_INDEX.infoAndActionRail,
+            }}
+          >
+            <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
+              {activeShortAds.map(ad => {
+                const endTs = ad.end_at ?? ad.expiresAt;
+                const diffMs = endTs ? Math.max(0, endTs - adNowMs) : 0;
+                const remLabel = !endTs
+                  ? ''
+                  : diffMs >= 86_400_000
+                  ? `${Math.floor(diffMs / 86_400_000)}d left`
+                  : diffMs >= 3_600_000
+                  ? `${Math.floor(diffMs / 3_600_000)}h left`
+                  : `${Math.max(1, Math.ceil(diffMs / 60_000))}m left`;
+                const safeHref =
+                  ad.targetUrl && (ad.targetUrl.startsWith('http://') || ad.targetUrl.startsWith('https://'))
+                    ? ad.targetUrl
+                    : ad.contactPhone
+                    ? `tel:${ad.contactPhone}`
+                    : undefined;
+
+                return (
+                  <div
+                    key={ad.id}
+                    className={`flex items-center gap-2 px-2.5 py-1.5 rounded-xl bg-black/85 backdrop-blur-md border border-white/15 text-white shrink-0 ${
+                      activeShortAds.length > 1 ? 'w-[85%]' : 'w-full'
+                    }`}
+                  >
+                    <div className="w-8 h-8 rounded-lg overflow-hidden bg-stone-800 shrink-0 border border-white/15">
+                      {ad.imageUrl && (
+                        <img
+                          src={ad.imageUrl}
+                          alt={ad.title}
+                          referrerPolicy="no-referrer"
+                          onError={e => {
+                            (e.currentTarget as HTMLImageElement).style.display = 'none';
+                          }}
+                          className="w-full h-full object-cover"
+                        />
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5 text-[9px] leading-none">
+                        <span className="font-extrabold uppercase tracking-wider text-pink-400">
+                          Sponsored
+                        </span>
+                        {ad.tag && <span className="text-stone-400 truncate">· {ad.tag}</span>}
+                        {remLabel && (
+                          <span className="ml-auto inline-flex items-center gap-0.5 text-stone-400 shrink-0">
+                            <Clock className="w-2.5 h-2.5" />
+                            {remLabel}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[11px] font-bold text-white truncate mt-0.5">{ad.title}</p>
+                    </div>
+                    {safeHref && (
+                      <a
+                        href={safeHref}
+                        target={safeHref.startsWith('http') ? '_blank' : undefined}
+                        rel={safeHref.startsWith('http') ? 'noopener noreferrer' : undefined}
+                        onClick={e => {
+                          e.stopPropagation();
+                          api.recordAdClick(ad.id).catch(() => {});
+                        }}
+                        className="px-2.5 py-1 rounded-full bg-white text-stone-950 text-[10px] font-extrabold whitespace-nowrap shrink-0 flex items-center gap-1 hover:bg-stone-200"
+                      >
+                        <span>{safeHref.startsWith('tel:') ? 'Call' : 'Visit'}</span>
+                        <ExternalLink className="w-2.5 h-2.5" />
+                      </a>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </footer>
+        )}
 
         {/* Z-LAYER 3.6: ZONE 5 — Thin Bottom Progress Bar */}
         <div

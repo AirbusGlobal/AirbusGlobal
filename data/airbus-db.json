@@ -7,14 +7,14 @@
       "portal": "guest",
       "email": "guest@airbus.ke",
       "role": "guest",
-      "passwordHash": "legacy256$$2b$10$cGyePbkFIirHS3PEk3rLIOULTLvak4Wc/cqeA3C9olMl9d5LsRb9K",
+      "passwordHash": "$2b$10$8Tg4m2JgonLRIHW.SJ1jjefXAtM2tnsEDTiQlrYHqjgxnXqLtaIby",
       "phone": "+254 712 345 678",
       "location": "Nairobi, Kenya",
       "bio": "Passionate traveller, remote software engineer & video stay enthusiast.",
       "languages": "English, Swahili",
       "idVerified": true,
       "isVVVIP": false,
-      "createdAt": 1792816245747
+      "createdAt": 1793282710824
     },
     {
       "id": "u_owner",
@@ -23,14 +23,14 @@
       "portal": "owner",
       "email": "owner@airbus.ke",
       "role": "owner",
-      "passwordHash": "legacy256$$2b$10$rGFmBCpTmNALhKXOA879SejixDWAd0Ge.9yN0jAs0dtWArdAtkmMW",
+      "passwordHash": "$2b$10$Qa2Rolr87tpec9tcpAWlou5nLhYLgqvVeYRVrTTxY.OzHOvnxgAhy",
       "phone": "+254 722 987 654",
       "location": "Westlands, Nairobi",
       "bio": "Superhost managing luxury villas in Westlands and beachfront retreats in Diani & Nyali.",
       "languages": "English, Swahili, French",
       "idVerified": true,
       "isVVVIP": true,
-      "createdAt": 1790224245747
+      "createdAt": 1790690711009
     },
     {
       "id": "u_admin_master",
@@ -39,14 +39,14 @@
       "portal": "admin",
       "email": "kamalahari93@gmail.com",
       "role": "admin",
-      "passwordHash": "legacy256$$2b$10$nsrGLa/MQpXWsSK6/fQva.ivu.1mv/Me5EZ9l5x3NYkrHNye3B.DC",
+      "passwordHash": "$2b$10$AKmCcxzUhTfC.loqqDpXyOZgfw0iBWYYaxA1FqHaGm.QuWono6/EW",
       "phone": "+254 700 000 001",
       "location": "Headquarters, Nairobi",
       "bio": "Lead Platform Administrator at AirBus Global.",
       "languages": "English, Swahili",
       "idVerified": true,
       "isVVVIP": true,
-      "createdAt": 1785040245747
+      "createdAt": 1785506711199
     }
   ],
   "stays": [
@@ -90,7 +90,7 @@
       "isFeatured": true,
       "isApprovedByAdmin": true,
       "isPromoted": true,
-      "promotedUntil": 1796617845747,
+      "promotedUntil": 1797084311199,
       "promotionImpressions": 480,
       "promotionClicks": 62,
       "welcomeGifts": [
@@ -116,7 +116,7 @@
           "userRole": "guest",
           "text": "Is the sunset view from the 18th floor really as wide as shown in the video? Absolutely breathtaking!",
           "likes": 12,
-          "createdAt": 1794976245747,
+          "createdAt": 1795442711199,
           "replies": [
             {
               "id": "r1",
@@ -125,7 +125,7 @@
               "userName": "David Mutua (Host)",
               "userRole": "owner",
               "text": "Yes Sarah! You get an unobstructed 270-degree view of Nairobi skyline and the sunset over Ngong Hills.",
-              "createdAt": 1795062645747
+              "createdAt": 1795529111199
             },
             {
               "id": "r2",
@@ -134,7 +134,7 @@
               "userName": "Sarah Wanjiku",
               "userRole": "guest",
               "text": "That sounds amazing, booking for next week!",
-              "createdAt": 1795149045747
+              "createdAt": 1795615511199
             }
           ]
         }
@@ -144,7 +144,7 @@
         262,
         330
       ],
-      "createdAt": 1791952245747,
+      "createdAt": 1792418711199,
       "isVerified": true,
       "isAirbusWork": true,
       "monthlyPrice": 175000,
@@ -159,7 +159,7 @@
       "reviewed_at": null,
       "reviewed_by": null,
       "publishState": "PUBLISHED",
-      "published_at": 1791952245747,
+      "published_at": 1792418711199,
       "approved_by": "admin@airbus.ke",
       "videoMediaId": "ma_s1_5e090a",
       "collections": [
@@ -245,7 +245,7 @@
         200,
         260
       ],
-      "createdAt": 1792384245747,
+      "createdAt": 1792850711199,
       "isVerified": true,
       "isAirbusWork": true,
       "monthlyPrice": 88000,
@@ -257,15 +257,15 @@
       "escapeOriginalPrice": 4500,
       "escapeOfferPrice": 3375,
       "escapeDiscountPercent": 25,
-      "escapeValidFrom": "2026-11-23",
-      "escapeValidTo": "2026-12-14",
+      "escapeValidFrom": "2026-11-28",
+      "escapeValidTo": "2026-12-19",
       "moderationState": "APPROVED",
       "moderationStatus": "approved",
       "admin_feedback": null,
       "reviewed_at": null,
       "reviewed_by": null,
       "publishState": "PUBLISHED",
-      "published_at": 1792384245747,
+      "published_at": 1792850711199,
       "approved_by": "admin@airbus.ke",
       "videoMediaId": "ma_s2_bf6076",
       "collections": [
@@ -351,14 +351,14 @@
         150,
         200
       ],
-      "createdAt": 1791088245747,
+      "createdAt": 1791554711200,
       "moderationState": "APPROVED",
       "moderationStatus": "approved",
       "admin_feedback": null,
       "reviewed_at": null,
       "reviewed_by": null,
       "publishState": "PUBLISHED",
-      "published_at": 1791088245747,
+      "published_at": 1791554711200,
       "approved_by": "admin@airbus.ke",
       "videoMediaId": "ma_s3_35b41d",
       "collections": [],
@@ -427,7 +427,7 @@
       "isFeatured": true,
       "isApprovedByAdmin": true,
       "isPromoted": true,
-      "promotedUntil": 1796013045748,
+      "promotedUntil": 1796479511200,
       "promotionImpressions": 610,
       "promotionClicks": 84,
       "welcomeGifts": [
@@ -453,7 +453,7 @@
           "userRole": "guest",
           "text": "How far is the beach from the pool terrace? Can we walk straight into the water?",
           "likes": 8,
-          "createdAt": 1794717045747,
+          "createdAt": 1795183511199,
           "replies": [
             {
               "id": "r3",
@@ -462,7 +462,7 @@
               "userName": "David Mutua (Host)",
               "userRole": "owner",
               "text": "Literally 15 steps down our private landscaped pathway onto the soft white sands of Nyali beach!",
-              "createdAt": 1794803445747
+              "createdAt": 1795269911199
             }
           ]
         }
@@ -472,14 +472,14 @@
         20,
         350
       ],
-      "createdAt": 1789792245748,
+      "createdAt": 1790258711200,
       "moderationState": "APPROVED",
       "moderationStatus": "approved",
       "admin_feedback": null,
       "reviewed_at": null,
       "reviewed_by": null,
       "publishState": "PUBLISHED",
-      "published_at": 1789792245748,
+      "published_at": 1790258711200,
       "approved_by": "admin@airbus.ke",
       "videoMediaId": "ma_s4_9c6bbe",
       "collections": [],
@@ -564,7 +564,7 @@
         40,
         10
       ],
-      "createdAt": 1792816245748,
+      "createdAt": 1793282711200,
       "isVerified": true,
       "blackFridayOptIn": true,
       "blackFridayDiscountPercent": 50,
@@ -573,15 +573,15 @@
       "escapeOriginalPrice": 13500,
       "escapeOfferPrice": 9450,
       "escapeDiscountPercent": 30,
-      "escapeValidFrom": "2026-11-23",
-      "escapeValidTo": "2026-12-23",
+      "escapeValidFrom": "2026-11-28",
+      "escapeValidTo": "2026-12-28",
       "moderationState": "APPROVED",
       "moderationStatus": "approved",
       "admin_feedback": null,
       "reviewed_at": null,
       "reviewed_by": null,
       "publishState": "PUBLISHED",
-      "published_at": 1792816245748,
+      "published_at": 1793282711200,
       "approved_by": "admin@airbus.ke",
       "videoMediaId": "ma_s5_b56965",
       "collections": [
@@ -666,14 +666,14 @@
         290,
         220
       ],
-      "createdAt": 1793248245748,
+      "createdAt": 1793714711200,
       "moderationState": "APPROVED",
       "moderationStatus": "approved",
       "admin_feedback": null,
       "reviewed_at": null,
       "reviewed_by": null,
       "publishState": "PUBLISHED",
-      "published_at": 1793248245748,
+      "published_at": 1793714711200,
       "approved_by": "admin@airbus.ke",
       "videoMediaId": "ma_s6_aa8098",
       "collections": [],
@@ -759,14 +759,14 @@
         170,
         120
       ],
-      "createdAt": 1794112245748,
+      "createdAt": 1794578711200,
       "moderationState": "APPROVED",
       "moderationStatus": "approved",
       "admin_feedback": null,
       "reviewed_at": null,
       "reviewed_by": null,
       "publishState": "PUBLISHED",
-      "published_at": 1794112245748,
+      "published_at": 1794578711200,
       "approved_by": "admin@airbus.ke",
       "videoMediaId": "ma_s7_66f15e",
       "collections": [],
@@ -852,22 +852,22 @@
         10,
         40
       ],
-      "createdAt": 1789360245748,
+      "createdAt": 1789826711200,
       "isVerified": true,
       "isEscapeOffer": true,
       "escapeOfferTitle": "Great Rift Lakeside Retreat Promo",
       "escapeOriginalPrice": 16000,
       "escapeOfferPrice": 12000,
       "escapeDiscountPercent": 25,
-      "escapeValidFrom": "2026-11-23",
-      "escapeValidTo": "2026-12-11",
+      "escapeValidFrom": "2026-11-28",
+      "escapeValidTo": "2026-12-16",
       "moderationState": "APPROVED",
       "moderationStatus": "approved",
       "admin_feedback": null,
       "reviewed_at": null,
       "reviewed_by": null,
       "publishState": "PUBLISHED",
-      "published_at": 1789360245748,
+      "published_at": 1789826711200,
       "approved_by": "admin@airbus.ke",
       "videoMediaId": "ma_s8_c20280",
       "collections": [
@@ -963,14 +963,14 @@
         42,
         32
       ],
-      "createdAt": 1794717045748,
+      "createdAt": 1795183511200,
       "moderationState": "APPROVED",
       "moderationStatus": "approved",
       "admin_feedback": null,
       "reviewed_at": null,
       "reviewed_by": null,
       "publishState": "PUBLISHED",
-      "published_at": 1794717045748,
+      "published_at": 1795183511200,
       "approved_by": "admin@airbus.ke",
       "videoMediaId": "ma_s4_9c6bbe",
       "collections": [
@@ -1065,14 +1065,14 @@
         38,
         25
       ],
-      "createdAt": 1794976245748,
+      "createdAt": 1795442711200,
       "moderationState": "APPROVED",
       "moderationStatus": "approved",
       "admin_feedback": null,
       "reviewed_at": null,
       "reviewed_by": null,
       "publishState": "PUBLISHED",
-      "published_at": 1794976245748,
+      "published_at": 1795442711200,
       "approved_by": "admin@airbus.ke",
       "videoMediaId": "ma_s_plus_2_9dfcc8",
       "collections": [
@@ -1158,14 +1158,14 @@
         145,
         190
       ],
-      "createdAt": 1794371445748,
+      "createdAt": 1794837911200,
       "moderationState": "APPROVED",
       "moderationStatus": "approved",
       "admin_feedback": null,
       "reviewed_at": null,
       "reviewed_by": null,
       "publishState": "PUBLISHED",
-      "published_at": 1794371445748,
+      "published_at": 1794837911200,
       "approved_by": "admin@airbus.ke",
       "videoMediaId": "ma_s1_5e090a",
       "collections": [
@@ -1251,14 +1251,14 @@
         175,
         220
       ],
-      "createdAt": 1794198645748,
+      "createdAt": 1794665111200,
       "moderationState": "APPROVED",
       "moderationStatus": "approved",
       "admin_feedback": null,
       "reviewed_at": null,
       "reviewed_by": null,
       "publishState": "PUBLISHED",
-      "published_at": 1794198645748,
+      "published_at": 1794665111200,
       "approved_by": "admin@airbus.ke",
       "videoMediaId": "ma_s5_b56965",
       "collections": [
@@ -1354,14 +1354,14 @@
         210,
         260
       ],
-      "createdAt": 1794630645748,
+      "createdAt": 1795097111200,
       "moderationState": "APPROVED",
       "moderationStatus": "approved",
       "admin_feedback": null,
       "reviewed_at": null,
       "reviewed_by": null,
       "publishState": "PUBLISHED",
-      "published_at": 1794630645748,
+      "published_at": 1795097111200,
       "approved_by": "admin@airbus.ke",
       "videoMediaId": "ma_s4_9c6bbe",
       "collections": [
@@ -1453,14 +1453,14 @@
         185,
         210
       ],
-      "createdAt": 1794889845748,
+      "createdAt": 1795356311200,
       "moderationState": "APPROVED",
       "moderationStatus": "approved",
       "admin_feedback": null,
       "reviewed_at": null,
       "reviewed_by": null,
       "publishState": "PUBLISHED",
-      "published_at": 1794889845748,
+      "published_at": 1795356311200,
       "approved_by": "admin@airbus.ke",
       "videoMediaId": "ma_s5_b56965",
       "collections": [
@@ -1557,14 +1557,14 @@
         220,
         280
       ],
-      "createdAt": 1795062645748,
+      "createdAt": 1795529111200,
       "moderationState": "APPROVED",
       "moderationStatus": "approved",
       "admin_feedback": null,
       "reviewed_at": null,
       "reviewed_by": null,
       "publishState": "PUBLISHED",
-      "published_at": 1795062645748,
+      "published_at": 1795529111200,
       "approved_by": "admin@airbus.ke",
       "videoMediaId": "ma_s1_5e090a",
       "collections": [
@@ -1641,8 +1641,8 @@
       "escapeOriginalPrice": 21000,
       "escapeOfferPrice": 14700,
       "escapeDiscountPercent": 30,
-      "escapeValidFrom": "2026-11-23",
-      "escapeValidTo": "2026-12-21",
+      "escapeValidFrom": "2026-11-28",
+      "escapeValidTo": "2026-12-26",
       "welcomeGifts": [
         "Floating Flower Pool Breakfast",
         "Balinese Luwak Coffee"
@@ -1661,14 +1661,14 @@
         110,
         160
       ],
-      "createdAt": 1795149045748,
+      "createdAt": 1795615511200,
       "moderationState": "APPROVED",
       "moderationStatus": "approved",
       "admin_feedback": null,
       "reviewed_at": null,
       "reviewed_by": null,
       "publishState": "PUBLISHED",
-      "published_at": 1795149045748,
+      "published_at": 1795615511200,
       "approved_by": "admin@airbus.ke",
       "videoMediaId": "ma_s3_35b41d",
       "collections": [
@@ -1706,8 +1706,8 @@
       "stayId": "s1",
       "guestEmail": "guest@airbus.ke",
       "guestName": "Sarah Wanjiku",
-      "checkIn": "2026-11-26",
-      "checkOut": "2026-11-29",
+      "checkIn": "2026-12-01",
+      "checkOut": "2026-12-04",
       "guests": 2,
       "subtotal": 25500,
       "cleaningFee": 1275,
@@ -1716,7 +1716,7 @@
       "currency": "KES",
       "status": "confirmed",
       "note": "Arriving around 3 PM from JKIA airport. Excited for the city view!",
-      "createdAt": 1795235445748
+      "createdAt": 1795701911200
     },
     {
       "id": "b_demo_upcoming_24h",
@@ -1724,8 +1724,8 @@
       "stayId": "s2",
       "guestEmail": "guest@airbus.ke",
       "guestName": "Sarah Wanjiku",
-      "checkIn": "2026-11-24",
-      "checkOut": "2026-11-26",
+      "checkIn": "2026-11-29",
+      "checkOut": "2026-12-01",
       "guests": 2,
       "subtotal": 9000,
       "cleaningFee": 450,
@@ -1738,7 +1738,7 @@
         "Kenyan Safari Kahawa & Fresh Ground Beans",
         "Fresh Coconut Water & Tropical Basket"
       ],
-      "createdAt": 1795321845748
+      "createdAt": 1795788311200
     },
     {
       "id": "b_demo_2",
@@ -1746,8 +1746,8 @@
       "stayId": "s4",
       "guestEmail": "guest@airbus.ke",
       "guestName": "Sarah Wanjiku",
-      "checkIn": "2026-12-07",
-      "checkOut": "2026-12-11",
+      "checkIn": "2026-12-12",
+      "checkOut": "2026-12-16",
       "guests": 4,
       "subtotal": 88000,
       "cleaningFee": 3300,
@@ -1756,7 +1756,7 @@
       "currency": "KES",
       "status": "requested",
       "note": "Family beach holiday. Looking forward to enjoying the infinity pool.",
-      "createdAt": 1795365045748
+      "createdAt": 1795831511201
     }
   ],
   "reviews": [
@@ -1767,7 +1767,7 @@
       "guestName": "Sarah Wanjiku",
       "rating": 5,
       "comment": "The skyline views from the balcony are world-class! Superfast fiber, modern appliances, and David was a gracious host who met us in the lobby.",
-      "createdAt": 1794544245748
+      "createdAt": 1795010711201
     },
     {
       "id": "rev_2",
@@ -1776,7 +1776,7 @@
       "guestName": "Sarah Wanjiku",
       "rating": 5,
       "comment": "Unmatched beachfront privacy. The infinity pool overlooking the ocean is pure heaven.",
-      "createdAt": 1794025845748
+      "createdAt": 1794492311201
     }
   ],
   "threads": [
@@ -1787,7 +1787,7 @@
       "hostEmail": "owner@airbus.ke",
       "unreadGuest": true,
       "unreadHost": false,
-      "updatedAt": 1795404645748,
+      "updatedAt": 1795871111201,
       "messages": [
         {
           "id": "m1",
@@ -1795,7 +1795,7 @@
           "type": "offer",
           "amount": 7800,
           "status": "countered",
-          "createdAt": 1795321845748
+          "createdAt": 1795788311201
         },
         {
           "id": "m2",
@@ -1803,14 +1803,14 @@
           "type": "counter",
           "amount": 8200,
           "status": "pending",
-          "createdAt": 1795365045748
+          "createdAt": 1795831511201
         },
         {
           "id": "m3",
           "from": "host",
           "type": "text",
           "text": "Hello Sarah! I can do KES 8,200/night for your 3-night stay in Westlands. It includes complimentary early check-in.",
-          "createdAt": 1795404645748
+          "createdAt": 1795871111201
         }
       ]
     }
@@ -1835,9 +1835,9 @@
       "durationDays": 3,
       "status": "approved",
       "approvedBy": "admin@airbus.ke",
-      "approvedAt": 1795149045766,
-      "createdAt": 1795149045766,
-      "updatedAt": 1795149045766,
+      "approvedAt": 1795615530788,
+      "createdAt": 1795615530788,
+      "updatedAt": 1795615530788,
       "walletId": "guest@airbus.ke",
       "wallet_id": "guest@airbus.ke",
       "walletType": "USER",
@@ -1851,13 +1851,13 @@
       "phone": "+254712345678",
       "phoneNumber": "+254712345678",
       "phone_number": "+254712345678",
-      "created_at": 1795149045766,
-      "submittedAt": 1795149045766,
-      "submitted_at": 1795149045766,
-      "updated_at": 1795149045766,
-      "approved_at": 1795149045766,
-      "reviewedAt": 1795149045766,
-      "reviewed_at": 1795149045766,
+      "created_at": 1795615530788,
+      "submittedAt": 1795615530788,
+      "submitted_at": 1795615530788,
+      "updated_at": 1795615530788,
+      "approved_at": 1795615530788,
+      "reviewedAt": 1795615530788,
+      "reviewed_at": 1795615530788,
       "approved_by": "admin@airbus.ke",
       "reviewedBy": "admin@airbus.ke",
       "reviewed_by": "admin@airbus.ke"
@@ -1883,9 +1883,9 @@
       "period": "monthly",
       "status": "approved",
       "approvedBy": "admin@airbus.ke",
-      "approvedAt": 1794544245766,
-      "createdAt": 1794544245766,
-      "updatedAt": 1794544245766,
+      "approvedAt": 1795010730788,
+      "createdAt": 1795010730788,
+      "updatedAt": 1795010730788,
       "walletId": "owner@airbus.ke",
       "wallet_id": "owner@airbus.ke",
       "walletType": "AIRBUS",
@@ -1899,13 +1899,13 @@
       "phone": "+254722987654",
       "phoneNumber": "+254722987654",
       "phone_number": "+254722987654",
-      "created_at": 1794544245766,
-      "submittedAt": 1794544245766,
-      "submitted_at": 1794544245766,
-      "updated_at": 1794544245766,
-      "approved_at": 1794544245766,
-      "reviewedAt": 1794544245766,
-      "reviewed_at": 1794544245766,
+      "created_at": 1795010730788,
+      "submittedAt": 1795010730788,
+      "submitted_at": 1795010730788,
+      "updated_at": 1795010730788,
+      "approved_at": 1795010730788,
+      "reviewedAt": 1795010730788,
+      "reviewed_at": 1795010730788,
       "approved_by": "admin@airbus.ke",
       "reviewedBy": "admin@airbus.ke",
       "reviewed_by": "admin@airbus.ke"
@@ -1931,9 +1931,9 @@
       "reference_id": "GUE7X2K9AB",
       "status": "approved",
       "approvedBy": "admin@airbus.ke",
-      "approvedAt": 1794112245766,
-      "createdAt": 1794112245766,
-      "updatedAt": 1794112245766,
+      "approvedAt": 1794578730788,
+      "createdAt": 1794578730788,
+      "updatedAt": 1794578730788,
       "walletId": "guest@airbus.ke",
       "wallet_id": "guest@airbus.ke",
       "walletType": "USER",
@@ -1948,13 +1948,13 @@
       "phone": "+254712345678",
       "phoneNumber": "+254712345678",
       "phone_number": "+254712345678",
-      "created_at": 1794112245766,
-      "submittedAt": 1794112245766,
-      "submitted_at": 1794112245766,
-      "updated_at": 1794112245766,
-      "approved_at": 1794112245766,
-      "reviewedAt": 1794112245766,
-      "reviewed_at": 1794112245766,
+      "created_at": 1794578730788,
+      "submittedAt": 1794578730788,
+      "submitted_at": 1794578730788,
+      "updated_at": 1794578730788,
+      "approved_at": 1794578730788,
+      "reviewedAt": 1794578730788,
+      "reviewed_at": 1794578730788,
       "approved_by": "admin@airbus.ke",
       "reviewedBy": "admin@airbus.ke",
       "reviewed_by": "admin@airbus.ke",
@@ -1982,9 +1982,9 @@
       "reference_id": "MP991204",
       "status": "approved",
       "approvedBy": "admin@airbus.ke",
-      "approvedAt": 1793248245766,
-      "createdAt": 1793248245766,
-      "updatedAt": 1793248245766,
+      "approvedAt": 1793714730788,
+      "createdAt": 1793714730788,
+      "updatedAt": 1793714730788,
       "walletId": "owner@airbus.ke",
       "wallet_id": "owner@airbus.ke",
       "walletType": "AIRBUS",
@@ -1999,13 +1999,13 @@
       "phone": "+254722987654",
       "phoneNumber": "+254722987654",
       "phone_number": "+254722987654",
-      "created_at": 1793248245766,
-      "submittedAt": 1793248245766,
-      "submitted_at": 1793248245766,
-      "updated_at": 1793248245766,
-      "approved_at": 1793248245766,
-      "reviewedAt": 1793248245766,
-      "reviewed_at": 1793248245766,
+      "created_at": 1793714730788,
+      "submittedAt": 1793714730788,
+      "submitted_at": 1793714730788,
+      "updated_at": 1793714730788,
+      "approved_at": 1793714730788,
+      "reviewedAt": 1793714730788,
+      "reviewed_at": 1793714730788,
       "approved_by": "admin@airbus.ke",
       "reviewedBy": "admin@airbus.ke",
       "reviewed_by": "admin@airbus.ke",
@@ -2017,8 +2017,8 @@
     "owner@airbus.ke": {
       "tier": "Diamond",
       "status": "active",
-      "expiresAt": 1797827445766,
-      "graceExpiresAt": 1798000245766,
+      "expiresAt": 1798293930788,
+      "graceExpiresAt": 1798466730788,
       "hasPaidSubscription": true
     }
   },
@@ -2039,44 +2039,24 @@
   ],
   "notifications": [
     {
-      "id": "notif_adexp_ad_2_1795872184267",
-      "userEmail": "guest@airbus.ke",
-      "title": "Advert Expired — Request Extension?",
-      "message": "Your advert \"Nyali Coastal Watersports & Jet Ski Hire\" ended on 28 Nov 2026 after 7 day(s) and is now inactive. Would you like to request an extension? Submit a new extension request for Admin approval.",
-      "read": false,
-      "link": "/#owner",
-      "type": "system",
-      "createdAt": 1795872184267
-    },
-    {
-      "id": "notif_adexp_ad_1_1795872184267",
-      "userEmail": "guest@airbus.ke",
-      "title": "Advert Expired — Request Extension?",
-      "message": "Your advert \"Nairobi Airport Transfers & Chauffeur VIP\" ended on 27 Nov 2026 after 5 day(s) and is now inactive. Would you like to request an extension? Submit a new extension request for Admin approval.",
-      "read": false,
-      "link": "/#owner",
-      "type": "system",
-      "createdAt": 1795872184267
-    },
-    {
-      "id": "notif_host_remind_24h_b_demo_1",
+      "id": "notif_host_remind_24h_b_demo_upcoming_24h",
       "userEmail": "owner@airbus.ke",
       "title": "🛎️ Guest Check-in within 24 Hours: Sarah Wanjiku",
-      "message": "Guest Sarah Wanjiku is arriving on 2026-11-26 for \"Modern Westlands Penthouse with Panoramic City Views\". Check-in ready!",
+      "message": "Guest Sarah Wanjiku is arriving on 2026-11-29 for \"Cozy Kilimani Designer Studio near Yaya Centre\". Check-in ready!",
       "read": false,
       "link": "/#owner",
       "type": "booking",
-      "createdAt": 1795669207799
+      "createdAt": 1795874733810
     },
     {
-      "id": "notif_remind_24h_b_demo_1",
+      "id": "notif_remind_24h_b_demo_upcoming_24h",
       "userEmail": "guest@airbus.ke",
-      "title": "🛎️ 24h Check-in Reminder: Modern Westlands Penthouse with Panoramic City Views",
-      "message": "Your stay at \"Modern Westlands Penthouse with Panoramic City Views\" (Westlands, Nairobi) starts in ~9 hours! Check-in: 2026-11-26. Host contact: 254722987654. Have a wonderful trip!",
+      "title": "🛎️ 24h Check-in Reminder: Cozy Kilimani Designer Studio near Yaya Centre",
+      "message": "Your stay at \"Cozy Kilimani Designer Studio near Yaya Centre\" (Kilimani, Nairobi) starts in ~24 hours! Check-in: 2026-11-29. Host contact: 254722987654. Have a wonderful trip!",
       "read": false,
       "link": "/#guest",
       "type": "booking",
-      "createdAt": 1795669207799
+      "createdAt": 1795874733810
     },
     {
       "id": "notif_1",
@@ -2086,7 +2066,7 @@
       "read": false,
       "link": "/#guest",
       "type": "booking",
-      "createdAt": 1795235445766
+      "createdAt": 1795701930789
     },
     {
       "id": "notif_2",
@@ -2096,7 +2076,7 @@
       "read": false,
       "link": "/#owner",
       "type": "booking",
-      "createdAt": 1795365045766
+      "createdAt": 1795831530789
     },
     {
       "id": "notif_3",
@@ -2106,25 +2086,18 @@
       "read": true,
       "link": "/#owner",
       "type": "subscription",
-      "createdAt": 1795235445766
+      "createdAt": 1795701930789
     }
   ],
   "reports": [],
   "tickets": [],
   "auditLogs": [
     {
-      "id": "aud_factory_1795408245765_3d97",
-      "action": "admin_factory_reset",
-      "actorEmail": "kamalahari93@gmail.com",
-      "details": "Restored Admin to factory settings (Full Factory Seed Baseline).",
-      "createdAt": 1795408245765
-    },
-    {
       "id": "aud_1",
       "action": "plan_approved",
       "actorEmail": "admin@airbus.ke",
       "details": "Approved Diamond plan payment QGH7X2K9LM for owner@airbus.ke",
-      "createdAt": 1794544245766
+      "createdAt": 1795010730789
     }
   ],
   "settings": {
@@ -2218,20 +2191,19 @@
           "authorEmail": "guest@airbus.ke",
           "authorName": "Sarah Wanjiku",
           "text": "That sunset view from the terrace is unreal! Bookmarking for next weekend.",
-          "createdAt": 1795062645748
+          "createdAt": 1795529111201
         }
       ],
       "moderationStatus": "approved",
       "status": "approved",
-      "views": 4201,
+      "views": 4200,
       "likes": 620,
       "shares": 145,
-      "viralityScore": 100,
-      "createdAt": 1794544245748,
-      "updatedAt": 1794544245748,
+      "viralityScore": 92,
+      "createdAt": 1795010711201,
+      "updatedAt": 1795010711201,
       "listing_id": "s1",
-      "host_id": "owner@airbus.ke",
-      "plays": 1
+      "host_id": "owner@airbus.ke"
     },
     {
       "id": "post_video_2",
@@ -2247,8 +2219,8 @@
       "likes": 980,
       "shares": 230,
       "viralityScore": 96,
-      "createdAt": 1794198645748,
-      "updatedAt": 1794198645748,
+      "createdAt": 1794665111201,
+      "updatedAt": 1794665111201,
       "creatorName": "DavidMutua",
       "listing_id": "s4",
       "host_id": "owner@airbus.ke",
@@ -2275,8 +2247,8 @@
       "likes": 410,
       "shares": 88,
       "viralityScore": 84,
-      "createdAt": 1793680245748,
-      "updatedAt": 1793680245748,
+      "createdAt": 1794146711201,
+      "updatedAt": 1794146711201,
       "creatorName": "DavidMutua",
       "listing_id": "s3",
       "host_id": "owner@airbus.ke",
@@ -2300,8 +2272,8 @@
       "likes": 0,
       "shares": 0,
       "viralityScore": 0,
-      "createdAt": 1795401045748,
-      "updatedAt": 1795401045748,
+      "createdAt": 1795867511201,
+      "updatedAt": 1795867511201,
       "creatorName": "DavidMutua",
       "listing_id": "s2",
       "host_id": "owner@airbus.ke",
@@ -2336,19 +2308,18 @@
       "totalAmount": 500,
       "platformFee": 150,
       "hostNet": 350,
-      "status": "expired",
+      "status": "approved",
       "views": 342,
       "clicks": 48,
-      "startsAt": 1795321845748,
-      "expiresAt": 1795753845748,
-      "createdAt": 1795321845748,
+      "startsAt": 1795788311201,
+      "expiresAt": 1796220311201,
+      "createdAt": 1795788311201,
       "hostEmail": "guest@airbus.ke",
       "listingId": "s1",
-      "start_at": 1795321845748,
-      "end_at": 1795753845748,
+      "start_at": 1795788311201,
+      "end_at": 1796220311201,
       "amount_paid": 500,
-      "amountPaid": 500,
-      "expiryNotifiedAt": 1795872184267
+      "amountPaid": 500
     },
     {
       "id": "ad_2",
@@ -2364,19 +2335,18 @@
       "totalAmount": 700,
       "platformFee": 210,
       "hostNet": 490,
-      "status": "expired",
+      "status": "approved",
       "views": 520,
       "clicks": 82,
-      "startsAt": 1795235445748,
-      "expiresAt": 1795840245748,
-      "createdAt": 1795235445748,
+      "startsAt": 1795701911201,
+      "expiresAt": 1796306711201,
+      "createdAt": 1795701911201,
       "hostEmail": "guest@airbus.ke",
       "listingId": "s4",
-      "start_at": 1795235445748,
-      "end_at": 1795840245748,
+      "start_at": 1795701911201,
+      "end_at": 1796306711201,
       "amount_paid": 700,
-      "amountPaid": 700,
-      "expiryNotifiedAt": 1795872184267
+      "amountPaid": 700
     },
     {
       "id": "ad_worked_example_3",
@@ -2395,7 +2365,7 @@
       "status": "pending",
       "views": 0,
       "clicks": 0,
-      "createdAt": 1795404645748,
+      "createdAt": 1795871111201,
       "hostEmail": "guest@airbus.ke",
       "listingId": "s1",
       "start_at": null,
@@ -2413,7 +2383,7 @@
       "type": "topup",
       "referenceId": "MP991204",
       "description": "M-Pesa wallet deposit",
-      "createdAt": 1793248245748
+      "createdAt": 1793714711201
     },
     {
       "id": "ledg_2",
@@ -2423,7 +2393,7 @@
       "type": "subscription",
       "referenceId": "Diamond",
       "description": "30-Day Diamond Plan subscription fee",
-      "createdAt": 1793680245748
+      "createdAt": 1794146711201
     },
     {
       "id": "ledg_3",
@@ -2433,7 +2403,7 @@
       "type": "topup",
       "referenceId": "GUE7X2K9AB",
       "description": "M-Pesa wallet deposit",
-      "createdAt": 1794112245748
+      "createdAt": 1794578711201
     },
     {
       "id": "ledg_4",
@@ -2443,7 +2413,7 @@
       "type": "ad_payment",
       "referenceId": "ad_1",
       "description": "3-day advert payment for Modern Westlands Penthouse",
-      "createdAt": 1795149045748
+      "createdAt": 1795615511201
     }
   ],
   "walletRecords": {
@@ -2453,7 +2423,7 @@
       "holdBalance": 0,
       "lifetimeEarnings": 15000,
       "lifetimeSpent": 2500,
-      "updatedAt": 1795408245748
+      "updatedAt": 1795874711201
     },
     "guest@airbus.ke": {
       "email": "guest@airbus.ke",
@@ -2461,7 +2431,7 @@
       "holdBalance": 0,
       "lifetimeEarnings": 5000,
       "lifetimeSpent": 300,
-      "updatedAt": 1795408245748
+      "updatedAt": 1795874711201
     },
     "admin@airbus.ke": {
       "email": "admin@airbus.ke",
@@ -2469,7 +2439,7 @@
       "holdBalance": 0,
       "lifetimeEarnings": 2800,
       "lifetimeSpent": 0,
-      "updatedAt": 1795408245748
+      "updatedAt": 1795874711201
     }
   },
   "referrals": {
@@ -2479,7 +2449,7 @@
       "clicks": 42,
       "signupsCount": 6,
       "totalEarnedKes": 1850,
-      "createdAt": 1792816245748
+      "createdAt": 1793282711201
     },
     "owner@airbus.ke": {
       "userEmail": "owner@airbus.ke",
@@ -2487,7 +2457,7 @@
       "clicks": 89,
       "signupsCount": 12,
       "totalEarnedKes": 4200,
-      "createdAt": 1790224245748
+      "createdAt": 1790690711201
     },
     "admin@airbus.ke": {
       "userEmail": "admin@airbus.ke",
@@ -2495,7 +2465,7 @@
       "clicks": 154,
       "signupsCount": 30,
       "totalEarnedKes": 9500,
-      "createdAt": 1785040245748
+      "createdAt": 1785506711201
     }
   },
   "referralCodes": {
@@ -2505,13 +2475,7 @@
   },
   "referralCommissions": [],
   "withdrawals": [],
-  "viewEvents": [
-    {
-      "postId": "post_short_1",
-      "viewer": "102.201.92.14",
-      "timestamp": 1795872582724
-    }
-  ],
+  "viewEvents": [],
   "promotions": [
     {
       "id": "promo_seed_1",
@@ -2519,12 +2483,12 @@
       "ownerEmail": "owner@airbus.ke",
       "days": 7,
       "cost": 700,
-      "startsAt": 1795321845748,
-      "expiresAt": 1795926645748,
+      "startsAt": 1795788311201,
+      "expiresAt": 1796393111201,
       "status": "active",
       "impressions": 432,
       "clicks": 68,
-      "createdAt": 1795321845748
+      "createdAt": 1795788311201
     },
     {
       "id": "promo_seed_2",
@@ -2532,12 +2496,12 @@
       "ownerEmail": "owner@airbus.ke",
       "days": 14,
       "cost": 1400,
-      "startsAt": 1795235445748,
-      "expiresAt": 1796445045748,
+      "startsAt": 1795701911201,
+      "expiresAt": 1796911511201,
       "status": "active",
       "impressions": 890,
       "clicks": 142,
-      "createdAt": 1795235445748
+      "createdAt": 1795701911201
     }
   ],
   "tripDatingProfiles": [
@@ -2585,13 +2549,13 @@
       ],
       "views": 310,
       "status": "APPROVED",
-      "createdAt": 1794198645749,
-      "updatedAt": 1795235445749,
+      "createdAt": 1794665111201,
+      "updatedAt": 1795701911201,
       "moderationState": "APPROVED",
       "admin_feedback": null,
       "reviewed_at": null,
       "reviewed_by": null,
-      "published_at": 1794198645749,
+      "published_at": 1794665111201,
       "decline_reason": null,
       "city_custom": null,
       "videoMediaId": "ma_tdp_mw9chz1o_v3yd_0_eb805d"
@@ -2624,13 +2588,13 @@
       "likedByUserEmails": [],
       "views": 480,
       "status": "APPROVED",
-      "createdAt": 1793680245749,
-      "updatedAt": 1794976245749,
+      "createdAt": 1794146711201,
+      "updatedAt": 1795442711201,
       "moderationState": "APPROVED",
       "admin_feedback": null,
       "reviewed_at": null,
       "reviewed_by": null,
-      "published_at": 1793680245749,
+      "published_at": 1794146711201,
       "decline_reason": null,
       "city_custom": null
     },
@@ -2676,13 +2640,13 @@
       ],
       "views": 620,
       "status": "APPROVED",
-      "createdAt": 1794544245749,
-      "updatedAt": 1795321845749,
+      "createdAt": 1795010711201,
+      "updatedAt": 1795788311201,
       "moderationState": "APPROVED",
       "admin_feedback": null,
       "reviewed_at": null,
       "reviewed_by": null,
-      "published_at": 1794544245749,
+      "published_at": 1795010711201,
       "decline_reason": null,
       "city_custom": null,
       "videoMediaId": "ma_tdp_mw9c3qg4_m1vu_0_7bc0ef"
@@ -2714,13 +2678,13 @@
       "likedByUserEmails": [],
       "views": 295,
       "status": "APPROVED",
-      "createdAt": 1793853045749,
-      "updatedAt": 1795149045749,
+      "createdAt": 1794319511201,
+      "updatedAt": 1795615511201,
       "moderationState": "APPROVED",
       "admin_feedback": null,
       "reviewed_at": null,
       "reviewed_by": null,
-      "published_at": 1793853045749,
+      "published_at": 1794319511201,
       "decline_reason": null,
       "city_custom": null
     },
@@ -2751,13 +2715,13 @@
       "likedByUserEmails": [],
       "views": 410,
       "status": "APPROVED",
-      "createdAt": 1794371445749,
-      "updatedAt": 1795235445749,
+      "createdAt": 1794837911201,
+      "updatedAt": 1795701911201,
       "moderationState": "APPROVED",
       "admin_feedback": null,
       "reviewed_at": null,
       "reviewed_by": null,
-      "published_at": 1794371445749,
+      "published_at": 1794837911201,
       "decline_reason": null,
       "city_custom": null
     },
@@ -2788,13 +2752,13 @@
       "likedByUserEmails": [],
       "views": 220,
       "status": "APPROVED",
-      "createdAt": 1794717045749,
-      "updatedAt": 1795321845749,
+      "createdAt": 1795183511201,
+      "updatedAt": 1795788311201,
       "moderationState": "APPROVED",
       "admin_feedback": null,
       "reviewed_at": null,
       "reviewed_by": null,
-      "published_at": 1794717045749,
+      "published_at": 1795183511201,
       "decline_reason": null,
       "city_custom": null
     }
@@ -2837,9 +2801,9 @@
       "durationDays": 3,
       "status": "approved",
       "approvedBy": "admin@airbus.ke",
-      "approvedAt": 1795149045766,
-      "createdAt": 1795149045766,
-      "updatedAt": 1795149045766,
+      "approvedAt": 1795615530788,
+      "createdAt": 1795615530788,
+      "updatedAt": 1795615530788,
       "walletId": "guest@airbus.ke",
       "wallet_id": "guest@airbus.ke",
       "walletType": "USER",
@@ -2853,13 +2817,13 @@
       "phone": "+254712345678",
       "phoneNumber": "+254712345678",
       "phone_number": "+254712345678",
-      "created_at": 1795149045766,
-      "submittedAt": 1795149045766,
-      "submitted_at": 1795149045766,
-      "updated_at": 1795149045766,
-      "approved_at": 1795149045766,
-      "reviewedAt": 1795149045766,
-      "reviewed_at": 1795149045766,
+      "created_at": 1795615530788,
+      "submittedAt": 1795615530788,
+      "submitted_at": 1795615530788,
+      "updated_at": 1795615530788,
+      "approved_at": 1795615530788,
+      "reviewedAt": 1795615530788,
+      "reviewed_at": 1795615530788,
       "approved_by": "admin@airbus.ke",
       "reviewedBy": "admin@airbus.ke",
       "reviewed_by": "admin@airbus.ke"
@@ -2885,9 +2849,9 @@
       "period": "monthly",
       "status": "approved",
       "approvedBy": "admin@airbus.ke",
-      "approvedAt": 1794544245766,
-      "createdAt": 1794544245766,
-      "updatedAt": 1794544245766,
+      "approvedAt": 1795010730788,
+      "createdAt": 1795010730788,
+      "updatedAt": 1795010730788,
       "walletId": "owner@airbus.ke",
       "wallet_id": "owner@airbus.ke",
       "walletType": "AIRBUS",
@@ -2901,13 +2865,13 @@
       "phone": "+254722987654",
       "phoneNumber": "+254722987654",
       "phone_number": "+254722987654",
-      "created_at": 1794544245766,
-      "submittedAt": 1794544245766,
-      "submitted_at": 1794544245766,
-      "updated_at": 1794544245766,
-      "approved_at": 1794544245766,
-      "reviewedAt": 1794544245766,
-      "reviewed_at": 1794544245766,
+      "created_at": 1795010730788,
+      "submittedAt": 1795010730788,
+      "submitted_at": 1795010730788,
+      "updated_at": 1795010730788,
+      "approved_at": 1795010730788,
+      "reviewedAt": 1795010730788,
+      "reviewed_at": 1795010730788,
       "approved_by": "admin@airbus.ke",
       "reviewedBy": "admin@airbus.ke",
       "reviewed_by": "admin@airbus.ke"
@@ -2933,9 +2897,9 @@
       "reference_id": "GUE7X2K9AB",
       "status": "approved",
       "approvedBy": "admin@airbus.ke",
-      "approvedAt": 1794112245766,
-      "createdAt": 1794112245766,
-      "updatedAt": 1794112245766,
+      "approvedAt": 1794578730788,
+      "createdAt": 1794578730788,
+      "updatedAt": 1794578730788,
       "walletId": "guest@airbus.ke",
       "wallet_id": "guest@airbus.ke",
       "walletType": "USER",
@@ -2950,13 +2914,13 @@
       "phone": "+254712345678",
       "phoneNumber": "+254712345678",
       "phone_number": "+254712345678",
-      "created_at": 1794112245766,
-      "submittedAt": 1794112245766,
-      "submitted_at": 1794112245766,
-      "updated_at": 1794112245766,
-      "approved_at": 1794112245766,
-      "reviewedAt": 1794112245766,
-      "reviewed_at": 1794112245766,
+      "created_at": 1794578730788,
+      "submittedAt": 1794578730788,
+      "submitted_at": 1794578730788,
+      "updated_at": 1794578730788,
+      "approved_at": 1794578730788,
+      "reviewedAt": 1794578730788,
+      "reviewed_at": 1794578730788,
       "approved_by": "admin@airbus.ke",
       "reviewedBy": "admin@airbus.ke",
       "reviewed_by": "admin@airbus.ke",
@@ -2984,9 +2948,9 @@
       "reference_id": "MP991204",
       "status": "approved",
       "approvedBy": "admin@airbus.ke",
-      "approvedAt": 1793248245766,
-      "createdAt": 1793248245766,
-      "updatedAt": 1793248245766,
+      "approvedAt": 1793714730788,
+      "createdAt": 1793714730788,
+      "updatedAt": 1793714730788,
       "walletId": "owner@airbus.ke",
       "wallet_id": "owner@airbus.ke",
       "walletType": "AIRBUS",
@@ -3001,13 +2965,13 @@
       "phone": "+254722987654",
       "phoneNumber": "+254722987654",
       "phone_number": "+254722987654",
-      "created_at": 1793248245766,
-      "submittedAt": 1793248245766,
-      "submitted_at": 1793248245766,
-      "updated_at": 1793248245766,
-      "approved_at": 1793248245766,
-      "reviewedAt": 1793248245766,
-      "reviewed_at": 1793248245766,
+      "created_at": 1793714730788,
+      "submittedAt": 1793714730788,
+      "submitted_at": 1793714730788,
+      "updated_at": 1793714730788,
+      "approved_at": 1793714730788,
+      "reviewedAt": 1793714730788,
+      "reviewed_at": 1793714730788,
       "approved_by": "admin@airbus.ke",
       "reviewedBy": "admin@airbus.ke",
       "reviewed_by": "admin@airbus.ke",
@@ -3027,7 +2991,7 @@
       "reference": "MP991204",
       "relatedPaymentId": "pay_demo_dep_owner",
       "note": "Initial M-Pesa deposit Till 943210 (Code: MP991204)",
-      "createdAt": 1793248245766
+      "createdAt": 1793714730788
     },
     {
       "id": "wtx_seed_1",
@@ -3040,7 +3004,7 @@
       "type": "subscription",
       "reference": "sub_owner_demo",
       "note": "Subscription payment for Diamond tier (30 days)",
-      "createdAt": 1794544245766
+      "createdAt": 1795010730788
     },
     {
       "id": "wtx_seed_topup_guest",
@@ -3053,7 +3017,7 @@
       "reference": "GUE7X2K9AB",
       "relatedPaymentId": "pay_demo_dep_guest",
       "note": "Initial M-Pesa deposit Till 943210 (Code: GUE7X2K9AB)",
-      "createdAt": 1794112245766
+      "createdAt": 1794578730788
     },
     {
       "id": "wtx_seed_ad_hold_guest",
@@ -3066,7 +3030,7 @@
       "type": "advert_payment",
       "reference": "ad_1",
       "note": "Advert campaign payment for 3 days",
-      "createdAt": 1795149045766
+      "createdAt": 1795615530788
     },
     {
       "id": "wtx_seed_admin_sub",
@@ -3079,7 +3043,7 @@
       "type": "subscription_income",
       "reference": "sub_owner_demo",
       "note": "Subscription revenue for Diamond tier",
-      "createdAt": 1794544245766
+      "createdAt": 1795010730788
     },
     {
       "id": "wtx_seed_admin_ad",
@@ -3092,7 +3056,7 @@
       "type": "advert_income",
       "reference": "ad_1",
       "note": "Advert campaign revenue (3 days) from guest@airbus.ke",
-      "createdAt": 1795149045766
+      "createdAt": 1795615530788
     }
   ],
   "adSlots": [
@@ -3115,12 +3079,12 @@
       "paymentId": "pay_demo_1",
       "payment_id": "pay_demo_1",
       "paymentMethod": "wallet",
-      "impressions": 1421,
+      "impressions": 1420,
       "clicks": 86,
-      "startsAt": 1794976245766,
-      "endsAt": 1797568245766,
-      "createdAt": 1794976245766,
-      "updatedAt": 1794976245766
+      "startsAt": 1795442730788,
+      "endsAt": 1798034730788,
+      "createdAt": 1795442730788,
+      "updatedAt": 1795442730788
     }
   ],
   "subscriptions": [
@@ -3131,11 +3095,11 @@
       "tier": "Diamond",
       "billing": "monthly",
       "status": "active",
-      "startsAt": 1795235445766,
-      "endsAt": 1797827445766,
+      "startsAt": 1795701930788,
+      "endsAt": 1798293930788,
       "paymentId": "pay_demo_1",
-      "createdAt": 1795235445766,
-      "updatedAt": 1795235445766
+      "createdAt": 1795701930788,
+      "updatedAt": 1795701930788
     }
   ],
   "follows": [],
@@ -3418,7 +3382,7 @@
       "attributionText": "Free for commercial & UGC video use via Pixabay Content License",
       "commercialUgcAllowed": true,
       "licenseUrl": "https://pixabay.com/service/license-summary/",
-      "createdAt": 1795408245746
+      "createdAt": 1795874710667
     },
     {
       "id": "lic_yt_audio",
@@ -3428,7 +3392,7 @@
       "attributionText": "Free to use in monetized & UGC videos (YouTube Audio Library)",
       "commercialUgcAllowed": true,
       "licenseUrl": "https://support.google.com/youtube/answer/3376882",
-      "createdAt": 1795408245746
+      "createdAt": 1795874710667
     },
     {
       "id": "lic_cc_by_fma",
@@ -3438,7 +3402,7 @@
       "attributionText": "Music via Free Music Archive (CC BY 4.0) — Attribution required",
       "commercialUgcAllowed": true,
       "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
-      "createdAt": 1795408245746
+      "createdAt": 1795874710667
     },
     {
       "id": "lic_jamendo",
@@ -3448,7 +3412,7 @@
       "attributionText": "Licensed for UGC Short video via Jamendo Royalty-Free Catalog (CC BY)",
       "commercialUgcAllowed": true,
       "licenseUrl": "https://www.jamendo.com/legal/licenses",
-      "createdAt": 1795408245746
+      "createdAt": 1795874710667
     },
     {
       "id": "lic_cc0",
@@ -3457,7 +3421,7 @@
       "requiresAttribution": false,
       "attributionText": "CC0 Public Domain — No attribution required",
       "commercialUgcAllowed": true,
-      "createdAt": 1795408245746
+      "createdAt": 1795874710667
     }
   ],
   "audio_tracks": [
@@ -3626,24 +3590,7 @@
   "short_audio": [],
   "audioReports": [],
   "listing_audio": [],
-  "short_analytics": {
-    "post_short_1": {
-      "shortId": "post_short_1",
-      "listingId": "s1",
-      "ownerEmail": "owner@airbus.ke",
-      "views": 4201,
-      "plays": 1,
-      "replays": 0,
-      "clicks": {
-        "availability": 0,
-        "book": 0,
-        "chat": 0,
-        "negotiate": 0,
-        "whatsapp": 0
-      },
-      "updatedAt": 1795872582746
-    }
-  },
+  "short_analytics": {},
   "guestCredentials": [
     {
       "id": "cred_guest_u_guest",
@@ -3652,7 +3599,7 @@
       "normalizedUsername": "sarahwanjiku",
       "userEmail": "guest@airbus.ke",
       "userId": "u_guest",
-      "passwordHash": "legacy256$$2b$10$kpnaYNRfWt0A5oHJtZ9LSeF90YHLS/KMELKcR9Fv0jXATYSTkdby2",
+      "passwordHash": "legacy256$$2b$10$cJlBu/EfxEbQSk4wf4yzJ.1vIhdgIZ7/vb6ghrcmOjCfuH2g7kmsO",
       "passwordFingerprint": {
         "exactHash": "f12162b6bec71b6d68312e6cfddb5521c2827ed19c41559c5ccffa5863a1357d",
         "lowerHash": "2b1d67ff05fb647766bf0a039111690234bf576842f27eee674140e0cd15ef20",
@@ -3688,7 +3635,7 @@
       "normalizedUsername": "johndoe76180",
       "userEmail": "johndoe76180_mwhlbggzpyi@guest.airbus.ke",
       "userId": "u_1794732376355_cdl",
-      "passwordHash": "legacy256$$2b$10$YdSkK6ASDMogRHlgQw.67.z3igqTJ2TRohL5cFWrf5uy1wwVlYeSa",
+      "passwordHash": "legacy256$$2b$10$JcYGLaVTUWanT4ncWW6iBunJxUm3wESUTWz4/0t30b4uZBiFB3PsS",
       "passwordFingerprint": {
         "exactHash": "59e8c1d642d2f05246a15bab55cef3a35d86436874b7a1278f3ecbe71030963d",
         "lowerHash": "87666950530f1502faf906fe69cb7b63b6d9b9c938c1cc97217f7dda4f6ab2e2",
@@ -3716,7 +3663,7 @@
       "normalizedUsername": "johnrecov17962",
       "userEmail": "johndoe17962_mwhlccoexcv@guest.airbus.ke",
       "userId": "u_1794732418094_xn2",
-      "passwordHash": "legacy256$$2b$10$8YcDuXeHcBImoy04HTK8G.J2P58H9Iqf80Q8pqAigEVuHFDWG/eKm",
+      "passwordHash": "legacy256$$2b$10$3fR9cjCNLRobO3UTr2BG.uTKxEghQrR5zLqSpoSxkH7uFF3Upm57e",
       "passwordFingerprint": {
         "exactHash": "eba285fca12e74236c3e80284ec891ff6f5ffe1548f676e7a0f4a2c7ae662106",
         "lowerHash": "350f0577cc294fa643679aa996de078cd29cad075409c5cab85ff83c1715a97b",
@@ -3756,7 +3703,7 @@
       "normalizedUsername": "johnrecov31896",
       "userEmail": "johndoe31896_mwhlcnff2eu@guest.airbus.ke",
       "userId": "u_1794732432027_r8t",
-      "passwordHash": "legacy256$$2b$10$gSscPuSEezdW04.FVIELBuIW8fh8o/vKn7CUz8eYDHUMH4f.kT8T.",
+      "passwordHash": "legacy256$$2b$10$6TKZTMDMsDeO5juGDRsZF.8pDJVj1Y/Z0KuQDCYEkygIGZ5csaru2",
       "passwordFingerprint": {
         "exactHash": "a546401ecfff3a9961359e5ba83d912f83a4390717c993ef916eac380fdf9e84",
         "lowerHash": "f9a64b65a278ca76bf4343b62efd1e9b90d34934283d17a5397ffd8454a8e789",
@@ -3796,7 +3743,7 @@
       "normalizedUsername": "johnrecov52291",
       "userEmail": "johndoe52291_mwhld367nox@guest.airbus.ke",
       "userId": "u_1794732452431_a0i",
-      "passwordHash": "legacy256$$2b$10$siyXFuTm5z2mrUpRVz/wDOUYzOZiQ2nafUW5Ye6P2sz4CqA2W2fXO",
+      "passwordHash": "legacy256$$2b$10$dF.x8Zmy11Z9rCJ1g0yJK.gBJqV.t.GYEJklDMoQtuXq8Re71Lkiu",
       "passwordFingerprint": {
         "exactHash": "b1f2cb88fe1e1dea914d1793fef9b910e5439286e0bc2373c232cd9314d45ad6",
         "lowerHash": "b37672b674dfcbeb66c2df5990a37a16bfd3fc1fecf709199c54377446bd079c",
@@ -3836,7 +3783,7 @@
       "normalizedUsername": "johnrecov80230",
       "userEmail": "johndoe80230_mwhldoq0rxu@guest.airbus.ke",
       "userId": "u_1794732480360_aw1",
-      "passwordHash": "legacy256$$2b$10$UYX/OAPiG.EN8VIHjTKiRe9sKEtr4p51OMznkoLbpNKntWKcWr6OG",
+      "passwordHash": "legacy256$$2b$10$SfNx4KX99sGgSa3M4xZNYeuf2Pjc8SaExtvBCbvB1urmkK5hnyT.i",
       "passwordFingerprint": {
         "exactHash": "4c387a3d539f262969f3b974f9e1a49406818411fc33d9fa9bd69e17c4462766",
         "lowerHash": "ae215aa259479314bcdd0bbae5a56a415ff59f78394dc5934c094862a537c9d0",
@@ -3876,7 +3823,7 @@
       "normalizedUsername": "johndoe98247",
       "userEmail": "johndoe98247_mwhle2m6t52@guest.airbus.ke",
       "userId": "u_1794732498366_psx",
-      "passwordHash": "legacy256$$2b$10$PdPVYHrouD957kfONkNQ0e2axOO5/Yh3dcrwLxQdUc7fYdkuV0Pfa",
+      "passwordHash": "legacy256$$2b$10$eYIlunmjsn9Grk22cgIB9uLtpgxCMv.ksp4IIWApKA8BHwXufEckO",
       "passwordFingerprint": {
         "exactHash": "8d82b9a6af77f1a555e11a47f1626038adc32e773bc9d36ad31940c0f008fcb7",
         "lowerHash": "e43cd09741727512630975442014ccd0c82fbc204190a9e5e335ea43810ec5ee",
@@ -3912,7 +3859,7 @@
       "normalizedUsername": "johnrecovf2c5ae",
       "userEmail": "johndoef2c5ae_mwhleea5o4w@guest.airbus.ke",
       "userId": "u_1794732513485_avs",
-      "passwordHash": "legacy256$$2b$10$OjVnMk7DNGnPyVY5KWYYYeGEyK.O1w0O0X.KzM0T.lHAPyhSuh1JC",
+      "passwordHash": "legacy256$$2b$10$lnSq7k4Fl.Q2yt1swV5btuqxvGCyQsqMqu7Pdp07yNJMpOQrgle1a",
       "passwordFingerprint": {
         "exactHash": "0dd6a88ed42de79850b62dd873716751cde85c252a472d41d24d20d0c07bd563",
         "lowerHash": "de956374fa4046b39b79ee6123b49c31f7be9ea1ced0dbb31e2bba8bc0e33abf",
@@ -3955,7 +3902,7 @@
       "normalizedUsername": "davidmutua",
       "userEmail": "owner@airbus.ke",
       "userId": "u_owner",
-      "passwordHash": "legacy256$$2b$10$hGXqFAmHQdkWB1MtQ4CFVOvqMRvceqOAe.d2/n3gl0fy2FA0ajPge",
+      "passwordHash": "legacy256$$2b$10$gAwv0vk69ZW7xGPp5GBY9u1AfhTxTx20TEOZukGnjCZ26G.2t620W",
       "passwordFingerprint": {
         "exactHash": "838c46a74cd059704247831e510f744f54a89234b236c3e49f9e5ffd333c2b46",
         "lowerHash": "fd3948894b4b050d87e4a1e3b797d922e840273d99091a01ea5aeba1ef9ad747",
@@ -3993,7 +3940,7 @@
       "normalizedUsername": "e2ehost",
       "userEmail": "e2e_host_1794630146329@airbus.ke",
       "userId": "u_1794630146335",
-      "passwordHash": "legacy256$$2b$10$kO/kSWyeWjEAnsTKFdRhkObzdqZt.qNbTyJ0Y/wCZajTNEP2BFLEO",
+      "passwordHash": "legacy256$$2b$10$dmjnbyo9Sv4V4F5XseVExequzOiHZl/IO5gwyMuXhS1sAVe26twfW",
       "passwordFingerprint": {
         "exactHash": "250691ff34f91b987ac9b9d386f5070969c714aa00f08ad209c7ae6ba117dbc8",
         "lowerHash": "250691ff34f91b987ac9b9d386f5070969c714aa00f08ad209c7ae6ba117dbc8",
@@ -4012,7 +3959,7 @@
       "normalizedUsername": "e2ehost",
       "userEmail": "e2e_host_1794630164577@airbus.ke",
       "userId": "u_1794630164581",
-      "passwordHash": "legacy256$$2b$10$iYAHl2..d1cRKLlfPvWU9upPSVZXkqSADRt9P8WG8IyeHLj8Buc5K",
+      "passwordHash": "legacy256$$2b$10$J.YpKuplPh70b9EskrdCn.bq86wKL1d2vaPQgcmo0FyKzlhUsc39m",
       "passwordFingerprint": {
         "exactHash": "250691ff34f91b987ac9b9d386f5070969c714aa00f08ad209c7ae6ba117dbc8",
         "lowerHash": "250691ff34f91b987ac9b9d386f5070969c714aa00f08ad209c7ae6ba117dbc8",
@@ -4031,7 +3978,7 @@
       "normalizedUsername": "hostalpha76180",
       "userEmail": "hostalpha76180_mwhlbgijz0i@owner.airbus.ke",
       "userId": "u_1794732376412_j8y",
-      "passwordHash": "legacy256$$2b$10$okjQIHdd7JbtP7PCWfjYQO4eDe/T486gk8JenXSF/hhHv6qh1Bu8G",
+      "passwordHash": "legacy256$$2b$10$KNHzy16bp9oMJSnya4vN3uEcJkm1Tc.Brv9Sj4o6g150fQvve2oEu",
       "passwordFingerprint": {
         "exactHash": "914bf90d23e7a04a37f0aec5e1b2098c8e85f5dc35b90ec2a787368079d402b4",
         "lowerHash": "4417bf8e27252d069c427aeabc7809b30bdf48980b7350b0721c60b8828ea9bd",
@@ -4064,7 +4011,7 @@
       "normalizedUsername": "hostalpha17962",
       "userEmail": "hostalpha17962_mwhlccpkoyz@owner.airbus.ke",
       "userId": "u_1794732418136_4uk",
-      "passwordHash": "legacy256$$2b$10$C0iZzTbard3jp82KX0BJ9uxct1nUboFX6p14/LuHAXeWiTElB/Rkm",
+      "passwordHash": "legacy256$$2b$10$hMUKWrKkK1pJGVEDyAYbk.2LJsJuNOPbL0WTKmx.OzOkDZeCk1ssC",
       "passwordFingerprint": {
         "exactHash": "e897f1ea0b6cb89c84a7e7791450b4138735680009a550bd3684a413dc979bfc",
         "lowerHash": "ccaaa9e9ef06d9414662cba8535ef9e7547ee3342dbaa6416ac5268fcabfbbe7",
@@ -4100,7 +4047,7 @@
       "normalizedUsername": "hostalpha31896",
       "userEmail": "hostalpha31896_mwhlcngirxf@owner.airbus.ke",
       "userId": "u_1794732432066_k8m",
-      "passwordHash": "legacy256$$2b$10$lQUBFSra.dWS/oZ6rAB37uScmMTrM0oiZUFFAPFwOteoSxIH4pFNm",
+      "passwordHash": "legacy256$$2b$10$uPFsMVIq.7degTa3ccIhfexub8aDDmMh6Sp771f.wTnW8l1fwzJGe",
       "passwordFingerprint": {
         "exactHash": "b28b1704c2b07623c1481323f7596e27f7e3a64b5bb93febc564117d7daa1a90",
         "lowerHash": "56d9e1386b4df816bde675c78abecc44ab0acdb2856c0fa7a52263ef09fcb4e4",
@@ -4136,7 +4083,7 @@
       "normalizedUsername": "hostalpha52291",
       "userEmail": "hostalpha52291_mwhld37j1wq@owner.airbus.ke",
       "userId": "u_1794732452479_cuj",
-      "passwordHash": "legacy256$$2b$10$1d0flwvgfZshZnTTzPgKyOLl7z8wszzQY0zfLnMkkSNLTSLYYZhBm",
+      "passwordHash": "legacy256$$2b$10$22c4J8T9ewMUrI0YkCkn3u.jDOT3mM76S3xpFcqpP1B2z99qotpfq",
       "passwordFingerprint": {
         "exactHash": "56c299a3e6cb1050a71b20a84ad983593b07d66e3832852faebf03d0271f4e7f",
         "lowerHash": "c3295c159e78461cb64929b8d79801ab3501647686b80e484412e7ba4750cbbf",
@@ -4172,7 +4119,7 @@
       "normalizedUsername": "hostalpha80230",
       "userEmail": "hostalpha80230_mwhldorr22a@owner.airbus.ke",
       "userId": "u_1794732480424_rt0",
-      "passwordHash": "legacy256$$2b$10$.Q/5Z38nVtLnkxb2Vnhsre8KFii.aTN29t1WihXDGR3oomBA4Plui",
+      "passwordHash": "legacy256$$2b$10$MUZNToPp4prYjc3p3N0.AeyRJwG2TnEeO7c8bTzaIMH38pioMjTgS",
       "passwordFingerprint": {
         "exactHash": "f3e98320c725b31f93a4c26b32d9055d73e358c20924f0d3de4a0a428112282d",
         "lowerHash": "9699e5b78a7a1021d29303de813e21b67786380427355dd7f2dedb735a30c10c",
@@ -4208,7 +4155,7 @@
       "normalizedUsername": "hostalphaf2c5ae",
       "userEmail": "hostalphaf2c5ae_mwhleebc53k@owner.airbus.ke",
       "userId": "u_1794732513528_0jr",
-      "passwordHash": "legacy256$$2b$10$zHgLDJ02OKm10ep.nVhnpeYvZkMLuUNbVrbmQYR.FhiukaDhKjOeW",
+      "passwordHash": "legacy256$$2b$10$AH0Sf.HgHjB1xxnu9XQ8l.0LReuTjDv94esvG6qTf46HxmcHD.jXq",
       "passwordFingerprint": {
         "exactHash": "6ff2a40844da7b0bfad00c852688372b93e19e81e20befceb98977bdceebb1db",
         "lowerHash": "de35bc882e3e11a8796217c1cd81b81b3010780ec422745b9604cc49e948de96",
@@ -4297,7 +4244,7 @@
   "appliedMigrations": [
     {
       "id": "v5_restore_admin_factory_status",
-      "appliedAt": 1795408245763,
+      "appliedAt": 1795874730785,
       "snapshot": {
         "prevDataSnapshotV5": {
           "users": [
@@ -14305,13 +14252,16 @@
             }
           },
           "wallet_year_archives": [],
-          "last_archived_fiscal_year": 2026
+          "last_archived_fiscal_year": 2026,
+          "admin_wallet_archives": [],
+          "idempotencyCache": {},
+          "subscriptionNotificationKeys": []
         }
       }
     },
     {
       "id": "v1_moderation_pipeline_sync",
-      "appliedAt": 1795408245767,
+      "appliedAt": 1795874730790,
       "snapshot": {
         "staysSnapshot": [
           {
@@ -14425,7 +14375,7 @@
     },
     {
       "id": "v2_trip_dating_status_and_feed_sync",
-      "appliedAt": 1795408245776,
+      "appliedAt": 1795874730866,
       "snapshot": {
         "tdpV2Snapshot": [
           {
@@ -14482,7 +14432,7 @@
     },
     {
       "id": "v3_airbus_listings_collections_and_admin_wallet",
-      "appliedAt": 1795408245811,
+      "appliedAt": 1795874730876,
       "snapshot": {
         "staysV3Snapshot": [
           {
@@ -14569,7 +14519,7 @@
     },
     {
       "id": "v4_unified_payments_outbox_and_audit",
-      "appliedAt": 1795408245820,
+      "appliedAt": 1795874730885,
       "snapshot": {
         "prevPaymentRecordsV4": [
           {
@@ -14593,9 +14543,9 @@
             "reference_id": "MP991204",
             "status": "approved",
             "approvedBy": "admin@airbus.ke",
-            "approvedAt": 1793248245766,
-            "createdAt": 1793248245766,
-            "updatedAt": 1793248245766
+            "approvedAt": 1793714730788,
+            "createdAt": 1793714730788,
+            "updatedAt": 1793714730788
           },
           {
             "id": "pay_demo_dep_guest",
@@ -14618,9 +14568,9 @@
             "reference_id": "GUE7X2K9AB",
             "status": "approved",
             "approvedBy": "admin@airbus.ke",
-            "approvedAt": 1794112245766,
-            "createdAt": 1794112245766,
-            "updatedAt": 1794112245766
+            "approvedAt": 1794578730788,
+            "createdAt": 1794578730788,
+            "updatedAt": 1794578730788
           },
           {
             "id": "pay_demo_1",
@@ -14643,9 +14593,9 @@
             "period": "monthly",
             "status": "approved",
             "approvedBy": "admin@airbus.ke",
-            "approvedAt": 1794544245766,
-            "createdAt": 1794544245766,
-            "updatedAt": 1794544245766
+            "approvedAt": 1795010730788,
+            "createdAt": 1795010730788,
+            "updatedAt": 1795010730788
           },
           {
             "id": "pay_demo_2",
@@ -14666,9 +14616,9 @@
             "durationDays": 3,
             "status": "approved",
             "approvedBy": "admin@airbus.ke",
-            "approvedAt": 1795149045766,
-            "createdAt": 1795149045766,
-            "updatedAt": 1795149045766
+            "approvedAt": 1795615530788,
+            "createdAt": 1795615530788,
+            "updatedAt": 1795615530788
           }
         ],
         "prevPaymentsV4": [
@@ -14693,9 +14643,9 @@
             "mpesaCode": "MP991204",
             "status": "approved",
             "approvedBy": "admin@airbus.ke",
-            "approvedAt": 1793248245765,
-            "createdAt": 1793248245766,
-            "updatedAt": 1793248245766
+            "approvedAt": 1793714730788,
+            "createdAt": 1793714730788,
+            "updatedAt": 1793714730788
           },
           {
             "id": "pay_demo_dep_guest",
@@ -14718,9 +14668,9 @@
             "mpesaCode": "GUE7X2K9AB",
             "status": "approved",
             "approvedBy": "admin@airbus.ke",
-            "approvedAt": 1794112245766,
-            "createdAt": 1794112245766,
-            "updatedAt": 1794112245766
+            "approvedAt": 1794578730788,
+            "createdAt": 1794578730788,
+            "updatedAt": 1794578730788
           },
           {
             "id": "pay_demo_1",
@@ -14742,9 +14692,9 @@
             "planTier": "Diamond",
             "status": "approved",
             "approvedBy": "admin@airbus.ke",
-            "approvedAt": 1794544245766,
-            "createdAt": 1794544245766,
-            "updatedAt": 1794544245766
+            "approvedAt": 1795010730788,
+            "createdAt": 1795010730788,
+            "updatedAt": 1795010730788
           },
           {
             "id": "pay_demo_2",
@@ -14765,9 +14715,9 @@
             "durationDays": 3,
             "status": "approved",
             "approvedBy": "admin@airbus.ke",
-            "approvedAt": 1795149045766,
-            "createdAt": 1795149045766,
-            "updatedAt": 1795149045766
+            "approvedAt": 1795615530788,
+            "createdAt": 1795615530788,
+            "updatedAt": 1795615530788
           }
         ],
         "prevLedgerV4": [
@@ -14779,7 +14729,7 @@
             "type": "topup",
             "referenceId": "MP991204",
             "description": "M-Pesa wallet deposit",
-            "createdAt": 1793248245748
+            "createdAt": 1793714711201
           },
           {
             "id": "ledg_2",
@@ -14789,7 +14739,7 @@
             "type": "subscription",
             "referenceId": "Diamond",
             "description": "30-Day Diamond Plan subscription fee",
-            "createdAt": 1793680245748
+            "createdAt": 1794146711201
           },
           {
             "id": "ledg_3",
@@ -14799,7 +14749,7 @@
             "type": "topup",
             "referenceId": "GUE7X2K9AB",
             "description": "M-Pesa wallet deposit",
-            "createdAt": 1794112245748
+            "createdAt": 1794578711201
           },
           {
             "id": "ledg_4",
@@ -14809,7 +14759,7 @@
             "type": "ad_payment",
             "referenceId": "ad_1",
             "description": "3-day advert payment for Modern Westlands Penthouse",
-            "createdAt": 1795149045748
+            "createdAt": 1795615511201
           }
         ],
         "prevAdminEntriesV4": [
@@ -14819,7 +14769,7 @@
             "depositorName": "SarahWanjiku",
             "depositorId": "u_guest",
             "depositorRole": "guest",
-            "timestampUtc": 1795149045766,
+            "timestampUtc": 1795615530788,
             "fiscalYear": 2026,
             "paymentCode": "AD_1",
             "amount": 300,
@@ -14835,7 +14785,7 @@
             "depositorName": "DavidMutua",
             "depositorId": "u_owner",
             "depositorRole": "owner",
-            "timestampUtc": 1794544245766,
+            "timestampUtc": 1795010730788,
             "fiscalYear": 2026,
             "paymentCode": "SUB_OWNER_DEMO",
             "amount": 2500,
@@ -14851,7 +14801,7 @@
             "depositorName": "SarahWanjiku",
             "depositorId": "u_guest",
             "depositorRole": "guest",
-            "timestampUtc": 1794112245766,
+            "timestampUtc": 1794578730788,
             "fiscalYear": 2026,
             "paymentCode": "GUE7X2K9AB",
             "amount": 5000,
@@ -14867,7 +14817,7 @@
             "depositorName": "DavidMutua",
             "depositorId": "u_owner",
             "depositorRole": "owner",
-            "timestampUtc": 1793248245766,
+            "timestampUtc": 1793714730788,
             "fiscalYear": 2026,
             "paymentCode": "MP991204",
             "amount": 15000,
@@ -14887,20 +14837,20 @@
     },
     {
       "id": "v6_bcrypt_credentials",
-      "appliedAt": 1795670197967,
+      "appliedAt": 1795874733550,
       "snapshot": {
         "prevUserHashes": [
           {
             "id": "u_guest",
-            "passwordHash": "f12162b6bec71b6d68312e6cfddb5521c2827ed19c41559c5ccffa5863a1357d"
+            "passwordHash": "$2b$10$8Tg4m2JgonLRIHW.SJ1jjefXAtM2tnsEDTiQlrYHqjgxnXqLtaIby"
           },
           {
             "id": "u_owner",
-            "passwordHash": "838c46a74cd059704247831e510f744f54a89234b236c3e49f9e5ffd333c2b46"
+            "passwordHash": "$2b$10$Qa2Rolr87tpec9tcpAWlou5nLhYLgqvVeYRVrTTxY.OzHOvnxgAhy"
           },
           {
             "id": "u_admin_master",
-            "passwordHash": "bf9cf609604a058893544342849665e80dfe1ef536e238ab87dd21b65488aa73"
+            "passwordHash": "$2b$10$AKmCcxzUhTfC.loqqDpXyOZgfw0iBWYYaxA1FqHaGm.QuWono6/EW"
           }
         ],
         "prevGuestCredHashes": [
@@ -14979,7 +14929,7 @@
     },
     {
       "id": "v7_description_custom_amenities_and_adverts",
-      "appliedAt": 1795872184039,
+      "appliedAt": 1795874733569,
       "snapshot": {
         "prevStaysV7": [
           {
@@ -15201,9 +15151,9 @@
             "status": "approved",
             "views": 342,
             "clicks": 48,
-            "startsAt": 1795321845748,
-            "expiresAt": 1795753845748,
-            "createdAt": 1795321845748
+            "startsAt": 1795788311201,
+            "expiresAt": 1796220311201,
+            "createdAt": 1795788311201
           },
           {
             "id": "ad_2",
@@ -15222,9 +15172,9 @@
             "status": "approved",
             "views": 520,
             "clicks": 82,
-            "startsAt": 1795235445748,
-            "expiresAt": 1795840245748,
-            "createdAt": 1795235445748
+            "startsAt": 1795701911201,
+            "expiresAt": 1796306711201,
+            "createdAt": 1795701911201
           },
           {
             "id": "ad_worked_example_3",
@@ -15243,7 +15193,7 @@
             "status": "pending",
             "views": 0,
             "clicks": 0,
-            "createdAt": 1795404645748
+            "createdAt": 1795871111201
           }
         ],
         "hadSubNotifKeys": true
@@ -15401,97 +15351,97 @@
     {
       "listing_id": "s1",
       "collection_id": "black-friday",
-      "created_at": 1795408245782
+      "created_at": 1795874730874
     },
     {
       "listing_id": "s1",
       "collection_id": "work",
-      "created_at": 1795408245782
+      "created_at": 1795874730874
     },
     {
       "listing_id": "s2",
       "collection_id": "work",
-      "created_at": 1795408245782
+      "created_at": 1795874730874
     },
     {
       "listing_id": "s2",
       "collection_id": "escapes",
-      "created_at": 1795408245782
+      "created_at": 1795874730874
     },
     {
       "listing_id": "s5",
       "collection_id": "black-friday",
-      "created_at": 1795408245782
+      "created_at": 1795874730874
     },
     {
       "listing_id": "s5",
       "collection_id": "escapes",
-      "created_at": 1795408245782
+      "created_at": 1795874730874
     },
     {
       "listing_id": "s8",
       "collection_id": "escapes",
-      "created_at": 1795408245782
+      "created_at": 1795874730874
     },
     {
       "listing_id": "s_plus_1",
       "collection_id": "plus",
-      "created_at": 1795408245782
+      "created_at": 1795874730874
     },
     {
       "listing_id": "s_plus_2",
       "collection_id": "plus",
-      "created_at": 1795408245782
+      "created_at": 1795874730874
     },
     {
       "listing_id": "s_local_1",
       "collection_id": "local",
-      "created_at": 1795408245782
+      "created_at": 1795874730874
     },
     {
       "listing_id": "s_local_2",
       "collection_id": "local",
-      "created_at": 1795408245782
+      "created_at": 1795874730874
     },
     {
       "listing_id": "s_ww_1",
       "collection_id": "work",
-      "created_at": 1795408245782
+      "created_at": 1795874730874
     },
     {
       "listing_id": "s_ww_1",
       "collection_id": "worldwide",
-      "created_at": 1795408245782
+      "created_at": 1795874730874
     },
     {
       "listing_id": "s_ww_2",
       "collection_id": "black-friday",
-      "created_at": 1795408245782
+      "created_at": 1795874730874
     },
     {
       "listing_id": "s_ww_2",
       "collection_id": "worldwide",
-      "created_at": 1795408245782
+      "created_at": 1795874730874
     },
     {
       "listing_id": "s_ww_3",
       "collection_id": "work",
-      "created_at": 1795408245782
+      "created_at": 1795874730874
     },
     {
       "listing_id": "s_ww_3",
       "collection_id": "worldwide",
-      "created_at": 1795408245782
+      "created_at": 1795874730874
     },
     {
       "listing_id": "s_ww_4",
       "collection_id": "worldwide",
-      "created_at": 1795408245782
+      "created_at": 1795874730875
     },
     {
       "listing_id": "s_ww_4",
       "collection_id": "escapes",
-      "created_at": 1795408245782
+      "created_at": 1795874730875
     }
   ],
   "transactional_outbox": [],
@@ -15502,7 +15452,7 @@
       "depositorName": "SarahWanjiku",
       "depositorId": "u_guest",
       "depositorRole": "guest",
-      "timestampUtc": 1795149045766,
+      "timestampUtc": 1795615530788,
       "fiscalYear": 2026,
       "paymentCode": "AD_1",
       "amount": 300,
@@ -15518,7 +15468,7 @@
       "depositorName": "DavidMutua",
       "depositorId": "u_owner",
       "depositorRole": "owner",
-      "timestampUtc": 1794544245766,
+      "timestampUtc": 1795010730788,
       "fiscalYear": 2026,
       "paymentCode": "SUB_OWNER_DEMO",
       "amount": 2500,
@@ -15534,7 +15484,7 @@
       "depositorName": "SarahWanjiku",
       "depositorId": "u_guest",
       "depositorRole": "guest",
-      "timestampUtc": 1794112245766,
+      "timestampUtc": 1794578730788,
       "fiscalYear": 2026,
       "paymentCode": "GUE7X2K9AB",
       "amount": 5000,
@@ -15550,7 +15500,7 @@
       "depositorName": "DavidMutua",
       "depositorId": "u_owner",
       "depositorRole": "owner",
-      "timestampUtc": 1793248245766,
+      "timestampUtc": 1793714730788,
       "fiscalYear": 2026,
       "paymentCode": "MP991204",
       "amount": 15000,
@@ -15563,29 +15513,29 @@
   ],
   "admin_wallet_rollups": {
     "hour": {
-      "2026-11-20 07:00": {
-        "key": "2026-11-20 07:00",
+      "2026-11-25 17:00": {
+        "key": "2026-11-25 17:00",
         "inflow": 300,
         "refunds": 0,
         "net": 300,
         "count": 1
       },
-      "2026-11-13 07:00": {
-        "key": "2026-11-13 07:00",
+      "2026-11-18 17:00": {
+        "key": "2026-11-18 17:00",
         "inflow": 2500,
         "refunds": 0,
         "net": 2500,
         "count": 1
       },
-      "2026-11-08 07:00": {
-        "key": "2026-11-08 07:00",
+      "2026-11-13 17:00": {
+        "key": "2026-11-13 17:00",
         "inflow": 5000,
         "refunds": 0,
         "net": 5000,
         "count": 1
       },
-      "2026-10-29 07:00": {
-        "key": "2026-10-29 07:00",
+      "2026-11-03 17:00": {
+        "key": "2026-11-03 17:00",
         "inflow": 15000,
         "refunds": 0,
         "net": 15000,
@@ -15593,29 +15543,29 @@
       }
     },
     "day": {
-      "2026-11-20": {
-        "key": "2026-11-20",
+      "2026-11-25": {
+        "key": "2026-11-25",
         "inflow": 300,
         "refunds": 0,
         "net": 300,
         "count": 1
       },
-      "2026-11-13": {
-        "key": "2026-11-13",
+      "2026-11-18": {
+        "key": "2026-11-18",
         "inflow": 2500,
         "refunds": 0,
         "net": 2500,
         "count": 1
       },
-      "2026-11-08": {
-        "key": "2026-11-08",
+      "2026-11-13": {
+        "key": "2026-11-13",
         "inflow": 5000,
         "refunds": 0,
         "net": 5000,
         "count": 1
       },
-      "2026-10-29": {
-        "key": "2026-10-29",
+      "2026-11-03": {
+        "key": "2026-11-03",
         "inflow": 15000,
         "refunds": 0,
         "net": 15000,
@@ -15625,17 +15575,10 @@
     "month": {
       "2026-11": {
         "key": "2026-11",
-        "inflow": 7800,
+        "inflow": 22800,
         "refunds": 0,
-        "net": 7800,
-        "count": 3
-      },
-      "2026-10": {
-        "key": "2026-10",
-        "inflow": 15000,
-        "refunds": 0,
-        "net": 15000,
-        "count": 1
+        "net": 22800,
+        "count": 4
       }
     },
     "year": {

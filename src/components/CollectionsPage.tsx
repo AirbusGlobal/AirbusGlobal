@@ -96,6 +96,7 @@ interface CollectionsPageProps {
   onBookNow: (stayId: string) => void;
   onChatHost: (stayId: string) => void;
   onNegotiate: (stayId: string) => void;
+  onAdvertiseStay?: (stay: Stay) => void;
   onBackToFeed: () => void;
   onNavigateCollection: (slug: CollectionSlug) => void;
   onNavigateTripDating?: () => void;
@@ -127,6 +128,7 @@ export const CollectionsPage: React.FC<CollectionsPageProps> = ({
   onBookNow,
   onChatHost,
   onNegotiate,
+  onAdvertiseStay,
   onBackToFeed,
   onNavigateCollection,
   onNavigateTripDating,
@@ -1471,6 +1473,7 @@ export const CollectionsPage: React.FC<CollectionsPageProps> = ({
                           onBookNow={onBookNow}
                           onChatHost={onChatHost}
                           onNegotiate={onNegotiate}
+                          onAdvertiseStay={onAdvertiseStay}
                           onHover={() => {}}
                           currency={currency}
                           workView={slug === 'work'}

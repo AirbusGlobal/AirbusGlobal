@@ -266,6 +266,7 @@ export interface Stay {
   listingAudio?: ListingAudioConfig | null;
   listingAudioLocked?: boolean;
   ownerTier?: StayCategory;
+  activeAds?: AdRequest[];
 }
 
 export interface LocalGuideProfile {
@@ -965,6 +966,7 @@ export interface Post {
   likes: number;
   shares: number;
   viralityScore?: number;
+  activeAds?: AdRequest[];
   createdAt: number;
   updatedAt: number;
 }

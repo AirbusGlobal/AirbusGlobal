@@ -2126,10 +2126,18 @@ export const api = {
     return this.request(`/api/ads${qs ? '?' + qs : ''}`, { portalSlot: slot });
   },
 
-  async createAd(data: any, slot?: PortalSlot): Promise<{ ad: AdRequest; message?: string }> {
+  async createAd(
+    data: any,
+    slot?: PortalSlot
+  ): Promise<{ ad: AdRequest; walletBalance?: number; message?: string }> {
+    const headers: Record<string, string> = {};
+    if (data?.idempotencyKey) {
+      headers['Idempotency-Key'] = String(data.idempotencyKey);
+    }
     return this.request('/api/ads', {
       method: 'POST',
       portalSlot: slot,
+      headers,
       body: JSON.stringify(data),
     });
   },

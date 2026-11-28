@@ -5097,13 +5097,22 @@ class DatabaseStore {
     const cachedHasExpiredBoost = Boolean(
       cachedEntry?.data?.some((s: Stay) => s.isPromoted && (s.boost_end ?? s.promotedUntil ?? 0) <= now)
     );
+    const cachedHasExpiredAd = Boolean(
+      cachedEntry?.data?.some((s: Stay) =>
+        (s.activeAds || []).some(a => {
+          const endTs = a.end_at ?? a.expiresAt;
+          return Boolean(endTs && endTs <= now);
+        })
+      )
+    );
 
     if (
       isCacheable &&
       cachedEntry &&
       cachedEntry.key === cacheKey &&
       now - cachedEntry.ts < 15_000 &&
-      !cachedHasExpiredBoost
+      !cachedHasExpiredBoost &&
+      !cachedHasExpiredAd
     ) {
       fullList = cachedEntry.data;
     } else {
@@ -8895,6 +8904,9 @@ class DatabaseStore {
         }
       }
     }
+    if (changed) {
+      this.invalidateFeedCache('stay');
+    }
     return changed;
   }
 
@@ -8929,7 +8941,14 @@ class DatabaseStore {
   }
 
   public getActiveAdsForStay(stayId: string): AdRequest[] {
-    return this.getAdRequests({ stayId, status: 'active' });
+    if (!stayId) return [];
+    const now = Date.now();
+    return this.getAdRequests({ stayId, status: 'active' }).filter(a => {
+      const targetStayId = a.stayId || a.listingId;
+      if (targetStayId !== stayId && a.listingId !== stayId) return false;
+      const endTs = a.end_at ?? a.expiresAt;
+      return !endTs || endTs > now;
+    });
   }
 
   public createAdRequest(req: {
@@ -9048,6 +9067,278 @@ class DatabaseStore {
 
     this.save();
     return adRequest;
+  }
+
+  public createAndPayAdRequest(req: {
+    advertiserEmail: string;
+    stayId: string;
+    title: string;
+    description: string;
+    imageUrl?: string;
+    targetUrl?: string;
+    contactPhone?: string;
+    tag?: string;
+    days: number;
+    extensionOfAdId?: string;
+  }): { ad: AdRequest; walletBalance: number } {
+    const cleanEmail = req.advertiserEmail.toLowerCase().trim();
+    const actor = this.findUserByEmail(cleanEmail);
+    if (!actor) throw new Error('User account not found.');
+
+    const stay = this.getStayById(req.stayId, actor);
+    if (!stay) throw new Error('Selected listing was not found.');
+
+    const settings = this.getSettings();
+    const cleanDays = Math.floor(Number(req.days));
+    if (!Number.isFinite(cleanDays) || cleanDays < 1 || cleanDays > 365) {
+      throw new Error('Advert duration must be a whole number between 1 and 365 days.');
+    }
+    const cleanTitle = stripHtmlTags(String(req.title || '')).trim();
+    if (!cleanTitle) {
+      throw new Error('Advert headline title is required.');
+    }
+
+    const ratePerDay = Math.floor(settings.adPricePerDay || 100);
+    const totalAmount = cleanDays * ratePerDay;
+    if (!Number.isInteger(totalAmount) || totalAmount <= 0) {
+      throw new Error('Invalid advert billing amount.');
+    }
+
+    const activeAds = this.getActiveAdsForStay(stay.id);
+    if (activeAds.length >= (settings.maxAdSlotsPerPost || 10)) {
+      throw new Error(`All ${settings.maxAdSlotsPerPost || 10} sponsor ad slots on this listing are currently occupied.`);
+    }
+
+    return this.runAtomicWalletTransaction(() => {
+      const payerWallet = this.ensureWallet(cleanEmail);
+      const available = Math.floor(payerWallet.balance - (payerWallet.holdBalance || 0));
+      if (available < totalAmount) {
+        const shortfall = totalAmount - available;
+        throw new Error(
+          `Insufficient wallet balance. Required: KES ${totalAmount.toLocaleString()}, Available: KES ${available.toLocaleString()} (Shortfall: KES ${shortfall.toLocaleString()}).`
+        );
+      }
+
+      const now = Date.now();
+      const endAt = now + cleanDays * 864e5;
+      const adId = 'ad_' + now + '_' + crypto.randomBytes(2).toString('hex');
+      const paymentId = 'pay_ad_' + now + '_' + crypto.randomBytes(2).toString('hex');
+      const uniquePaymentCode = `ADV_${adId.slice(-6).toUpperCase()}_${paymentId.slice(-4).toUpperCase()}`;
+
+      // Debit advertiser wallet atomically
+      payerWallet.balance = Math.floor(payerWallet.balance) - totalAmount;
+      payerWallet.lifetimeSpent = (payerWallet.lifetimeSpent || 0) + totalAmount;
+      payerWallet.updatedAt = now;
+      this.data.wallets[cleanEmail] = payerWallet.balance;
+
+      // Credit Admin wallet atomically as income
+      const adminWallet = this.ensureWallet(MPESA_CONFIG.ADMIN_WALLET_ID);
+      adminWallet.balance = Math.floor(adminWallet.balance) + totalAmount;
+      adminWallet.lifetimeEarnings = (adminWallet.lifetimeEarnings || 0) + totalAmount;
+      adminWallet.updatedAt = now;
+      this.data.wallets[MPESA_CONFIG.ADMIN_WALLET_ID] = adminWallet.balance;
+
+      const resolvedImage =
+        stripHtmlTags(String(req.imageUrl || '')).trim() ||
+        stay.thumbnailUrl ||
+        stay.images?.[0] ||
+        'https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?auto=format&fit=crop&w=800&q=80';
+      const resolvedTarget =
+        stripHtmlTags(String(req.targetUrl || '')).trim() || `/#stay-${stay.id}`;
+
+      const payerTx: WalletTransaction = {
+        id: 'wtx_' + now + '_adr_' + crypto.randomBytes(2).toString('hex'),
+        walletId: cleanEmail,
+        wallet_id: cleanEmail,
+        direction: 'debit',
+        amount: totalAmount,
+        amountSc: totalAmount,
+        amount_sc: totalAmount,
+        type: 'advert_expense',
+        reference: adId,
+        relatedPaymentId: paymentId,
+        related_payment_id: paymentId,
+        advertId: adId,
+        listingId: stay.id,
+        hostEmail: cleanEmail,
+        note: `Advert Payment: "${cleanTitle}" on "${stay.title}" (${cleanDays} days)`,
+        createdAt: now,
+        created_at: now,
+      };
+
+      const adminTx: WalletTransaction = {
+        id: 'wtx_' + now + '_acr_' + crypto.randomBytes(2).toString('hex'),
+        walletId: MPESA_CONFIG.ADMIN_WALLET_ID,
+        wallet_id: MPESA_CONFIG.ADMIN_WALLET_ID,
+        direction: 'credit',
+        amount: totalAmount,
+        amountSc: totalAmount,
+        amount_sc: totalAmount,
+        type: 'advert_fee',
+        reference: adId,
+        relatedPaymentId: paymentId,
+        related_payment_id: paymentId,
+        advertId: adId,
+        listingId: stay.id,
+        hostEmail: cleanEmail,
+        note: `Advert fee: "${cleanTitle}" (${cleanDays} days) from ${cleanEmail}`,
+        createdAt: now,
+        created_at: now,
+      };
+
+      const paymentRecord: PaymentRecord = {
+        id: paymentId,
+        userId: cleanEmail,
+        user_id: cleanEmail,
+        userRole: actor.role || 'guest',
+        userName: actor.username || actor.name || cleanEmail,
+        hostEmail: cleanEmail,
+        type: 'advert',
+        kind: 'advert',
+        method: 'wallet',
+        amountSc: totalAmount,
+        amount_sc: totalAmount,
+        amountKes: totalAmount,
+        amount_kes: totalAmount,
+        amount: totalAmount,
+        approvedAmount: totalAmount,
+        walletPurpose: 'ADVERTISING',
+        approvedBy: 'wallet_instant',
+        approved_by: 'wallet_instant',
+        approvedAt: now,
+        approved_at: now,
+        status: 'approved',
+        canonicalStatus: PaymentStatus.APPROVED,
+        referenceId: adId,
+        reference_id: adId,
+        reference: uniquePaymentCode,
+        durationDays: cleanDays,
+        duration_days: cleanDays,
+        createdAt: now,
+        created_at: now,
+        updatedAt: now,
+        updated_at: now,
+      };
+
+      if (!this.data.paymentRecords) this.data.paymentRecords = [];
+      this.data.paymentRecords.unshift(paymentRecord);
+      if (!this.data.payments) this.data.payments = [];
+      this.data.payments.unshift(paymentRecord);
+      if (!this.data.walletTransactions) this.data.walletTransactions = [];
+      this.data.walletTransactions.unshift(payerTx, adminTx);
+
+      const fiscalYear = getEATParts(now).year;
+      if (!this.data.ledgerEntries) this.data.ledgerEntries = [];
+      this.data.ledgerEntries.unshift({
+        id: 'ledg_' + now + '_' + crypto.randomBytes(2).toString('hex'),
+        fromWallet: cleanEmail,
+        toWallet: MPESA_CONFIG.ADMIN_WALLET_ID,
+        amount: totalAmount,
+        type: 'ad_fee',
+        referenceId: adId,
+        paymentCode: uniquePaymentCode,
+        purpose: 'ADVERTISING',
+        fiscalYear,
+        depositorName: actor.name || actor.username || cleanEmail,
+        depositorRole: actor.role || 'guest',
+        approvingAdmin: 'wallet_instant',
+        description: `Advert fee for "${cleanTitle}" (${cleanDays} days) on listing ${stay.title} (${stay.id})`,
+        createdAt: now,
+      });
+
+      this.recordAdminWalletEntry({
+        id: 'awe_' + paymentId,
+        sourceKind: 'SERVICE_REVENUE',
+        depositorName: actor.name || actor.username || cleanEmail,
+        depositorId: cleanEmail,
+        depositorRole: actor.role || 'guest',
+        timestampUtc: now,
+        fiscalYear,
+        paymentCode: uniquePaymentCode,
+        amount: totalAmount,
+        purpose: 'ADVERTISING',
+        subPurpose: 'Advert fee',
+        approvingAdmin: 'wallet_instant',
+        description: `Advert fee · "${cleanTitle}" (${cleanDays} days) on "${stay.title}" by ${cleanEmail}`,
+        relatedPaymentId: paymentId,
+      });
+
+      const adRequest: AdRequest = {
+        id: adId,
+        advertiserEmail: cleanEmail,
+        hostEmail: cleanEmail,
+        stayId: stay.id,
+        listingId: stay.id,
+        title: cleanTitle,
+        description: stripHtmlTags(String(req.description || '')).trim(),
+        imageUrl: resolvedImage,
+        targetUrl: resolvedTarget,
+        contactPhone: req.contactPhone ? stripHtmlTags(req.contactPhone).trim() : actor.phone,
+        tag: stripHtmlTags(String(req.tag || '')).trim() || 'Sponsored',
+        days: cleanDays,
+        totalAmount,
+        platformFee: totalAmount,
+        hostNet: 0,
+        amount_paid: totalAmount,
+        amountPaid: totalAmount,
+        status: 'active',
+        views: 0,
+        clicks: 0,
+        start_at: now,
+        startsAt: now,
+        end_at: endAt,
+        expiresAt: endAt,
+        approvedBy: 'wallet_instant',
+        approvedAt: now,
+        approvedPaymentId: paymentId,
+        hostTxId: payerTx.id,
+        adminTxId: adminTx.id,
+        extensionOfAdId: req.extensionOfAdId,
+        createdAt: now,
+      };
+
+      if (!this.data.adRequests) this.data.adRequests = [];
+      this.data.adRequests.unshift(adRequest);
+
+      this.createAuditLog({
+        id: 'aud_' + now + '_' + crypto.randomBytes(2).toString('hex'),
+        action: 'ad_paid_and_activated',
+        actorEmail: cleanEmail,
+        details: `Paid and activated advert #${adId} ("${cleanTitle}", ${cleanDays} days) strictly for listing "${stay.title}" (${stay.id}). Debited ${cleanEmail} KES ${totalAmount} and credited Admin Wallet Advert fee KES ${totalAmount}.`,
+        createdAt: now,
+      });
+
+      const endLabel = new Date(endAt).toLocaleDateString('en-KE', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+      });
+      this.createNotification({
+        id: 'notif_adlive_' + now + '_' + crypto.randomBytes(2).toString('hex'),
+        userEmail: cleanEmail,
+        title: 'Advert Active on Listing & Shorts',
+        message: `Your advert "${adRequest.title}" is now live on the footer of "${stay.title}" and its related Shorts until ${endLabel}. KES ${totalAmount.toLocaleString()} was deducted from your wallet.`,
+        read: false,
+        link: `/#stay-${stay.id}`,
+        type: 'payment',
+        createdAt: now,
+      });
+
+      this.invalidateFeedCache('stay');
+      this.save();
+      this.emitWalletUpdate(cleanEmail, {
+        eventType: 'advert_paid',
+        paymentId,
+        approvedAmount: totalAmount,
+      });
+      this.emitWalletUpdate(MPESA_CONFIG.ADMIN_WALLET_ID, {
+        eventType: 'advert_fee_received',
+        paymentId,
+        approvedAmount: totalAmount,
+      });
+
+      return { ad: adRequest, walletBalance: payerWallet.balance };
+    });
   }
 
   public approveAdRequest(id: string, adminEmail: string): AdRequest | null {
@@ -9256,6 +9547,7 @@ class DatabaseStore {
         createdAt: now,
       });
 
+      this.invalidateFeedCache('stay');
       this.save();
       this.emitWalletUpdate(hostEmail, {
         eventType: 'advert_approved',
@@ -13737,6 +14029,8 @@ class DatabaseStore {
       saved && saved.mode !== 'none' && (saved.trackUrl || saved.voiceOverUrl)
     );
 
+    const activeAds = this.getActiveAdsForStay(stay.id);
+
     const baseHydrated: Stay = {
       ...stay,
       videoUrl: resolvedVideoUrl,
@@ -13744,6 +14038,7 @@ class DatabaseStore {
       videoAsset: asset,
       media: hydratedMedia,
       collections,
+      activeAds,
       publishState:
         stay.publishState ||
         (this.isStayApprovedPublic(stay)
@@ -13925,6 +14220,9 @@ class DatabaseStore {
     }
 
     const now = Date.now();
+    if (this.expireOverdueAdRequests(now)) {
+      this.save();
+    }
     const canSeePlus = this.canViewerSeePlus(params?.viewerUser);
 
     return posts
@@ -13949,12 +14247,14 @@ class DatabaseStore {
       .map(p => {
         const linkedStayId = p.stayId || p.listing_id;
         const stats = this.data.short_analytics?.[p.id];
+        const activeAds = linkedStayId ? this.getActiveAdsForStay(linkedStayId) : [];
         return {
           ...p,
           stayId: linkedStayId,
           listing_id: linkedStayId,
           host_id: p.host_id || p.ownerEmail,
           listingUnavailable: false,
+          activeAds,
           plays: stats?.plays || p.plays || 0,
           replays: stats?.replays || p.replays || 0,
           actionClicks: stats

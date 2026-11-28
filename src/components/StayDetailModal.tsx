@@ -96,6 +96,7 @@ interface StayDetailModalProps {
   userWalletBalance?: number;
   onOpenTopup?: () => void;
   onOpenAuth?: () => void;
+  onRefreshWallet?: () => void;
   showToast?: (msg: string) => void;
   initialIntent?: ShortIntentType | null;
   fromShort?: boolean;
@@ -123,6 +124,7 @@ export const StayDetailModal: React.FC<StayDetailModalProps> = ({
   userWalletBalance = 0,
   onOpenTopup,
   onOpenAuth,
+  onRefreshWallet,
   showToast,
   initialIntent = null,
   fromShort = false,
@@ -198,8 +200,18 @@ export const StayDetailModal: React.FC<StayDetailModalProps> = ({
 
   const loadActiveAds = () => {
     if (stay?.id) {
-      api.getAds({ stayId: stay.id, status: 'approved' })
-        .then(res => setActiveAds(res.ads))
+      api
+        .getAds({ stayId: stay.id, status: 'active' })
+        .then(res => {
+          const now = Date.now();
+          const fresh = (res.ads || []).filter(ad => {
+            const targetId = ad.stayId || ad.listingId;
+            const endTs = ad.end_at ?? ad.expiresAt;
+            return targetId === stay.id && (!endTs || endTs > now);
+          });
+          setActiveAds(fresh);
+          onUpdateStay?.(stay.id, { activeAds: fresh });
+        })
         .catch(() => {});
     }
   };
@@ -207,6 +219,22 @@ export const StayDetailModal: React.FC<StayDetailModalProps> = ({
   useEffect(() => {
     loadActiveAds();
   }, [stay?.id]);
+
+  // Auto-remove expired adverts immediately in the UI when their paid period ends
+  useEffect(() => {
+    if (activeAds.length === 0) return;
+    const now = Date.now();
+    const soonestEnd = activeAds
+      .map(ad => ad.end_at ?? ad.expiresAt)
+      .filter((t): t is number => typeof t === 'number' && t > now)
+      .sort((a, b) => a - b)[0];
+    if (!soonestEnd) return;
+    const delayMs = Math.max(50, Math.min(2_147_483_647, soonestEnd - now + 100));
+    const timer = window.setTimeout(() => {
+      loadActiveAds();
+    }, delayMs);
+    return () => window.clearTimeout(timer);
+  }, [activeAds, stay?.id]);
 
   // Record view on open
   useEffect(() => {
@@ -496,7 +524,6 @@ export const StayDetailModal: React.FC<StayDetailModalProps> = ({
       const res = await api.translateStay(stay.id, {
         targetLanguage: cleanLang,
         priceText: `${formatMoney(stay.price)} for ${stayNights} ${stayNights === 1 ? 'night' : 'nights'}`,
-        bookingHoursText: 'Check-in after 14:00, checkout before 10:00. No unauthorized parties. Respect neighborhood quiet hours.',
       });
       setTranslationLang(res.language || cleanLang);
       setTranslatedFields(res.isOriginal ? null : res.translated);
@@ -1176,16 +1203,8 @@ export const StayDetailModal: React.FC<StayDetailModalProps> = ({
                 );
               })()}
 
-              {/* House Rules & Policies */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
-                <div className="p-3.5 rounded-2xl bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-800">
-                  <h4 className="text-xs font-bold text-stone-900 dark:text-white mb-1">House Rules &amp; Booking Hours</h4>
-                  <p className="text-[11px] text-stone-500 leading-normal">
-                    {translatedFields?.bookingHoursText ||
-                      'Check-in after 14:00, checkout before 10:00. No unauthorized parties. Respect neighborhood quiet hours.'}
-                  </p>
-                </div>
-
+              {/* Direct Settlement */}
+              <div className="pt-2">
                 <div className="p-3.5 rounded-2xl bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-800">
                   <h4 className="text-xs font-bold text-stone-900 dark:text-white mb-1">Direct Settlement</h4>
                   <p className="text-[11px] text-stone-500 leading-normal">
@@ -1992,9 +2011,9 @@ export const StayDetailModal: React.FC<StayDetailModalProps> = ({
 
             {activeAds.length === 0 ? (
               <div className="p-5 rounded-2xl bg-stone-50 dark:bg-stone-900/60 border border-dashed border-stone-300 dark:border-stone-700 text-center space-y-1.5">
-                <p className="text-xs font-bold text-stone-700 dark:text-stone-300">Sponsor Slots Available for this Stay Video</p>
+                <p className="text-xs font-bold text-stone-700 dark:text-stone-300">Sponsor Slots Available for this Listing</p>
                 <p className="text-[11px] text-stone-500 max-w-sm mx-auto">
-                  Target travellers viewing this stay in Nairobi/Mombasa. 70% of ad spend goes directly to the host, 30% platform fee.
+                  Place your advert exclusively on this listing&apos;s footer and its related Short videos for your paid duration.
                 </p>
                 <button
                   onClick={() => {
@@ -2077,15 +2096,24 @@ export const StayDetailModal: React.FC<StayDetailModalProps> = ({
       <AdvertModal
         stayId={stay.id}
         stayTitle={stay.title}
+        stayThumbnail={stay.thumbnailUrl || stay.images?.[0]}
         isOpen={advertModalOpen}
         onClose={() => setAdvertModalOpen(false)}
         user={user}
         userWalletBalance={userWalletBalance}
         onOpenAuth={() => onOpenAuth?.()}
         onOpenTopup={() => onOpenTopup?.()}
-        onAdCreated={() => {
-          loadActiveAds();
-          setAdvertModalOpen(false);
+        onAdCreated={newAd => {
+          if (newAd) {
+            setActiveAds(prev => {
+              const next = [newAd, ...prev.filter(a => a.id !== newAd.id)];
+              onUpdateStay?.(stay.id, { activeAds: next });
+              return next;
+            });
+          } else {
+            loadActiveAds();
+          }
+          onRefreshWallet?.();
         }}
         showToast={showToast || (() => {})}
       />

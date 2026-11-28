@@ -2622,6 +2622,145 @@ describe('AirBus Platform End-to-End Integrity Suite', () => {
     assert.equal(extRes.data.ad.status, 'pending');
     assert.equal(extRes.data.ad.extensionOfAdId, adId);
   });
+
+  it('33. Listing-scoped payNow Advert: blocks insufficient wallet, credits Admin Wallet on payment, attaches ONLY to chosen listing (Dubai Marina s_ww_3) & its related Shorts, and auto-removes on expiry', async () => {
+    const dubaiStay = db.getStayById('s_ww_3');
+    assert.ok(dubaiStay);
+    assert.equal(dubaiStay.title, 'Dubai Marina High-Floor Skyline Suite with Burj Al Arab Horizon');
+
+    // Publish an approved Short video linked to s_ww_3 AND another Short linked to s2
+    const now = Date.now();
+    const dubaiShort = db.createPost({
+      ownerEmail: 'owner@airbus.ke',
+      creatorName: 'David Mutua',
+      stayId: 's_ww_3',
+      type: 'short',
+      description: 'Dubai Marina Balcony Sunset Tour',
+      caption: 'Dubai Marina Balcony Sunset Tour',
+      coverUrl: 'https://images.unsplash.com/photo-1512453979798-5ea266f8880c?auto=format&fit=crop&w=800&q=80',
+      videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-modern-apartment-with-living-room-and-terrace-43405-large.mp4',
+      status: 'approved',
+      durationSeconds: 22,
+    });
+    db.moderatePost(dubaiShort.id, 'approved', 'admin@airbus.ke');
+    await new Promise(r => setTimeout(r, 5));
+    const otherShort = db.createPost({
+      ownerEmail: 'owner@airbus.ke',
+      creatorName: 'David Mutua',
+      stayId: 's2',
+      type: 'short',
+      description: 'Karen Villa Garden Tour',
+      caption: 'Karen Villa Garden Tour',
+      coverUrl: 'https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?auto=format&fit=crop&w=800&q=80',
+      videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-modern-apartment-with-living-room-and-terrace-43405-large.mp4',
+      status: 'approved',
+      durationSeconds: 20,
+    });
+    db.moderatePost(otherShort.id, 'approved', 'admin@airbus.ke');
+
+    // Set guest wallet to insufficient KES 50 (needs KES 300 for 3 days @ 100/day)
+    const guestWallet = db.ensureWallet('guest@airbus.ke');
+    const prevGuestBal = guestWallet.balance;
+    guestWallet.balance = 50;
+    guestWallet.holdBalance = 0;
+    (db as any).data.wallets['guest@airbus.ke'] = 50;
+    const adminBalBeforeFail = db.getWalletBalance('admin@airbus.ke');
+
+    // 1. Insufficient wallet balance blocks advert cleanly with zero mutations
+    const failRes = await apiJson<{ error: string }>('/api/ads', {
+      method: 'POST',
+      token: guestToken,
+      body: {
+        stayId: 's_ww_3',
+        title: 'Dubai Yacht Charter VIP',
+        description: 'Private sunset yacht boarding near Marina Walk',
+        days: 3,
+        payNow: true,
+        paymentMethod: 'wallet',
+      },
+    });
+    assert.equal(failRes.status, 400);
+    assert.ok(failRes.data.error.toLowerCase().includes('insufficient'));
+    assert.equal(db.getWalletBalance('guest@airbus.ke'), 50);
+    assert.equal(db.getWalletBalance('admin@airbus.ke'), adminBalBeforeFail);
+    assert.ok(!(db.getStayById('s_ww_3')?.activeAds || []).some(a => a.title === 'Dubai Yacht Charter VIP'));
+
+    // Restore / fund guest wallet to KES 500 (re-fetch after rollback replaced detached reference)
+    const fundedWallet = db.ensureWallet('guest@airbus.ke');
+    fundedWallet.balance = Math.max(500, prevGuestBal);
+    fundedWallet.holdBalance = 0;
+    (db as any).data.wallets['guest@airbus.ke'] = fundedWallet.balance;
+    const fundedGuestBal = fundedWallet.balance;
+    const adminBalStart = db.getWalletBalance('admin@airbus.ke');
+
+    // 2. Pay with wallet (payNow: true) for s_ww_3 -> debits advertiser, credits Admin Wallet as income, activates strictly on s_ww_3 & its Shorts
+    const idemKey = `ad_dubai_${now}`;
+    const payRes = await apiJson<{ ad: any; walletBalance: number }>('/api/ads', {
+      method: 'POST',
+      token: guestToken,
+      headers: { 'Idempotency-Key': idemKey },
+      body: {
+        stayId: 's_ww_3',
+        title: 'Dubai Yacht Charter VIP',
+        description: 'Private sunset yacht boarding near Marina Walk',
+        targetUrl: 'https://example.com/dubai-yacht',
+        days: 3,
+        payNow: true,
+        paymentMethod: 'wallet',
+      },
+    });
+    assert.equal(payRes.status, 201, JSON.stringify(payRes.data));
+    const paidAdId = payRes.data.ad.id;
+    assert.equal(payRes.data.ad.status, 'active');
+    assert.equal(payRes.data.ad.stayId, 's_ww_3');
+    assert.equal(payRes.data.ad.amount_paid, 300);
+    assert.equal(payRes.data.walletBalance, fundedGuestBal - 300);
+    assert.equal(db.getWalletBalance('guest@airbus.ke'), fundedGuestBal - 300);
+    assert.equal(db.getWalletBalance('admin@airbus.ke'), adminBalStart + 300);
+
+    // Admin wallet income entry verified
+    const adminLedger = await apiJson<{ entries: any[] }>('/api/admin/wallet/ledger?purpose=ADVERTISING', { token: adminToken });
+    assert.equal(adminLedger.status, 200);
+    assert.ok(adminLedger.data.entries.some(e => e.subPurpose === 'Advert fee' && e.amount === 300 && e.description.includes('Dubai Yacht Charter VIP')));
+
+    // 3. Strict scoping on GET /api/stays: present ONLY on s_ww_3 footer, absent from every other listing
+    const feedRes = await apiJson<{ stays: any[] }>('/api/stays?limit=50');
+    assert.equal(feedRes.status, 200);
+    const feedDubai = feedRes.data.stays.find(s => s.id === 's_ww_3');
+    const feedOtherStays = feedRes.data.stays.filter(s => s.id !== 's_ww_3');
+    assert.ok(feedDubai);
+    assert.ok((feedDubai.activeAds || []).some((a: any) => a.id === paidAdId));
+    assert.ok(feedOtherStays.length > 0);
+    for (const other of feedOtherStays) {
+      assert.ok(!(other.activeAds || []).some((a: any) => a.id === paidAdId), `Advert leaked to unrelated listing ${other.id}`);
+    }
+
+    // 4. Strict scoping on GET /api/shorts/feed: present ONLY on Short(s) related to s_ww_3, absent from s2 Short
+    const shortsRes = await apiJson<{ posts: any[] }>('/api/shorts/feed');
+    assert.equal(shortsRes.status, 200);
+    const dubaiShortFeed = shortsRes.data.posts.find(p => p.id === dubaiShort.id);
+    const otherShortFeed = shortsRes.data.posts.find(p => p.id === otherShort.id);
+    assert.ok(dubaiShortFeed);
+    assert.ok(otherShortFeed);
+    assert.ok((dubaiShortFeed.activeAds || []).some((a: any) => a.id === paidAdId));
+    assert.ok(!(otherShortFeed.activeAds || []).some((a: any) => a.id === paidAdId), 'Advert leaked to unrelated Short video');
+
+    // 5. Automatic removal when advert duration expires
+    const storedAd = (db as any).data.adRequests.find((a: any) => a.id === paidAdId)!;
+    storedAd.end_at = Date.now() - 1000;
+    storedAd.expiresAt = storedAd.end_at;
+
+    const feedAfterExpiry = await apiJson<{ stays: any[] }>('/api/stays?limit=50');
+    const dubaiAfterExpiry = feedAfterExpiry.data.stays.find(s => s.id === 's_ww_3');
+    assert.ok(!(dubaiAfterExpiry?.activeAds || []).some((a: any) => a.id === paidAdId), 'Expired advert must auto-remove from listing card footer');
+
+    const shortsAfterExpiry = await apiJson<{ posts: any[] }>('/api/shorts/feed');
+    const shortAfterExpiry = shortsAfterExpiry.data.posts.find(p => p.id === dubaiShort.id);
+    assert.ok(!(shortAfterExpiry?.activeAds || []).some((a: any) => a.id === paidAdId), 'Expired advert must auto-remove from related Short video footer');
+
+    const adStatusAfterExpiry = await apiJson<{ ads: any[] }>('/api/ads?stayId=s_ww_3');
+    assert.equal(adStatusAfterExpiry.data.ads.find(a => a.id === paidAdId)?.status, 'expired');
+  });
 });
 
 

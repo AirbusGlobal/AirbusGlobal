@@ -53,6 +53,7 @@ interface GuestDashboardProps {
   onBookNow: (stayId: string) => void;
   onChatHost: (stayId: string) => void;
   onNegotiate: (stayId: string) => void;
+  onAdvertiseStay?: (stay: Stay) => void;
   onCancelBooking: (bookingId: string) => Promise<void>;
   onUpdateProfile: (data: any) => Promise<void>;
   currency: Currency;
@@ -77,6 +78,7 @@ export const GuestDashboard: React.FC<GuestDashboardProps> = ({
   onBookNow,
   onChatHost,
   onNegotiate,
+  onAdvertiseStay,
   onCancelBooking,
   onUpdateProfile,
   currency,
@@ -1101,6 +1103,7 @@ export const GuestDashboard: React.FC<GuestDashboardProps> = ({
                   onBookNow={onBookNow}
                   onChatHost={onChatHost}
                   onNegotiate={onNegotiate}
+                  onAdvertiseStay={onAdvertiseStay}
                   onHover={() => {}}
                   currency={currency}
                 />
@@ -1198,6 +1201,7 @@ export const GuestDashboard: React.FC<GuestDashboardProps> = ({
                 onBookNow={onBookNow}
                 onChatHost={onChatHost}
                 onNegotiate={onNegotiate}
+                onAdvertiseStay={onAdvertiseStay}
                 onHover={() => {}}
                 currency={currency}
               />

@@ -32,7 +32,7 @@ import { PlanModal } from './components/PlanModal';
 import { TripFinderModal } from './components/TripFinderModal';
 import { NotificationsModal } from './components/NotificationsModal';
 import { EarnTab } from './components/EarnTab';
-import { PersistentAdCard } from './components/PersistentAdCard';
+import { AdvertModal } from './components/AdvertModal';
 import { SettingsModal } from './components/SettingsModal';
 import { TripDatingPage } from './components/trip-dating/TripDatingPage';
 import { Footer } from './components/Footer';
@@ -171,6 +171,36 @@ export default function App() {
   const [tripFinderOpen, setTripFinderOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
+  const [advertModalStay, setAdvertModalStay] = useState<Stay | null>(null);
+
+  const refreshWalletBalance = useCallback(() => {
+    setWalletRefreshTick(t => t + 1);
+    const slot =
+      user?.role === 'admin'
+        ? ('admin' as const)
+        : user?.role === 'owner'
+        ? ('owner' as const)
+        : ('guest' as const);
+    if (!user || !api.getToken(slot)) return;
+    api
+      .getWallet(slot)
+      .then(w => {
+        if (w?.wallet?.balance !== undefined) setWalletBalance(w.wallet.balance);
+      })
+      .catch(() => {});
+  }, [user]);
+
+  const handleAdvertiseStay = useCallback(
+    (stay: Stay) => {
+      if (!user) {
+        setAuthInitialMode('login');
+        setAuthModalOpen(true);
+        return;
+      }
+      setAdvertModalStay(stay);
+    },
+    [user]
+  );
 
   // Reviews for active stay
   const [activeStayReviews, setActiveStayReviews] = useState<Review[]>([]);
@@ -1361,6 +1391,7 @@ export default function App() {
             onBookNow={id => setActiveStayId(id)}
             onChatHost={id => setChatStayId(id)}
             onNegotiate={id => setNegotiateStayId(id)}
+            onAdvertiseStay={handleAdvertiseStay}
             onNavigateCollection={slug => handleNavigate(`collection-${slug}`)}
             currency={currency}
             searchQuery={searchQuery}
@@ -1453,7 +1484,10 @@ export default function App() {
               threads={threads}
               walletBalance={walletBalance}
               onWalletBalanceUpdated={bal => setWalletBalance(bal)}
-              onOpenAdvertise={() => window.dispatchEvent(new CustomEvent('airbus:open-advert-modal'))}
+              onOpenAdvertise={() => {
+                handleNavigate('home');
+                showToast('Select a listing card and click "Advertise Here (@ KES 100/day)" on its footer.');
+              }}
               onToggleSave={handleToggleWishlist}
               onSelectStay={id => {
                 setActiveStayId(id);
@@ -1463,6 +1497,7 @@ export default function App() {
               onBookNow={id => setActiveStayId(id)}
               onChatHost={id => setChatStayId(id)}
               onNegotiate={id => setNegotiateStayId(id)}
+              onAdvertiseStay={handleAdvertiseStay}
               onCancelBooking={handleCancelBooking}
               onUpdateProfile={handleUpdateProfile}
               currency={currency}
@@ -1626,6 +1661,7 @@ export default function App() {
             onBookNow={id => setActiveStayId(id)}
             onChatHost={id => setChatStayId(id)}
             onNegotiate={id => setNegotiateStayId(id)}
+            onAdvertiseStay={handleAdvertiseStay}
             onBackToFeed={() => handleNavigate('home')}
             onNavigateCollection={slug => handleNavigate(`collection-${slug}`)}
             onNavigateTripDating={() => handleNavigate('trip-dating')}
@@ -1737,6 +1773,7 @@ export default function App() {
           setAuthInitialMode('login');
           setAuthModalOpen(true);
         }}
+        onRefreshWallet={refreshWalletBalance}
         showToast={showToast}
         initialIntent={activeStayIntent}
         fromShort={Boolean(returnToShort)}
@@ -1868,31 +1905,45 @@ export default function App() {
         />
       )}
 
-      {/* 9. Part D: Persistent Advert Card in Bottom-Right Corner (Fixed, NO CLOSE/DISMISS CONTROL) */}
-      <PersistentAdCard
-        onSelectStay={id => {
-          setActiveStayId(id);
-          window.location.hash = `stay-${id}`;
-        }}
-        userWalletBalance={walletBalance}
-        userEmail={user?.email}
-        userRole={user?.role}
-        onOpenWalletDeposit={() => {
-          if (!user) {
+      {/* 9. Listing-Scoped AdvertModal (Triggered from chosen Listing Card Footer) */}
+      {advertModalStay && (
+        <AdvertModal
+          stayId={advertModalStay.id}
+          stayTitle={advertModalStay.title}
+          stayThumbnail={advertModalStay.thumbnailUrl || advertModalStay.images?.[0]}
+          isOpen={Boolean(advertModalStay)}
+          onClose={() => setAdvertModalStay(null)}
+          user={user}
+          userWalletBalance={walletBalance}
+          onOpenAuth={() => {
+            setAdvertModalStay(null);
             setAuthInitialMode('login');
-            setAuthInitialPortal(null);
             setAuthModalOpen(true);
-            return;
-          }
-          if (user.role === 'guest') {
-            handleNavigate('guest');
-          } else if (user.role === 'owner') {
+          }}
+          onOpenTopup={() => {
+            setAdvertModalStay(null);
             setPlanWalletMode(true);
             setPlanModalOpen(true);
-          }
-        }}
-        showToast={showToast}
-      />
+          }}
+          onAdCreated={(newAd, newBalance) => {
+            if (newAd) {
+              const targetStayId = advertModalStay.id;
+              setStays(prev =>
+                prev.map(s =>
+                  s.id === targetStayId
+                    ? { ...s, activeAds: [newAd, ...(s.activeAds || []).filter(a => a.id !== newAd.id)] }
+                    : s
+                )
+              );
+            }
+            if (typeof newBalance === 'number') {
+              setWalletBalance(newBalance);
+            }
+            refreshWalletBalance();
+          }}
+          showToast={showToast}
+        />
+      )}
 
       {/* 10. 20-Minute Inactivity Countdown Disclaimer Modal */}
       {renderIdleWarningModal()}

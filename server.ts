@@ -4476,23 +4476,71 @@ app.get('/api/ads', (req, res) => {
   return res.json({ ads });
 });
 
-app.post('/api/ads', (req, res) => {
+app.post('/api/ads', async (req, res) => {
   const user = getAuthUser(req);
   if (!user) return res.status(401).json({ error: 'Please sign in to place an advert.' });
+
+  const {
+    stayId,
+    title,
+    description,
+    imageUrl,
+    targetUrl,
+    contactPhone,
+    tag,
+    days,
+    paymentMethod,
+    extensionOfAdId,
+    payNow,
+  } = req.body || {};
+
+  if (paymentMethod && paymentMethod !== 'wallet') {
+    return res.status(400).json({ error: 'Adverts are billed strictly from your AirBus Wallet.' });
+  }
+  if (!stayId || !String(title || '').trim()) {
+    return res.status(400).json({ error: 'Listing selection and advert headline title are required.' });
+  }
+
+  if (payNow) {
+    const idemKey = (req.headers['idempotency-key'] as string) || req.body?.idempotencyKey;
+    try {
+      const out = await walletMutex.withWalletLock([user.email, MPESA_CONFIG.ADMIN_WALLET_ID], () =>
+        db.runWithIdempotency(
+          idemKey,
+          () => {
+            const result = db.createAndPayAdRequest({
+              advertiserEmail: user.email,
+              stayId: String(stayId),
+              title: String(title),
+              description: String(description || ''),
+              imageUrl: imageUrl ? String(imageUrl) : undefined,
+              targetUrl: targetUrl ? String(targetUrl) : undefined,
+              contactPhone: contactPhone ? String(contactPhone) : undefined,
+              tag: tag ? String(tag) : undefined,
+              days: Number(days) || 3,
+              extensionOfAdId: extensionOfAdId ? String(extensionOfAdId) : undefined,
+            });
+            return {
+              ad: result.ad,
+              walletBalance: result.walletBalance,
+              message: `Advert paid (KES ${result.ad.totalAmount.toLocaleString()}) and activated on listing footer & related Shorts for ${result.ad.days} day(s).`,
+            };
+          },
+          201
+        )
+      );
+      return res.status(out.status || 201).json(out.response);
+    } catch (err: any) {
+      return res.status(400).json({ error: err.message });
+    }
+  }
+
   if (user.role === 'owner') {
     try {
       db.assertHostSubscriptionActive(user.email);
     } catch (err: any) {
       return res.status(403).json({ error: err.message });
     }
-  }
-
-  const { stayId, title, description, imageUrl, targetUrl, contactPhone, tag, days, paymentMethod, extensionOfAdId } = req.body || {};
-  if (paymentMethod && paymentMethod !== 'wallet') {
-    return res.status(400).json({ error: 'Adverts are billed strictly from your AirBus Wallet upon Admin approval.' });
-  }
-  if (!stayId || !String(title || '').trim()) {
-    return res.status(400).json({ error: 'Listing selection and advert headline title are required.' });
   }
 
   try {

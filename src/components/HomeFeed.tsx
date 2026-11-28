@@ -17,7 +17,6 @@ import {
   LayoutGrid,
   Columns2,
   Map as MapIcon,
-  Megaphone,
   ChevronLeft,
   ChevronRight,
   Lock,
@@ -33,6 +32,7 @@ interface HomeFeedProps {
   onBookNow: (stayId: string) => void;
   onChatHost: (stayId: string) => void;
   onNegotiate: (stayId: string) => void;
+  onAdvertiseStay?: (stay: Stay) => void;
   onNavigateCollection?: (slug: string) => void;
   currency: Currency;
   searchQuery: string;
@@ -71,6 +71,7 @@ export const HomeFeed: React.FC<HomeFeedProps> = ({
   onBookNow,
   onChatHost,
   onNegotiate,
+  onAdvertiseStay,
   onNavigateCollection,
   currency,
   searchQuery,
@@ -566,38 +567,6 @@ export const HomeFeed: React.FC<HomeFeedProps> = ({
               </span>
             </div>
 
-            {/* Advertise Here (@ KES 100/day) Banner */}
-            <div className="p-3.5 sm:p-4 rounded-2xl bg-gradient-to-r from-purple-950/40 via-stone-900 to-rose-950/40 border border-purple-500/30 flex items-center justify-between gap-3 text-white shadow-sm">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-[#ff2e93] to-[#8b5cf6] flex items-center justify-center text-white shrink-0 shadow-sm">
-                  <Megaphone className="w-4 h-4" />
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-black tracking-wide text-white">
-                      Advertise Here (@ KES 100/day)
-                    </span>
-                    <span className="text-[10px] bg-gradient-to-r from-pink-500 to-rose-500 font-extrabold px-2 py-0.5 rounded-full">
-                      High Visibility
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-stone-300 line-clamp-1">
-                    Promote your safari, car hire, or restaurant directly to short-stay guests across Kenya.
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={() => {
-                  if (filteredStays.length > 0) {
-                    onSelectStay(filteredStays[0].id);
-                  }
-                }}
-                className="px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white text-xs font-bold whitespace-nowrap transition-colors cursor-pointer border border-white/10 shrink-0"
-              >
-                Place Ad
-              </button>
-            </div>
-
             {filteredStays.length === 0 ? (
               <div className="p-12 text-center bg-white dark:bg-[#15171e] rounded-3xl border border-dashed border-stone-300 dark:border-stone-800">
                 <MapPin className="w-10 h-10 text-stone-400 mx-auto mb-3" />
@@ -634,6 +603,7 @@ export const HomeFeed: React.FC<HomeFeedProps> = ({
                         onBookNow={onBookNow}
                         onChatHost={onChatHost}
                         onNegotiate={onNegotiate}
+                        onAdvertiseStay={onAdvertiseStay}
                         onHover={id => setHoveredStayId(id)}
                         currency={currency}
                       />
@@ -662,6 +632,7 @@ export const HomeFeed: React.FC<HomeFeedProps> = ({
                       onBookNow={onBookNow}
                       onChatHost={onChatHost}
                       onNegotiate={onNegotiate}
+                      onAdvertiseStay={onAdvertiseStay}
                       onHover={id => setHoveredStayId(id)}
                       currency={currency}
                     />
@@ -742,6 +713,7 @@ export const HomeFeed: React.FC<HomeFeedProps> = ({
                       onBookNow={onBookNow}
                       onChatHost={onChatHost}
                       onNegotiate={onNegotiate}
+                      onAdvertiseStay={onAdvertiseStay}
                       onHover={id => setHoveredStayId(id)}
                       currency={currency}
                     />
@@ -918,6 +890,7 @@ export const HomeFeed: React.FC<HomeFeedProps> = ({
                             onBookNow={onBookNow}
                             onChatHost={onChatHost}
                             onNegotiate={onNegotiate}
+                            onAdvertiseStay={onAdvertiseStay}
                             onHover={id => setHoveredStayId(id)}
                             currency={currency}
                           />
